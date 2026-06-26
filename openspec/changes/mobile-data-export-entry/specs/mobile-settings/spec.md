@@ -45,7 +45,7 @@ This `mobile-settings` capability SHALL NOT implement a suspension-countdown sur
 
 ### Requirement: A data-export request shows non-blocking status driven by GET /api/v1/account/export
 
-On screen open `SettingsScreen` SHALL seed the data-export status via `GET /api/v1/account/export` and SHALL reflect the caller's latest request as a **non-blocking** affordance/banner, with copy + dates formatted via `:shared:resources`. The status projection SHALL be status-driven with no generic fallthrough over the shipped vocabulary: `none` → only the request affordance is offered (no banner); `pending`/`processing` → a non-blocking "sedang diproses" state AND the request is NOT re-issuable (single-active); `ready` → a banner referencing the download deadline (`downloadExpiresAt`) with an affordance to open the freshly-signed `downloadUrl` the read returns (the in-app path the `account-data-export` GET requirement provides, complementing the email delivery in the confirm-dialog copy); `expired`/`failed` → a note allowing a fresh request. A `GET` failure (`5xx`/IO) SHALL surface the screen's error state (no crash); a terminal `401` on the read SHALL route to the sign-in surface. The seam SHALL never display or log the `downloadUrl` beyond handing it to the platform open-URL affordance.
+On screen open `SettingsScreen` SHALL seed the data-export status via `GET /api/v1/account/export` and SHALL reflect the caller's latest request as a **non-blocking** affordance/banner, with copy + dates formatted via `:shared:resources`. The status projection SHALL be status-driven with no generic fallthrough over the shipped vocabulary: `none` → only the request affordance is offered (no banner); `pending`/`processing` → a non-blocking "sedang diproses" state AND the request is NOT re-issuable (single-active); `ready` → a banner referencing the download deadline (`downloadExpiresAt`) with an affordance to open the freshly-signed `downloadUrl` the read returns (the in-app path the `account-data-export` GET requirement provides, complementing the email delivery in the confirm-dialog copy); `expired`/`failed` → a note allowing a fresh request. A `GET` failure (`5xx`/IO) SHALL surface the screen's error state (no crash); a terminal `401` on the read SHALL route to the sign-in surface. The seam SHALL never display or log the `downloadUrl` beyond handing it to the platform open-URL affordance, and SHALL NOT persist it to DataStore / preferences / disk / any cache — it is held only transiently in UI state for the duration of the open-URL hand-off.
 
 #### Scenario: A ready export shows the deadline and an in-app download affordance
 
@@ -65,17 +65,29 @@ On screen open `SettingsScreen` SHALL seed the data-export status via `GET /api/
 - **WHEN** `SettingsScreen` is rendered
 - **THEN** the "Unduh Data Saya" request affordance is offered AND no status banner is shown
 
-#### Scenario: An expired or failed export allows a fresh request
+#### Scenario: An expired export allows a fresh request
 
 - **GIVEN** a MockEngine returning `GET /api/v1/account/export` → `{"status":"expired"}`
 - **WHEN** `SettingsScreen` is rendered
 - **THEN** a re-request affordance is offered (the export is no longer single-active-locked)
+
+#### Scenario: A failed export allows a fresh request that issues a new POST
+
+- **GIVEN** a MockEngine returning `GET /api/v1/account/export` → `{"status":"failed"}` and recording requests
+- **WHEN** `SettingsScreen` is rendered, the user starts a new export, confirms, and the server responds `202`
+- **THEN** the re-request affordance is offered (the export is not single-active-locked after a failed run) AND exactly one new `POST /api/v1/account/export` is recorded
 
 #### Scenario: A failed status read surfaces an error, not a crash
 
 - **GIVEN** a MockEngine returning `GET /api/v1/account/export` → `500`
 - **WHEN** `SettingsScreen` loads
 - **THEN** the screen renders its error state (no crash, no sign-in redirect)
+
+#### Scenario: A 401 on the status read routes to sign-in
+
+- **GIVEN** a MockEngine returning `GET /api/v1/account/export` → `401`
+- **WHEN** `SettingsScreen` loads
+- **THEN** a navigation event routing to the sign-in surface is emitted AND no status banner is rendered
 
 ### Requirement: The data-export seam follows the established ApiClient → Repository → sealed-Outcome pattern
 
@@ -95,6 +107,11 @@ The data-export request / status calls SHALL be implemented behind the project's
 
 - **WHEN** the data-export seam sources are scanned
 - **THEN** no logging call site passes the bearer token, the `Authorization` header, the JWT `sub`, or the `downloadUrl` as a logged argument
+
+#### Scenario: The signed download URL is not persisted
+
+- **WHEN** the data-export seam + `SettingsDataExportViewModel` sources are scanned
+- **THEN** no call site writes the `downloadUrl` to DataStore / preferences / disk / any cache — it is held only transiently in UI state for the open-URL hand-off
 
 #### Scenario: A retryable error surfaces an error outcome, not a crash
 
