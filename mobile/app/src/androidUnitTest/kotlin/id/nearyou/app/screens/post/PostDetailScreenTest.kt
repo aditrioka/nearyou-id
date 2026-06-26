@@ -456,12 +456,15 @@ class PostDetailScreenTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).assertExists()
             onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick() // open the overflow
-            onNodeWithText("Laporkan").assertExists() // the single menu item (the report entry point)
+            onNodeWithText("Laporkan").assertExists() // the report entry point
+            onNodeWithText("Bagikan ke chat").assertExists() // + the share entry (chat-embedded-posts)
         }
     }
 
-    // The post-header report affordance is ABSENT for the viewer's OWN post (isAuthor = true) — the Edit
-    // affordance shows instead (mirrors the editAffordance_shown test). Locks design D4's post gate.
+    // The "Laporkan" report entry is ABSENT for the viewer's OWN post (isAuthor = true) — the Edit
+    // affordance shows alongside the overflow kebab, but the kebab offers only "Bagikan ke chat" (the
+    // share entry is available for own posts too — chat-embedded-posts), not "Laporkan". Locks design D4's
+    // post gate. (The kebab itself is now ALWAYS present for the share action; only the Laporkan item is gated.)
     @Test
     fun postReportAffordance_absent_whenAuthor() {
         val fresh = Clock.System.now().toString()
@@ -484,7 +487,11 @@ class PostDetailScreenTest {
             // The Edit affordance appears only after the resume refresh reports isAuthor = true.
             waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(POST_DETAIL_EDIT_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_DETAIL_EDIT_TAG).assertExists()
-            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).assertDoesNotExist() // own post → no report kebab
+            // The overflow kebab is present (for share); opening it offers "Bagikan ke chat" but NOT "Laporkan".
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).assertExists()
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick()
+            onNodeWithText("Bagikan ke chat").assertExists()
+            onNodeWithText("Laporkan").assertDoesNotExist() // own post → no report entry
         }
     }
 

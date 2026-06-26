@@ -370,6 +370,18 @@
     <string name="chat_send_blocked">Tidak dapat mengirim pesan ke user ini</string>
     <string name="chat_open_action">Pesan</string>
     <string name="chat_account_deleted">Akun Dihapus</string>
+    <!-- chat-embedded-posts (share a post into a DM): the post-detail "Bagikan ke chat" action, the
+         conversation picker, the in-thread context card chrome (edited-since-shared banner +
+         hard-deleted state), and the picker result one-shots. BI consistent with the existing register
+         (flagged for UX review in the PR). -->
+    <string name="chat_share_to_chat_action">Bagikan ke chat</string>
+    <string name="chat_picker_title">Bagikan ke</string>
+    <string name="chat_picker_empty">Belum ada percakapan untuk dibagikan.</string>
+    <string name="chat_share_blocked">Tidak dapat membagikan ke user ini.</string>
+    <string name="chat_share_failed">Gagal membagikan. Coba lagi.</string>
+    <string name="chat_shared_post_label">Postingan dibagikan</string>
+    <string name="chat_shared_post_edited_banner">Diedit sejak dibagikan</string>
+    <string name="chat_shared_post_deleted">Postingan telah dihapus</string>
     <string name="notif_permission_rationale">Aktifkan notifikasi agar kamu tahu saat ada pesan baru.</string>
     <!-- mobile-search: the Premium-gated Cari surface (docs/03-UX-Design.md § Search UX). The
          empty-results + rate-limit modal copy are verbatim docs/03:244 / :245. The error/session/loading

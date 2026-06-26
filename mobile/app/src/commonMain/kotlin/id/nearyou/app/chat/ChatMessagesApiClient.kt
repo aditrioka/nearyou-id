@@ -1,5 +1,6 @@
 package id.nearyou.app.chat
 
+import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -33,6 +34,12 @@ data class ChatMessageDto(
     val content: String? = null,
     @SerialName("created_at") val createdAt: String,
     @SerialName("redacted_at") val redactedAt: String? = null,
+    // chat-embedded-posts: present-with-null for a plain message, populated for an embed message
+    // (so a cold thread open renders the context card identically to the realtime path). The
+    // snapshot reuses the vendor-free EmbeddedPostSnapshot model the realtime seam decodes.
+    @SerialName("embedded_post_id") val embeddedPostId: String? = null,
+    @SerialName("embedded_post_snapshot") val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
+    @SerialName("embedded_post_edit_id") val embeddedPostEditId: String? = null,
 )
 
 /**
@@ -46,13 +53,15 @@ data class MessageListResponseDto(
 )
 
 /**
- * `POST /api/v1/chat/{id}/messages` body — `{ "content": "<text>" }` ONLY. The three `embedded_*`
- * fields the backend tolerates are deliberately NOT sent (design D7); a test asserts the body carries
- * no `embedded_*` key.
+ * `POST /api/v1/chat/{id}/messages` body. A plain text send carries `{ "content": "<text>" }` and
+ * the `embedded_post_id` key is OMITTED (`explicitNulls = false`); the share-to-chat flow
+ * (`mobile-chat-embedded-posts`) sends `embedded_post_id` (content optional). The server derives the
+ * snapshot + edit anchor, so `embedded_post_snapshot` / `embedded_post_edit_id` are NEVER sent.
  */
 @Serializable
 data class SendMessageRequestDto(
-    val content: String,
+    val content: String? = null,
+    @SerialName("embedded_post_id") val embeddedPostId: String? = null,
 )
 
 /** Low-level result of a list-messages fetch. Non-2xx is a VALUE. */
@@ -112,16 +121,28 @@ class ChatMessagesApiClient(
         return ChatMessagesApiResult.HttpError(status = response.status.value)
     }
 
+    /**
+     * Send a message. A plain text-bar send passes [content] only; the share-to-chat flow passes an
+     * [embeddedPostId] (content optional). The at-least-one-of guard is mirrored client-side: a send
+     * with neither a non-blank [content] nor an [embeddedPostId] short-circuits to `HttpError(400)`
+     * WITHOUT issuing a request (the server enforces the same 400 authoritatively).
+     */
     suspend fun sendMessage(
         conversationId: String,
-        content: String,
+        content: String? = null,
+        embeddedPostId: String? = null,
     ): SendMessageApiResult {
+        val trimmedContent = content?.takeIf { it.isNotBlank() }
+        if (trimmedContent == null && embeddedPostId == null) {
+            return SendMessageApiResult.HttpError(status = HttpStatusCode.BadRequest.value)
+        }
         val response: HttpResponse =
             try {
                 client.post("/api/v1/chat/$conversationId/messages") {
                     contentType(ContentType.Application.Json)
-                    // Body is { content } ONLY — no embedded_* keys (design D7).
-                    setBody(SendMessageRequestDto(content = content))
+                    // Server-derived embed fields (snapshot / edit id) are NEVER sent — only the
+                    // optional content + embedded_post_id (explicitNulls=false omits the absent key).
+                    setBody(SendMessageRequestDto(content = trimmedContent, embeddedPostId = embeddedPostId))
                 }
             } catch (cause: CancellationException) {
                 throw cause

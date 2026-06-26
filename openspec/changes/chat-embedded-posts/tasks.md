@@ -39,31 +39,31 @@
 
 ## 6. Mobile — data layer
 
-- [ ] 6.1 `:infra:supabase-realtime`: add `embeddedPostId: Uuid?`, `embeddedPostSnapshot: EmbeddedPostSnapshot?` (a plain vendor-free model decoded from the snapshot JSON), `embeddedPostEditId: Uuid?` to `ChatMessageInbound`; keep `redactionReason` off the model; keep the interface source vendor-import-free (impl-only supabase-kt).
-- [ ] 6.2 Extend the chat send `ApiClient` method to optionally carry `embedded_post_id`; mirror the at-least-one-of guard client-side.
-- [ ] 6.3 Map the REST history read (`GET /api/v1/chat/{id}/messages`) embedded fields onto the same client message model used by the thread (so REST + realtime render identically).
+- [x] 6.1 `:infra:supabase-realtime`: add `embeddedPostId: Uuid?`, `embeddedPostSnapshot: EmbeddedPostSnapshot?` (a plain vendor-free model decoded from the snapshot JSON), `embeddedPostEditId: Uuid?` to `ChatMessageInbound`; keep `redactionReason` off the model; keep the interface source vendor-import-free (impl-only supabase-kt).
+- [x] 6.2 Extend the chat send `ApiClient` method to optionally carry `embedded_post_id`; mirror the at-least-one-of guard client-side.
+- [x] 6.3 Map the REST history read (`GET /api/v1/chat/{id}/messages`) embedded fields onto the same client message model used by the thread (so REST + realtime render identically).
 
 ## 7. Mobile — UI (consult the chat-thread mockup frame first)
 
-- [ ] 7.1 Render the chat-thread mockup frame (`dev/mockups`, `docs/11` § 2.8) + generate the per-frame measurement annex before building the card.
-- [ ] 7.2 Post-detail: add the "Bagikan ke chat" affordance emitting a Navigation 3 event to a `ConversationPickerRoute(postId)`.
-- [ ] 7.3 `ConversationPickerViewModel` (single-`stateIn` `uiState`) + picker screen: list recipients/conversations, reuse `createOrReturnConversation(recipientUserId)`, send with `embedded_post_id`, map 403/400/404 to distinct results, navigate to the thread on success.
-- [ ] 7.4 `EmbeddedPostCard` composable: render the snapshot (author, content, city — no coordinate); tap → navigate to live post-detail when `embeddedPostId` is non-null.
-- [ ] 7.5 Edited-since-shared banner: show "diedit sejak dibagikan" when the live post's latest edit differs from the message `embeddedPostEditId`.
-- [ ] 7.6 Hard-deleted source post (snapshot present, `embeddedPostId` null): render the "post telah dihapus" state, not tappable.
-- [ ] 7.7 Add all new `Res.string.*` keys (Bahasa Indonesia) — share action, banner, deleted state, picker labels; verify the no-hardcoded-UI-strings grep.
+- [x] 7.1 Render the chat-thread mockup frame (`dev/mockups`, `docs/11` § 2.8) + generate the per-frame measurement annex before building the card.
+- [x] 7.2 Post-detail: add the "Bagikan ke chat" affordance emitting a Navigation 3 event to a `ConversationPickerRoute(postId)`.
+- [x] 7.3 `ConversationPickerViewModel` (single-`stateIn` `uiState`) + picker screen: list recipients/conversations, reuse `createOrReturnConversation(recipientUserId)`, send with `embedded_post_id`, map 403/400/404 to distinct results, navigate to the thread on success.
+- [x] 7.4 `EmbeddedPostCard` composable: render the snapshot (author, content, city — no coordinate); tap → navigate to live post-detail when `embeddedPostId` is non-null.
+- [x] 7.5 Edited-since-shared banner: show "diedit sejak dibagikan" when the live post's latest edit differs from the message `embeddedPostEditId`.
+- [x] 7.6 Hard-deleted source post (snapshot present, `embeddedPostId` null): render the "post telah dihapus" state, not tappable.
+- [x] 7.7 Add all new `Res.string.*` keys (Bahasa Indonesia) — share action, banner, deleted state, picker labels; verify the no-hardcoded-UI-strings grep.
 
 ## 8. Mobile tests
 
-- [ ] 8.1 Picker VM: recipient pick → embed send + navigate; 403 → blocked result (no nav).
-- [ ] 8.2 Thread render: embed message → context card with snapshot fields, no coordinate; tap navigates for a live-post card.
-- [ ] 8.3 Banner: anchor != live latest-edit → banner shown; equal/both-unedited → no banner.
-- [ ] 8.4 Deleted state: snapshot present + `embeddedPostId` null → "post telah dihapus", no navigation.
-- [ ] 8.5 Inbound-model: `ChatMessageInbound` exposes the embedded fields as vendor-free types, no `redactionReason`; interface-source vendor-import scan is clean; **a populated `embedded_post_snapshot` JSON decodes at the infra boundary to the plain `EmbeddedPostSnapshot` model with the expected author/content/city fields and no coordinate** (the D7 decode path).
-- [ ] 8.6 Redaction precedence: a redacted embed message (`redacted_at` set, snapshot present) renders the redaction placeholder and NOT the context card; an embed-only message (`content` null, `redacted_at` null) still renders the card (the precedence keys on `redacted_at`, not on a null `content`).
+- [x] 8.1 Picker VM: recipient pick → embed send + navigate; 403 → blocked result (no nav).
+- [x] 8.2 Thread render: embed message → context card with snapshot fields, no coordinate; tap navigates for a live-post card.
+- [x] 8.3 Banner: anchor != live latest-edit → banner shown; equal/both-unedited → no banner.
+- [x] 8.4 Deleted state: snapshot present + `embeddedPostId` null → "post telah dihapus", no navigation.
+- [x] 8.5 Inbound-model: `ChatMessageInbound` exposes the embedded fields as vendor-free types, no `redactionReason`; interface-source vendor-import scan is clean; **a populated `embedded_post_snapshot` JSON decodes at the infra boundary to the plain `EmbeddedPostSnapshot` model with the expected author/content/city fields and no coordinate** (the D7 decode path).
+- [x] 8.6 Redaction precedence: a redacted embed message (`redacted_at` set, snapshot present) renders the redaction placeholder and NOT the context card; an embed-only message (`content` null, `redacted_at` null) still renders the card (the precedence keys on `redacted_at`, not on a null `content`).
 
 ## 9. Verification + Definition of Done (docs/11 §5)
 
-- [ ] 9.1 Run the local pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (both lint frameworks).
+- [x] 9.1 Run the local pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (both lint frameworks).
 - [ ] 9.2 Manual verification evidence (docs/11 §5 DoD): backend send-with-embed via the running app/curl + mobile share→thread→card→tap→banner/deleted-state on emulator/device; capture screenshots into the PR body per the verify-loop.
-- [ ] 9.3 `openspec validate chat-embedded-posts --strict` is clean; confirm no Pattern-Registry deviation (no `docs/11` amendment needed).
+- [x] 9.3 `openspec validate chat-embedded-posts --strict` is clean; confirm no Pattern-Registry deviation (no `docs/11` amendment needed).
