@@ -40,9 +40,13 @@ The admin panel SHALL expose `GET /admin/referral-grants` (the lookup + past-gra
 - **WHEN** the `ReferralEntitlementGranter` reports `isConfigured() == false` (no RC secret key)
 - **THEN** the RC call is skipped, the action still writes its audit row, and the response states the dispatch was skipped (RevenueCat not configured) — the handler never throws
 
+#### Scenario: Dispatch failure (RevenueCat rejected or errored) is surfaced, not swallowed
+- **WHEN** the granter returns `GrantResult.Failed` (RC configured but the promotional call was rejected or errored)
+- **THEN** the audit row is still written (the admin's attempt is recorded), Premium does not activate, the rate-limit still counts the attempt, and the response surfaces the failure to the admin with retry guidance — the handler never throws
+
 ### Requirement: Every manual grant writes exactly one immutable audit-log row as the authoritative record
 
-A successful (or fail-soft-recorded) grant SHALL write exactly one immutable `admin_actions_log` row with `action_type = 'referral_manual_grant'`, `target_type = 'user'`, `target_id` = the grantee, `admin_id` = the acting admin, the required `reason`, and before/after subscription snapshots. This audit row is the authoritative "a human granted this" record. The write MUST be immutable at the DB role level (no `UPDATE`/`DELETE` for `admin_app`).
+Whenever the grant proceeds past pre-flight validation (auth, CSRF, role, non-empty reason, rate-limit) to the dispatch step, it SHALL write exactly one `admin_actions_log` row with `action_type = 'referral_manual_grant'`, `target_type = 'user'`, `target_id` = the grantee, `admin_id` = the acting admin, the required `reason`, and before/after subscription snapshots — regardless of the dispatch outcome (`Dispatched`, `NotConfigured`, or `Failed`). This audit row is the authoritative "a human performed this grant" record. Immutability is enforced by the operational `admin_app` role grant (provisioned out-of-Flyway per V16, consistent with every other admin audit write) — no `UPDATE`/`DELETE` for `admin_app`; the `admin_id` FK to `admin_users` is intentionally **not** `ON DELETE SET NULL` (the audit log blocks admin hard-delete, unlike the operational tables where the SET-NULL invariant applies).
 
 #### Scenario: A grant records one audit row
 - **WHEN** an admin completes a grant for a user with reason "support ticket #1234"

@@ -1,11 +1,11 @@
 ## 1. Apply-time verifications (resolve design Open Questions BEFORE building)
 
-- [ ] 1.1 Confirm the RevenueCat `appUserId` convention the referral worker dispatches with (user UUID vs an RC alias) by reading the worker's `GrantRequest` construction; use the same convention.
-- [ ] 1.2 Confirm `admin_actions_log.action_type` has no enumerated CHECK constraint (grep the migration), so `'referral_manual_grant'` needs no migration; if a CHECK exists, STOP and surface (a migration would claim a Flyway version).
-- [ ] 1.3 Confirm the configured `premium` entitlement id source (`RevenueCatConfig`) used for the dispatch.
+- [ ] 1.1 Confirm the RevenueCat `appUserId` convention the referral worker dispatches with — the worker uses `recipientId.toString()` (the user UUID string); use the same.
+- [ ] 1.2 `admin_actions_log.action_type` is `VARCHAR(64)` free-text with no enumerated CHECK (V16) — pre-confirmed, so `'referral_manual_grant'` needs no migration. (Belt-and-suspenders: re-grep at apply; if a CHECK was added since, STOP and surface — a migration would claim a Flyway version.)
+- [ ] 1.3 Reuse the worker's `premium` entitlement id — it is a hardcoded `const ENTITLEMENT_ID = "premium"` (NOT a config object); reuse the same constant/source rather than inventing one.
 - [ ] 1.4 Confirm the before/after subscription-snapshot fields available for the `admin_actions_log` row (current `subscription_status`, entitlement end).
 - [ ] 1.5 Render admin board **frame 19** (`dev/mockups/nearyou-admin-mockup.html`) + generate its measurement annex (`dev/scripts/mockup-measure.sh`) per docs/11 §3.6; capture the layout/tokens the templates must match.
-- [ ] 1.6 Re-confirm the operator decision on D3 attribution (echo-mirroring primary vs the `source='manual_admin'` direct-write variant) is settled before writing the grant path.
+- [ ] 1.6 D3 attribution is **settled: echo-mirroring** (operator-confirmed 2026-06-27 — authoritative record in `admin_actions_log`; the existing GRANT webhook echo owns `subscription_events` + activation; the admin path writes neither directly; `subscription-billing-webhook` unchanged). Proceed on this; do NOT introduce the direct-write variant.
 
 ## 2. Rate-limiter
 
@@ -36,16 +36,18 @@
 ## 7. Tests (every spec scenario mapped)
 
 - [ ] 7.1 Unauthenticated `GET`/`POST` rejected before any handler logic.
-- [ ] 7.2 Lookup: known `q` shows status + enables grant; unknown `q` shows no-match, grant disabled.
-- [ ] 7.3 Grant dispatch: free user → `endTimeMs ≈ NOW()+7d`; active-premium user → `current_end + 7d` (stacked). (MockEngine-bound granter or a fake port.)
+- [ ] 7.2 Lookup: known `q` shows status + enables grant; unknown `q` shows no-match, grant disabled; `q` resolves by **both** username and UUID; a bare `GET` (no `q`) renders the form + viewer with `200`.
+- [ ] 7.3 Grant dispatch: free user → `endTimeMs ≈ NOW()+7d`; active-premium user → `current_end + 7d` (stacked); **expired-but-recent** entitlement → fresh `NOW()+7d` (the `GREATEST` floor, not stacked onto the stale end). (MockEngine-bound granter or a fake port.)
 - [ ] 7.4 Fail-soft: `isConfigured()==false` → no dispatch, audit row written, response states skipped, no throw.
-- [ ] 7.5 Audit: a grant writes exactly one `referral_manual_grant` row with grantee + reason; empty reason → rejected, no dispatch, no row.
+- [ ] 7.5 Audit: a grant writes exactly one `referral_manual_grant` row with grantee + reason; empty/whitespace reason → rejected pre-dispatch, no dispatch, no row.
 - [ ] 7.6 Invariant: a grant inserts no `granted_entitlements` row and changes no inviter lifetime-cap accounting.
 - [ ] 7.7 Ownership: the admin handler writes no `subscription_events` row and no `users.subscription_status` update.
-- [ ] 7.8 Rate-limit: under cap allowed; at/over cap → rejected with no dispatch and no audit row.
+- [ ] 7.8 Rate-limit: under cap allowed; at/over cap → rejected pre-dispatch with no dispatch and no audit row.
 - [ ] 7.9 CSRF: missing/mismatched token → 403 + `admin_csrf_violation`, no grant. Read-only role → write rejected.
-- [ ] 7.10 Read viewer: newest-first keyset pagination; `q` + date filters; plain-`GET` (no HTMX) still renders escaped.
+- [ ] 7.10 Read viewer: newest-first keyset pagination; `q` + date filters; a **tombstoned/soft-deleted grantee** row still renders (JOIN tolerance); plain-`GET` (no HTMX) still renders escaped.
 - [ ] 7.11 Ensure any new DB-tagged `*RoutesTest` pool `autoClose`s (CI connection-budget discipline, docs/11 §3.2).
+- [ ] 7.12 Dispatch `Failed` (MockEngine 4xx/5xx, RC configured): audit row written, Premium not activated, failure surfaced to the admin with retry guidance, rate-limit counts the attempt, no throw.
+- [ ] 7.13 Double-extend idempotency (design Risk): two grants within the window stack `+7d` each (bounded, recoverable) — assert the documented behavior so the our-side-only `dedupKey` limitation is covered, not silently assumed.
 
 ## 8. Docs reconciliation + verification
 

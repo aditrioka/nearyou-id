@@ -18,14 +18,10 @@ When the automated referral activity-gate (`referral-grant-worker`) false-negati
 ## Capabilities
 
 ### New Capabilities
-- `admin-referral-manual-grant`: The admin "Referral Manual Grant Path" — a CSRF- and owner/admin-role-gated, rate-limited, audit-logged support-desk surface that issues a manual 1-week promotional Premium grant (RevenueCat dispatch + `subscription_events` ledger row), plus a read-only keyset-paginated viewer of past manual grants. Records via `subscription_events(source='manual_admin')`; never writes `granted_entitlements`.
+- `admin-referral-manual-grant`: The admin "Referral Manual Grant Path" — a CSRF- and owner/admin-role-gated, rate-limited, audit-logged support-desk surface that issues a manual 1-week promotional Premium grant via the existing RevenueCat promotional-grant port, plus a read-only keyset-paginated viewer of past manual grants. The **authoritative record is one immutable `admin_actions_log` row**; Premium activation and the `subscription_events` row stay owned by the existing GRANT webhook echo (`source='referral'`). The admin path **never writes `subscription_events`, `users.subscription_status`, or `granted_entitlements`** directly (design.md **D3**).
 
 ### Modified Capabilities
-<!-- The design's chosen webhook-echo coordination (design.md D-webhook) determines whether
-     `subscription-billing-webhook` requirements change. If the chosen scheme leaves the
-     webhook GRANT-echo handler's REQUIREMENTS unchanged (admin path writes its own
-     manual_admin row; echo behaviour as-is), no delta is needed and this stays empty.
-     Resolved in design.md before the specs phase. -->
+None. The existing `subscription-billing-webhook` GRANT-echo handler is reused **unchanged** — it already records the `subscription_events` row + activates `users.subscription_status` for any RevenueCat promotional `GRANT` (the path the referral worker relies on), so a manual grant fires the identical echo with no requirement delta (design.md **D3**).
 
 ## Impact
 
