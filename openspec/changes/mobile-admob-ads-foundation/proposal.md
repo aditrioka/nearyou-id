@@ -26,6 +26,8 @@ Ads are the Free-tier monetization pillar — the **only completely-unbuilt reve
 ## Impact
 
 - **New module**: `:infra:admob` (KMP, mobile-only) — added to `settings.gradle.kts`. **NOT** added to the backend Dockerfile COPY list (mobile-only infra; the settings↔Dockerfile CI guard expects non-backend infra modules to be excluded — design.md records this).
+- **Amends docs/01 § KMP Integration**: docs/01 (line ~177) currently locates `interface AdProvider` in `:core:data`; this change instead places it in the new vendor-fenced `:infra:admob` module (per the docs/11 §2.6 vendor-SDK `:infra` seam — `:infra:revenuecat` / `:infra:supabase-realtime` precedent), which fences the Google SDK far more cleanly than `:core:data` would. docs/01 §177 is updated to match (tasks.md 6.2) — an explicit, declared reconciliation, not silent divergence.
+- **Lint**: a new `VendorSdkLeakageScanTest` clause enforcing invariant #16 for the Ads/UMP SDK on `:mobile:app` (`com.google.android.gms.ads.` / `com.google.android.ump.`) — the existing scan is per-vendor opt-in and does not yet cover Ads (tasks.md 3.6).
 - **Substrate**: `gradle/libs.versions.toml` gains the Google Mobile Ads SDK + UMP SDK pins (Android); iOS framework deps (Google-Mobile-Ads-SDK + UserMessagingPlatform) for the cinterop actual.
 - **Backend**: one new route `GET /api/v1/config/ads` (thin route → config service → Redis-cached flag read); no schema migration.
 - **Mobile**: new `ui/components` native-ad card + feed interleave; reads the existing consent + entitlement seams; new `:shared:resources` ad-label string.

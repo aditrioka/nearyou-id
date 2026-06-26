@@ -93,19 +93,37 @@ This slice ships the Android `AdProvider` actual fully; the iOS `AdProvider` act
 - **WHEN** the app runs on iOS in this slice
 - **THEN** the `AdProvider` reports unavailable, no UMP form is shown, and feeds render posts with no ad slots
 
+### Requirement: Ad requests carry no precise location (data minimization)
+
+Per docs/01 § Privacy Compliance ("share city-level location, not precise coordinates") and the UU PDP data-minimization posture (docs/06), the ad request SHALL NOT pass the device's precise coordinates to the ad SDK — the SDK's location signal SHALL be disabled / no precise `location` set on the request. This holds even when the app holds Precise location permission (used for small-radius Nearby).
+
+#### Scenario: No precise coordinate reaches the ad request
+
+- **WHEN** an ad is requested for a viewer whose app holds Precise location permission
+- **THEN** the request carries no precise latitude/longitude — at most city-level signal
+
+### Requirement: The chat thread screen never shows ads (permanent)
+
+The chat thread (1:1 conversation) screen SHALL NEVER display any ad, in this change or any future one (docs/01 — preserve trust). This is a permanent product rule, NOT a deferral, and a future change that adds a placement SHALL NOT weaken it.
+
+#### Scenario: No ad in a chat thread
+
+- **WHEN** a viewer opens a 1:1 chat thread
+- **THEN** no ad of any format is rendered
+
 ### Requirement: This change ships only the timeline native placement
 
-Ad placements other than the timeline native ad are out of scope for this slice and SHALL NOT render: no interstitials (app-open #5/#10/#15 or post-submit), no profile banner, and no chat-list native ad. The **chat thread screen SHALL NEVER show ads** (docs/01 — preserve trust), which is a permanent rule, not a deferral. Each deferred placement (interstitials, profile banner, chat-list native) SHALL be tracked as a `follow-up` issue.
+Ad placements other than the timeline native ad are out of scope for THIS slice and SHALL NOT render: no interstitials (app-open #5/#10/#15 or post-submit), no profile banner, and no chat-list native ad. Each deferred placement (interstitials, profile banner, chat-list native) SHALL be tracked as a `follow-up` issue, whose number is recorded in this requirement when filed (docs/12 §3).
 
 #### Scenario: No interstitial on app-open or post-submit
 
 - **WHEN** the app is opened a 5th/10th/15th time, or a post is submitted
 - **THEN** no interstitial ad is shown
 
-#### Scenario: No ad on profile, chat list, or chat thread
+#### Scenario: No ad on profile or chat list
 
-- **WHEN** a viewer opens a profile screen, the conversation list, or a chat thread
-- **THEN** no ad is rendered (and the chat thread never will)
+- **WHEN** a viewer opens a profile screen or the conversation list
+- **THEN** no ad is rendered (these placements are deferred)
 
 ### Requirement: This change does not add ad mediation
 

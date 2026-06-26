@@ -80,6 +80,8 @@ Layers spanned: **backend** (the `ads-config` read endpoint) + **mobile** (the a
 - **Test-ad-only until AdMob approval** → operator/human-required tasks (Migration Plan); build + Android verify proceed on Google's documented test units.
 - **settings↔Dockerfile guard (D8)** → explicit verify task; mobile-only infra stays out of the backend COPY list.
 - **UMP regional behavior variance** → honor our `ads_personalization` toggle as the authoritative non-personalized trigger (D3), independent of UMP's region logic.
+- **Precise-location leak to the ad SDK (UU PDP)** → the GMA SDK auto-collects device location when permission is granted, and the app holds Precise for small-radius Nearby. The `:infra:admob` request disables the SDK location signal / passes no precise coordinate (city-level only) — an explicit `mobile-ads` requirement + guard test (docs/01:173, docs/06).
+- **Invariant #16 not auto-enforced for Ads** → `VendorSdkLeakageScanTest` is per-vendor opt-in (only `io.sentry.` / `com.revenuecat.` on `mobile/app/src` today); a NEW clause for `com.google.android.gms.ads.` / `com.google.android.ump.` is added so a GMA/UMP import in `:mobile:app` goes red (the precise prefix avoids over-matching Play-services client deps).
 
 ## Migration Plan
 
