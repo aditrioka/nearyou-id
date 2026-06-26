@@ -9,7 +9,7 @@ For each row whose `platform = "android"`, `FcmDispatcher` SHALL build an FCM `M
 - Data fields populated from the `NotificationDto`:
   - `type` — the notification type string (e.g., `"post_liked"`).
   - `actor_user_id` — the actor's UUID as string, or empty string if `dto.actorUserId == null`.
-  - `actor_username` — the actor's display username resolved via `ActorUsernameLookup.lookup(actor_user_id)` from `visible_users` (the SAME lookup + generic-fallback masking the iOS `notification.body` uses, e.g. `"Seseorang"` when the actor is not visibly resolvable), or empty string if `dto.actorUserId == null`. This lets the data-only Android client render faithful username-bearing copy WITHOUT a render-time network call. The raw `actor_user_id` UUID remains for routing; `actor_username` is render-only.
+  - `actor_username` — the actor's display username for client-side copy. The dispatcher SHALL resolve it via `ActorUsernameLookup.lookup(actor_user_id)` from `visible_users` and map the result EXACTLY as follows (this masking happens in the dispatcher, before stringifying — the Android client does NOT re-resolve): a resolved name → that name; `lookup(...) == null` for a **non-null** `actor_user_id` (actor shadow-banned / deleted / not visibly resolvable) → the generic-fallback string `"Seseorang"` — the SAME masking `PushCopy.bodyFor(...)` applies to the iOS `notification.body`; the real handle MUST NOT be emitted, and `""` MUST NOT be emitted for a non-null-but-unresolvable actor (that is the Shadow-ban-safety / Block-enforcement seam); `dto.actorUserId == null` (system-emitted, actor-less type) → empty string `""` (the client renders actor-less copy). This lets the data-only Android client render faithful, masking-correct copy WITHOUT a render-time network call. The raw `actor_user_id` UUID remains for routing; `actor_username` is render-only.
   - `target_type` — `dto.targetType` (e.g., `"post"`), or empty string if null.
   - `target_id` — `dto.targetId` as string, or empty string if null.
   - `body_data` — `dto.bodyData` JSON-stringified (FCM data fields must be strings), or empty string if null. The client MUST parse this back into JSON for in-app rendering.
@@ -33,7 +33,17 @@ For each row whose `platform = "android"`, `FcmDispatcher` SHALL build an FCM `M
 #### Scenario: Android payload includes the masked actor_username
 
 - **WHEN** an Android push is constructed for a `post_liked` notification whose actor resolves via `ActorUsernameLookup` to `"bobby"`
-- **THEN** the data map contains `"actor_username" -> "bobby"` AND when the actor is not visibly resolvable the value is the generic-fallback `"Seseorang"` (same masking as the iOS body) AND when `actor_user_id == null` the value is the empty string
+- **THEN** the data map contains `"actor_username" -> "bobby"`
+
+#### Scenario: Android actor_username masks a shadow-banned non-null actor to "Seseorang", never the empty string or the real handle
+
+- **WHEN** an Android push is constructed for a notification with a **non-null** `actor_user_id` whose `ActorUsernameLookup.lookup(...)` returns null (the actor is shadow-banned / deleted / not visible via `visible_users`)
+- **THEN** the data map contains `"actor_username" -> "Seseorang"` (the generic-fallback, mirroring the iOS body masking) AND the value is NOT the empty string AND the value is NOT the actor's real handle
+
+#### Scenario: Android actor_username is empty only for a system-emitted (null-actor) notification
+
+- **WHEN** an Android push is constructed for a system-emitted notification (`actor_user_id == NULL`, e.g. `post_auto_hidden`)
+- **THEN** the data map contains `"actor_username" -> ""` (the client renders actor-less copy; the empty string here signals "no actor", distinct from the masked-"Seseorang" case above)
 
 #### Scenario: Android payload includes JSON-stringified `body_data`
 
@@ -112,3 +122,8 @@ The reason this matters: FCM's underlying APNs response surfaces oversized-paylo
 
 - **WHEN** an iOS push is constructed for a `post_replied` notification whose `body_data.reply_excerpt` is a 5000-byte UTF-8 string with a 4-byte emoji `🎉` at byte position ~3000 (i.e., the naive byte-clamp ceiling would slice the emoji's surrogate pair / multi-byte sequence)
 - **THEN** the truncated `body_full` is valid UTF-8 (no orphan surrogate or partial multi-byte sequence) AND parses back as valid JSON AND the truncation point falls cleanly before or after the emoji — never inside it
+
+#### Scenario: iOS clamp pathology — body_data has no single field large enough to truncate
+
+- **WHEN** an iOS push is constructed for a notification with an unusually large but uniform `body_data` (e.g., 20 small fields totaling >4 KB, with no single field dominating)
+- **THEN** the implementation MUST either (a) drop the dispatch entirely with a structured WARN `event="fcm_dispatch_failed"` `error_code="payload_too_large"` (no FCM call made; recipient sees the in-app notification per the docs/04-Architecture.md fallback), OR (b) apply ordered-truncation across multiple fields per a documented strategy. Option (a) is the simpler default; option (b) requires explicit doc + scenario coverage

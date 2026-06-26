@@ -9,7 +9,7 @@
 
 - [ ] 2.1 iOS payload builder: add `type`, `target_type`, `target_id` custom data fields (same string/empty-string semantics as Android) so the iOS tap can deep-link; keep `body_full` for the NSE; ensure the 4 KB clamp accounts for the added fields.
 - [ ] 2.2 Android payload builder: add `actor_username` data field resolved via the existing `ActorUsernameLookup` from `visible_users` (the same generic-fallback masking the iOS body uses); empty string when `actor_user_id == null`.
-- [ ] 2.3 Dispatcher tests: iOS payload carries the routing fields + stays ≤4 KB (incl. the oversized-`body_full` clamp case still holding with the extra fields); Android payload carries the masked `actor_username` (resolved + generic-fallback + empty-when-null).
+- [ ] 2.3 Dispatcher tests: iOS payload carries the routing fields + stays ≤4 KB (incl. the oversized-`body_full` clamp case + the clamp-pathology multi-field case still holding with the extra fields); Android `actor_username` masking — resolved name; non-null-but-unresolvable (shadow-banned/deleted) → `"Seseorang"` (NOT `""`, NOT the real handle); `actor_user_id == null` → `""`.
 - [ ] 2.4 Apply the `fcm-push-dispatch` delta (MODIFIED Android + iOS payload requirements) at archive time; confirm no orphaned scenario.
 
 ## 3. Content-privacy preference store (commonMain seam + actuals)
@@ -33,7 +33,7 @@
 - [ ] 5.3 Attach a tap `PendingIntent` → `MainActivity` carrying `type`/`target_type`/`target_id`/`body_data` as extras; consume-once on launch/resume → emit the nav signal (task 4.2). Never log preview / ids / token.
 - [ ] 5.4 Declare `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>` in the Android manifest (no runtime prompt — task 1.2).
 - [ ] 5.5 Per-conversation batching: persist a per-`conversation_id` last-push timestamp + count (DataStore); within 10 s replace the `conversation_id`-tagged notification with "{n} pesan baru dari {actor_username}" + suppress fresh sound; outside the window post fresh; non-chat uses a per-`(type,target_id)` tag.
-- [ ] 5.6 Robolectric/unit `onMessageReceived` tests: default-private chat body ("Pesan baru dari {username}"); preview-ON surfaces `body_data.preview`; null-preview fallback; post-interaction type-keyed copy with `actor_username`; tap PendingIntent → correct resolver destination; batching merge within window + fresh outside window (timestamp persisted across cold start); no-destination tap navigates nowhere.
+- [ ] 5.6 Robolectric/unit `onMessageReceived` tests: default-private chat body ("Pesan baru dari {username}"); masked actor (`actor_username="Seseorang"`) rendered verbatim; **blank `actor_username` degrades to a username-free form (no orphaned leading/trailing space)**; **malformed `body_data` (empty-string / non-JSON / missing keys) renders the private form and never throws out of the handler**; preview-ON surfaces `body_data.preview`; null-preview fallback; post-interaction type-keyed copy with `actor_username`; tap PendingIntent → correct resolver destination; batching merge within window + fresh outside window (timestamp persisted across cold start); no-destination tap navigates nowhere.
 
 ## 6. iOS incoming-push display (delegate + NSE)
 
@@ -46,6 +46,7 @@
 
 - [ ] 7.1 Extend `FcmPushSourceGuardTest` (or successor) to assert no Firebase / `UserNotifications` / `NotificationCompat` import leaks into commonMain.
 - [ ] 7.2 Grep-guard: no hardcoded user-visible notification string literals in the display source (all via `:shared:resources` where commonMain-reachable; native-only copy documented).
+- [ ] 7.3 Log-sink guard test: assert no `actor_user_id` / `target_id` / `conversation_id` / message `preview` / raw FCM token reaches a log sink from the display + tap-routing paths (mirror the shipped `mobile-fcm-token-registration` token-log guard idiom; prose alone is insufficient).
 
 ## 8. Spec delta wiring (mobile-fcm-token-registration)
 

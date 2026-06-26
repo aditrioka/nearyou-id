@@ -4,6 +4,8 @@
 
 The `:mobile:app` Android target SHALL render an incoming FCM push by extending the shipped `NearYouFirebaseMessagingService` (`mobile/app/src/androidMain/kotlin/id/nearyou/app/push/`) with an `onMessageReceived(RemoteMessage)` override. It SHALL read the data-only payload keys the backend sends — `type`, `actor_user_id`, `actor_username`, `target_type`, `target_id`, and `body_data` (JSON-stringified; the client parses it) — and post a `NotificationCompat` notification on a dedicated, app-owned notification channel. The user-facing title/body SHALL be type-keyed Bahasa Indonesia copy per `docs/03-UX-Design.md` §163–176 (e.g. `post_liked` → "{actor_username} menyukai postingan kamu"; `chat_message` → the content-private form below), sourced via `:shared:resources` Compose Multiplatform Resources where the copy crosses commonMain, with `actor_username` substituted from the payload (no render-time network call). The Firebase SDK / platform notification APIs referenced by the handler SHALL remain confined to `androidMain` (the vendor-isolation invariant; no such import in commonMain). The raw FCM token and the message preview content SHALL NOT be logged.
 
+The client SHALL NOT re-derive masking: `actor_username` arrives already masked by the dispatcher (a resolved name, the generic-fallback `"Seseorang"` for a non-null-but-unresolvable actor, or `""` for a system-emitted actor-less notification — per the `fcm-push-dispatch` `actor_username` masking, which preserves the `in-app-notifications` §71/§73 shadow-ban posture: a chat send by a shadow-banned actor is SUPPRESSED upstream so no `chat_message` push with a banned sender ever reaches this handler, and public-engagement actors are masked to `"Seseorang"`). The render SHALL `isNullOrBlank`-guard `actor_username`: when it is blank, the copy SHALL degrade to a username-free localized form (e.g. "Pesan baru" rather than an orphaned-space "Pesan baru dari "). The handler SHALL be defensive against a malformed payload: a `body_data` that is empty-string, not valid JSON, or missing expected keys (`conversation_id` / `preview`) SHALL render the non-content private form (or skip) and SHALL NEVER throw out of `onMessageReceived` (an uncaught throw in the high-priority FCM callback silently drops the push with no device-side fallback).
+
 #### Scenario: A chat push renders a content-private local notification by default
 
 - **GIVEN** the Android push handler and a content-privacy preference that is unset (default OFF)
@@ -14,6 +16,21 @@ The `:mobile:app` Android target SHALL render an incoming FCM push by extending 
 
 - **WHEN** `onMessageReceived` is invoked with a `post_liked` data payload (`target_type="post"`, `target_id` set, `actor_username="bobby"`)
 - **THEN** the notification body is the type-keyed copy "bobby menyukai postingan kamu" sourced from `:shared:resources` with `actor_username` substituted
+
+#### Scenario: A masked actor renders the generic-fallback, not the real handle
+
+- **WHEN** `onMessageReceived` is invoked with a `chat_message` payload whose `actor_username="Seseorang"` (the dispatcher masked a non-null-but-unresolvable actor)
+- **THEN** the notification body is "Pesan baru dari Seseorang" (the masked token rendered verbatim; the client does not re-resolve)
+
+#### Scenario: A blank actor_username degrades to a username-free form
+
+- **WHEN** `onMessageReceived` is invoked with a notification whose `actor_username=""` (system-emitted / actor-less) for a type whose copy would otherwise interpolate the actor
+- **THEN** the body renders a username-free localized form (no orphaned "Pesan baru dari " / " mengirim sebuah postingan" with a leading/trailing space) AND no crash
+
+#### Scenario: A malformed body_data never crashes the handler
+
+- **WHEN** `onMessageReceived` is invoked with a `chat_message` payload whose `body_data` is an empty string, OR non-JSON garbage, OR a JSON object missing `conversation_id`/`preview`
+- **THEN** the handler renders the non-content private form (or skips) AND does NOT throw out of `onMessageReceived` (the high-priority callback completes without dropping the app)
 
 ### Requirement: The notification body honors the content-privacy preference
 
@@ -39,7 +56,7 @@ When the local content-privacy preference is **ON**, a `chat_message` notificati
 
 ### Requirement: Tapping a push deep-links to the in-app destination via the shared resolver
 
-The notification tap SHALL reopen the app and navigate to the same in-app destination the in-app notification list resolves to, by reusing the pure `(type, target_type, target_id, actor_user_id, body_data) → destination` resolver defined by `mobile-notifications-list` (no second navigation pattern; `docs/11` §2.2 consumed-once nav signal). On Android the handler SHALL attach a `PendingIntent` to `MainActivity` carrying the routing fields as extras; on iOS the `UNUserNotificationCenterDelegate` SHALL read the routing fields from the notification `userInfo` (the `type`/`target_type`/`target_id` fields added to the iOS payload by the `fcm-push-dispatch` MODIFY) — both platforms feed the SAME resolver. On launch/resume the routing inputs SHALL be consumed exactly once and emit the nav signal. The mapping SHALL be: `target_type="post"` → post detail by `target_id`; `followed` → the actor's profile; `chat_message` (`target_type="message"`) → the chat thread addressed by `body_data.conversation_id`; actor-less / `reply`-target / no-destination types → no navigation. `actor_user_id`, `target_id`, and `conversation_id` SHALL be carried as opaque extras / route params only — never rendered in any UI node nor logged.
+The notification tap SHALL reopen the app and navigate to the same in-app destination the in-app notification list resolves to, by reusing the pure `(type, target_type, target_id, actor_user_id, body_data) → destination` resolver defined by `mobile-notifications-list` (no second navigation pattern; `docs/11` §2.2 consumed-once nav signal). Reuse means the resolver's existing behavior is inherited verbatim, including its chat path that fetches the partner display identity (`GET /api/v1/users/{actor_user_id}`) before opening the thread and its documented fetch-failure fallback (open the thread with a blank top-bar name) — this change SHALL NOT fork or reimplement that path. On Android the handler SHALL attach a `PendingIntent` to `MainActivity` carrying the routing fields as extras; on iOS the `UNUserNotificationCenterDelegate` SHALL read the routing fields from the notification `userInfo` (the `type`/`target_type`/`target_id` fields added to the iOS payload by the `fcm-push-dispatch` MODIFY) — both platforms feed the SAME resolver. On launch/resume the routing inputs SHALL be consumed exactly once and emit the nav signal. The mapping SHALL be: `target_type="post"` → post detail by `target_id`; `followed` → the actor's profile; `chat_message` (`target_type="message"`) → the chat thread addressed by `body_data.conversation_id`; actor-less / `reply`-target / no-destination types → no navigation. `actor_user_id`, `target_id`, and `conversation_id` SHALL be carried as opaque extras / route params only — never rendered in any UI node nor logged.
 
 #### Scenario: Tapping a chat push routes to the addressed thread
 
@@ -124,3 +141,9 @@ The push-display code SHALL build, unit-test, and `assembleStagingDebug` green *
 
 - **WHEN** inspecting this change's diff
 - **THEN** the Android manifest declares `android.permission.POST_NOTIFICATIONS` AND no in-app `POST_NOTIFICATIONS` runtime-prompt flow is added (the prompt remains the chat surface's, #257)
+
+#### Scenario: No PII / id / preview / token reaches a log sink
+
+- **GIVEN** the push-display source under `androidMain` push + the iOS delegate/NSE
+- **WHEN** the display + tap-routing paths are exercised
+- **THEN** no log sink receives `actor_user_id`, `target_id`, `conversation_id`, the message `preview`/content, or the raw FCM token (a guard mirroring the shipped token-log guard in `mobile-fcm-token-registration` — prose alone is insufficient)
