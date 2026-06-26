@@ -185,6 +185,7 @@ import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
+import id.nearyou.app.post.AreaPostDensityLimiter
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.PostEditRateLimiter
 import id.nearyou.app.post.PostEditService
@@ -868,6 +869,9 @@ fun Application.module() {
             layer3Moderator = layer3Moderator,
             rateLimiter = PostRateLimiter(rateLimiter),
             imageUploads = imageUploadRepository,
+            // docs/05 § Layer 4 per-area density gate — shares the Redis-backed
+            // rateLimiter (geocell key axis via tryAcquireByKey); post-area-density-cap.
+            areaDensityLimiter = AreaPostDensityLimiter(rateLimiter),
             dbDispatcher = dbDispatchers.db,
         )
     // premium-post-editing: PATCH /api/v1/posts/{post_id} + GET .../edits. Mirrors
