@@ -24,6 +24,9 @@ import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
 import id.nearyou.app.admin.retention.RetentionCleanupWorker
 import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
+import id.nearyou.app.ads.AdsConfigService
+import id.nearyou.app.ads.AdsEnabledFlagGate
+import id.nearyou.app.ads.adsConfigRoutes
 import id.nearyou.app.appeal.AppealRateLimiter
 import id.nearyou.app.appeal.AppealService
 import id.nearyou.app.appeal.JdbcAppealRepository
@@ -1081,6 +1084,15 @@ fun Application.module() {
             notifications = notificationEmitter,
             dispatcher = notificationDispatcher,
         )
+    // mobile-admob-ads-foundation — server-authoritative ads config. The `ads_enabled` kill-switch reads
+    // through the Remote-Config→Redis short-TTL seam (AdsEnabledFlagGate, the image_upload_enabled
+    // precedent); premium viewers are suppressed in the service from the JWT subscription_status. No SQL,
+    // no DB pool, no migration — it is a flag read.
+    val adsConfigService =
+        AdsConfigService(
+            adsEnabledGate = AdsEnabledFlagGate(redisStringCache, remoteConfig),
+            remoteConfig = remoteConfig,
+        )
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
     val hideDistanceRepository = HideDistanceRepository(dataSource, dbDispatchers.db)
@@ -1270,6 +1282,7 @@ fun Application.module() {
     notificationRoutes(notificationService)
     fcmTokenRoutes(fcmTokenRepository)
     consentRoutes(consentRepository)
+    adsConfigRoutes(adsConfigService)
     accountRoutes(accountDeletionService)
     accountDataExportRoutes(dataExportService)
     hideDistanceRoutes(hideDistanceRepository)

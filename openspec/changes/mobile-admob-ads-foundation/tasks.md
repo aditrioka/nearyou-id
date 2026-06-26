@@ -6,10 +6,10 @@
 
 ## 2. Backend — `ads-config` capability
 
-- [ ] 2.1 Add `AdsConfigService` reading `ads_enabled` via the Remote-Config→Redis seam (`remote_config:{flag:ads_enabled}`) with a per-flag 30–60 s TTL override (docs/11 §3.3); default `false` when absent.
-- [ ] 2.2 Premium suppression in the service: return `ads_enabled = false` when the viewer's `subscription_status ∈ {premium_active, premium_billing_retry}` (the access-control `PREMIUM_STATES` set, NOT the `premium_active`-only badge formula — grace-period users keep the ad-free benefit, docs/08 item 4), regardless of the global flag.
-- [ ] 2.3 Add `AdsConfigRoutes` — thin authenticated `GET /api/v1/config/ads` (route parses/authenticates/responds, no SQL) returning `{ ads_enabled, timeline_frequency }` (`timeline_frequency` default 6); register in the route table.
-- [ ] 2.4 `AdsConfigRoutesTest`: Free+flag ON → `ads_enabled true` + frequency in the 5–7 range (assert the range, not the literal default, so a re-tune doesn't break the test); `premium_active`+flag ON → `false`; `premium_billing_retry` (grace)+flag ON → `false`; flag absent/false → `false`; unauthenticated → 401; short-TTL flag propagation in BOTH directions (absent/false → ON after the TTL elapses; ON → OFF flip within the TTL). Pool `autoClose(hikari())` size 2 if DB-tagged (docs/11 §3.2 / PR #157).
+- [x] 2.1 Add `AdsConfigService` reading `ads_enabled` via the Remote-Config→Redis seam (`remote_config:{flag:ads_enabled}`) with a per-flag 30–60 s TTL override (docs/11 §3.3); default `false` when absent. — `AdsEnabledFlagGate` (`{scope:remote_config}:{flag:ads_enabled}` cache key, 30s TTL, fail-closed FALSE — the `ImageUploadFlagGate` sibling) + `AdsConfigService`.
+- [x] 2.2 Premium suppression in the service: return `ads_enabled = false` when the viewer's `subscription_status ∈ {premium_active, premium_billing_retry}` (the access-control `PREMIUM_STATES` set, NOT the `premium_active`-only badge formula — grace-period users keep the ad-free benefit, docs/08 item 4), regardless of the global flag.
+- [x] 2.3 Add `AdsConfigRoutes` — thin authenticated `GET /api/v1/config/ads` (route parses/authenticates/responds, no SQL) returning `{ adsEnabled, timelineFrequency }` (camelCase wire per project DTO convention; `timelineFrequency` default 6, clamped 5–7); registered in `Application.kt` route table.
+- [x] 2.4 `AdsConfigRoutesTest` (9 tests, all green) + `AdsEnabledFlagGateTest` (8 tests, all green): Free+flag ON → `adsEnabled true` + frequency in the 5–7 range (asserts the band, not the literal default); `premium_active`+flag ON → `false`; `premium_billing_retry` (grace)+flag ON → `false`; flag absent/false → `false`; unauthenticated → 401; short-TTL flag propagation in BOTH directions. DB-tagged, pool `autoClose(hikari())` size 2 (docs/11 §3.2 / PR #157).
 
 ## 3. `:infra:admob` module (vendor-SDK seam, invariant #16)
 
