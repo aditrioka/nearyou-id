@@ -24,17 +24,21 @@ data class SignInRequest(
 )
 
 /**
- * `POST /api/v1/auth/signup` request body (Mobile #4). Carries exactly `{provider, id_token,
- * date_of_birth}` in snake_case per the `auth-signup` spec wire contract (pinned by the backend
- * `AuthWireFormatTest`). `device_fingerprint_hash` is omitted (design D4 — attestation deferred,
- * consistent with the sign-in DTO's Decision 9). `dateOfBirth` is an ISO-8601 `YYYY-MM-DD` string
- * (the `LocalDate.toString()` form).
+ * `POST /api/v1/auth/signup` request body (Mobile #4). Carries `{provider, id_token, date_of_birth}`
+ * in snake_case per the `auth-signup` spec wire contract (pinned by the backend `AuthWireFormatTest`),
+ * plus an OPTIONAL [inviteCode] (`invite_code`) when the user entered a referral code at signup
+ * (mobile-referral). `device_fingerprint_hash` is omitted (design D4 — attestation deferred, consistent
+ * with the sign-in DTO's Decision 9). `dateOfBirth` is an ISO-8601 `YYYY-MM-DD` string (the
+ * `LocalDate.toString()` form). [inviteCode] defaults to `null`; with the client's `encodeDefaults =
+ * false` / `explicitNulls = false` Json, a null value omits the `invite_code` key from the body
+ * entirely (matching the backend's `inviteCode?.trim()?.takeIf { it.isNotEmpty() }` treatment).
  */
 @Serializable
 data class SignUpRequest(
     val provider: String,
     @SerialName("id_token") val idToken: String,
     @SerialName("date_of_birth") val dateOfBirth: String,
+    @SerialName("invite_code") val inviteCode: String? = null,
 )
 
 /** `POST /api/v1/auth/refresh` request body. */
@@ -155,7 +159,8 @@ class AuthApiClient(
 
     /**
      * `POST /api/v1/auth/signup` (Mobile #4). Body is `{provider:"google", id_token, date_of_birth}`
-     * — snake_case, NO `device_fingerprint_hash` (design D4). Success is HTTP **`201 Created`** (not
+     * plus an optional `invite_code` when [inviteCode] is non-blank (mobile-referral) — snake_case, NO
+     * `device_fingerprint_hash` (design D4). Success is HTTP **`201 Created`** (not
      * `200`). On non-201 the [SignInApiResult.HttpError.status] is what `AuthRepository` keys on:
      * the `403 user_blocked` body is the FLAT `{"error":"user_blocked",...}` shape that
      * [BackendErrorBody] (nested parser) cannot decode, so [code] comes back `null` for it — that
@@ -165,12 +170,21 @@ class AuthApiClient(
     suspend fun signUp(
         idToken: String,
         dateOfBirth: String,
+        inviteCode: String? = null,
     ): SignInApiResult {
         val response: HttpResponse =
             try {
                 client.post("/api/v1/auth/signup") {
                     contentType(ContentType.Application.Json)
-                    setBody(SignUpRequest(provider = "google", idToken = idToken, dateOfBirth = dateOfBirth))
+                    setBody(
+                        SignUpRequest(
+                            provider = "google",
+                            idToken = idToken,
+                            dateOfBirth = dateOfBirth,
+                            // Trim + drop a blank code so the `invite_code` key is omitted when not entered.
+                            inviteCode = inviteCode?.trim()?.takeIf { it.isNotEmpty() },
+                        ),
+                    )
                 }
             } catch (cause: CancellationException) {
                 throw cause

@@ -155,6 +155,19 @@ data object BlockedUsersRoute : NavKey
 data object ConsentSettingsRoute : NavKey
 
 /**
+ * Referral sub-surface (Settings › "Undang teman" → `ReferralScreen`, the `mobile-referral` capability),
+ * pushed onto the ROOT back stack above [SettingsRoute] (overlaying the section bar — the
+ * [BlockedUsersRoute] / [ConsentSettingsRoute] mechanism). A **parameterless** marker carrying NO
+ * payload (the `UsernameCustomizationRoute` self-read precedent): the invite code + progress are fetched
+ * by the screen's ViewModel from `GET /api/v1/user/referral`, never carried on the route — the back stack
+ * persists to disk on iOS (the same PII discipline [AgeGateRoute] applies to the `id_token`). The surface
+ * is open to all tiers (design D3) — it carries no `PaywallEntry`. Registered in the
+ * `navSavedStateConfiguration` polymorphic `SerializersModule` for the iOS-saveable back stack.
+ */
+@Serializable
+data object ReferralRoute : NavKey
+
+/**
  * The ban/suspension appeal surface (`mobile-appeal`, `content-moderation-appeal`), reached from the
  * banned/suspended session state. A **parameterless** marker: the limited appeal token lives in the
  * in-memory [id.nearyou.app.appeal.AppealSession] holder, NEVER on the route — a credential must not enter

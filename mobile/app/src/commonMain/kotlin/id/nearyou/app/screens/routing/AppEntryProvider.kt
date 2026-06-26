@@ -16,6 +16,7 @@ import id.nearyou.app.screens.post.EditPostScreen
 import id.nearyou.app.screens.post.PostCreationScreen
 import id.nearyou.app.screens.post.PostDetailScreen
 import id.nearyou.app.screens.profile.ProfileScreen
+import id.nearyou.app.screens.referral.ReferralScreen
 import id.nearyou.app.screens.search.SearchScreen
 import id.nearyou.app.screens.settings.BlockedUsersScreen
 import id.nearyou.app.screens.settings.ConsentSettingsScreen
@@ -212,6 +213,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 onOpenUsernameCustomization = { backStack.add(UsernameCustomizationRoute) },
                 onOpenBlocked = { backStack.add(BlockedUsersRoute) },
                 onOpenConsent = { backStack.add(ConsentSettingsRoute) },
+                // mobile-referral: the "Undang teman" row pushes the parameterless ReferralRoute onto the
+                // root stack (above the shell, the BlockedUsersRoute / ConsentSettingsRoute mechanism).
+                // Open to all tiers (design D3) — NOT a paywall divert.
+                onOpenReferral = { backStack.add(ReferralRoute) },
                 onLoggedOut = { backStack.replaceAll(SignInRoute) },
             )
         }
@@ -226,6 +231,12 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 onBack = { backStack.removeLastOrNull() },
                 onTokenInvalid = { backStack.replaceAll(SignInRoute) },
             )
+        }
+        entry<ReferralRoute> {
+            // The referral surface (mobile-referral). `removeLastOrNull()` is size-safe: ReferralRoute is
+            // only ever appended ATOP SettingsRoute (the "Undang teman" row), so popping it reveals
+            // Settings — never an empty stack. The screen's ViewModel fetches the code+progress on entry.
+            ReferralScreen(onBack = { backStack.removeLastOrNull() })
         }
         entry<AppealRoute> {
             // The ban/suspension appeal surface (mobile-appeal). Reached from the banned/suspended session

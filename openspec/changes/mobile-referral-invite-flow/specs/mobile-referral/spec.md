@@ -87,8 +87,8 @@ The referral surface SHALL NOT be Premium-gated: `ReferralRoute` SHALL carry no 
 
 ### Requirement: Native share-sheet is deferred to a follow-up
 
-A native system share-sheet (Android `Intent.ACTION_SEND` / iOS `UIActivityViewController`, requiring an `expect/actual` platform glue) is **explicitly out of scope** for this change (a `docs/12-Integration-Contracts.md` §3 deferred layer). The v1 sharing affordance SHALL be copy-to-clipboard only. This deferral SHALL be tracked by a `follow-up` GitHub issue. A future change MAY add the share-sheet by MODIFYING this requirement.
+A native system share-sheet (Android `Intent.ACTION_SEND` / iOS `UIActivityViewController`, requiring an `expect/actual` platform glue) is **explicitly out of scope** for this change (a `docs/12-Integration-Contracts.md` §3 deferred layer). The v1 sharing affordance SHALL be copy-to-clipboard only. This deferral is tracked by `follow-up` issue [#434](https://github.com/aditrioka/nearyou-id/issues/434). A future change MAY add the share-sheet by MODIFYING this requirement.
 
 #### Scenario: v1 ships copy-to-clipboard and no native share-sheet
 - **WHEN** inspecting the referral surface in this change
-- **THEN** the only sharing affordance is the copy-to-clipboard action AND no native share-sheet `expect/actual` is introduced AND a `follow-up` issue tracks the deferred share-sheet
+- **THEN** the only sharing affordance is the copy-to-clipboard action AND no native share-sheet `expect/actual` is introduced AND `follow-up` issue [#434](https://github.com/aditrioka/nearyou-id/issues/434) tracks the deferred share-sheet

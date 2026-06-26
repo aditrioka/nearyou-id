@@ -37,6 +37,8 @@ private const val HIDE_DISTANCE_UPSELL = "Fitur Premium. Aktifkan Premium untuk 
 private const val HIDE_DISTANCE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
 private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
+private const val INVITE_FRIENDS = "Undang teman"
+private const val PAYWALL_CTA = "Aktifkan Premium" // cta_activate_premium — must NOT appear (no paywall divert)
 
 /** A configurable [HideDistanceRepository] fake: seeds the toggle state and records write calls. */
 private class FakeHideDistanceRepository(
@@ -124,6 +126,35 @@ class SettingsScreenTest {
             onNodeWithText(PRIVACY_DATA).performScrollTo().performClick()
             assertEquals(1, blocked)
             assertEquals(1, consent)
+        }
+    }
+
+    @Test
+    fun undangTemanRow_pushesReferralRoute_forAFreeUser_withNoPaywallDivert() {
+        // mobile-referral 4.3 / design D3 — the "Undang teman" row is open to ALL tiers. The default fake
+        // (premium=false) represents a Free user; tapping the row fires onOpenReferral (a ReferralRoute
+        // push), shows NO "Segera hadir" (it is a backed navigation, not a deferred stub), and surfaces
+        // NO paywall CTA (the Settings-layer no-paywall-divert path).
+        installKoin()
+        var referral = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SettingsScreen(
+                            onBack = {},
+                            onOpenBlocked = {},
+                            onOpenConsent = {},
+                            onOpenReferral = { referral++ },
+                            onLoggedOut = {},
+                        )
+                    }
+                }
+            }
+            onNodeWithText(INVITE_FRIENDS).performScrollTo().performClick()
+            assertEquals(1, referral, "the Undang teman row pushes ReferralRoute")
+            onNodeWithText(COMING_SOON).assertDoesNotExist()
+            onNodeWithText(PAYWALL_CTA).assertDoesNotExist()
         }
     }
 
