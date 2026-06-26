@@ -16,6 +16,7 @@ import id.nearyou.app.auth.session.InMemoryRefreshTokens
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.session.userRow
+import id.nearyou.app.common.AppJson
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -75,7 +76,11 @@ class SignInFlowTest : StringSpec({
         val service = RefreshTokenService(tokens, users, nowProvider = { now })
         testApplication {
             application {
-                install(ContentNegotiation) { json() }
+                // Use the SHARED production AppJson (explicitNulls = false) so wire-shape assertions
+                // (notably the permanent-ban suspended_until OMISSION) reflect what production emits —
+                // the Ktor-default json() has explicitNulls = true and would serialize an explicit
+                // null this server never sends (appeal-sign-in-ban-distinction review finding).
+                install(ContentNegotiation) { json(AppJson) }
                 install(Authentication) {
                     configureUserJwt(keys, users, nowProvider = { now })
                 }
@@ -152,9 +157,11 @@ class SignInFlowTest : StringSpec({
             decoded.getClaim("scope").asString() shouldBe "appeal"
             decoded.getClaim("token_version").asInt() shouldBe 7
             ((decoded.expiresAt.time - decoded.issuedAt.time) / 1000L) shouldBe 3600L
-            // appeal-sign-in-ban-distinction: a permanent ban carries suspended_until = null (the
-            // distinction is the field, not a separate code) — explicitly present, not omitted.
-            Json.parseToJsonElement(body).jsonObject["suspended_until"] shouldBe JsonNull
+            // appeal-sign-in-ban-distinction: a permanent ban has NO suspended_until on the wire —
+            // the shared AppJson (explicitNulls = false) omits the null-valued field. Absent (or an
+            // explicit null) both read as "no suspension expiry" → the client routes to permanent.
+            val suspendedUntilField = Json.parseToJsonElement(body).jsonObject["suspended_until"]
+            (suspendedUntilField == null || suspendedUntilField is JsonNull) shouldBe true
             // … and NO normal access/refresh token is issued (no refresh_tokens row).
             tokens.rows.size shouldBe 0
         }

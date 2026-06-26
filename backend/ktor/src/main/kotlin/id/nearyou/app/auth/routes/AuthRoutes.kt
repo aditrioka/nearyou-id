@@ -74,11 +74,12 @@ data class ApiError(val error: Envelope) {
 //
 // appeal-sign-in-ban-distinction: the 403 ALSO carries `suspended_until` so the client can
 // route a suspension (in-app appeal form) differently from a permanent ban (support path).
-// `null` ⇒ permanent ban; an ISO-8601 timestamp ⇒ a 7-day suspension's expiry. The field is
-// declared WITHOUT a default so kotlinx serializes the explicit `null` on the wire (the
-// app-wide Json keeps `encodeDefaults = false`, which would otherwise omit a defaulted null) —
-// the spec contract is "carries a null expiry", not "omits the field". The code stays
-// `account_banned` for both states (the distinction is the field, not a separate code).
+// A non-null ISO-8601 timestamp ⇒ a 7-day suspension's expiry (present on the wire); a permanent
+// ban ⇒ `suspendedUntil = null`, which the shared server `AppJson` (`explicitNulls = false`)
+// OMITS from the wire entirely — so a permanent-ban body has no `suspended_until` key at all. The
+// client treats absent / null / unparseable identically (⇒ permanent), so the omission is the
+// permanent signal; the distinction is "field present with a value ⇒ suspension, field absent ⇒
+// permanent". The code stays `account_banned` for both states (not a separate code).
 @Serializable
 data class BannedSignInResponse(
     val error: ApiError.Envelope,
