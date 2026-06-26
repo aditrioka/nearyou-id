@@ -729,4 +729,74 @@ class DataExportWorkerTest : StringSpec({
         files["follows.csv"]!!.contains(otherHash) shouldBe true
         files["blocks.csv"]!!.contains(otherHash) shouldBe true
     }
+
+    // ---- 2.2 the reusable single-request seam (processSingle) --------------
+    // The admin Data Export Queue trigger (admin-data-export-queue) consumes this
+    // exact seam — addressable by a single request id, identical claim/fail-soft/
+    // claim-race semantics as the batch run.
+
+    "2.2 processSingle on a claimable pending request reaches ready (key + notification)" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender(SendResult.Sent("msg-seam"))
+        val uid = seedUser(emailAddr = "seam@example.com")
+        val reqId = seedPendingRequest(uid)
+
+        val outcome = runBlocking { worker(store, email).processSingle(reqId) }
+
+        outcome shouldBe DataExportProcessOutcome.READY
+        statusOf(reqId) shouldBe "ready"
+        store.putCount.get() shouldBe 1
+        notificationCount(uid) shouldBe 1
+        email.sends.size shouldBe 1
+    }
+
+    "2.2 processSingle on a non-claimable (processing) request is a SKIPPED no-op" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val uid = seedUser()
+        val reqId = seedPendingRequest(uid)
+        exec("UPDATE data_export_requests SET status = 'processing', started_at = NOW() WHERE id = ?", reqId)
+
+        val outcome = runBlocking { worker(store, email).processSingle(reqId) }
+
+        outcome shouldBe DataExportProcessOutcome.SKIPPED
+        statusOf(reqId) shouldBe "processing" // untouched
+        store.putCount.get() shouldBe 0
+        notificationCount(uid) shouldBe 0
+        email.sends.size shouldBe 0
+    }
+
+    "2.2 processSingle on a non-claimable (ready) request is a SKIPPED no-op" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val uid = seedUser()
+        val reqId = seedPendingRequest(uid)
+        exec(
+            "UPDATE data_export_requests SET status = 'ready', r2_object_key = 'exports/x.zip', " +
+                "completed_at = NOW(), download_expires_at = NOW() + INTERVAL '24 hours' WHERE id = ?",
+            reqId,
+        )
+
+        val outcome = runBlocking { worker(store, email).processSingle(reqId) }
+
+        outcome shouldBe DataExportProcessOutcome.SKIPPED
+        statusOf(reqId) shouldBe "ready" // untouched
+        store.putCount.get() shouldBe 0
+        notificationCount(uid) shouldBe 0
+    }
+
+    "2.2 processSingle fail-soft: gather/upload failure → failed + attempt_count++, no ready/notification" {
+        val store = CapturingObjectStore(throwOnPut = true)
+        val email = RecordingEmailSender()
+        val uid = seedUser()
+        val reqId = seedPendingRequest(uid)
+
+        val outcome = runBlocking { worker(store, email).processSingle(reqId) }
+
+        outcome shouldBe DataExportProcessOutcome.FAILED
+        statusOf(reqId) shouldBe "failed"
+        (attemptCountOf(reqId) >= 1) shouldBe true
+        notificationCount(uid) shouldBe 0
+        email.sends.size shouldBe 0
+    }
 })

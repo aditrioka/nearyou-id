@@ -1346,6 +1346,10 @@ fun Application.module() {
         csamRepository = csamRepository,
         csamMetadataEncryptor = csamMetadataEncryptor,
         csamDetectionService = csamDetectionService,
+        // Pass the SAME DataExportWorker the batch `/internal/data-export-worker` run uses,
+        // so the Data Export Queue trigger (admin-data-export-queue) re-runs an export
+        // through the EXACT producer single-request pipeline (design D1 — one export path).
+        dataExportProcessor = dataExportWorker,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime
