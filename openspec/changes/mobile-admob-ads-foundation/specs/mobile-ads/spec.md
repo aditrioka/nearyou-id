@@ -84,14 +84,19 @@ The client SHALL initialize the ad SDK and interleave ad slots ONLY when `ads-co
 - **WHEN** the `GET /api/v1/config/ads` fetch fails
 - **THEN** the client renders feeds with no ads and no error chrome
 
-### Requirement: iOS ad rendering is deferred to a follow-up
+### Requirement: Ads render on both Android and iOS
 
-This slice ships the Android `AdProvider` actual fully; the iOS `AdProvider` actual is deferred (the cinterop binding to Google-Mobile-Ads-SDK + UserMessagingPlatform is a tracked `follow-up`). On iOS the `AdProvider` SHALL report ads unavailable: no UMP request, no native ad, no ad slots — the feed renders posts only. Because `ads_enabled` defaults OFF, this is invisible at launch. This deferral SHALL be tracked as a `follow-up` issue, not silently dropped.
+Both the Android and iOS `AdProvider` actuals SHALL be implemented in this slice. Android uses the Google Mobile Ads + UMP SDK (Gradle); iOS uses cinterop to the `Google-Mobile-Ads-SDK` + `GoogleUserMessagingPlatform` CocoaPods (the KMP cocoapods-plugin binding, fenced in `:infra:admob` — the GoogleSignIn-pod precedent). On both platforms the UMP consent gate, the `ads_personalization` personalized/non-personalized mapping, the timeline native placement, and premium suppression behave identically (subject to the shared `ads_enabled` gating). Neither platform reports ads unavailable when ads are enabled.
 
-#### Scenario: iOS reports ads unavailable
+#### Scenario: iOS serves ads through the cinterop actual
 
-- **WHEN** the app runs on iOS in this slice
-- **THEN** the `AdProvider` reports unavailable, no UMP form is shown, and feeds render posts with no ad slots
+- **WHEN** ads are enabled for a Free viewer on iOS and UMP consent is satisfied
+- **THEN** the iOS `AdProvider` initializes and a native-ad slot renders in the feed, at parity with Android
+
+#### Scenario: Both actuals honor the shared gating
+
+- **WHEN** `ads_enabled = false` (flag OFF or premium) on either Android or iOS
+- **THEN** that platform's `AdProvider` shows no ad and runs no UMP form — identical behavior across platforms
 
 ### Requirement: Ad requests carry no precise location (data minimization)
 
