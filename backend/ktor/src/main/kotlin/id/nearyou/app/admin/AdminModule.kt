@@ -15,6 +15,8 @@ import id.nearyou.app.admin.deletionqueue.DeletionQueueRepository
 import id.nearyou.app.admin.featureflags.FeatureFlagService
 import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
+import id.nearyou.app.admin.postedits.PostEditHistoryRepository
+import id.nearyou.app.admin.postedits.PostEditHistoryService
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.CsamKominfoReportRateLimiter
 import id.nearyou.app.admin.ratelimit.CsamMetadataDecryptRateLimiter
@@ -38,6 +40,7 @@ import id.nearyou.app.admin.routes.adminCsam
 import id.nearyou.app.admin.routes.adminDeletionQueue
 import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
+import id.nearyou.app.admin.routes.adminPostEdits
 import id.nearyou.app.admin.routes.adminPrivacyFlips
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
@@ -158,6 +161,7 @@ fun Application.admin(
     val rejectedIdentifiersRepository =
         AdminRejectedIdentifiersRepository(dataSource, auditLogger, rejectedIdentifierClearRateLimiter)
     val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
+    val postEditHistoryService = PostEditHistoryService(PostEditHistoryRepository(dataSource))
     val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
@@ -290,6 +294,7 @@ fun Application.admin(
                 adminActionsLog(actionsLogRepository, layout)
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, auditLogger, layout)
                 adminBlockRegistry(blockRegistryRepository, layout)
+                adminPostEdits(postEditHistoryService, layout)
                 adminPrivacyFlips(privacyFlipsRepository, layout, privacyFlipsClock)
                 adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
