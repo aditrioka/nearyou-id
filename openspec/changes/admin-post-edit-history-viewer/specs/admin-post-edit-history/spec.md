@@ -12,7 +12,7 @@ The system SHALL serve an authenticated admin route `GET /admin/posts/{post_id}/
 #### Scenario: Unauthenticated request redirects to the login page
 
 - **WHEN** an unauthenticated client requests `/admin/posts/{post_id}/edits`
-- **THEN** the system redirects to the admin login page and renders no history
+- **THEN** the system responds `302` with `Location: /admin/login` and renders no history
 
 #### Scenario: The live post is rendered as the newest version
 
@@ -23,6 +23,11 @@ The system SHALL serve an authenticated admin route `GET /admin/posts/{post_id}/
 
 - **WHEN** a post has N edit snapshots
 - **THEN** the rendered list contains N+1 versions, numbered most-recent-first, with the live version first and the oldest snapshot last
+
+#### Scenario: The oldest version is the original pre-first-edit content
+
+- **WHEN** a post has been edited at least once
+- **THEN** the last (oldest) version row equals the original pre-first-edit content (the oldest `post_edits.content_snapshot`)
 
 ### Requirement: A post with no edits renders its single live version, not an error
 
@@ -40,7 +45,7 @@ The system SHALL treat an unknown `post_id`, a non-UUID `post_id`, or a hard-del
 #### Scenario: Unknown post id renders the empty state
 
 - **WHEN** an authenticated admin requests the history for a `post_id` that matches no row
-- **THEN** the system renders the "post not found / no history" empty state with a 200-class page (not a server error)
+- **THEN** the system renders the "post not found / no history" empty state with HTTP `200` (not a server error)
 
 #### Scenario: Non-UUID post id is treated as not-found, not an error
 
@@ -71,6 +76,16 @@ The system SHALL paginate the snapshot list using keyset pagination over `post_e
 - **WHEN** the final page of snapshots is rendered
 - **THEN** no "older" control is shown
 
+#### Scenario: Exactly page-size snapshots omits the older control
+
+- **WHEN** a post has exactly `pageSize` snapshots (so the first page shows the live version plus one full snapshot page)
+- **THEN** no "older" control is shown — the live version does not count toward the snapshot page budget, so there is no off-by-one that spuriously offers a second page
+
+#### Scenario: The live version does not reappear on later pages
+
+- **WHEN** the admin paginates past the first page
+- **THEN** the live ("Versi terbaru") version is shown only on the first page and never repeats on a subsequent snapshot page
+
 #### Scenario: Malformed cursor falls back to the first page
 
 - **WHEN** the request carries a malformed pagination cursor
@@ -78,8 +93,8 @@ The system SHALL paginate the snapshot list using keyset pagination over `post_e
 
 #### Scenario: edited_at uniqueness gives a stable, tiebreaker-free keyset
 
-- **WHEN** the snapshots are paginated
-- **THEN** ordering is total and stable because `post_edits_temporal_idx` guarantees `edited_at` is unique per post, requiring no secondary tiebreaker
+- **WHEN** snapshots seeded at distinct `edited_at` values are paginated across a page boundary
+- **THEN** ordering is total and stable with no duplicate or skipped row, because `post_edits_temporal_idx` guarantees `edited_at` is unique per post, requiring no secondary tiebreaker
 
 ### Requirement: HTMX partial swap with plain-GET progressive enhancement
 
@@ -97,17 +112,32 @@ The system SHALL serve the history as an HTMX partial fragment for HTMX requests
 
 ### Requirement: Each version row surfaces content, timestamp, author deep-link, and a location-change indicator only
 
-The system SHALL render, per version, the content, the `edited_at` timestamp (live version uses `posts.updated_at`/created), and the editing author as a deep-link to `/admin/users?q=`, and SHALL NOT render raw coordinates from `location_snapshot`.
+The system SHALL render, per version, the content, the `edited_at` timestamp (live version uses `posts.updated_at`/created), and the editing author as a deep-link to `/admin/users?q=`, and SHALL NOT render raw coordinates from `location_snapshot`. The location comparison SHALL be reduced to a boolean in the repository/service layer; the view model handed to the template SHALL carry no geography or coordinate field at all.
+
+#### Scenario: The view model carries no geography or coordinate field
+
+- **WHEN** the per-version view model / DTO passed to the template is constructed
+- **THEN** it exposes only a boolean location-change flag (and no `GEOGRAPHY`, latitude, longitude, or coordinate string), so coordinates cannot leak via the template, an HTMX `hx-vals`, a debug attribute, or a serialized JSON island
 
 #### Scenario: Author deep-links to the shipped user lookup
 
 - **WHEN** a version row is rendered
 - **THEN** the editing author is a link to `/admin/users?q=` for that user
 
+#### Scenario: An author whose account was hard-deleted renders safely
+
+- **WHEN** a version's `edited_by` references a user who has since been hard-deleted
+- **THEN** the author cell renders without error (no exception, no null-pointer) and the deep-link degrades gracefully rather than breaking the page
+
 #### Scenario: Location change is indicated without exposing coordinates
 
 - **WHEN** a snapshot's `location_snapshot` differs from the adjacent newer version's location
 - **THEN** the row shows a neutral "lokasi berubah" indicator and never renders the raw coordinates
+
+#### Scenario: The newest snapshot's location is compared against the live post
+
+- **WHEN** the newest snapshot's `location_snapshot` is evaluated for the location-change indicator
+- **THEN** its comparison baseline is the live `posts` row's location (its adjacent newer version is the live post, not another snapshot), and the comparison still never renders raw coordinates
 
 #### Scenario: Unchanged location shows no location indicator
 
@@ -139,7 +169,7 @@ The system SHALL add only the read route; it SHALL NOT map any mutation method o
 
 ### Requirement: The viewer is accessible to every authenticated admin role
 
-The system SHALL allow any authenticated admin role — including `read_only` — to view the post edit history, consistent with the other read-only admin viewers.
+The system SHALL allow any authenticated admin role — including `read_only` — to view the post edit history, consistent with the other read-only admin viewers. Unlike the chat-message-redaction surface (owner/admin-only because it discloses private 1:1 content), post content and its edit history are public-facing user content, so no private-content disclosure justifies a stricter gate.
 
 #### Scenario: read_only admin can view the history
 
