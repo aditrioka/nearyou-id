@@ -20,7 +20,7 @@ The system SHALL expose a single internal worker endpoint `POST /internal/login-
 
 ### Requirement: Per-user login-source-spread detection over login_events
 
-The sweep SHALL identify each user who has **strictly more than 5 distinct non-NULL `ip_subnet_24` values** in `login_events` within a **trailing one-hour window** measured from a single evaluation instant captured once per sweep. The window predicate SHALL compare `occurred_at` against a bound timestamp parameter (the evaluation instant minus one hour) supplied as a query parameter — it SHALL NOT embed `NOW()` (or any volatile expression) inside any index definition (the sweep adds NO index; it reads via the existing `login_events (user_id, occurred_at DESC)` index). Rows whose `ip_subnet_24` is NULL SHALL be excluded from the distinct count (a NULL subnet is not a distinct location). The threshold (`> 5` distinct subnets) and the window length (1 hour) SHALL be named constants/configuration, not scattered literals, so the cap is tunable without touching query construction.
+The sweep SHALL identify each user who has **strictly more than 5 distinct non-NULL `ip_subnet_24` values** in `login_events` within a **trailing one-hour window** measured from a single evaluation instant captured once per sweep. The window predicate SHALL compare `occurred_at` against a bound timestamp parameter (the evaluation instant minus one hour) supplied as a bound `PreparedStatement` parameter — it SHALL NOT embed `NOW()` (or any volatile expression) inside any index definition (the sweep adds NO index; it reads via the existing `login_events (user_id, occurred_at DESC)` index). Rows whose `ip_subnet_24` is NULL SHALL be excluded from the distinct count (a NULL subnet is not a distinct location). The threshold (`> 5` distinct subnets) and the window length (1 hour) SHALL be named constants/configuration, not scattered literals, so the cap is tunable without touching query construction.
 
 #### Scenario: Six distinct subnets in the window flags the user
 - **GIVEN** a user with 6 `login_events` rows in the trailing hour, each carrying a distinct `ip_subnet_24`
@@ -55,6 +55,11 @@ For each flagged user the sweep SHALL record the anomaly as a `moderation_queue`
 - **GIVEN** a user already carrying one `anomaly_detection` `moderation_queue` row (`target_type='user'`) and still flagged on a later sweep
 - **WHEN** the sweep runs again
 - **THEN** the user still has exactly one such `moderation_queue` row (the `ON CONFLICT DO NOTHING` suppresses the duplicate)
+
+#### Scenario: An already-resolved anomaly row also suppresses re-enqueue
+- **GIVEN** a user whose single `anomaly_detection` `moderation_queue` row (`target_type='user'`) has already been `status='resolved'` by a moderator, and who is flagged again on a later sweep
+- **WHEN** the sweep runs
+- **THEN** no new row is inserted (the `UNIQUE`/`ON CONFLICT` is status-agnostic) AND the existing row's `status` remains `resolved` (re-arming after resolution is out of scope — see design Risks; this is the accepted trade-off, asserted as a guard)
 
 #### Scenario: The notes field carries no PII
 - **WHEN** a flagged user's `moderation_queue` row is recorded with a `notes` summary

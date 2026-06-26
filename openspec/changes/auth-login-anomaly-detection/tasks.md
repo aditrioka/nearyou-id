@@ -7,7 +7,7 @@
 
 - [ ] 2.1 Add a `LoginAnomalyDetectionService` that captures one evaluation instant, calls the repository for flagged users, and for each inserts a `moderation_queue` row (`target_type='user'`, `target_id=user_id`, `trigger='anomaly_detection'`, `status='pending'`, non-PII `notes` = e.g. distinct-subnet count + window) via `INSERT … ON CONFLICT (target_type, target_id, trigger) DO NOTHING`.
 - [ ] 2.2 Make the per-user record step fail-soft: catch + log (PII-free) a single user's insert failure and continue the sweep; return a summary (evaluated/flagged/recorded counts).
-- [ ] 2.3 Enforce PII discipline: `notes` and all log lines carry no IP / `ip_subnet_24` / `identifier_hash` value (only counts + `user_id`).
+- [ ] 2.3 Enforce PII discipline: `notes` and all log lines carry no IP / `ip_subnet_24` / `identifier_hash` value (only counts + `user_id`). Mark the `moderation_queue` insert site with a one-line code comment recording the non-PII `notes` contract (the guard is a test, not a lint rule — the comment prevents a future-edit regression).
 
 ## 3. Internal worker route (OIDC-gated)
 
@@ -22,14 +22,15 @@
 
 ## 5. Tests (Kotest; DB-tagged where they touch Postgres)
 
-- [ ] 5.1 Detection threshold boundary: 5 distinct subnets in-window → user NOT flagged; 6 → flagged.
+- [ ] 5.1 Detection threshold boundary: 5 distinct subnets in-window → user NOT flagged; 6 → flagged. Include a `COUNT(DISTINCT)`-not-`COUNT(*)` guard: many rows repeating only 3 distinct subnets → count is 3 → NOT flagged.
 - [ ] 5.2 NULL-subnet exclusion: 5 non-NULL distinct + N NULL-subnet rows → count is 5 → NOT flagged.
-- [ ] 5.3 Window correctness: distinct-subnet rows older than the trailing hour are not counted.
-- [ ] 5.4 Idempotency: two consecutive sweeps over a still-flagged user → exactly one `anomaly_detection` `moderation_queue` row (`ON CONFLICT DO NOTHING`).
+- [ ] 5.3 Window correctness: distinct-subnet rows older than the trailing hour are not counted. Include the boundary-spread sub-case: 4 distinct subnets in-window + 3 expired = 4 counted → NOT flagged (the single captured eval-instant makes this deterministic).
+- [ ] 5.4 Idempotency: two consecutive sweeps over a still-flagged user → exactly one `anomaly_detection` `moderation_queue` row (`ON CONFLICT DO NOTHING`). Add the accepted-trade-off guard: a pre-existing `status='resolved'` `anomaly_detection` row also suppresses re-enqueue and is left `resolved` (backs the "already-resolved anomaly row also suppresses re-enqueue" scenario).
 - [ ] 5.5 Recorded-row shape: a flagged user yields one row with `target_type='user'`, `trigger='anomaly_detection'`, `status='pending'`.
 - [ ] 5.6 No-PII discipline: the recorded `notes` AND the worker/service/repository log lines (captured via a test logger on both the success and error paths) contain no IP / `ip_subnet_24` value / identifier hash (backs the "no PII in notes" + "no subnet or IP value appears in logs" scenarios).
 - [ ] 5.7 Fail-soft sweep: with 3 flagged users where user #2's insert throws, users #1 and #3 are still recorded and the run does not 500 on that single error.
-- [ ] 5.8 Route OIDC gate: `POST /internal/login-anomaly-check` without a valid OIDC bearer → `401` and no sweep/write; with a valid bearer → `200` + JSON summary.
+- [ ] 5.8 Route OIDC gate: `POST /internal/login-anomaly-check` without a valid OIDC bearer → `401` AND a seeded flaggable user has NO `moderation_queue` row after the call (assert the sweep did not run); with a valid bearer → `200` + JSON summary.
+- [ ] 5.8a Empty sweep: with no users meeting the threshold → `200` + a zero-count summary AND no `moderation_queue` row is written (guards the summary-shape + no-spurious-write contract).
 - [ ] 5.9 Internal-routing isolation: the login-anomaly-check OIDC gate does not 401 a sibling internal route using a different auth scheme (extend / mirror `InternalRoutingIsolationTest`).
 - [ ] 5.10 Use deterministic test inputs against the seeded reference tables (per project.md Test-data conventions); DB-touching specs are `database`-tagged and the pool autoCloses per docs/11 §3.2 (CI connection-budget).
 - [ ] 5.11 Scope + output guard (backs the "computes only the subnet-spread signal / emits only the moderation_queue row / no Sentry-Slack alert" and "durable signal produced but no admin UI" negative-guard scenarios): assert the sweep's only persisted anomaly output is the `moderation_queue` row — it writes NO `reports` row and touches no other table for the anomaly — and that no Sentry/Slack/alert-dispatch dependency is wired into the service. (The "adds no admin HTML/Pebble route" half is verified structurally by the diff in task 4.1, not a runtime test.)
