@@ -4,14 +4,18 @@ import id.nearyou.app.account.DataExportProcessOutcome
 import id.nearyou.app.account.DataExportSingleProcessor
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.ratelimit.DataExportTriggerRateLimiter
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.sql.SQLException
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
 import javax.sql.DataSource
+
+private val logger = LoggerFactory.getLogger("id.nearyou.app.admin.dataexportqueue.DataExportQueueRepository")
 
 /**
  * Read + write repository for the Data Export Queue (`admin-data-export-queue`
@@ -216,7 +220,24 @@ class DataExportQueueRepository(
 
         // The transition + audit are committed. Drive the producer pipeline for this one
         // id OUTSIDE the transaction (its claim guard serializes against the scheduler).
-        val processOutcome = processor.processSingle(requestId)
+        // A post-commit drive failure does NOT undo the committed transition/audit — the
+        // audit is keyed on the trigger CAUSING the transition, not the delivery outcome
+        // (design Risk §). The producer seam already fail-softs the common gather/upload
+        // failure to FAILED; this maps any OTHER post-commit throw (e.g. a claim/notify SQL
+        // failure) to FAILED too, so the operator sees an honest FAILED queue page rather
+        // than a 500. Cancellation still propagates.
+        val processOutcome =
+            runCatching { processor.processSingle(requestId) }
+                .getOrElse { e ->
+                    if (e is CancellationException) throw e
+                    logger.warn(
+                        "event=data_export_trigger_drive_failed request_id={} error_class={}",
+                        requestId,
+                        e::class.simpleName,
+                        e,
+                    )
+                    DataExportProcessOutcome.FAILED
+                }
         return TriggerOutcome.Triggered(beforeStatus = prepared, processOutcome = processOutcome)
     }
 

@@ -785,6 +785,27 @@ class DataExportWorkerTest : StringSpec({
         notificationCount(uid) shouldBe 0
     }
 
+    "2.2 execute() drains its whole pending snapshot through the seam (two requests → both ready)" {
+        // Proves the batch run processes its pending set via the same single-request seam
+        // (account-data-export spec "The batch worker uses the same seam") — two distinct
+        // users' pending requests both reach ready in one execute() pass.
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val u1 = seedUser()
+        val u2 = seedUser()
+        val r1 = seedPendingRequest(u1)
+        val r2 = seedPendingRequest(u2)
+
+        val result = runBlocking { worker(store, email).execute() }
+
+        result.readyCount shouldBe 2
+        result.processedCount shouldBe 2
+        statusOf(r1) shouldBe "ready"
+        statusOf(r2) shouldBe "ready"
+        notificationCount(u1) shouldBe 1
+        notificationCount(u2) shouldBe 1
+    }
+
     "2.2 processSingle fail-soft: gather/upload failure → failed + attempt_count++, no ready/notification" {
         val store = CapturingObjectStore(throwOnPut = true)
         val email = RecordingEmailSender()
