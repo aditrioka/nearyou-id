@@ -2,6 +2,8 @@ package id.nearyou.app.chat
 
 import id.nearyou.app.core.domain.lint.AllowContentWriteWithoutModeration
 import id.nearyou.app.infra.db.UserPairLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.Timestamp
@@ -45,6 +47,14 @@ class NotParticipantException : RuntimeException("not_participant")
 
 class ConversationNotFoundException : RuntimeException("conversation_not_found")
 
+/**
+ * The `embedded_post_id` on a send did not resolve to a post the sender can see (unknown /
+ * soft-deleted / blocked-either-direction / shadow-banned-author-and-sender-is-not-author /
+ * auto-hidden). The route maps this to the project constant-404 so a forbidden post is
+ * indistinguishable from a non-existent one (`chat-embedded-posts` visibility requirement).
+ */
+class EmbeddedPostNotFoundException : RuntimeException("embedded_post_not_found")
+
 data class ConversationRow(
     val id: UUID,
     val createdAt: Instant,
@@ -81,6 +91,28 @@ data class ChatMessageRow(
     val content: String?,
     val createdAt: Instant,
     val redactedAt: Instant?,
+    // chat-embedded-posts: populated only for an embed message (NULL for a plain text /
+    // redacted message). `embeddedPostId` is the source post UUID (or NULL after the source
+    // post is hard-deleted via the ON DELETE SET NULL FK); `embeddedPostSnapshot` is the
+    // self-contained coordinate-free snapshot JSONB; `embeddedPostEditId` is the
+    // version-at-share-time anchor (latest `post_edits.id`, NULL when the post was unedited).
+    val embeddedPostId: UUID? = null,
+    val embeddedPostSnapshot: JsonElement? = null,
+    val embeddedPostEditId: UUID? = null,
+)
+
+/**
+ * Server-built embed payload for a share-a-post-to-chat send (`chat-embedded-posts`). The
+ * service resolves the post for the sender (visibility-respecting) and serializes
+ * [snapshotJson] (the coordinate-free `embedded_post_snapshot`) before persistence; the
+ * repository writes the three columns in the same INSERT as the chat row.
+ */
+data class EmbeddedPostData(
+    val postId: UUID,
+    /** Raw JSON text of the snapshot, cast to `jsonb` in the INSERT. */
+    val snapshotJson: String,
+    /** Version-at-share-time anchor: the post's latest `post_edits.id`, NULL when unedited. */
+    val editId: UUID?,
 )
 
 open class ChatRepository(
@@ -280,7 +312,10 @@ open class ChatRepository(
                                cm.sender_id,
                                cm.content,
                                cm.created_at,
-                               cm.redacted_at
+                               cm.redacted_at,
+                               cm.embedded_post_id,
+                               cm.embedded_post_snapshot,
+                               cm.embedded_post_edit_id
                           FROM chat_messages cm
                          WHERE cm.conversation_id = ?
                            AND (
@@ -342,7 +377,8 @@ open class ChatRepository(
     open fun sendMessage(
         conversationId: UUID,
         senderId: UUID,
-        content: String,
+        content: String?,
+        embed: EmbeddedPostData? = null,
         emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)? = null,
         preInsertHookInTx: ((Connection) -> Unit)? = null,
         afterInsertHookInTx: ((Connection, ChatMessageRow) -> Unit)? = null,
@@ -363,8 +399,10 @@ open class ChatRepository(
                 // Pre-INSERT hook (per content-moderation-keyword-lists spec — runs AFTER
                 // block check, BEFORE chat_messages INSERT). Throwing rolls back the whole
                 // transaction (no chat_messages row, no last_message_at bump, no broadcast).
+                // For an embed-only send (content NULL) the service passes a null hook — the
+                // snapshot content already passed moderation at post-creation time.
                 preInsertHookInTx?.invoke(conn)
-                val row = insertChatMessage(conn, conversationId, senderId, content)
+                val row = insertChatMessage(conn, conversationId, senderId, content, embed)
                 // After-INSERT hook (writes the moderation_queue row for Verdict.Flag in
                 // the same transaction — tx atomicity per content-moderation-keyword-lists
                 // chat-conversations spec scenario "Flag transaction is atomic"). Runs
@@ -528,7 +566,8 @@ open class ChatRepository(
             """
             INSERT INTO chat_messages (conversation_id, sender_id, content, embedded_post_snapshot)
             VALUES (?, ?, NULL, ?::jsonb)
-            RETURNING id, conversation_id, sender_id, content, created_at, redacted_at
+            RETURNING id, conversation_id, sender_id, content, created_at, redacted_at,
+                      embedded_post_id, embedded_post_snapshot, embedded_post_edit_id
             """.trimIndent(),
         ).use { ps ->
             ps.setObject(1, conversationId)
@@ -717,24 +756,32 @@ open class ChatRepository(
     }
 
     // Moderation runs in ChatService's pre-insert hook (in the same tx) BEFORE this
-    // sink is reached — see ChatModerationIntegrationTest's call-order source scan.
+    // sink is reached — see ChatModerationIntegrationTest's call-order source scan. The
+    // embedded snapshot ([embed]) copies content that ALREADY passed Layer 1/2 moderation
+    // at post-creation time, so the JSONB write needs no separate moderation pass.
     @AllowContentWriteWithoutModeration("service_layer_moderated")
     private fun insertChatMessage(
         conn: Connection,
         conversationId: UUID,
         senderId: UUID,
-        content: String,
+        content: String?,
+        embed: EmbeddedPostData?,
     ): ChatMessageRow {
         conn.prepareStatement(
             """
-            INSERT INTO chat_messages (conversation_id, sender_id, content)
-            VALUES (?, ?, ?)
-            RETURNING id, conversation_id, sender_id, content, created_at, redacted_at
+            INSERT INTO chat_messages
+                (conversation_id, sender_id, content, embedded_post_id, embedded_post_snapshot, embedded_post_edit_id)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?)
+            RETURNING id, conversation_id, sender_id, content, created_at, redacted_at,
+                      embedded_post_id, embedded_post_snapshot, embedded_post_edit_id
             """.trimIndent(),
         ).use { ps ->
             ps.setObject(1, conversationId)
             ps.setObject(2, senderId)
             ps.setString(3, content)
+            ps.setObject(4, embed?.postId)
+            ps.setString(5, embed?.snapshotJson)
+            ps.setObject(6, embed?.editId)
             ps.executeQuery().use { rs ->
                 check(rs.next()) { "INSERT ... RETURNING produced no row" }
                 return rs.toChatMessageRow()
@@ -762,5 +809,9 @@ open class ChatRepository(
             content = getString("content"),
             createdAt = getTimestamp("created_at").toInstant(),
             redactedAt = getTimestamp("redacted_at")?.toInstant(),
+            embeddedPostId = getObject("embedded_post_id", UUID::class.java),
+            embeddedPostSnapshot =
+                getString("embedded_post_snapshot")?.let { Json.parseToJsonElement(it) },
+            embeddedPostEditId = getObject("embedded_post_edit_id", UUID::class.java),
         )
 }
