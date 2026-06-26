@@ -26,9 +26,10 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.toJavaUuid
 
 /**
- * Post creation orchestration — length guard → coord envelope → text moderation →
- * UUIDv7 → HMAC jitter → single-INSERT (+ optional moderation_queue row in same
- * transaction on Verdict.Flag).
+ * Post creation orchestration — length guard → coord envelope → daily cap (Free) →
+ * text moderation → UUIDv7 → HMAC jitter → per-area density gate → single-INSERT
+ * (+ optional moderation_queue row in same transaction on Verdict.Flag and/or the
+ * Layer 4 area-density `area_spam` soft flag).
  *
  * The text-moderation gate runs AFTER the existing length validation (a 281-char
  * payload is rejected by the length guard before consuming Redis/Remote Config
@@ -54,6 +55,10 @@ class CreatePostService(
     // premium-image-upload-pipeline — owner-validated image attach (null on the text-only
     // path / pre-image test fixtures). Required only when create() is called with an imageId.
     private val imageUploads: ImageUploadRepository? = null,
+    // docs/05 § Layer 4 per-area density gate — flags the next post in an over-dense
+    // ~1.1 km cell (50/1h) to manual review, ALL tiers (post-area-density-cap). The
+    // default keeps pre-gate fixtures constructing (in-memory limiter, fresh counter).
+    private val areaDensityLimiter: AreaPostDensityLimiter = AreaPostDensityLimiter(),
     // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
     private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -125,8 +130,21 @@ class CreatePostService(
         // 5. Fuzz the coordinate deterministically — docs/05 § Coordinate Fuzzing.
         val display = JitterEngine.offsetByBearing(LatLng(latitude, longitude), kotlinUuid, jitterSecret)
 
-        // 6. Single-INSERT transaction (+ moderation_queue row on Flag) — on the
-        //    pool-bounded dispatcher (docs/11 §3.2; 02-H2).
+        // 5.5. Per-area density gate — docs/05 § Layer 4 (post-area-density-cap).
+        //    AFTER the moderator Reject short-circuit (a rejected, never-created post
+        //    neither counts toward area density nor produces a queue row — design
+        //    Decision 7) AND AFTER display derivation it keys on, BEFORE the INSERT.
+        //    Keys on the fuzzed `display` coordinate (NEVER actual — spatial-fuzzing
+        //    invariant). Applies to ALL tiers (area-keyed, Premium NOT exempt). The
+        //    INCR runs on the bounded dispatcher; OverThreshold drives a same-tx
+        //    moderation_queue write below — NEVER a 429 (soft flag, not reject).
+        val areaOutcome =
+            withContext(dbDispatcher) {
+                areaDensityLimiter.tryAcquire(display.lat, display.lng)
+            }
+
+        // 6. Single-INSERT transaction (+ moderation_queue row on Flag / area_spam) —
+        //    on the pool-bounded dispatcher (docs/11 §3.2; 02-H2).
         withContext(dbDispatcher) {
             dataSource.connection.use { conn ->
                 conn.autoCommit = false
@@ -165,6 +183,17 @@ class CreatePostService(
                     )
                     if (verdict is Verdict.Flag) {
                         moderationQueue.upsertUuIteKeywordMatchRow(
+                            conn = conn,
+                            targetType = ReportTargetType.POST,
+                            targetId = postId,
+                        )
+                    }
+                    // Area-density soft flag — composes with the Flag write above
+                    // (both may fire → two rows, one per trigger). Idempotent via
+                    // ON CONFLICT (target_type, target_id, trigger) DO NOTHING. The
+                    // post stays visible (is_auto_hidden untouched → FALSE).
+                    if (areaOutcome is AreaPostDensityLimiter.Outcome.OverThreshold) {
+                        moderationQueue.upsertAreaSpamRow(
                             conn = conn,
                             targetType = ReportTargetType.POST,
                             targetId = postId,

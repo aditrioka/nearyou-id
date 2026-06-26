@@ -1327,7 +1327,7 @@ Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (
 
 ### Layer 4: Per Area (anti local spam)
 
-Max 50 new posts in a 1km radius / 1h (via `display_location` spatial query). Threshold hit → manual review. Redis INCR + EXPIRE counter.
+Max 50 new posts per ~1.1 km **geocell** / rolling 1 h. The cell is the post's `display_location` (the HMAC-fuzzed coordinate — never `actual_location`) rounded to a 0.01° lat/lng grid (≈ 1.1 km per side at Indonesian latitudes), counted by the shared Redis-backed sliding-window rate limiter (`AreaPostDensityLimiter` → `RateLimiter.tryAcquireByKey`, key `{scope:area_post}:{cell:<lat>_<lng>}`, capacity 50, window 1 h — no PostGIS query on the hot write path). The 51st post in a cell/window (`count > 50`) is routed to manual review: a `moderation_queue` row with `trigger = 'area_spam'` written in the same transaction as the post INSERT. **Soft flag, not a reject** — the post is still created and returned `201`, stays visible (`is_auto_hidden = FALSE`), and the poster is not told (anti-probing). Applies to ALL tiers (area-keyed, not user-keyed — Premium is NOT exempt, unlike the Layer 2 daily cap). Shipped by `post-area-density-cap` (V36 enum extension); the sliding window supersedes the earlier literal "INCR + EXPIRE" fixed counter (no boundary-reset gaming).
 
 ---
 
