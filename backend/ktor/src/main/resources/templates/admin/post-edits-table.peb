@@ -1,0 +1,70 @@
+{# Swappable post-edit-history fragment. Rendered standalone for HTMX requests
+   (HX-Request: true) and {% include %}d by post-edits.peb for full-page
+   navigation. The #post-edits-table id is the hx-target swapped in place.
+
+   Layout follows admin mockup frame 8: the live ("Versi terbaru") version as a
+   .cardlet on top, then the prior snapshots in a .tbl, then an info banner. The
+   live cardlet renders on the FIRST page only (the route omits `liveVersion`
+   when a cursor is present), so paginating "older" continues with snapshots
+   alone — the live version never repeats on a later page.
+
+   Every value is Pebble-autoescaped on output — NO `raw` filter on any value.
+   Escaping is LOAD-BEARING: `content` and the author display are user-controlled,
+   so markup is entity-encoded, never executed.
+
+   Location (design D4): each row may carry a neutral "lokasi berubah" chip when
+   `locationChanged` is set. The raw coordinates are NEVER rendered — the model
+   carries only the boolean (the geography is reduced to it in SQL). #}
+<div id="post-edits-table">
+{% if not found %}
+    <p class="empty-state">Post tidak ditemukan atau sudah dihapus permanen — tidak ada riwayat untuk ditampilkan.</p>
+{% else %}
+    {% if liveVersion is not null %}
+    <div class="cardlet">
+        <h4>{{ liveVersion.versionLabel }} · {{ liveVersion.editedAt }}</h4>
+        <p>{{ liveVersion.content }}</p>
+        <p class="sub">oleh <a href="{{ liveVersion.authorUrl }}">{{ liveVersion.authorDisplay }}</a></p>
+    </div>
+    {% endif %}
+
+    {% if snapshots is not empty %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th style="width:96px;">Versi</th>
+                <th>Edited at (UTC)</th>
+                <th>Author</th>
+                <th>Body snapshot</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for v in snapshots %}
+            <tr>
+                <td><b>{{ v.versionLabel }}</b></td>
+                <td>{{ v.editedAt }}</td>
+                <td><a href="{{ v.authorUrl }}">{{ v.authorDisplay }}</a></td>
+                <td>{{ v.content }}{% if v.locationChanged %} <span class="st info">lokasi berubah</span>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% endif %}
+
+    {% if showNoHistoryNote %}
+    <p class="empty-state">Belum ada riwayat edit — hanya versi terbaru yang tersedia.</p>
+    {% endif %}
+
+    {% if olderUrl is not null %}
+    <div class="pager">
+        <a class="pagination-older"
+           href="{{ olderUrl }}"
+           hx-get="{{ olderUrl }}"
+           hx-target="#post-edits-table"
+           hx-swap="outerHTML"
+           hx-push-url="true">Load older</a>
+    </div>
+    {% endif %}
+{% endif %}
+</div>
