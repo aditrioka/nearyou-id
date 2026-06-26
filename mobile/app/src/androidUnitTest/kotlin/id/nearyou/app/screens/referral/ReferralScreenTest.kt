@@ -9,6 +9,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.referral.ReferralState
 import id.nearyou.app.theme.NearYouTheme
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -25,10 +26,31 @@ private const val COPY_ACTION = "Salin kode"
 private const val PROGRESS_3_OF_5 = "3 dari 5"
 private const val REWARD_UNLOCKED = "Hadiah inviter sudah kamu klaim. Terima kasih sudah mengajak teman!"
 private const val PAYWALL_CTA = "Aktifkan Premium" // cta_activate_premium — must NOT appear (open to all)
+private const val LOADING = "Sedang memuat…"
+private const val ERROR_TEXT = "Ada yang salah. Coba lagi sebentar."
+private const val RETRY = "Coba lagi"
+
+/** A loaded-state fixture for the loading/error render tests (matches the "a3f7k2mq" assertions). */
+private fun sampleLoaded() = ReferralState(inviteCode = "a3f7k2mq", grantedReferrals = 3, milestone = 5, inviterRewardClaimed = false)
 
 /** A fixed-state [ReferralRepository] for the screen render tests. */
 private class FixedReferralRepository(private val state: ReferralState?) : ReferralRepository {
     override suspend fun loadState(): ReferralState? = state
+}
+
+/** A [ReferralRepository] returning [results] in order (last repeats); optional [gate] suspends each call. */
+private class GatedReferralRepository(
+    private val results: List<ReferralState?>,
+    private val gate: CompletableDeferred<Unit>? = null,
+) : ReferralRepository {
+    private var calls = 0
+
+    override suspend fun loadState(): ReferralState? {
+        gate?.await()
+        val index = calls.coerceAtMost(results.lastIndex)
+        calls++
+        return results[index]
+    }
 }
 
 /**
@@ -43,12 +65,14 @@ private class FixedReferralRepository(private val state: ReferralState?) : Refer
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)
 class ReferralScreenTest {
-    private fun installKoin(state: ReferralState?) {
+    private fun installRepo(repo: ReferralRepository) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         startKoin {
-            modules(module { single<ReferralRepository> { FixedReferralRepository(state) } })
+            modules(module { single<ReferralRepository> { repo } })
         }
     }
+
+    private fun installKoin(state: ReferralState?) = installRepo(FixedReferralRepository(state))
 
     @AfterTest
     fun tearDown() {
@@ -87,6 +111,33 @@ class ReferralScreenTest {
             onNodeWithText(COPY_ACTION).performClick()
             waitForIdle()
             assertEquals("a3f7k2mq", clipboard?.getText()?.text, "the copy action places the invite code on the clipboard")
+        }
+    }
+
+    @Test
+    fun loading_showsTheLoadingMessage() {
+        // A gated repository that never completes keeps the screen in the loading state.
+        installRepo(GatedReferralRepository(listOf(sampleLoaded()), gate = CompletableDeferred()))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ReferralScreen(onBack = {}) } } }
+            waitForIdle()
+            onNodeWithText(LOADING).assertExists()
+            onNodeWithText(COPY_ACTION).assertDoesNotExist() // no loaded content yet
+        }
+    }
+
+    @Test
+    fun error_showsRetry_andRetryReFetchesAndLoads() {
+        // First load fails (null → Error); tapping "Coba lagi" re-fetches and the second load succeeds.
+        installRepo(GatedReferralRepository(listOf(null, sampleLoaded())))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ReferralScreen(onBack = {}) } } }
+            waitForIdle()
+            onNodeWithText(ERROR_TEXT).assertExists()
+            onNodeWithText(RETRY).assertExists().performClick()
+            waitForIdle()
+            onNodeWithText("a3f7k2mq").assertExists() // the retry re-fetch loaded the code
+            onNodeWithText(ERROR_TEXT).assertDoesNotExist()
         }
     }
 

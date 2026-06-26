@@ -33,6 +33,25 @@ private class FakeReferralRepository(
     }
 }
 
+/** First call awaits [gate] then returns [first]; every later call returns [second] immediately. */
+private class FirstCallGatedReferralRepository(
+    private val first: ReferralState,
+    private val second: ReferralState,
+    private val gate: CompletableDeferred<Unit>,
+) : ReferralRepository {
+    private var calls = 0
+
+    override suspend fun loadState(): ReferralState? {
+        val n = ++calls
+        return if (n == 1) {
+            gate.await()
+            first
+        } else {
+            second
+        }
+    }
+}
+
 private val sampleState = ReferralState(inviteCode = "a3f7k2mq", grantedReferrals = 3, milestone = 5, inviterRewardClaimed = false)
 
 /**
@@ -85,6 +104,34 @@ class ReferralViewModelTest {
             backgroundScope.launch { viewModel.uiState.collect {} }
             advanceUntilIdle()
             assertEquals(ReferralUiState.Error, viewModel.uiState.value, "a failed fetch lands on Error (no crash)")
+        }
+
+    @Test
+    fun retry_isSingleFlight_aCancelledLoadDoesNotOverwriteTheLaterOne() =
+        runTest(dispatcher) {
+            // The first load suspends at the gate; retry() cancels it and launches a second load that
+            // resolves immediately. Completing the gate afterwards must NOT resurrect the first load's
+            // result over the second's (the single-flight fetchJob cancellation).
+            val gate = CompletableDeferred<Unit>()
+            val first = ReferralState(inviteCode = "AAA", grantedReferrals = 1, milestone = 5, inviterRewardClaimed = false)
+            val second = ReferralState(inviteCode = "BBB", grantedReferrals = 2, milestone = 5, inviterRewardClaimed = true)
+            val repo = FirstCallGatedReferralRepository(first, second, gate)
+            val viewModel = ReferralViewModel(repo)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertEquals(ReferralUiState.Loading, viewModel.uiState.value, "the first load is suspended at the gate")
+
+            viewModel.retry() // cancels the gated first load; the second load resolves immediately
+            advanceUntilIdle()
+            assertEquals("BBB", (viewModel.uiState.value as ReferralUiState.Loaded).inviteCode)
+
+            gate.complete(Unit) // would resume the cancelled first load if it were not single-flighted
+            advanceUntilIdle()
+            assertEquals(
+                "BBB",
+                (viewModel.uiState.value as ReferralUiState.Loaded).inviteCode,
+                "the cancelled first load must not overwrite the second",
+            )
         }
 
     @Test

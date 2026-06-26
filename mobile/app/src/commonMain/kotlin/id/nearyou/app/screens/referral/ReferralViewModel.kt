@@ -3,6 +3,7 @@ package id.nearyou.app.screens.referral
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.referral.ReferralRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +37,10 @@ class ReferralViewModel(
 ) : ViewModel() {
     private val state = MutableStateFlow<ReferralUiState>(ReferralUiState.Loading)
 
+    /** The in-flight load, cancelled+replaced by each [fetch] so a [retry] can never last-writer-win
+     *  over an earlier load (single-flight — safe even if retry is later wired from a non-terminal state). */
+    private var fetchJob: Job? = null
+
     val uiState: StateFlow<ReferralUiState> =
         state.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReferralUiState.Loading)
 
@@ -47,20 +52,22 @@ class ReferralViewModel(
     fun retry() = fetch()
 
     private fun fetch() {
+        fetchJob?.cancel()
         state.value = ReferralUiState.Loading
-        viewModelScope.launch {
-            val loaded = repository.loadState()
-            state.value =
-                if (loaded != null) {
-                    ReferralUiState.Loaded(
-                        inviteCode = loaded.inviteCode,
-                        grantedReferrals = loaded.grantedReferrals,
-                        milestone = loaded.milestone,
-                        inviterRewardClaimed = loaded.inviterRewardClaimed,
-                    )
-                } else {
-                    ReferralUiState.Error
-                }
-        }
+        fetchJob =
+            viewModelScope.launch {
+                val loaded = repository.loadState()
+                state.value =
+                    if (loaded != null) {
+                        ReferralUiState.Loaded(
+                            inviteCode = loaded.inviteCode,
+                            grantedReferrals = loaded.grantedReferrals,
+                            milestone = loaded.milestone,
+                            inviterRewardClaimed = loaded.inviterRewardClaimed,
+                        )
+                    } else {
+                        ReferralUiState.Error
+                    }
+            }
     }
 }
