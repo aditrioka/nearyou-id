@@ -33,5 +33,5 @@
 
 - [x] 6.1 `openspec validate appeal-sign-in-ban-distinction --strict` passes (deltas for `auth-signin`, `mobile-auth-signin`, `mobile-appeal`).
 - [x] 6.2 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
-- [ ] 6.3 PR body closes #391 and #187 (repeat the closing keyword per issue). Verify post-merge with `gh issue view`.
+- [x] 6.3 PR body closes #391 and #187 (repeat the closing keyword per issue). Verify post-merge with `gh issue view`.
 - [ ] 6.4 Manual verification (DoD): sign in as a suspended test user → suspension copy + appeal entry; as a permanently-banned user → support copy, no entry. Capture evidence per `docs/11` § 5.
