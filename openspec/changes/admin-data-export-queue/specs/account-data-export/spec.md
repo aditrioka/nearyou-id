@@ -21,3 +21,11 @@ The data-export worker SHALL expose a **single-request processing seam** that dr
 #### Scenario: The batch worker uses the same seam
 - **WHEN** the batch `/internal/data-export-worker` run processes its pending snapshot
 - **THEN** each request is processed through the same single-request seam (no separate batch-only export code path)
+
+## REMOVED Requirements
+
+### Requirement: Admin Data Export Queue surface is deferred (out of scope)
+
+**Reason**: This change ships the admin Data Export Queue surface (the `/admin/data-exports` read + the `POST …/{id}/trigger` action) — the very surface this requirement asserted would NOT exist. Leaving it in place would leave a stale "no `/admin/*` route" requirement contradicting the shipped surface (the `Mobile Settings entry is deferred` requirement is **retained** — that layer is still genuinely deferred to #362).
+
+**Migration**: The admin surface's behavior is now specified by the new `admin-data-export-queue` capability spec; the producer's reusable single-request seam (consumed by the admin trigger) is specified by the ADDED requirement above. The tracking issue #361 is closed on archive of this change.

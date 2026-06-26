@@ -50,7 +50,7 @@ The list SHALL accept composable parameterized filters: `status` (one of the fiv
 
 ### Requirement: Admin can trigger a re-run of a stalled or failed export
 
-The admin panel SHALL serve `POST /admin/data-exports/{id}/trigger` that re-runs the export for a stalled or failed request **through the existing producer pipeline** (the `account-data-export` single-request processing seam) — it MUST NOT implement a second, divergent export path. The action SHALL be gated in this order: (1) CSRF token verified against the session (mismatch → `403` + an `admin_csrf_violation` audit entry, no mutation); (2) role `IN ('owner','admin')`; (3) a non-empty **reason** is required; (4) a **distinct** rate-limit bucket of **10 triggers per admin per hour**, independent of the 20/hour destructive-action budget (sourced from the audit-trail-as-ledger counter). On success it SHALL re-enqueue the row to `pending` where needed and drive the single-request pipeline, and write **exactly one** immutable `admin_actions_log` row with `action_type = 'data_export_triggered'` carrying before/after status snapshots — the audit write and the state transition in one transaction. The UI control SHALL be `hx-confirm`-guarded.
+The admin panel SHALL serve `POST /admin/data-exports/{id}/trigger` that re-runs the export for a stalled or failed request **through the existing producer pipeline** (the `account-data-export` single-request processing seam) — it MUST NOT implement a second, divergent export path. The action SHALL be gated in this order: (1) CSRF token verified against the session (mismatch → `403` + an `admin_csrf_violation` audit entry, no mutation); (2) role `IN ('owner','admin')`; (3) a non-empty **reason** is required; (4) a **distinct** rate-limit bucket of **10 triggers per admin per hour**, independent of the 20/hour destructive-action budget (sourced from the audit-trail-as-ledger counter). On a trigger that **causes a state transition** (the row was re-enqueued `failed → pending`, or an already-`pending` row was claimed for processing), it SHALL re-enqueue where needed, drive the single-request pipeline, and write **exactly one** immutable `admin_actions_log` row with `action_type = 'data_export_triggered'` carrying before/after status snapshots. The rate-limit COUNT, the audit-row INSERT, and the state transition SHALL execute on the **same connection in one transaction** (so a concurrent trigger cannot bypass the cap — matching the audit-trail-as-ledger limiter precedent). The audit row is keyed on the *trigger causing the transition*, NOT on the final delivery outcome: if the scheduler races in and claims the re-enqueued row before the synchronous drive (the drive then no-ops as `SKIPPED`), the trigger is still a single successful audited action (the export is delivered by whichever claimant wins). The UI control SHALL be `hx-confirm`-guarded.
 
 #### Scenario: Owner/admin re-runs a failed export
 - **GIVEN** a request in `status = 'failed'`
@@ -80,7 +80,7 @@ The admin panel SHALL serve `POST /admin/data-exports/{id}/trigger` that re-runs
 
 ### Requirement: Trigger on a non-triggerable request is a benign idempotent no-op
 
-A trigger targeting a request that is `processing` (in-flight) or `ready` (download link still valid) SHALL be a benign no-op: no state mutation, no second export job, and **no** `admin_actions_log` row. Re-enqueueing to `pending` SHALL honor the existing one-active partial UNIQUE index `data_export_requests_one_active_idx` (`pending|processing`): when the target user already has another active request, the unique-violation SHALL be caught and mapped to an "already active, no-op" outcome (no exception surfaced to the operator, idempotent), mirroring the hard-delete-queue rejection of ineligible targets. A trigger for an unknown `id` SHALL be a benign no-op (no audit row).
+A trigger targeting a request that is `processing` (in-flight), `ready` (download link still valid), or `expired` SHALL be a benign no-op: no state mutation, no second export job, and **no** `admin_actions_log` row. (`expired` is intentionally non-triggerable — the user self-serves a fresh export via `POST /api/v1/account/export`, which is permitted because `expired` is not an active state; see design Open Questions.) Re-enqueueing to `pending` SHALL honor the existing one-active partial UNIQUE index `data_export_requests_one_active_idx` (`pending|processing`): when the target user already has another active request, the unique-violation SHALL be caught and mapped to an "already active, no-op" outcome (no exception surfaced to the operator, idempotent), mirroring the hard-delete-queue rejection of ineligible targets. A trigger for an unknown `id` SHALL be a benign no-op (no audit row).
 
 #### Scenario: Trigger on a processing row is a no-op
 - **WHEN** a trigger targets a request in `status = 'processing'`
@@ -89,6 +89,10 @@ A trigger targeting a request that is `processing` (in-flight) or `ready` (downl
 #### Scenario: Trigger on a ready row with a valid link is a no-op
 - **WHEN** a trigger targets a `ready` request whose download link has not expired
 - **THEN** nothing is mutated and no audit row is written
+
+#### Scenario: Trigger on an expired row is a no-op
+- **WHEN** a trigger targets a request in `status = 'expired'`
+- **THEN** nothing is mutated, no export job runs, and no audit row is written (the user re-requests via `POST /api/v1/account/export`)
 
 #### Scenario: Re-enqueue that would collide with another active request is mapped to no-op
 - **GIVEN** a `failed` request for a user who already has a separate `pending` request
