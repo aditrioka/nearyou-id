@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!--
+          Google's DOCUMENTED test App ID (mobile-admob-ads-foundation, tasks.md 1.2). The Google Mobile
+          Ads SDK requires this meta-data or MobileAds.initialize() crashes; the test ID lets the
+          staging/debug Test-Lab native-ad render loop run with NO AdMob account approval. Ads ship gated
+          OFF, so initialize() is only ever called when the operator flips `ads_enabled` ON for verification.
+          The OPERATOR overrides this with the real AdMob App ID for production before live serving
+          (per-flavor manifestPlaceholder / tools:replace in :mobile:app) — human-required task in the PR.
+        -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+    </application>
+</manifest>

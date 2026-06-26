@@ -8,6 +8,8 @@ import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.DurableConsentSnapshotStore
 import id.nearyou.app.image.ImagePicker
 import id.nearyou.app.image.IosImagePicker
+import id.nearyou.app.infra.admob.AdProvider
+import id.nearyou.app.infra.admob.IosAdProvider
 import id.nearyou.app.location.IosLocationPermissionController
 import id.nearyou.app.location.IosLocationProvider
 import id.nearyou.app.location.LocationPermissionController
@@ -42,4 +44,8 @@ actual val platformModule: Module =
         // key-window top view controller). The picker needs NO Photo Library permission; the actual
         // downscales + re-encodes the picked image to ≤5 MB JPEG (IosImageCompressor).
         single<ImagePicker> { IosImagePicker() }
+        // mobile-admob-ads-foundation — the iOS Google Mobile Ads + UMP AdProvider actual over the
+        // :infra:admob cocoapods cinterop (vendor SDKs fenced there, invariant #16). The UMP form + ad
+        // loader present from the key-window top view controller (no Context needed).
+        single<AdProvider> { IosAdProvider() }
     }
