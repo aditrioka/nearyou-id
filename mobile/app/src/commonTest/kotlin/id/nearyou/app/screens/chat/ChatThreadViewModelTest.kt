@@ -15,6 +15,7 @@ import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -85,6 +86,17 @@ class ChatThreadViewModelTest {
                 Dispatchers.resetMain()
             }
         }
+
+    // Cancels the VM's viewModelScope (the stateIn share + the realtime loop) the same path Nav3 takes on
+    // route pop — within the test body while Main is still the test dispatcher, so the WhileSubscribed share
+    // is dead before runTest's end-of-test drain (else its stop is scheduled onto a reset Main; the same
+    // teardown realtimeFailureLeavesThreadRestUsable does inline).
+    private fun ChatThreadViewModel.tearDown() {
+        ViewModelStore().apply {
+            put("vm", this@tearDown)
+            clear()
+        }
+    }
 
     @Test
     fun inboundNewIdAppends() =
@@ -226,6 +238,48 @@ class ChatThreadViewModelTest {
             advanceUntilIdle()
             assertEquals(SendOutcome.Blocked, viewModel.sendOutcome.value)
             assertTrue(viewModel.rows.value.isEmpty(), "a blocked send drops the optimistic bubble")
+        }
+
+    // --- single-uiState fold (audit #414): the content uiState delegates to the pure 3-arg projection ---
+
+    @Test
+    fun uiStateDelegatesToPureProjectionAfterLoad() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(dto("m1")), null)))
+            val viewModel = vm(flow, sub)
+            // stateIn(WhileSubscribed) only runs while collected — activate it before reading uiState.value.
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            // The single uiState equals the pure projection over the retained seams (reused, not
+            // reimplemented); after the first resync the initial-load flag is false.
+            assertEquals(
+                chatThreadUiState(viewModel.historyOutcome.value, isInitialLoad = false, rows = viewModel.rows.value),
+                viewModel.uiState.value,
+                "uiState delegates to chatThreadUiState(historyOutcome, isInitialLoad, rows)",
+            )
+            assertTrue(viewModel.uiState.value is ChatThreadUiState.Content, "a loaded history with rows projects to Content")
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun uiStateRetainsContentAcrossFreshCollector() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(dto("m1")), null)))
+            val viewModel = vm(flow, sub)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value is ChatThreadUiState.Content, "loaded → Content")
+            // The config-change proxy: a FRESH collector on the same entry-scoped VM still sees the retained
+            // Content (the VM kept _historyOutcome + _rows), not a reset to Loading.
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertTrue(
+                viewModel.uiState.value is ChatThreadUiState.Content,
+                "a fresh collector still sees the retained Content (not reset to Loading)",
+            )
+            viewModel.tearDown()
         }
 
     // --- mobile-chat-message-report ---

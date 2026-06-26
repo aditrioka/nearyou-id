@@ -135,9 +135,7 @@ fun ChatThreadScreen(
         viewModel {
             ChatThreadViewModel(route.conversationId, flow, subscriber, viewerIdProvider, reportSubmitter)
         }
-    val rows by viewModel.rows.collectAsStateWithLifecycle()
-    val historyOutcome by viewModel.historyOutcome.collectAsStateWithLifecycle()
-    val isInitialLoad by viewModel.isInitialLoad.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val sendOutcome by viewModel.sendOutcome.collectAsStateWithLifecycle()
     val sendInFlight by viewModel.sendInFlight.collectAsStateWithLifecycle()
     val reportTargetMessageId by viewModel.reportTargetMessageId.collectAsStateWithLifecycle()
@@ -186,7 +184,7 @@ fun ChatThreadScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         ChatThreadContent(
             partnerDisplayName = route.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
-            uiState = remember(historyOutcome, isInitialLoad, rows) { chatThreadUiState(historyOutcome, isInitialLoad, rows) },
+            uiState = uiState,
             sendBar = remember(sendOutcome, sendInFlight) { sendBarState(sendOutcome, sendInFlight) },
             input = input,
             onInputChange = { input = it },
