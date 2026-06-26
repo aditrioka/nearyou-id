@@ -2,11 +2,16 @@
 
 ### Requirement: Apple S2S `account-delete` schedules an immediate, non-cancellable deletion and runs it synchronously
 
-When the verified Apple S2S notification at `POST /internal/apple/s2s-notifications` has `type = "account-delete"` (the user deleted their Apple ID entirely), the handler SHALL resolve the Apple `sub` to a user via `sha256Hex(sub)` → `apple_id_hash` → user lookup, INSERT a `deletion_requests` row with `source = 'apple_s2s_account_delete'` and `scheduled_hard_delete_at = NOW()` (no grace), commit that row, and THEN synchronously execute the tombstone + cascade for that row (via the hard-delete worker's per-request executor) before responding `200` to Apple. The synchronous execution MUST reuse the existing hard-delete per-row path (claim `FOR UPDATE SKIP LOCKED`, tombstone, write `deletion_log`, stamp `executed_at`), not a second deletion implementation. The row's `source = 'apple_s2s_account_delete'` MUST be non-cancellable (the existing cancel guard excludes this source).
+When the verified Apple S2S notification at `POST /internal/apple/s2s-notifications` has `type = "account-delete"` (the user deleted their Apple ID entirely), the handler SHALL resolve the Apple `sub` to a live user via `sha256Hex(sub)` → `apple_id_hash` → user lookup, INSERT a `deletion_requests` row with `source = 'apple_s2s_account_delete'` and `scheduled_hard_delete_at = NOW()` (no grace), commit that row, and THEN synchronously execute the tombstone + cascade for that row (via the hard-delete worker's per-request executor) before responding `200` to Apple. The synchronous execution MUST reuse the existing hard-delete per-row path (claim `FOR UPDATE SKIP LOCKED`, tombstone, write `deletion_log`, stamp `executed_at`), not a second deletion implementation. The row's `source = 'apple_s2s_account_delete'` MUST be non-cancellable (the existing cancel guard excludes this source). The immediate `apple_s2s_account_delete` insert MUST NOT be suppressed by a pending-row idempotency guard: Apple requires immediate deletion, so account-delete SHALL always insert its own immediate row and execute it even when the user already has a pending `'user'` or `'apple_s2s_consent_revoked'` deletion row (the account-delete escalates an existing grace to immediate; the now-moot pending row is harmlessly no-op'd by the idempotent worker after the tombstone).
 
 #### Scenario: account-delete inserts an immediate deletion row and tombstones synchronously
 - **WHEN** a verified `account-delete` notification arrives for a `sub` resolving to a live user
 - **THEN** a `deletion_requests` row exists with `source = 'apple_s2s_account_delete'` and `scheduled_hard_delete_at` at (approximately) `NOW()` AND the user is tombstoned (a `deletion_log` row written, `executed_at` stamped) before the handler returns `200`
+
+#### Scenario: account-delete escalates an existing grace to immediate deletion
+- **GIVEN** a user with a pending un-cancelled `'user'` or `'apple_s2s_consent_revoked'` deletion row (30-day grace)
+- **WHEN** a verified `account-delete` notification arrives for that user
+- **THEN** an `apple_s2s_account_delete` row is inserted at `NOW()` and the user is tombstoned immediately (NOT left in the 30-day grace), honoring Apple's immediate-deletion requirement
 
 #### Scenario: account-delete rows are not cancellable
 - **WHEN** a cancel is attempted against a `source = 'apple_s2s_account_delete'` row (e.g. via `DELETE /api/v1/account/deletion-request`)
@@ -27,7 +32,7 @@ Once the `apple_s2s_account_delete` row is durably committed, the deletion is gu
 
 ### Requirement: Apple S2S `consent-revoked` schedules a 30-day cancellable deletion and revokes live sessions
 
-When the verified notification has `type = "consent-revoked"` (the user revoked Sign in with Apple), the handler SHALL resolve the `sub` to a user, INSERT a `deletion_requests` row with `source = 'apple_s2s_consent_revoked'` and `scheduled_hard_delete_at = NOW() + INTERVAL '30 days'` (a cancellable grace, mirroring user-initiated deletion), AND bump that user's `token_version` (`token_version = token_version + 1`) to revoke live sessions, then respond `200`. The 30-day row MUST be cancellable during the grace window (the cancel guard does NOT exclude this source). The pending-row idempotency guard MUST prevent a second pending row when one already exists for the user.
+When the verified notification has `type = "consent-revoked"` (the user revoked Sign in with Apple), the handler SHALL resolve the `sub` to a live user, INSERT a `deletion_requests` row with `source = 'apple_s2s_consent_revoked'` and `scheduled_hard_delete_at = NOW() + INTERVAL '30 days'` (a cancellable grace, mirroring user-initiated deletion), revoke that user's live sessions by bumping `token_version` (`token_version = token_version + 1`, reusing the existing session-kick write), then respond `200`. The session-kick is a **separate** write from the insert — the two are NOT claimed to be a single atomic transaction (each is individually safe-on-retry); the `token_version` bump SHALL fire on **every** `consent-revoked` receipt for a live user, including when the deletion insert is a no-op because a pending row already exists. The 30-day row MUST be cancellable during the grace window (the cancel guard does NOT exclude this source). The deletion insert's pending-row idempotency guard MUST prevent a second pending `deletion_requests` row when one already exists for the user.
 
 #### Scenario: consent-revoked schedules a cancellable 30-day deletion and kicks sessions
 - **WHEN** a verified `consent-revoked` notification arrives for a `sub` resolving to a live user with no pending deletion
@@ -37,22 +42,34 @@ When the verified notification has `type = "consent-revoked"` (the user revoked 
 - **WHEN** the user (re-authenticated) cancels within the grace window
 - **THEN** the `apple_s2s_consent_revoked` row is set `cancelled_at` and the account is restored (the row matches the existing cancel path)
 
-#### Scenario: consent-revoked is idempotent against an existing pending deletion
-- **GIVEN** a user who already has a pending un-cancelled, un-executed deletion row
+#### Scenario: consent-revoked is idempotent against an existing pending deletion but still revokes sessions
+- **GIVEN** a user who already has a pending un-cancelled, un-executed deletion row and a known `token_version`
 - **WHEN** a `consent-revoked` notification arrives for that user
-- **THEN** no second pending `deletion_requests` row is created (the pending-row guard holds)
+- **THEN** no second pending `deletion_requests` row is created (the pending-row guard holds) AND the user's `token_version` is still incremented (sessions kicked on every receipt)
 
-### Requirement: Unknown or already-deleted Apple `sub` resolves gracefully
+### Requirement: Missing or unresolvable Apple `sub` is handled without a write
 
-When a verified `account-delete` or `consent-revoked` notification carries a `sub` that resolves to no live user (unknown `apple_id_hash`, or an already-tombstoned/deleted account), the handler SHALL respond `200` without creating a `deletion_requests` row and without throwing. This keeps the endpoint idempotent (a re-sent notification for an already-deleted user is a safe no-op) and crash-free.
+A verified `account-delete` or `consent-revoked` notification with a **null/absent `sub`** SHALL be rejected with `400` (mirroring the existing `email-enabled`/`email-disabled` missing-`sub` handling), since the user cannot be identified. A verified notification whose `sub` resolves to **no live user** — unknown `apple_id_hash`, or a row whose `deleted_at IS NOT NULL` (already-tombstoned) — SHALL respond `200` without creating a `deletion_requests` row and without throwing. The live-user determination MUST apply a `deleted_at IS NULL` guard at the resolution call site (the `apple_id_hash` lookup does not itself filter tombstoned rows), so a re-sent notification for an already-deleted user is a safe no-op rather than a second row. This keeps the endpoint idempotent and crash-free.
 
-#### Scenario: account-delete for an unknown sub is a safe no-op
-- **WHEN** a verified `account-delete` notification arrives for a `sub` resolving to no live user
+#### Scenario: deletion event with a missing sub returns 400
+- **WHEN** a verified `account-delete` or `consent-revoked` notification has no `sub`
+- **THEN** the handler responds `400` and creates no `deletion_requests` row
+
+#### Scenario: account-delete for an unknown/already-deleted sub is a safe no-op
+- **WHEN** a verified `account-delete` notification arrives for a `sub` resolving to no live user (unknown hash, or `deleted_at IS NOT NULL`)
 - **THEN** the handler responds `200`, no new `deletion_requests` row is created, and no exception propagates
 
-#### Scenario: consent-revoked for an unknown sub is a safe no-op
-- **WHEN** a verified `consent-revoked` notification arrives for a `sub` resolving to no live user
-- **THEN** the handler responds `200`, no new `deletion_requests` row is created, and no exception propagates
+#### Scenario: consent-revoked for an unknown/already-deleted sub is a safe no-op
+- **WHEN** a verified `consent-revoked` notification arrives for a `sub` resolving to no live user (unknown hash, or `deleted_at IS NOT NULL`)
+- **THEN** the handler responds `200`, no new `deletion_requests` row is created, no `token_version` is bumped, and no exception propagates
+
+### Requirement: Apple deletion-event handling logs no PII
+
+Neither deletion handler SHALL write the raw Apple `sub`, the resolved `user_id`/`apple_id_hash`, or any user coordinate to logs or diagnostics on any path (success, no-user no-op, dedup, or synchronous-execution failure). Failure logging SHALL be limited to the event type and an error class, mirroring the existing hard-delete worker logging discipline.
+
+#### Scenario: A synchronous-execution failure logs no PII
+- **WHEN** the synchronous `account-delete` executor throws and the failure is logged
+- **THEN** the log entry contains no raw `sub`, no `user_id`/`apple_id_hash`, and no coordinate (only the event type and an error class)
 
 ### Requirement: Existing Apple S2S behavior (verification, email-relay, dedup) is preserved
 
