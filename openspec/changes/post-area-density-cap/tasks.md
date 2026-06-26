@@ -6,8 +6,8 @@
 
 ## 2. Backend — area-density limiter
 
-- [ ] 2.1 Add `AreaPostDensityLimiter` under `id.nearyou.app.post`, delegating to the shared `RateLimiter` (mirror `PostRateLimiter`'s delegation shape — NOT a parallel Redis-counter mechanism). Key `{scope:area_post}:{cell:<lat>_<lng>}`, capacity `AREA_POST_THRESHOLD = 50`, window `AREA_POST_WINDOW = 1h`. Do NOT call `computeTTLToNextReset` (hourly limit — skips the per-user daily stagger). Expose an outcome of `Allowed | OverThreshold` (NOT a 429-mapped exception).
-- [ ] 2.2 Cell derivation helper: round `display_location` lat/lng to a fixed `AREA_CELL_PRECISION = 0.01°` grid → `"<round(lat,2)>_<round(lng,2)>"`. Read `display_location` (the fuzzed coordinate the create flow already derives), NEVER `actual_location` (spatial-fuzzing invariant). Reuse the `display` value already computed in `CreatePostService` — no recompute.
+- [ ] 2.1 Add `AreaPostDensityLimiter` under `id.nearyou.app.post`, delegating to the shared `RateLimiter` via its **axis-agnostic `tryAcquireByKey(key, capacity, ttl)` entry point** (precedent: `ReferralTicketRateLimiter` — NOT `PostRateLimiter`, whose user-axis `tryAcquire(userId, …)` would attach per-user telemetry/WIB-stagger to an area bucket). NOT a parallel Redis-counter mechanism. Key `{scope:area_post}:{cell:<lat>_<lng>}`, capacity `AREA_POST_THRESHOLD = 50`, window `AREA_POST_WINDOW = 1h` (the non-`_day}` key takes the shared limiter's sliding-window path). Do NOT call `computeTTLToNextReset` (hourly limit — skips the per-user daily stagger). Expose an outcome of `Allowed | OverThreshold` (NOT a 429-mapped exception).
+- [ ] 2.2 Cell derivation helper: round `display_location` lat/lng to a fixed `AREA_CELL_PRECISION = 0.01°` grid, formatted as a **deterministic locale-independent string** (`String.format(Locale.ROOT, "%.2f_%.2f", lat, lng)` or equivalent) so `-6.20` vs `-6.2` can't split a cell. Read `display_location` (the fuzzed coordinate the create flow already derives), NEVER `actual_location` (spatial-fuzzing invariant). Reuse the `display` value already computed in `CreatePostService` — no recompute.
 - [ ] 2.3 Verify the constructed Redis key passes `RedisHashTagRule` (`./gradlew :lint:detekt-rules:test` + `:backend:ktor:detekt`); the two-segment `{scope:area_post}:{cell:...}` shape is mandatory (project memory: Redis hash-tag strict key shape).
 
 ## 3. Backend — CreatePostService integration
@@ -26,13 +26,14 @@
 
 ## 5. Tests — area-density behavior (DB-tagged kotest; `autoClose(hikari())` size 2, docs/11 §3.2)
 
-- [ ] 5.1 Below threshold (50th post in a cell) → 201, no `moderation_queue` row.
-- [ ] 5.2 Over threshold (51st post in a cell) → 201 with canonical payload, `is_auto_hidden=FALSE`, exactly one `moderation_queue` row `trigger='area_spam'`, `status='pending'`.
+- [ ] 5.0 **Test isolation (project memory: post-creating DB tests pollute Nearby/Global/Following suites).** All Phase-5 tests that create 50+ posts MUST pin a dedicated **out-of-band test coordinate** (deep-ocean / outside any timeline suite's seed radius — project.md § Test-data conventions, the `(-10.5, 105.0)` deep-Indian-Ocean precedent) AND clean up the created `posts` rows in teardown (or otherwise assert isolation from the Global/Nearby/Following suites), so the high-volume seeding does not leak into other suites' counts.
+- [ ] 5.1 Below threshold — create exactly 50 posts in one cell within the window; assert the **50th is clean** (201, no `moderation_queue` row). Pin the exact boundary (`count = 50` → clean), not an approximate "well below".
+- [ ] 5.2 Over threshold — create the **51st** post in the same cell/window; assert 201 with canonical payload, `is_auto_hidden=FALSE`, exactly one `moderation_queue` row `trigger='area_spam'`, `status='pending'`. Pin the exact boundary (the row where in-window count becomes 51 is the first flagged), guarding `>` vs `>=` off-by-one.
 - [ ] 5.3 Response wire shape unchanged on a flag (field set identical, no error code, no `Retry-After`).
 - [ ] 5.4 Premium poster is ALSO flagged over threshold (not exempt).
 - [ ] 5.5 Cell isolation — saturating cell A does not flag a below-threshold post in a distinct cell B.
 - [ ] 5.6 Gate keys on `display_location` (not `actual_location`) — assert via the cell the counter increments / a static check that the code path reads `display`.
-- [ ] 5.7 Window expiry — after the 1h window elapses (advance the limiter's clock / TTL), a subsequent post in the same cell is not flagged.
+- [ ] 5.7 Window semantics — (a) **fixed expiry**: after the 1h window fully elapses, a subsequent post in the same cell is not flagged; (b) **sliding aging-out** (pins the chosen sliding-window over a fixed block, design Decision 2): 50 posts at t0 + 1 at t0+59m flags the t0+59m post; a post at t0+61m (t0 posts aged out) is NOT flagged (in-window count = 2). Advance the limiter's injected clock to exercise both.
 - [ ] 5.8 Idempotency — a duplicate `(post, area_spam)` insert leaves exactly one row.
 - [ ] 5.9 Silent to poster — no client-observable signal, no `notifications` row of any area-spam type for the poster.
 - [ ] 5.10 Rejected content (`Verdict.Reject`) → 400, no INSERT, area counter NOT incremented, no `area_spam` row.

@@ -24,7 +24,7 @@ nearyou-id's anti-spam defense is a documented **4-layer architecture** ([`docs/
 
 ## Impact
 
-- **Code**: `backend/ktor/.../post/CreatePostService.kt` (new gate between the daily-cap step and/or the moderator step, plus the same-tx queue write); a new `AreaPostDensityLimiter` (geocell counter, mirroring the `PostRateLimiter` delegation shape) under `id.nearyou.app.post`; the `moderation_queue` insert helper. No route/DTO/wire change — `POST /api/v1/posts` request + `201` response are byte-identical.
+- **Code**: `backend/ktor/.../post/CreatePostService.kt` (new gate between the daily-cap step and/or the moderator step, plus the same-tx queue write); a new `AreaPostDensityLimiter` (geocell counter via the shared `RateLimiter`'s axis-agnostic `tryAcquireByKey` entry point — key-axis precedent `ReferralTicketRateLimiter`, NOT the user-axis `PostRateLimiter`) under `id.nearyou.app.post`; the `moderation_queue` insert helper. No route/DTO/wire change — `POST /api/v1/posts` request + `201` response are byte-identical.
 - **Schema**: Flyway **V36** — `ALTER TABLE moderation_queue DROP CONSTRAINT moderation_queue_trigger_check, ADD CONSTRAINT moderation_queue_trigger_check CHECK (trigger IN (… 8 values …))`. No new tables/columns.
 - **Redis**: one new single-key counter family `{scope:area_post}:{cell:<lat>_<lng>}` (INCR + EXPIRE 3600). Single-key op (no cross-slot multi-key), hash-tag-conformant for `RedisHashTagRule`.
 - **Admin**: read-only — confirm/extend the moderation-queue viewer to render + resolve `trigger='area_spam'` (docs/12 cohesion).
