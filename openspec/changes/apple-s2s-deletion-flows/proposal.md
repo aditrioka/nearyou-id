@@ -23,7 +23,7 @@ The Apple Sign-In server-to-server (S2S) handler at [`AppleS2SRoutes.kt`](../../
 
 ## Impact
 
-- **Code:** `backend/ktor/.../auth/routes/AppleS2SRoutes.kt` (replace the 501 branch); `account/AccountDeletionRepository.kt` (sibling apple-source inserts + `token_version` bump); `account/AccountHardDeleteWorker.kt` (expose a public per-request executor mirroring the private `processOne`); `Application.kt` (pass the deletion repo + worker into `appleS2SRoutes`). `users.findByAppleIdHash` already exists.
+- **Code:** `backend/ktor/.../auth/routes/AppleS2SRoutes.kt` (replace the 501 branch); `account/AccountDeletionRepository.kt` (sibling apple-source inserts — `consent-revoked` 30-day grace, `account-delete` immediate no-guard); the existing `JdbcUserRepository.incrementTokenVersion` (consent-revoked session-kick, a separate write); `account/AccountHardDeleteWorker.kt` (expose a public per-request executor mirroring the private `processOne`); `Application.kt` (pass the deletion repo + worker into `appleS2SRoutes`). `users.findByAppleIdHash` already exists.
 - **APIs:** `POST /internal/apple/s2s-notifications` gains real `account-delete` + `consent-revoked` behavior (previously `501`). No new endpoint, no contract change to existing events.
 - **Cross-layer cohesion** (docs/12): backend-only is a **complete** vertical slice — `consent-revoked` rows surface in the existing mobile restore banner (`GET /api/v1/account/deletion-request` via `SettingsAccountDeletionViewModel`) and in the admin Hard Delete Queue (`deletionqueue`), both of which read `deletion_requests` generically; no new mobile/admin surface is required.
 - **Schema / dependencies:** none new (no migration, no library pin, no vendor SDK).
