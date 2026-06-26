@@ -28,6 +28,22 @@ class AreaPostDensityLimiterTest : StringSpec({
         AreaPostDensityLimiter.cellId(-10.50, 105.00) shouldBe "-10.50_105.00"
     }
 
+    "equator seam: coords either side of lat 0 share one cell (no -0.00 split)" {
+        // `%.2f` keeps the sign even when the magnitude rounds to 0.00, so a
+        // display coord just south of the equator must not split from its
+        // northern half. Indonesia straddles lat 0, so this seam is in-country.
+        val south = AreaPostDensityLimiter.cellId(-0.004, 106.80)
+        val north = AreaPostDensityLimiter.cellId(0.004, 106.80)
+        south shouldBe "0.00_106.80"
+        north shouldBe "0.00_106.80"
+        south shouldBe north
+        // The normalization touches only the zero token — non-zero cells and a
+        // longitude crossing the prime meridian collapse the same way.
+        AreaPostDensityLimiter.cellId(-0.003, -0.003) shouldBe "0.00_0.00"
+        // …and never corrupts a non-zero negative magnitude (e.g. -10.00).
+        AreaPostDensityLimiter.cellId(-10.004, 106.80) shouldBe "-10.00_106.80"
+    }
+
     "Redis key is the strict two-segment hash-tag scope:axis form" {
         val key = AreaPostDensityLimiter.keyFor(-6.2, 106.8)
         key shouldBe "{scope:area_post}:{cell:-6.20_106.80}"

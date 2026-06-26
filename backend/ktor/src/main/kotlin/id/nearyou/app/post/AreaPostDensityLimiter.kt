@@ -90,11 +90,21 @@ class AreaPostDensityLimiter(
          * collapse to one identical key (a `,` decimal separator under another
          * locale would split a cell). Two posts whose `display_location` rounds to
          * the same 0.01° grid cell share one counter.
+         *
+         * Equator normalization: `%.2f` preserves the input's sign even when the
+         * magnitude rounds to zero, so a `display_location` just south of the
+         * equator (e.g. lat `-0.004` → `"-0.00"`) would otherwise split the
+         * equator cell from its northern `"0.00"` half. Indonesia straddles lat 0,
+         * so the seam is in-country; we collapse the `-0.00` token to `0.00`. This
+         * touches only the zero token — every non-zero cell's `%.2f` rounding is
+         * unchanged.
          */
         fun cellId(
             displayLat: Double,
             displayLng: Double,
-        ): String = String.format(Locale.ROOT, "%.2f_%.2f", displayLat, displayLng)
+        ): String =
+            String.format(Locale.ROOT, "%.2f_%.2f", displayLat, displayLng)
+                .replace("-0.00", "0.00")
 
         /**
          * Strict two-segment hash-tag form `{scope:area_post}:{cell:<lat>_<lng>}`
