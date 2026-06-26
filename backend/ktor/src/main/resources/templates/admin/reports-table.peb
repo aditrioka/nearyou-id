@@ -72,6 +72,14 @@
             {% if row.targetType == 'chat_message' %}
             <a class="btn outl sm" href="/admin/chat-messages/{{ row.targetId }}">Redact message</a>
             {% endif %}
+            {# post target → deep-link to the read-only edit-history viewer
+               (admin-post-edit-history). Closes the report→edit-history triage
+               loop: a reported post can be softened within the edit window, so a
+               moderator triaging this report jumps straight to its full version
+               history. Read-only; enforcement stays in the queue forms below. #}
+            {% if row.targetType == 'post' %}
+            <a class="btn outl sm" href="/admin/posts/{{ row.targetId }}/edits">Lihat riwayat edit</a>
+            {% endif %}
             {# Report bookkeeping decision — sets reports.status, performs
                NO user/content enforcement. #}
             <form class="resolve-report"
