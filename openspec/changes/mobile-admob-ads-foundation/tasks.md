@@ -1,0 +1,46 @@
+## 1. Substrate + preflight verification (do first)
+
+- [ ] 1.1 Substrate re-check (docs/11 §1 + project.md library re-check): decide the Google Mobile Ads SDK pin — stable GMA SDK (default, native-ads-mature) vs the 2026 GMA Next-Gen SDK (smaller/faster, mandatory background init). Pin in `gradle/libs.versions.toml` (+ UMP SDK) and add a `docs/09-Versions.md` rationale entry.
+- [ ] 1.2 Pin Google's DOCUMENTED test ad-unit IDs for staging/debug only (Android native-advanced `ca-app-pub-3940256099942544/2247696110`, iOS native `ca-app-pub-3940256099942544/3986624511`) behind the build flavor; confirm a test native ad renders on a Firebase Test Lab device BEFORE wiring any real unit (hardcoded IDs drift — verify the upstream constants first).
+- [ ] 1.3 File `follow-up` issues (label `follow-up` + `area:mobile`) for each explicitly-deferred item: iOS `AdProvider` cinterop actual (D7), interstitials, profile-banner + chat-list placements, AppLovin MAX mediation. Record the issue numbers in the PR body.
+
+## 2. Backend — `ads-config` capability
+
+- [ ] 2.1 Add `AdsConfigService` reading `ads_enabled` via the Remote-Config→Redis seam (`remote_config:{flag:ads_enabled}`) with a per-flag 30–60 s TTL override (docs/11 §3.3); default `false` when absent.
+- [ ] 2.2 Premium suppression in the service: return `ads_enabled = false` when the viewer's `subscription_status ∈ {premium_active, premium_billing_retry}` (the access-control `PREMIUM_STATES` set, NOT the `premium_active`-only badge formula — grace-period users keep the ad-free benefit, docs/08 item 4), regardless of the global flag.
+- [ ] 2.3 Add `AdsConfigRoutes` — thin authenticated `GET /api/v1/config/ads` (route parses/authenticates/responds, no SQL) returning `{ ads_enabled, timeline_frequency }` (`timeline_frequency` default 6); register in the route table.
+- [ ] 2.4 `AdsConfigRoutesTest`: Free+flag ON → `ads_enabled true` + frequency 5–7; `premium_active`+flag ON → `false`; `premium_billing_retry` (grace)+flag ON → `false`; flag absent/false → `false`; unauthenticated → 401; short-TTL OFF-flip propagation. Pool `autoClose(hikari())` size 2 if DB-tagged (docs/11 §3.2 / PR #157).
+
+## 3. `:infra:admob` module (vendor-SDK seam, invariant #16)
+
+- [ ] 3.1 Create root-level KMP module `:infra:admob`; add to `settings.gradle.kts`. Verify it is NOT added to the backend Dockerfile COPY list (mobile-only infra; the settings↔Dockerfile CI guard must stay green — `:infra:revenuecat` mobile-module precedent).
+- [ ] 3.2 commonMain: vendor-SDK-free `AdProvider` interface (initialize, request UMP consent + report state, load native ad → `NativeAdContent`, dispose) + plain models `NativeAdContent` / `ConsentState` / `AdRequestMode { PERSONALIZED, NON_PERSONALIZED }`.
+- [ ] 3.3 androidMain actual: Google Mobile Ads + UMP SDK — init, UMP consent info request + form presentation when required, native-ad load → `NativeAdContent`; force non-personalized (`npa`) request when `AdRequestMode.NON_PERSONALIZED`.
+- [ ] 3.4 iosMain actual (D7, deferred): report ads unavailable — no UMP request, `loadNativeAd` returns none, `initialize` is a no-op; KDoc the cinterop follow-up issue from 1.3.
+- [ ] 3.5 Bind `AdProvider` in the Koin platform modules (androidMain real, iosMain unavailable); vendor dep `implementation`-scoped so it never reaches the `:mobile:app` compile classpath.
+- [ ] 3.6 Verify the `vendor-sdk-leakage-scan` stays green — no `com.google.android.gms.ads` / UMP symbol on `:mobile:app`.
+
+## 4. Mobile — `mobile-ads` consumption
+
+- [ ] 4.1 `AdsConfigApiClient` + `AdsConfigRepository` (GET `/api/v1/config/ads`) with a sealed outcome; a fetch failure resolves to ads-OFF (fail-safe, never error chrome).
+- [ ] 4.2 Ad-eligibility wiring: initialize `AdProvider` + run the UMP gate ONLY when `ads_enabled = true`; read the stored `ads_personalization` (via `ConsentSnapshotStore`) and map to `AdRequestMode` (OFF/declined → NON_PERSONALIZED).
+- [ ] 4.3 Sealed `FeedItem { Post | NativeAd }`; interleave a native-ad slot every `timeline_frequency` posts in Nearby/Following/Global via the canonical `PostFeedList<T>` seam (docs/11 §2.1) with stable `key` + `contentType` (§2.4). Post fetch/order unchanged.
+- [ ] 4.4 Native-ad card in `ui/components` reusing `PostCard` geometry + a "Bersponsor" label — consult the mockup board feed-card frame (docs/11 §2.8) and translate to Compose M3 idioms (tokens, not literals).
+- [ ] 4.5 Add the "Bersponsor" (+ any UMP-prompt) string(s) to `:shared:resources` (no hardcoded UI string — invariant); import each key explicitly.
+- [ ] 4.6 `AdProvider` lifecycle: load ads off the composition path, dispose on feed-item disposal / `onCleared`.
+
+## 5. Tests + verification (DoD, docs/11 §5)
+
+- [ ] 5.1 commonTest: `AdsConfigRepository` fail-safe (fetch fail → ads OFF); `ads_personalization` → `AdRequestMode` mapping (OFF→NON_PERSONALIZED, ON+consent→PERSONALIZED); `FeedItem` interleave math (slot every N; feed < N → none; order preserved).
+- [ ] 5.2 commonTest with a **fake `AdProvider`**: UMP gate ordering — consent is requested BEFORE any native-ad load when ads enabled; a UMP/consent failure yields no ads (fail-safe). (Backs the "Consent form shown when required" + "Consent flow failure shows no ads" scenarios; the seam is fakeable since `:mobile:app` depends on the interface.)
+- [ ] 5.3 Robolectric `*ScreenTest`: Free+enabled → native-ad slot present with the localized "Bersponsor" label; premium or flag-OFF or config-fetch-fail → no slot. **Negative guards**: no interstitial node on app-open/post-submit; no ad node on the profile, conversation-list, or chat-thread screens. Add to the Release-variant exclude + verify `:mobile:app:testDevReleaseUnitTest` (docs/11 §2.7).
+- [ ] 5.4 iosTest (`:mobile:app:iosSimulatorArm64Test`, kotlin.test `@Test` — kotest commonTest does not run on K/N): the iOS `AdProvider` actual reports unavailable — no UMP request, `loadNativeAd` returns none (backs the "iOS reports ads unavailable" deferred-requirement scenario).
+- [ ] 5.5 Structural scenarios verified by inspection/lint, not unit tests (mapped, not dropped): SDK-leak absence + app-consumes-via-interface → the `vendor-sdk-leakage-scan` (task 3.6); no-mediation-adapter → diff/dependency inspection; `ads-config` adds no migration → no `V*.sql` in the diff + the existing Flyway parity check.
+- [ ] 5.6 Android Firebase Test Lab: a test native ad renders in a live feed (`scripts/test_android.sh` / `scripts/run_on_device.sh`) — capture screenshot/video as manual-verification evidence for the PR body (docs/11 §5 DoD).
+- [ ] 5.7 Pre-push gate green: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
+
+## 6. Docs + module bookkeeping
+
+- [ ] 6.1 Add `:infra:admob` to `dev/module-descriptions.txt` + run `dev/scripts/sync-readme.sh --write` (root README module-list invariant).
+- [ ] 6.2 docs/09 SDK-pin entry (from 1.1); reconcile any docs/01 § Ads divergence (none expected — flag/test-id specifics live in the spec); note the `ads-config` backend test lane in docs/13 if a new lane is added.
+- [ ] 6.3 No docs/11 § Pattern Registry amend (this change follows the existing state/list/expect-actual/vendor-`:infra`/backend-layering patterns — no deviation); confirm the design's Standards-conformance note matches the shipped code at archive.
