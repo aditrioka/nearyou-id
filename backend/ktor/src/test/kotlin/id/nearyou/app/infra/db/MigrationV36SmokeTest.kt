@@ -128,6 +128,46 @@ class MigrationV36SmokeTest : StringSpec({
         }
     }
 
+    "pre-V36 original-value rows survive re-applying the V36 constraint swap (additive, rows intact)" {
+        // Faithful seed-then-migrate: pre-load moderation_queue with rows holding ALL
+        // seven original trigger values, THEN re-apply the EXACT V36 DDL. Postgres
+        // validates every existing row against the new CHECK at ADD CONSTRAINT time —
+        // so if a pre-V36 original-value row were rejected by the extended constraint
+        // this throws 23514. Success proves the migration is additive: existing rows
+        // remain present and valid (`moderation-queue` spec scenario "Pre-V36 rows
+        // remain valid"). The combined DROP+ADD is one atomic ALTER, so the constraint
+        // is never absent to a concurrent session.
+        val originalTriggers = allEightTriggers - "area_spam"
+        DriverManager.getConnection(url, user, password).use { conn ->
+            val ids = originalTriggers.map { insertQueueRow(conn, it) }
+            try {
+                val migrationSql =
+                    this::class.java.classLoader
+                        .getResourceAsStream("db/migration/V36__moderation_queue_area_spam_trigger.sql")!!
+                        .bufferedReader()
+                        .use { it.readText() }
+                        .lineSequence()
+                        .filterNot { it.trimStart().startsWith("--") }
+                        .joinToString("\n")
+                        .trim()
+                // Re-run the migration's DDL against the now-pre-loaded table.
+                conn.createStatement().use { it.execute(migrationSql) }
+                // All seven original-value rows remain present + valid post-swap.
+                conn.prepareStatement(
+                    "SELECT COUNT(*) FROM moderation_queue WHERE target_id = ANY(?)",
+                ).use { ps ->
+                    ps.setArray(1, conn.createArrayOf("uuid", ids.toTypedArray()))
+                    ps.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getInt(1) shouldBe originalTriggers.size
+                    }
+                }
+            } finally {
+                sweep(conn, ids)
+            }
+        }
+    }
+
     "out-of-enum trigger still rejected after V36 (only area_spam was added)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             try {

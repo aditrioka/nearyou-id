@@ -100,8 +100,10 @@ class AreaPostDensityLimiter(
          * Strict two-segment hash-tag form `{scope:area_post}:{cell:<lat>_<lng>}`
          * (RedisHashTagRule). Single-key INCR (no cross-slot multi-key op); the
          * scope does NOT end in `_day`, so it stays a sliding window. The cell id is
-         * bound to a local `val` first so the key uses simple-name interpolation only
-         * (RedisHashTagRule rejects function-call interpolation in the key literal).
+         * bound to a local `val` first so the key uses simple-name interpolation
+         * (`$cell`) only: RedisHashTagRule requires a literal `{scope:…}:{axis:…}`
+         * shape and rejects block interpolation (`${…}`) in the key, since the inner
+         * braces break its structural two-segment match.
          */
         fun keyFor(
             displayLat: Double,
