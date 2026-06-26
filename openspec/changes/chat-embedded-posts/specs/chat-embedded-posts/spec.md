@@ -40,6 +40,11 @@ When `embedded_post_id` is present the server SHALL resolve the post **for the s
 - **WHEN** S sends with `embedded_post_id = P`
 - **THEN** the response is `404` (P is not in S's `visible_posts`); no row is persisted
 
+#### Scenario: Shadow-banned author may share their OWN post
+- **GIVEN** sender S is shadow-banned and S authored post P
+- **WHEN** S sends with `embedded_post_id = P`
+- **THEN** the resolution succeeds (the own-content arm of the shadow-ban visibility model — S sees their own posts) and a snapshot of P is persisted (the publish-side shadow-ban skip still suppresses the broadcast per the publish requirement)
+
 #### Scenario: Non-existent and soft-deleted are indistinguishable
 - **WHEN** S sends with an `embedded_post_id` that is a soft-deleted post OR a random non-existent UUID
 - **THEN** both return the identical `404` response; no row is persisted
@@ -73,11 +78,24 @@ When building an embed the server SHALL set `embedded_post_edit_id` to the sourc
 
 ### Requirement: The embedded snapshot is size-bounded at the schema layer
 
-The `embedded_post_snapshot` SHALL be bounded by a schema CHECK (`octet_length(embedded_post_snapshot::text) < 4096`, shipped in V37) so an oversized snapshot can never be persisted or broadcast, keeping the Realtime broadcast payload within Supabase Realtime's per-message size limit. The application SHALL build snapshots that comfortably fit this bound (a 280-char post plus metadata).
+The `embedded_post_snapshot` SHALL be bounded by a schema CHECK (`embedded_post_snapshot IS NULL OR octet_length(embedded_post_snapshot::text) < 4096`, shipped in V37 — the `IS NULL OR` guard matches the `chat-conversations` schema delta so a NULL snapshot trivially passes) so an oversized snapshot can never be persisted or broadcast, keeping the Realtime broadcast payload within Supabase Realtime's per-message size limit. The application SHALL build snapshots that comfortably fit this bound (a 280-char post plus metadata).
 
 #### Scenario: Oversized snapshot is rejected by the CHECK
 - **WHEN** an INSERT carries an `embedded_post_snapshot` whose `octet_length(::text)` is ≥ 4096
 - **THEN** Postgres rejects the INSERT with a CHECK constraint violation
+
+#### Scenario: NULL snapshot passes the size CHECK
+- **WHEN** a plain (non-embed) message is INSERTed with `embedded_post_snapshot IS NULL`
+- **THEN** the size CHECK is satisfied (the `IS NULL OR` guard short-circuits) and the row is persisted
+
+### Requirement: Embedded snapshots are NOT re-anonymized on author account-tombstone (deferred)
+
+The `embedded_post_snapshot` is captured immutably at share time and freezes the post author's `authorUsername` + `authorDisplayName` as static text. This change SHALL NOT re-anonymize a snapshot when its post author later tombstones their account — unlike the live `single-post-read` path, which renders a tombstoned author as "Akun Dihapus". Snapshot author-erasure (scrub-at-rest as a leg of the account-tombstone worker, or render-time substitution for a known-tombstoned author) is **explicitly deferred** to a follow-up ([#425](https://github.com/aditrioka/nearyou-id/issues/425)) so a future change can MODIFY this requirement rather than discover the gap. The deferral is bounded: the recipient already saw the author identity at share time, and the snapshot grants no live access (tapping re-resolves the live post under the viewer's rules).
+
+#### Scenario: Snapshot retains the author identity after the author tombstones
+- **GIVEN** an embed message whose snapshot captured author A's handle + display name
+- **WHEN** author A later tombstones their account (account-deletion)
+- **THEN** the persisted snapshot still carries A's original handle + display name (this change does NOT scrub it); the deferral is tracked by follow-up [#425](https://github.com/aditrioka/nearyou-id/issues/425)
 
 ### Requirement: The publish-side shadow-ban skip still governs embed messages
 

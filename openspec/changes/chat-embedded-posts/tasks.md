@@ -28,13 +28,14 @@
 
 ## 5. Backend tests
 
-- [ ] 5.1 Send-path: embed-only accepted, content+embed accepted, neither rejected (400), over-length content rejected (400).
-- [ ] 5.2 Visibility: blocked-author / shadow-banned-author / soft-deleted / non-existent all return the identical constant-404; visible post → snapshot persisted.
-- [ ] 5.3 **Spatial-fuzzing negative test**: the persisted/serialized `embedded_post_snapshot` JSON contains no `latitude`/`longitude`/`lat`/`lng` key and no author UUID.
+- [ ] 5.1 Send-path: embed-only accepted, content+embed accepted (assert the persisted ROW carries BOTH `content` and the embed fields, not just the 201), neither rejected (400), over-length content rejected (400). Assert embed sends traverse the SAME chat send rate-limit layer as plain sends (no bypass).
+- [ ] 5.2 Visibility: blocked-author / shadow-banned-author / soft-deleted / non-existent all return the identical constant-404; visible post → snapshot persisted; **shadow-banned sender sharing their OWN post → snapshot persisted** (the own-content arm of the visibility model; broadcast still suppressed per 5.6).
+- [ ] 5.3 **Spatial-fuzzing negative test (exact-key-set allowlist, not a denylist)**: assert the persisted/serialized `embedded_post_snapshot` JSON key set is EXACTLY `{authorUsername, authorDisplayName, content, cityName, createdAt, editedAt}` — so no `latitude`/`longitude`/`display_location`/`geohash`/`distanceM` or author UUID can sneak in via a future field rename.
 - [ ] 5.4 Anchor: unedited post → `embedded_post_edit_id` NULL; edited post → latest `post_edits.id`.
-- [ ] 5.5 Size CHECK: an oversized snapshot INSERT is rejected; `pg_constraint` shows the FK on `embedded_post_edit_id` validated (`confrelid` = `post_edits`, `confdeltype = 'n'`, `convalidated = true`).
-- [ ] 5.6 Broadcast: embed message publishes populated fields; shadow-banned sender embed persists but does not broadcast (`!network` CI-equivalent tag where the spec uses the DB).
+- [ ] 5.5 Size CHECK: an oversized snapshot INSERT is rejected AND a NULL-snapshot row passes the `IS NULL OR …` guard; `pg_constraint` shows the FK on `embedded_post_edit_id` validated (`confrelid` = `post_edits`, `confdeltype = 'n'`, `convalidated = true`).
+- [ ] 5.6 Broadcast: embed message publishes populated fields; **a plain (non-embed) message still emits the three `embedded_*` keys present-with-null** (regression guard for the null→populated flip); shadow-banned sender embed persists but does not broadcast (`!network` CI-equivalent tag where the spec uses the DB).
 - [ ] 5.7 Snapshot-survives-hard-delete: persist an embed message of post P, hard-delete P, assert the `chat_messages` row's `embedded_post_id` is set NULL by the FK while `embedded_post_snapshot` remains intact and the row stays valid under the empty-message CHECK; assert the `embedded_post_edit_id` deferred-comment text is removed post-V37 (`pg_description`).
+- [ ] 5.8 REST-history read: persist an embed message, `GET /api/v1/chat/{id}/messages`, assert the response carries the `embedded_post_id` / `embedded_post_snapshot` / `embedded_post_edit_id` fields (so a cold thread open renders the card identically to the realtime path — task 6.3's correctness goal).
 
 ## 6. Mobile — data layer
 
@@ -58,7 +59,8 @@
 - [ ] 8.2 Thread render: embed message → context card with snapshot fields, no coordinate; tap navigates for a live-post card.
 - [ ] 8.3 Banner: anchor != live latest-edit → banner shown; equal/both-unedited → no banner.
 - [ ] 8.4 Deleted state: snapshot present + `embeddedPostId` null → "post telah dihapus", no navigation.
-- [ ] 8.5 Inbound-model: `ChatMessageInbound` exposes the embedded fields as vendor-free types, no `redactionReason`; interface-source vendor-import scan is clean.
+- [ ] 8.5 Inbound-model: `ChatMessageInbound` exposes the embedded fields as vendor-free types, no `redactionReason`; interface-source vendor-import scan is clean; **a populated `embedded_post_snapshot` JSON decodes at the infra boundary to the plain `EmbeddedPostSnapshot` model with the expected author/content/city fields and no coordinate** (the D7 decode path).
+- [ ] 8.6 Redaction precedence: a redacted embed message (`redacted_at` set, snapshot present) renders the redaction placeholder and NOT the context card; an embed-only message (`content` null, `redacted_at` null) still renders the card (the precedence keys on `redacted_at`, not on a null `content`).
 
 ## 9. Verification + Definition of Done (docs/11 §5)
 

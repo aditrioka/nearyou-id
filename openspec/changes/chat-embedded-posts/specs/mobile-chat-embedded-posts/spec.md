@@ -33,7 +33,7 @@ A chat message whose model carries an embedded-post snapshot SHALL render a **co
 
 ### Requirement: Tapping the context card navigates to the live post
 
-Tapping a context card whose `embedded_post_id` is non-null SHALL navigate to the post-detail screen for that post id, where the tapping viewer's live visibility rules apply (a blocked author yields the post-detail constant-404 state; a since-deleted post yields the not-found state). The card itself SHALL NOT bypass the viewer's live rules.
+Tapping a context card whose `embedded_post_id` is non-null SHALL navigate to the post-detail screen for that post id, where the tapping viewer's live visibility rules apply (a blocked author yields the post-detail constant-404 state; a since-deleted post yields the not-found state). The card itself SHALL NOT bypass the viewer's live rules. The recipient-side card is NOT redacted by the recipient's own block of the author — the snapshot is static relayed content the sender chose to send (the same model as pasting quoted text); only live navigation re-applies the tapper's rules, so the card grants no live access to a blocked author's content.
 
 #### Scenario: Tapping a live-post card opens post-detail
 - **GIVEN** a context card with a non-null `embedded_post_id = P`
@@ -53,6 +53,20 @@ When the live post's most-recent edit differs from the message's `embedded_post_
 - **GIVEN** a context card whose anchor matches the live post's current latest edit (or both are unedited)
 - **WHEN** the card is shown
 - **THEN** no edited-since-shared banner is shown
+
+### Requirement: A redacted message suppresses the embedded card
+
+When a message has `redacted_at` set, the thread SHALL render the neutral redaction placeholder (the shipped `mobile-chat` "Redacted messages render a neutral placeholder" behavior) and SHALL NOT render the embedded context card, even when an `embedded_post_snapshot` is present. The redaction render SHALL take precedence over the embed render so an admin redaction visually suppresses the shared post, not just accompanying text. (The stored snapshot is not separately scrubbed by this change — display suppression is the moderation contract here; deeper at-rest scrub, if ever needed, is out of scope.)
+
+#### Scenario: Redacted embed message shows the placeholder, not the card
+- **GIVEN** an embed message with a populated `embedded_post_snapshot` AND `redacted_at` set
+- **WHEN** the thread renders it
+- **THEN** it shows the redaction placeholder ("Pesan ini telah dihapus…") AND does NOT render the embedded context card
+
+#### Scenario: Embed-only message (not redacted) still shows the card
+- **GIVEN** an embed message with `content = null`, a populated snapshot, AND `redacted_at` null
+- **WHEN** the thread renders it
+- **THEN** it shows the context card (the redaction-precedence rule keys on `redacted_at`, not on a null `content`)
 
 ### Requirement: A hard-deleted source post renders a deleted-state card with no navigation
 
