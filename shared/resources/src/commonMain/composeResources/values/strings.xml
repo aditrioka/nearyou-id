@@ -17,6 +17,10 @@
     <string name="signin_screen_title">Masuk ke NearYouID</string>
     <string name="signin_error_no_account">Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya.</string>
     <string name="signin_error_banned">Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru.</string>
+    <!-- appeal-sign-in-ban-distinction: shown on a 403 account_banned with a non-null suspended_until
+         (a 7-day suspension, distinct from a permanent ban). Pairs with the "Ajukan banding" appeal
+         entry — the suspended user can contest the action in-app. -->
+    <string name="signin_error_suspended">Akun kamu sedang ditangguhkan sementara. Kamu bisa mengajukan banding.</string>
     <string name="signin_error_network">Tidak bisa terhubung. Periksa koneksi internet kamu.</string>
     <string name="signin_error_token_invalid">Sesi Google bermasalah. Coba lagi.</string>
     <!-- auth-endpoint-rate-limits: shown on a 429 from the auth-endpoint limiter (sign-in AND age-gate

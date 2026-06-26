@@ -20,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 /**
  * Unit coverage of [SignInViewModel] (audit 05-#5 migration): the single-`stateIn` uiState delegates to
@@ -118,17 +119,35 @@ class SignInViewModelTest {
         }
 
     @Test
-    fun banned_surfacesTheAppealEntry_withoutNavigating() =
+    fun suspensionBanned_surfacesTheAppealEntry_withoutNavigating() =
         runTest(dispatcher) {
             // `showAppealEntry` is a VM-owned field (computed in toUiState, NOT in the pure signInUiState),
-            // so it needs VM-level coverage: a Banned outcome surfaces the appeal entry, keeps the user on
-            // the screen (no navigation), shows the BANNED banner, and disables the CTA.
-            val viewModel = vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned))
+            // so it needs VM-level coverage. appeal-sign-in-ban-distinction: a SUSPENSION (non-null
+            // suspended_until) surfaces the appeal entry, keeps the user on the screen (no navigation),
+            // shows the SUSPENDED banner, and disables the CTA.
+            val viewModel =
+                vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z"))))
             backgroundScope.launch { viewModel.uiState.collect {} }
             advanceUntilIdle()
             viewModel.onSignInClick()
             advanceUntilIdle()
-            assertTrue(viewModel.uiState.value.showAppealEntry, "a Banned outcome surfaces the appeal entry")
+            assertTrue(viewModel.uiState.value.showAppealEntry, "a suspension surfaces the appeal entry")
+            assertNull(viewModel.uiState.value.navigation, "Banned does not navigate")
+            assertEquals(SignInErrorBanner.SUSPENDED, viewModel.uiState.value.errorBanner)
+            assertFalse(viewModel.uiState.value.ctaEnabled, "Banned disables the CTA")
+        }
+
+    @Test
+    fun permanentBanned_hidesTheAppealEntry_withoutNavigating() =
+        runTest(dispatcher) {
+            // appeal-sign-in-ban-distinction: a PERMANENT ban (null suspended_until) shows the BANNED
+            // "Hubungi support" banner with NO appeal entry (the support path), still on the screen, CTA disabled.
+            val viewModel = vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned(suspendedUntil = null)))
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onSignInClick()
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.showAppealEntry, "a permanent ban surfaces no appeal entry")
             assertNull(viewModel.uiState.value.navigation, "Banned does not navigate")
             assertEquals(SignInErrorBanner.BANNED, viewModel.uiState.value.errorBanner)
             assertFalse(viewModel.uiState.value.ctaEnabled, "Banned disables the CTA")
