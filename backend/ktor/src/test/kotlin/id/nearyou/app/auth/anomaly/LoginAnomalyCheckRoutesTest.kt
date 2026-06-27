@@ -18,6 +18,7 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
@@ -96,7 +97,10 @@ class LoginAnomalyCheckRoutesTest : StringSpec({
             jwkProvider = LaStaticJwkProvider(mapOf(LA_KID to LaFakeJwk(LA_KID, pubKey))),
         )
 
-    suspend fun withRoute(block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit) {
+    suspend fun withRoute(
+        customService: LoginAnomalyDetectionService = service,
+        block: suspend io.ktor.server.testing.ApplicationTestBuilder.() -> Unit,
+    ) {
         testApplication {
             application {
                 install(ContentNegotiation) {
@@ -109,7 +113,7 @@ class LoginAnomalyCheckRoutesTest : StringSpec({
                 }
                 routing {
                     route("/internal") {
-                        loginAnomalyCheckRoutes(service, verifier)
+                        loginAnomalyCheckRoutes(customService, verifier)
                     }
                 }
             }
@@ -176,6 +180,39 @@ class LoginAnomalyCheckRoutesTest : StringSpec({
             anomalyRowCount(dataSource, u) shouldBe 0
         } finally {
             cleanup(dataSource, listOf(u))
+        }
+    }
+
+    "a thrown sweep error returns a sanitized 500 with no PII / exception leak" {
+        val token = laSignedJwt(privKey, pubKey)
+        // A service whose detection read throws SQLTimeoutException → classifyHandlerError
+        // maps it to "timeout"; the raw exception text must never reach the response body.
+        val marker = "la-raw-timeout-detail-should-not-leak"
+        val throwingService =
+            LoginAnomalyDetectionService(
+                object : LoginAnomalyRepository {
+                    override suspend fun findUsersExceedingSubnetThreshold(
+                        windowStart: java.time.Instant,
+                        threshold: Int,
+                    ): List<FlaggedUser> = throw java.sql.SQLTimeoutException(marker)
+
+                    override suspend fun recordAnomaly(
+                        userId: java.util.UUID,
+                        notes: String,
+                    ): Boolean = error("not reached — detection threw first")
+                },
+                nowProvider = { now },
+            )
+        withRoute(customService = throwingService) {
+            val resp =
+                client.post("/internal/login-anomaly-check") {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                }
+            resp.status shouldBe HttpStatusCode.InternalServerError
+            val body = resp.bodyAsText()
+            body shouldContain "\"error\":\"timeout\""
+            body shouldNotContain marker
+            body shouldNotContain "SQLTimeoutException"
         }
     }
 })

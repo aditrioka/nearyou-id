@@ -179,6 +179,22 @@ class LoginAnomalyDetectionServiceTest : StringSpec({
         }
     }
 
+    "events exactly at the window-start boundary are excluded (strict greater-than)" {
+        val u = seedUser(dataSource, tag())
+        // 6 distinct subnets all at EXACTLY windowStart (now - 1h). The predicate is
+        // `occurred_at > windowStart` (strict), so a row AT the boundary is excluded →
+        // distinct count 0 → NOT flagged. Pins `>` (not `>=`). The window start is a
+        // whole-second instant, so seed and bound param compare exactly (no sub-second
+        // clock skew).
+        val windowStart = now.minus(LoginAnomalyDetectionService.DETECTION_WINDOW)
+        repeat(6) { i -> seedLoginEvent(dataSource, u, windowStart, subnetIp(i)) }
+        try {
+            flaggedFor(u) shouldBe null
+        } finally {
+            cleanup(dataSource, listOf(u))
+        }
+    }
+
     // ----- 5.5 Recorded-row shape -----
 
     "a flagged user yields exactly one pending user/anomaly_detection moderation_queue row" {
@@ -227,19 +243,24 @@ class LoginAnomalyDetectionServiceTest : StringSpec({
 
     // ----- 5.6 No-PII discipline (notes + success/error log lines) -----
 
-    "notes and the success-path log line carry no IP / subnet value" {
+    "notes and the success-path log line carry no IP / subnet / identifier-hash value" {
         val u = seedUser(dataSource, tag())
-        repeat(6) { i -> seedLoginEvent(dataSource, u, inWindow, subnetIp(i)) }
+        // Seed a recognizable identifier_hash sentinel alongside the distinct subnets;
+        // the detector never reads it, so it must never reach notes or any log line.
+        val hashSentinel = "IDHASH_SENTINEL_DEADBEEF"
+        repeat(6) { i -> seedLoginEvent(dataSource, u, inWindow, subnetIp(i), identifierHash = hashSentinel) }
         try {
             withLogCapture("id.nearyou.app.auth.anomaly.LoginAnomalyDetectionService") { appender ->
                 service().sweep()
                 val logs = appender.list.joinToString("\n") { it.formattedMessage }
-                // The seeded subnet prefix must not appear in any log line.
+                // Neither the seeded subnet prefix nor the identifier hash may appear.
                 logs shouldNotContain "10.0."
+                logs shouldNotContain hashSentinel
             }
             val notes = anomalyRow(dataSource, u)?.notes
             notes.shouldNotBeNull()
             notes shouldNotContain "10.0."
+            notes shouldNotContain hashSentinel
         } finally {
             cleanup(dataSource, listOf(u))
         }

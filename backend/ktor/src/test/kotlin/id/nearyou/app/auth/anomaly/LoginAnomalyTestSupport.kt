@@ -71,23 +71,28 @@ object LoginAnomalyTestSupport {
      * Seed one `login_events` row with an explicit `occurred_at` and `ip` (bound as
      * text + `?::inet`, so `null` stays NULL). `ip_subnet_24` is the column-generated
      * `/24` — pass distinct [ip] third octets (`10.0.<n>.1`) to produce distinct
-     * subnets, or `null` to produce a NULL-subnet row.
+     * subnets, or `null` to produce a NULL-subnet row. [identifierHash] seeds the
+     * `identifier_hash` PII column (the no-PII test asserts it never reaches notes/logs;
+     * the detector never reads it, so this is a guard against future drift).
      */
     fun seedLoginEvent(
         dataSource: DataSource,
         userId: UUID,
         occurredAt: Instant,
         ip: String?,
+        identifierHash: String? = null,
     ): UUID {
         val id = UUID.randomUUID()
         dataSource.connection.use { conn ->
             conn.prepareStatement(
-                "INSERT INTO login_events (id, user_id, occurred_at, event_type, ip) VALUES (?, ?, ?, 'signin', ?::inet)",
+                "INSERT INTO login_events (id, user_id, occurred_at, event_type, ip, identifier_hash) " +
+                    "VALUES (?, ?, ?, 'signin', ?::inet, ?)",
             ).use { ps ->
                 ps.setObject(1, id)
                 ps.setObject(2, userId)
                 ps.setTimestamp(3, Timestamp.from(occurredAt))
                 ps.setString(4, ip)
+                ps.setString(5, identifierHash)
                 ps.executeUpdate()
             }
         }

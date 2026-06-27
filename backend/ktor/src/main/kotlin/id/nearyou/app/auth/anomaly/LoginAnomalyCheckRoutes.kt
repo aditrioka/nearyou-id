@@ -60,31 +60,29 @@ fun Route.loginAnomalyCheckRoutes(
 }
 
 private suspend fun io.ktor.server.routing.RoutingContext.handleLoginAnomalyCheck(service: LoginAnomalyDetectionService) {
-    run {
-        val result =
-            try {
-                service.sweep()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val classification = classifyHandlerError(e)
-                logger.warn(
-                    "event=login_anomaly_check_failed classification={} error_class={}",
-                    classification,
-                    e::class.simpleName,
-                    e,
-                )
-                call.respond(HttpStatusCode.InternalServerError, ErrorResponse(error = classification))
-                return@run
-            }
+    val result =
+        try {
+            service.sweep()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val classification = classifyHandlerError(e)
+            logger.warn(
+                "event=login_anomaly_check_failed classification={} error_class={}",
+                classification,
+                e::class.simpleName,
+                e,
+            )
+            call.respond(HttpStatusCode.InternalServerError, ErrorResponse(error = classification))
+            return
+        }
 
-        call.respond(
-            HttpStatusCode.OK,
-            LoginAnomalyCheckResponse(
-                flaggedUsers = result.flagged,
-                rowsRecorded = result.recorded,
-                recordFailures = result.failed,
-            ),
-        )
-    }
+    call.respond(
+        HttpStatusCode.OK,
+        LoginAnomalyCheckResponse(
+            flaggedUsers = result.flagged,
+            rowsRecorded = result.recorded,
+            recordFailures = result.failed,
+        ),
+    )
 }
