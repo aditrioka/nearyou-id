@@ -8,7 +8,7 @@ A user who encounters an abusive post or reply on the mobile post-detail screen 
 - Present the canonical **confirmation dialog** (`docs/03` §Block User UX, verbatim copy) before the block call, and a success **toast** ("Pengguna telah diblokir"); on success the post-block pops back to the timeline and the reply-block removes the row (the blocked content 404s/hides bidirectionally).
 - Extract a **shared block-create seam** (`data/block/BlockSubmitter`) mirroring the shipped `data/report/ReportSubmitter` pattern, wrapping `POST /api/v1/blocks/{userId}` → `BlockOutcome` (`Blocked` / `RateLimited` / `NetworkError`); the existing profile block path is refactored onto this one implementation (no behavior change).
 - **Reply block** is mobile-only: `ReplyDto.authorId` is already on the wire (carried, never rendered). Surface it to the block call only.
-- **Post block** requires the author UUID, which the post-detail wire deliberately omits. Additively expose **`authorUserId`** on the single-post-read response (the server already derives `isAuthor` from `author_id`; the field is never rendered, block-action-only — the same wire-carries-but-never-renders precedent `ReplyDto.authorId` already sets) and thread it into the `PostDetailRoute` payload. **No Flyway migration, no backend block-semantics or schema change.**
+- **Post block** requires the author UUID, which the post-detail wire deliberately omits. Additively expose **`authorUserId`** on the single-post-read response (the server already derives `isAuthor` from `author_id`; the field is never rendered, block-action-only — the same wire-carries-but-never-renders precedent `ReplyDto.authorId` already sets). The post-detail surface reads it from its **existing single-post freshness read** (the same read that yields `isAuthor`), **not** from the `PostDetailRoute` payload — the serialized back stack stays UUID-free. **No Flyway migration, no backend block-semantics or schema change.**
 - **Deferred (explicit requirements + tracking issues):** the timeline-card (`PostCard`) block kebab (PostCard is owned by in-flight `image-attached-posts` #354 — mirrors the report capability's #363 deferral; `mobile-post-card` spec untouched); and the post-detail header tap-to-profile.
 
 ## Capabilities
@@ -18,12 +18,12 @@ A user who encounters an abusive post or reply on the mobile post-detail screen 
 
 ### Modified Capabilities
 - `single-post-read`: additively expose `authorUserId` on the single-post wire DTO — never rendered, block-action-only (relaxes the issue-#202 "no author UUID on the single-post wire" stance, consistent with the established `ReplyDto.authorId` pattern). `isAuthor` and all other fields unchanged.
-- `mobile-post-detail`: the `PostDetailRoute` payload carries `authorUserId` (never rendered — PII discipline preserved); the post-header overflow now hosts a block affordance alongside report.
+- `mobile-post-detail`: the post-header overflow now hosts a block affordance alongside report (its `authorUserId` sourced from the single-post freshness read, never the back stack — `PostDetailRoute` stays UUID-free); the reply UI model carries the reply `author_id` solely for the never-rendered self-block gate + block target.
 
 ## Impact
 
 - **Backend** (`:backend:ktor`, `post/SinglePostRoutes.kt`): one additive `authorUserId` field on `SinglePostResponse` + its select projection; KDoc amended to record the relaxed #202 stance. No migration, no new endpoint.
-- **Mobile** (`:mobile:app`): new `data/block/BlockSubmitter` + `ui/components/BlockConfirmDialog`; `PostDetailScreen` post-header & reply-row kebabs gain the block item; `PostDetailViewModel`/route-payload thread `authorUserId`; profile block path refactored onto the shared seam; new `Res.string.*` entries (block menu item, confirm dialog title/body/buttons, success/rate-limit toasts).
+- **Mobile** (`:mobile:app`): new `data/block/BlockSubmitter` + `ui/components/BlockConfirmDialog`; `PostDetailScreen` post-header & reply-row kebabs gain the block item; `PostDetailViewModel` threads `authorUserId` from the single-post freshness read (the `PostDetailRoute` payload is unchanged); profile block path refactored onto the shared seam; new `Res.string.*` entries (block menu item, confirm dialog title/body/buttons, success/rate-limit toasts).
 - **Docs**: `docs/05` §User Blocking / issue #202 reconciliation note for the new `authorUserId` field (B.3 reconciliation item).
 - **Specs**: new `mobile-block-from-content`; modified `single-post-read`, `mobile-post-detail`. `mobile-content-report`, `user-blocking`, `mobile-post-card` referenced but unchanged.
 - **Follow-up issues**: timeline-card block kebab; post-detail header tap-to-profile.

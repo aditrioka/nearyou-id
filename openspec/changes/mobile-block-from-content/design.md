@@ -24,7 +24,7 @@ Today the post-detail post-header and reply-row overflow kebabs (added by `mobil
 | Layer | In this change | Notes |
 |-------|----------------|-------|
 | Backend (`:backend:ktor`) | YES | additive `authorUserId` on `single-post-read` wire DTO + projection; no migration, no new endpoint, block endpoint reused as-is |
-| Mobile (`:mobile:app`) | YES | post-header + reply-row block affordances; shared `BlockSubmitter`; confirmation dialog; route-payload `authorUserId` carry |
+| Mobile (`:mobile:app`) | YES | post-header + reply-row block affordances; shared `BlockSubmitter`; confirmation dialog; `authorUserId` sourced from the single-post freshness read (NOT the serialized back stack) |
 | Admin (`:backend:ktor/admin`) | NONE | block has no admin surface in this change; the read-only `admin-block-registry` already shipped |
 
 Deferred layers are captured as explicit `specs/**` deferred requirements (positive statement + negative-guard scenario + tracking issue), not bare prose — see the new capability spec.
@@ -41,7 +41,7 @@ This change builds entirely on already-registered patterns and introduces **no n
 ## Decisions
 
 ### D1 — Expose `authorUserId` on the single-post-read wire (never rendered, block-action-only)
-The post-header block needs the author UUID. **Chosen:** add `authorUserId: String` to `SinglePostResponse` (and its select projection — the value already exists server-side, used for `isAuthor`), threaded into the `PostDetailRoute` payload, **never rendered** in any UI string, used only as the `POST /api/v1/blocks/{userId}` path param.
+The post-header block needs the author UUID. **Chosen:** add `authorUserId: String` to `SinglePostResponse` (and its select projection — the value already exists server-side, used for `isAuthor`). The post-detail surface obtains it from its **existing single-post freshness read** (`SinglePostApiClient.fetchFullPost` → `SinglePostResponse`, the same read that already yields `isAuthor` for the edit/report gate) — **NOT** from the `PostDetailRoute` payload, which continues to carry no author UUID (the serialized-back-stack stays UUID-free; `PostDetailRoute`'s "MUST NOT declare the author UUID" requirement is preserved unmodified). The value is **never rendered** in any UI string, used only as the `POST /api/v1/blocks/{userId}` path param. When the freshness read degrades to `Unavailable`, no `authorUserId` resolves and the block affordance is simply absent (the same dependence the edit affordance already has).
 - *Why over alternatives:* (a) a block-by-username endpoint — doesn't exist; would add a new backend contract + a username→uuid resolution race. (b) navigate-to-profile-first then block — the post-detail header is not a tap target (out of scope here) and would still need the UUID to build `ProfileRoute`. (c) keep the UUID off the wire and defer post-block — leaves the *primary* target (the post author) unblockable while a reply author is blockable, an incoherent half-feature.
 - *Precedent:* identical to the shipped `ReplyDto.authorId` (UUID on wire, never rendered, action-only). The exposure is a deliberate, scoped **relaxation of issue #202's** "no author UUID on the single-post wire" stance — recorded by amending the `SinglePostResponse` KDoc and reconciled against #202 (proposal Impact / B.3). A bare UUID carries no coordinate or display identity; `isAuthor` is already derived from it.
 
@@ -59,9 +59,12 @@ The post-header block needs the author UUID. **Chosen:** add `authorUserId: Stri
 ### D5 — Self-block guarding
 - **Post:** the block item renders only when `!isAuthor` (the server-derived flag already gating the edit affordance) — you never see "Blokir" on your own post.
 - **Reply:** guard via the existing `SelfUserIdProvider` (compare `ReplyDto.authorId` to the session uid); hide the block item on your own reply. The backend also rejects self-block (`400 cannot_block_self`) as belt-and-suspenders.
+- **Intentional divergence from the report affordance:** the shipped reply *report* affordance deliberately does NOT gate on authorship and never uses `author_id` (`mobile-content-report` — a self-report is harmless). The reply *block* affordance DOES read `author_id` for the self-block gate (a self-block is a worse UX) and as the block target. This is a deliberate, scoped asymmetry — the field is already on the reply wire and stays never-rendered/never-logged; the only new use is a client-side comparison + the outbound path param, leaking nothing. It requires MODIFYing the `mobile-post-detail` "Pure PostDetailUiState projection (PII-free)" requirement (which today forbids `author_id` in any projected state) to carve out this never-rendered, gate/path-only reply `author_id`.
 
 ### D6 — Deferred entry points as explicit requirements
-The timeline-card (`PostCard`) block kebab and the post-detail header tap-to-profile are deferred and captured as **explicit deferred requirements** in the new capability spec (positive statement + a negative-guard scenario asserting `PostCard`/`mobile-post-card` are untouched), each with a tracking `follow-up` issue — mirroring how `mobile-content-report` deferred the timeline-card report kebab as #363. PostCard is owned by in-flight `image-attached-posts` #354; touching it here would create a merge conflict and violate the footprint-disjoint heuristic.
+Two entry points are deferred, handled differently by deferral type:
+- **Timeline-card (`PostCard`) block kebab** — a deferred *layer of this capability*, so it is captured as an **explicit deferred requirement** in the new capability spec (positive statement + a negative-guard scenario asserting `PostCard`/`mobile-post-card` are untouched) + a tracking `follow-up` issue — mirroring how `mobile-content-report` deferred the timeline-card report kebab as #363. PostCard is owned by in-flight `image-attached-posts` #354; touching it here would create a merge conflict and violate the footprint-disjoint heuristic.
+- **Post-detail header tap-to-profile** — NOT a layer of the block capability (it is a navigation affordance that would unlock the *whole* profile surface, a separate concern), so it is tracked only as a `follow-up` issue (task 6.2), not a deferred requirement of this spec.
 
 ## Risks / Trade-offs
 

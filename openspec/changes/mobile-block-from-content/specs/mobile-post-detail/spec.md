@@ -33,6 +33,21 @@
 - **WHEN** the header overflow kebab is inspected
 - **THEN** no "Blokir" affordance is present (graceful degradation, the same dependence as the Edit affordance)
 
+### Requirement: Pure PostDetailUiState projection (Compose-free, unit-testable, PII-free)
+
+The mobile app SHALL model the screen state as Compose-free `PostDetailUiState` data class(es) plus pure projection function(s) (mirroring `NearbyTimelineUiState` / `PostCreationUiState`) so the outcome→state mapping and the reply code-point gate are deterministically unit-testable in commonTest without composing the UI. The projection MUST carry no coordinates, no post-author UUID, and no wall-clock / platform dependency (the post-author `authorUserId` from the freshness read is held at the screen level alongside `isAuthor`, NOT in projected state). As of `mobile-block-from-content`, the **reply** UI model MAY carry the reply `author_id` (already on the reply wire) SOLELY to drive the client-side self-block gate (`SelfUserIdProvider` comparison) and as the block-request path param; this `author_id` MUST NOT be rendered in any UI node and MUST NOT be logged (the "No author identifier or coordinate is rendered or logged" requirement is preserved). No other PII (coordinates, post-author UUID, token material) enters projected state.
+
+#### Scenario: Projection maps each outcome to its state deterministically
+
+- **WHEN** the projection is invoked for the like states (liked / not-liked / rate-limited), the replies states (loading / loaded-non-empty / empty / error), and the reply-post states (success / content-empty / content-too-long / rate-limited / network-error)
+- **THEN** each call returns the corresponding state deterministically (no wall-clock or platform dependency) AND no projected state carries a coordinate or the post-author UUID
+
+#### Scenario: The reply model carries author_id only for the self-block gate, never rendered
+
+- **GIVEN** a reply with `author_id = "33333333-3333-3333-3333-333333333333"`
+- **WHEN** the reply is projected into `PostDetailUiState`
+- **THEN** the reply model carries `author_id` (available for the `SelfUserIdProvider` self-block comparison and the block path param) AND no rendered node or log line contains `"33333333-3333-3333-3333-333333333333"`
+
 ## ADDED Requirements
 
 ### Requirement: Each reply row exposes a block affordance
