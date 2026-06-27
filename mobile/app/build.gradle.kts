@@ -406,6 +406,7 @@ tasks.withType<Test>().configureEach {
             "**/AgeGateScreenTest*",
             "**/NearbyTimelineScreenTest*",
             "**/NearbyLocationGateScreenTest*",
+            "**/TimelineAdsScreenTest*",
             "**/NearYouThemeTest*",
             "**/PostCreationScreenTest*",
             "**/HomeScreenFabTest*",

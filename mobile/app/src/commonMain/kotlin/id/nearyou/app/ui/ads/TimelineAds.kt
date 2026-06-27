@@ -9,7 +9,7 @@ import androidx.compose.runtime.remember
 import id.nearyou.app.ads.AdFeedController
 import id.nearyou.app.infra.admob.NativeAdContent
 import id.nearyou.app.ui.components.NativeAdCard
-import org.koin.compose.koinInject
+import org.koin.compose.getKoin
 
 /**
  * Wires the timeline native-ad placement into a feed screen with a single call: it resolves the shared
@@ -18,20 +18,28 @@ import org.koin.compose.koinInject
  * `PostFeedList(adFrequency = …, adSlot = { ads.Slot(it) })`. mobile-admob-ads-foundation.
  */
 class TimelineAds internal constructor(
-    private val controller: AdFeedController,
+    private val controller: AdFeedController?,
     val frequency: Int?,
 ) {
     /** Loads + caches the slot's native ad off the composition path, then renders the "Bersponsor" card. */
     @Composable
     fun Slot(slotKey: String) {
-        val content by produceState<NativeAdContent?>(null, slotKey) { value = controller.loadAd(slotKey) }
+        val active = controller ?: return
+        val content by produceState<NativeAdContent?>(null, slotKey) { value = active.loadAd(slotKey) }
         content?.let { NativeAdCard(content = it) }
     }
 }
 
 @Composable
 fun rememberTimelineAds(): TimelineAds {
-    val controller = koinInject<AdFeedController>()
+    // Resolve fail-safe: when no AdFeedController is bound (e.g. a screen test not exercising ads, or a DI
+    // gap) the screen simply renders no ads — the same degradation as ads being OFF. Production always
+    // binds it in `mobileModule`.
+    val koin = getKoin()
+    val controller = remember(koin) { koin.getOrNull<AdFeedController>() }
+    if (controller == null) {
+        return remember { TimelineAds(null, null) }
+    }
     LaunchedEffect(controller) { controller.prepare() }
     val frequency by controller.frequency.collectAsState()
     return remember(controller, frequency) { TimelineAds(controller, frequency) }
