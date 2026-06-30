@@ -211,22 +211,44 @@ fun Application.chatRoutes(
                         call.respondInvalidRequest("Request body must be JSON with a `content` string.")
                         return@post
                     }
-                val content =
-                    try {
-                        contentGuard.enforce(CHAT_CONTENT_KEY, body.content)
-                    } catch (_: ContentEmptyException) {
-                        call.respondInvalidRequest("content is required.")
-                        return@post
-                    } catch (ex: ContentTooLongException) {
-                        call.respondInvalidRequest("content exceeds the maximum of ${ex.limit} characters.")
-                        return@post
+                // chat-embedded-posts: an optional `embedded_post_id` accompanies the content. A
+                // present-but-malformed value is a client bug → 400 (distinct from a valid-but-
+                // unresolvable post-id, which the service maps to the constant 404 below).
+                val embeddedPostId: UUID? =
+                    body.embeddedPostId?.let {
+                        parseUuid(it) ?: run {
+                            call.respondInvalidUuid("embedded_post_id must be a UUID.")
+                            return@post
+                        }
                     }
+                // Content is OPTIONAL when an embed is present (at-least-one-of guard). NFKC-
+                // normalize + length-check when content is supplied; whitespace-only / absent
+                // content becomes `null` (embed-only). Over-length content is rejected (400)
+                // even alongside a valid embed (the 2000-char guard still applies).
+                val content: String? =
+                    if (body.content.isNullOrBlank()) {
+                        null
+                    } else {
+                        try {
+                            contentGuard.enforce(CHAT_CONTENT_KEY, body.content)
+                        } catch (_: ContentEmptyException) {
+                            null
+                        } catch (ex: ContentTooLongException) {
+                            call.respondInvalidRequest("content exceeds the maximum of ${ex.limit} characters.")
+                            return@post
+                        }
+                    }
+                if (content == null && embeddedPostId == null) {
+                    call.respondInvalidRequest("content or embedded_post_id is required.")
+                    return@post
+                }
                 val row =
                     try {
                         service.sendMessage(
                             conversationId = conversationId,
                             senderId = principal.userId,
                             content = content,
+                            embeddedPostId = embeddedPostId,
                             senderShadowBanned = principal.isShadowBanned,
                         )
                     } catch (_: ConversationNotFoundException) {
@@ -238,10 +260,16 @@ fun Application.chatRoutes(
                     } catch (_: BlockedException) {
                         call.respondBlocked()
                         return@post
+                    } catch (_: EmbeddedPostNotFoundException) {
+                        // Constant-404: a post the sender cannot see (blocked / shadow-banned /
+                        // soft-deleted / non-existent) is indistinguishable from absent.
+                        call.respondPostNotFound()
+                        return@post
                     }
-                // Embed fields are silently ignored on this cut (deferred to chat-embedded-posts).
-                // Per spec: structured WARN log per ignored field with the resulting message-id.
-                logIgnoredEmbedFields(body, row.id)
+                // `embedded_post_snapshot` / `embedded_post_edit_id` are SERVER-derived — a
+                // well-behaved client sends only `embedded_post_id`. Warn (don't reject) if a
+                // client supplied either server-controlled field; the server's own values win.
+                logClientSuppliedServerControlledEmbedFields(body, row.id)
                 // Post-commit broadcast publish per `chat-realtime-broadcast` spec (design § D1
                 // — await-inline on the request's coroutine context, NOT fire-and-forget).
                 // Sender-side shadow-ban skip per spec § Publish-side shadow-ban skip: read
@@ -313,6 +341,19 @@ private suspend fun ApplicationCall.respondBlocked() {
 }
 
 /**
+ * Constant-404 for an unresolvable `embedded_post_id` — the same body `GET /api/v1/posts/{id}`
+ * returns for a non-existent post, so a forbidden post (blocked / shadow-banned author) is
+ * indistinguishable from a non-existent one (`chat-embedded-posts` visibility requirement).
+ */
+private suspend fun ApplicationCall.respondPostNotFound() {
+    respondText(
+        text = """{"error":{"code":"post_not_found"}}""",
+        contentType = ContentType.Application.Json,
+        status = HttpStatusCode.NotFound,
+    )
+}
+
+/**
  * Invoke [ChatRealtimeClient.publish] post-commit and translate the result into the
  * `chat-realtime-broadcast` spec's WARN-log contract on failure paths. Per design § D3,
  * a failed publish does NOT change HTTP semantics — the persisted `chat_messages` row +
@@ -335,9 +376,11 @@ internal suspend fun publishBroadcast(
             conversationId = row.conversationId,
             senderId = row.senderId,
             content = row.content,
-            embeddedPostId = null,
-            embeddedPostSnapshot = null,
-            embeddedPostEditId = null,
+            // chat-embedded-posts: populated for an embed message, present-with-null for a
+            // plain message (the row's embed fields are NULL on a plain send).
+            embeddedPostId = row.embeddedPostId,
+            embeddedPostSnapshot = row.embeddedPostSnapshot,
+            embeddedPostEditId = row.embeddedPostEditId,
             createdAt = row.createdAt,
             redactedAt = row.redactedAt,
         )
@@ -428,25 +471,25 @@ private fun recordChatPublishFailureEvent(
     }
 }
 
-private fun logIgnoredEmbedFields(
+/**
+ * `embedded_post_snapshot` and `embedded_post_edit_id` are SERVER-derived (built from the
+ * resolved post). A well-behaved client sends only `embedded_post_id`; if a client supplies
+ * either server-controlled field we ignore it (the server's value wins) but log a structured
+ * WARN per field so a misbehaving client is observable.
+ */
+private fun logClientSuppliedServerControlledEmbedFields(
     body: SendMessageRequest,
     messageId: UUID,
 ) {
-    if (body.embeddedPostId != null) {
-        log.warn(
-            "event=chat_send_embedded_field_ignored field=embedded_post_id message_id={}",
-            messageId,
-        )
-    }
     if (body.embeddedPostSnapshot != null) {
         log.warn(
-            "event=chat_send_embedded_field_ignored field=embedded_post_snapshot message_id={}",
+            "event=chat_send_client_supplied_server_field field=embedded_post_snapshot message_id={}",
             messageId,
         )
     }
     if (body.embeddedPostEditId != null) {
         log.warn(
-            "event=chat_send_embedded_field_ignored field=embedded_post_edit_id message_id={}",
+            "event=chat_send_client_supplied_server_field field=embedded_post_edit_id message_id={}",
             messageId,
         )
     }
@@ -495,4 +538,7 @@ private fun ChatMessageRow.toJson(): JsonObject =
         content = content,
         createdAt = createdAt.toString(),
         redactedAt = redactedAt?.toString(),
+        embeddedPostId = embeddedPostId?.toString(),
+        embeddedPostSnapshot = embeddedPostSnapshot,
+        embeddedPostEditId = embeddedPostEditId?.toString(),
     )

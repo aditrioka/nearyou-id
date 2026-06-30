@@ -70,6 +70,7 @@ import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.chat_share_to_chat_action
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_edit_post
 import id.nearyou.resources.generated.resources.cta_reply
@@ -142,6 +143,9 @@ const val POST_DETAIL_IMAGE_TAG: String = "postDetailImage"
 /** Test tag on the post-header report affordance (shown only for a non-authored post). */
 const val POST_DETAIL_REPORT_POST_TAG: String = "postDetailReportPost"
 
+/** Test tag on the "Bagikan ke chat" overflow item (chat-embedded-posts). */
+const val POST_DETAIL_SHARE_TO_CHAT_TAG: String = "postDetailShareToChat"
+
 /** Test tag on a reply row's report affordance (present on every reply, ungated by authorship). */
 const val POST_DETAIL_REPORT_REPLY_TAG: String = "postDetailReportReply"
 
@@ -178,6 +182,8 @@ fun PostDetailScreen(
     route: PostDetailRoute,
     onBack: () -> Unit,
     onEditPost: (postId: String, content: String) -> Unit = { _, _ -> },
+    // chat-embedded-posts: the "Bagikan ke chat" action opens the conversation picker for this post.
+    onShareToChat: (postId: String) -> Unit = {},
 ) {
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
@@ -352,6 +358,9 @@ fun PostDetailScreen(
                     // non-authored post (server-authoritative `isAuthor`, the same gate as Edit).
                     reportEligible = !isAuthor,
                     onReportPost = viewModel::onReportPostClicked,
+                    // chat-embedded-posts: "Bagikan ke chat" is available for ANY visible post (own or
+                    // other's) — sharing relays the snapshot the sender can see.
+                    onShareToChat = { onShareToChat(route.postId) },
                 )
             },
             bottomBar = {
@@ -478,6 +487,7 @@ private fun BackBar(
     onEdit: () -> Unit,
     reportEligible: Boolean,
     onReportPost: () -> Unit,
+    onShareToChat: () -> Unit,
 ) {
     // This screen owns its Scaffold (root-stack overlay), so its custom bars must
     // apply their own system-bar insets — a bare Row in the topBar slot rendered
@@ -494,24 +504,34 @@ private fun BackBar(
         TextButton(onClick = onBack, modifier = Modifier.testTag(POST_DETAIL_BACK_TAG)) {
             Text(text = stringResource(Res.string.cta_close))
         }
-        // mobile-post-editing: the Edit affordance — own post within the 30-min window. Reactively gated:
-        // tapping opens the editor; a Free user hits the 403 → "Aktifkan Premium" upsell there (design D2).
-        if (editEligible) {
-            TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {
-                Text(text = stringResource(Res.string.cta_edit_post))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // mobile-post-editing: the Edit affordance — own post within the 30-min window. Reactively
+            // gated: tapping opens the editor; a Free user hits the 403 → "Aktifkan Premium" upsell there.
+            if (editEligible) {
+                TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {
+                    Text(text = stringResource(Res.string.cta_edit_post))
+                }
             }
-        } else if (reportEligible) {
-            // mobile-content-report: the post-header report affordance for a non-authored post — an
-            // overflow kebab mirroring the profile ProfileActionsMenu treatment (a single "Laporkan" item).
-            PostReportMenu(onReportPost = onReportPost)
+            // The post-header overflow kebab: "Bagikan ke chat" (any visible post — chat-embedded-posts)
+            // plus "Laporkan" for a non-authored post (mobile-content-report). Always present so the
+            // share entry point is reachable for own posts too.
+            PostActionsMenu(
+                onShareToChat = onShareToChat,
+                reportEligible = reportEligible,
+                onReportPost = onReportPost,
+            )
         }
     }
 }
 
-/** The post-header report overflow (a non-authored post). A kebab opening a single "Laporkan" item —
- *  mirrors the profile `ProfileActionsMenu` so the report entry point reads the same across surfaces. */
+/** The post-header overflow kebab — "Bagikan ke chat" (always) + "Laporkan" (non-authored post). Mirrors
+ *  the profile `ProfileActionsMenu` treatment so the entry points read the same across surfaces. */
 @Composable
-private fun PostReportMenu(onReportPost: () -> Unit) {
+private fun PostActionsMenu(
+    onShareToChat: () -> Unit,
+    reportEligible: Boolean,
+    onReportPost: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(
@@ -525,12 +545,22 @@ private fun PostReportMenu(onReportPost: () -> Unit) {
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
-                text = { Text(stringResource(Res.string.profile_report_action)) },
+                text = { Text(stringResource(Res.string.chat_share_to_chat_action)) },
                 onClick = {
                     expanded = false
-                    onReportPost()
+                    onShareToChat()
                 },
+                modifier = Modifier.testTag(POST_DETAIL_SHARE_TO_CHAT_TAG),
             )
+            if (reportEligible) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_report_action)) },
+                    onClick = {
+                        expanded = false
+                        onReportPost()
+                    },
+                )
+            }
         }
     }
 }

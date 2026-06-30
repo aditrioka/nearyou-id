@@ -246,6 +246,23 @@ data class ChatThreadRoute(
 ) : NavKey
 
 /**
+ * Share-a-post-to-chat conversation picker surface (`mobile-chat-embedded-posts`), opened by the
+ * post-detail "Bagikan ke chat" action and pushed onto the ROOT back stack above the [PostDetailRoute]
+ * it came from (overlaying the section bar — the [PostDetailRoute] mechanism). A payload-carrying
+ * `@Serializable data class`, so it MUST be registered in the `navSavedStateConfiguration` polymorphic
+ * `SerializersModule` for the iOS-saveable back stack.
+ *
+ * Carries ONLY [postId] — the resource key of the post to embed (a post UUID, already on the public
+ * timeline wire; the same non-PII discipline as [PostDetailRoute.postId]). It MUST NOT carry the
+ * snapshot, message content, a recipient UUID, or any coordinate — the back stack persists to disk on
+ * iOS. On a successful share the entry pops and pushes [ChatThreadRoute].
+ */
+@Serializable
+data class ConversationPickerRoute(
+    val postId: String,
+) : NavKey
+
+/**
  * The gated surface that opened the paywall — drives the contextual hero headline on the
  * [id.nearyou.app.screens.paywall.PaywallScreen]. A non-PII enum carried by [PaywallRoute] (safe to
  * serialize into the iOS-persisted back stack). This change wires [LIKE_CAP] (the daily-cap upsell

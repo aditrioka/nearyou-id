@@ -9,6 +9,7 @@ import id.nearyou.app.screens.auth.AgeGateScreen
 import id.nearyou.app.screens.auth.SignInScreen
 import id.nearyou.app.screens.chat.ChatThreadScreen
 import id.nearyou.app.screens.chat.ConversationListScreen
+import id.nearyou.app.screens.chat.ConversationPickerScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.followlist.FollowListScreen
 import id.nearyou.app.screens.paywall.PaywallScreen
@@ -189,6 +190,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 route = route,
                 onBack = { backStack.removeLastOrNull() },
                 onEditPost = { postId, content -> backStack.add(EditPostRoute(postId, content)) },
+                // chat-embedded-posts: "Bagikan ke chat" pushes the conversation picker for this post.
+                onShareToChat = { postId -> backStack.add(ConversationPickerRoute(postId)) },
             )
         }
         entry<EditPostRoute> { route ->
@@ -289,7 +292,42 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         }
         entry<ChatThreadRoute> { route ->
             // The thread overlays the list (appended ATOP ConversationListRoute); back pops to the list.
-            ChatThreadScreen(route = route, onBack = { backStack.removeLastOrNull() })
+            ChatThreadScreen(
+                route = route,
+                onBack = { backStack.removeLastOrNull() },
+                // chat-embedded-posts: tapping a live shared-post context card opens that post's detail.
+                // The PostDetailRoute is built from the immutable snapshot's display fields (the same
+                // nav-arg pattern a feed-card / search-result tap uses); the detail's /likes + /replies
+                // fetches are authoritative for the defaulted likedByViewer/replyCount/distanceM.
+                onOpenSharedPost = { postId, snapshot ->
+                    backStack.add(
+                        PostDetailRoute(
+                            postId = postId,
+                            content = snapshot.content,
+                            cityName = snapshot.cityName,
+                            distanceM = null,
+                            createdAtIso = snapshot.createdAt,
+                            likedByViewer = false,
+                            replyCount = 0,
+                            authorUsername = snapshot.authorUsername,
+                            authorDisplayName = snapshot.authorDisplayName,
+                        ),
+                    )
+                },
+            )
+        }
+        entry<ConversationPickerRoute> { route ->
+            // The share-to-chat picker overlays the post-detail it was opened from (appended ATOP it).
+            // On a successful share it pops itself THEN pushes the thread (so back from the thread
+            // returns to post-detail, not the picker); back from the picker pops to post-detail.
+            ConversationPickerScreen(
+                postId = route.postId,
+                onBack = { backStack.removeLastOrNull() },
+                onSelectConversation = { conversationId, partnerUsername, partnerDisplayName ->
+                    backStack.removeLastOrNull()
+                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
+                },
+            )
         }
         entry<SearchRoute> {
             // The Cari surface (mobile-search). `removeLastOrNull()` is size-safe: SearchRoute is only

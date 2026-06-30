@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -94,10 +96,11 @@ class SupabaseChatRealtimeSubscriber(
 /**
  * The realtime broadcast `payload`, mirroring the 9-key snake_case wire owned by the
  * `chat-realtime-broadcast` capability (verified against the publisher's `payloadFor` in
- * `:infra:supabase` `SupabaseBroadcastChatClient`). The three `embedded_*` keys are declared so the
- * payload parses cleanly but are **never mapped** into [ChatMessageInbound] (this change does not render
- * embeds — design D7). `redaction_reason` is intentionally NOT declared — it is never on the wire.
- * [content] is `null` when the message is redacted ([redactedAt] non-null).
+ * `:infra:supabase` `SupabaseBroadcastChatClient`). The three `embedded_*` keys are decoded into the
+ * vendor-free [ChatMessageInbound] embed fields (chat-embedded-posts); the snapshot JsonElement is
+ * decoded to the plain [EmbeddedPostSnapshot] model at this boundary (design D7). `redaction_reason`
+ * is intentionally NOT declared — it is never on the wire. [content] is `null` when the message is
+ * redacted ([redactedAt] non-null).
  */
 @Serializable
 internal data class RealtimeBroadcastPayload(
@@ -107,11 +110,13 @@ internal data class RealtimeBroadcastPayload(
     val content: String? = null,
     @SerialName("created_at") val createdAt: String,
     @SerialName("redacted_at") val redactedAt: String? = null,
-    // Parsed-and-dropped (design D7) — declared so the payload deserializes; never surfaced.
     @SerialName("embedded_post_id") val embeddedPostId: String? = null,
     @SerialName("embedded_post_snapshot") val embeddedPostSnapshot: JsonElement? = null,
     @SerialName("embedded_post_edit_id") val embeddedPostEditId: String? = null,
 )
+
+/** Lenient JSON for decoding the embedded-post snapshot JsonElement at the infra boundary. */
+private val embeddedSnapshotJson = Json { ignoreUnknownKeys = true }
 
 @OptIn(ExperimentalUuidApi::class)
 internal fun RealtimeBroadcastPayload.toInbound(): ChatMessageInbound =
@@ -123,4 +128,10 @@ internal fun RealtimeBroadcastPayload.toInbound(): ChatMessageInbound =
         content = content,
         createdAt = Instant.parse(createdAt),
         redactedAt = redactedAt?.let { Instant.parse(it) },
+        embeddedPostId = embeddedPostId?.let { Uuid.parse(it) },
+        embeddedPostSnapshot =
+            embeddedPostSnapshot?.takeIf { it != JsonNull }?.let {
+                embeddedSnapshotJson.decodeFromJsonElement(EmbeddedPostSnapshot.serializer(), it)
+            },
+        embeddedPostEditId = embeddedPostEditId?.let { Uuid.parse(it) },
     )

@@ -303,6 +303,10 @@ class ChatThreadViewModel(
                 content = inbound.content,
                 createdAtIso = inbound.createdAt.toString(),
                 isRedacted = inbound.redactedAt != null,
+                // chat-embedded-posts: carry the embed so a realtime-delivered share renders the card.
+                embeddedPostId = inbound.embeddedPostId?.toString(),
+                embeddedPostSnapshot = inbound.embeddedPostSnapshot,
+                embeddedPostEditId = inbound.embeddedPostEditId?.toString(),
             )
         recompute()
     }
