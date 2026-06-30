@@ -79,7 +79,8 @@ private fun hikari(): HikariDataSource {
  * 5.8). Wires a REAL [JdbcEmbeddedPostResolver] over the test DB plus a capturing
  * [FakeEmbedRealtimeClient] so the populated-broadcast and snapshot-persistence behavior can be
  * asserted end-to-end. Schema-level CHECK/FK assertions (5.5 + the pg_description leg of 5.7) live
- * in [ChatEmbeddedPostSchemaTest].
+ * in `MigrationV37SmokeTest` (the V37 FK `confdeltype`/`convalidated`/`confrelid`, the size CHECK
+ * reject + NULL-pass, and the `pg_description` deferred-comment-removed assertion).
  *
  * Tagged `database` so CI's `!network` lane excludes it; run locally with the standard
  * `DB_URL` / `DB_USER` / `DB_PASSWORD` env vars (defaults match Docker Compose dev Postgres).

@@ -9,18 +9,23 @@ The post-detail screen SHALL present a "Bagikan ke chat" affordance for a visibl
 - **WHEN** the user activates "Bagikan ke chat"
 - **THEN** the app navigates to the conversation-picker destination with `postId = P`
 
-### Requirement: The conversation picker selects-or-creates a 1:1 and sends the embed
+### Requirement: The conversation picker lists existing conversations and sends the embed (v1: existing-conversation surface)
 
-The conversation-picker destination SHALL let the user choose a recipient, reuse the shipped `createOrReturnConversation(recipientUserId)` create-or-return path to obtain the conversation id, then send a message carrying `embedded_post_id = postId`. The picker SHALL expose its state through a single-`stateIn` `uiState` ViewModel (the shipped state-holder convention). A `403`/`400`/`404` from create-or-return SHALL map to distinct user-facing results (blocked / self / recipient-not-found), with no generic fallthrough; a successful send SHALL navigate to the conversation thread.
+The conversation-picker destination SHALL list the user's **existing** conversations (the shipped conversation-list read) and, on a pick, send a message carrying `embedded_post_id = postId` to the picked conversation. Because the picked conversation already exists, the create-or-return path collapses to its "return" arm — its id is the picked row's `conversationId` — and the conversation-list rows are PII-stripped (no recipient UUID, per the conversation-list design), so the picker shares to the conversation id directly rather than re-deriving a recipient id. Starting a brand-new conversation with a never-messaged user from the share surface (the create arm of `createOrReturnConversation(recipientUserId)`) is **out of scope for v1** (it requires a recipient picker that exposes user ids); the picker is the existing-conversation surface. The picker SHALL expose its state through a single-`stateIn` `uiState` ViewModel (the shipped state-holder convention). A `403` on the send SHALL map to a distinct blocked result and any other non-`Sent` outcome to a distinct failed result, with no generic fallthrough; a successful send SHALL navigate to the conversation thread.
 
-#### Scenario: Picking a recipient sends the embed and opens the thread
-- **GIVEN** the picker is shown for `postId = P`
-- **WHEN** the user picks recipient R and the create-or-return succeeds
-- **THEN** a send is issued with `embedded_post_id = P` to that conversation AND the app navigates to the thread
+#### Scenario: Picking a conversation sends the embed and opens the thread
+- **GIVEN** the picker is shown for `postId = P` listing the user's existing conversations
+- **WHEN** the user picks conversation C and the embed send succeeds
+- **THEN** a send is issued with `embedded_post_id = P` to C AND the app navigates to the thread
 
 #### Scenario: Blocked recipient maps to a blocked result
-- **WHEN** create-or-return (or the send) returns `403` for recipient R
+- **WHEN** the embed send returns `403` for the picked conversation (the recipient blocked the sender, or vice versa)
 - **THEN** the picker surfaces a blocked result (not a crash, not a generic error) and no thread navigation occurs
+
+#### Scenario: Empty conversation list
+- **GIVEN** the user has no existing conversations
+- **WHEN** the picker is shown
+- **THEN** it renders the empty state ("Belum ada percakapan untuk dibagikan."), not a recipient picker (the new-conversation surface is deferred)
 
 ### Requirement: An embed message renders as a context card from the snapshot
 
@@ -40,19 +45,26 @@ Tapping a context card whose `embedded_post_id` is non-null SHALL navigate to th
 - **WHEN** the user taps it
 - **THEN** the app navigates to post-detail for P (which resolves under the viewer's own live rules)
 
-### Requirement: The card shows an edited-since-shared banner when the post moved past the anchor
+### Requirement: The card shows an edited-since-shared banner when the post moved past the anchor (gate live; live-edit source deferred)
 
-When the live post's most-recent edit differs from the message's `embedded_post_edit_id` anchor, the context card SHALL show a "diedit sejak dibagikan" banner indicating the post changed after it was shared. The comparison SHALL use the message's anchor versus the live post's current latest-edit signal; an unedited-then-still-unedited post SHALL show no banner.
+The context card SHALL gate a "diedit sejak dibagikan" banner on a pure comparison of the message's `embedded_post_edit_id` anchor against a live latest-edit signal: when they differ the banner SHALL show; an unedited-then-still-unedited post (both signals absent) SHALL show no banner; and an absent (unknown) live signal SHALL show no banner (never a false positive from missing data). This change SHALL ship and unit-test that gate.
 
-#### Scenario: Post edited after sharing shows the banner
-- **GIVEN** a context card whose `embedded_post_edit_id` anchor differs from the live post's current latest edit
-- **WHEN** the card is shown with the live post's current edit state
+The **per-card live-edit fetch that feeds the gate is explicitly DEFERRED** (a follow-up, [#440](https://github.com/aditrioka/nearyou-id/issues/440)): the card renders from the immutable snapshot (no live re-fetch — see the context-card requirement) and the thread fetches no live post-edit state, and the shipped `GET /api/v1/posts/{id}/edits` exposes `editedAt` timestamps + version indices, not `post_edits.id`, so a faithful anchor-vs-live-edit-id comparison is not yet wireable client-side. Until the follow-up wires a live-edit source, the runtime SHALL pass the message's own anchor as the live signal, so the banner stays dormant (never a false positive). A future change MODIFIES this requirement to wire the live source rather than rediscovering the gap (the project's "capture deferred behaviors as explicit spec requirements" rule; the same treatment as the author-tombstone deferral below).
+
+#### Scenario: Edited-since-shared gate shows the banner when anchor differs from the live signal
+- **GIVEN** a context card whose `embedded_post_edit_id` anchor differs from a supplied live latest-edit signal
+- **WHEN** the gate is evaluated
 - **THEN** the "diedit sejak dibagikan" banner is shown
 
-#### Scenario: Unchanged post shows no banner
-- **GIVEN** a context card whose anchor matches the live post's current latest edit (or both are unedited)
-- **WHEN** the card is shown
+#### Scenario: Unchanged post (or unknown live signal) shows no banner
+- **GIVEN** a context card whose anchor matches the live latest-edit signal (or both are absent, or the live signal is unknown/absent)
+- **WHEN** the gate is evaluated
 - **THEN** no edited-since-shared banner is shown
+
+#### Scenario: The live-edit source is not wired in this change (deferred negative-guard)
+- **GIVEN** the shipped thread renders an embed message whose source post was edited after share time
+- **WHEN** the card is shown in the running app (no per-card live-edit fetch is performed)
+- **THEN** the runtime passes the message's own anchor as the live signal so the banner stays dormant (no false-positive banner); the live-edit fetch is tracked by follow-up [#440](https://github.com/aditrioka/nearyou-id/issues/440)
 
 ### Requirement: A redacted message suppresses the embedded card
 

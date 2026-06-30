@@ -218,6 +218,11 @@ class ChatService(
         // anchor BEFORE opening the chat send transaction. A post the sender cannot see
         // (unknown / soft-deleted / blocked / shadow-banned-author-not-self / auto-hidden)
         // throws EmbeddedPostNotFoundException → the route's constant-404 (design D1/D3/D4).
+        // Ordering note (deliberate): this runs BEFORE the participant/block tx checks, so a
+        // sender posting an UNresolvable embed to a conversation they're not in gets the
+        // post-404 rather than the not-participant-403. Not a leak — the resolver applies the
+        // sender's OWN visibility (which they already know), revealing nothing about
+        // conversation membership; and it avoids opening a tx for a post that can't resolve.
         val embed: EmbeddedPostData? =
             if (embeddedPostId != null) {
                 val resolved =
