@@ -46,6 +46,9 @@ class NavKeySerializationTest {
                 SettingsRoute,
                 BlockedUsersRoute,
                 ConsentSettingsRoute,
+                // mobile-referral — the parameterless referral route; a missing subclass(...) registration
+                // in AppNavSerialization.kt would fail this round-trip (the iOS-saveable back stack).
+                ReferralRoute,
                 // The second payload-carrying route (mobile-profile) — a missing subclass(...) registration
                 // for ProfileRoute would fail this round-trip.
                 ProfileRoute("11111111-1111-1111-1111-555555555555"),

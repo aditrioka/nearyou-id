@@ -144,6 +144,7 @@ class RootRouterScreenTest {
                 override suspend fun signUpWithGoogle(
                     idToken: String,
                     dateOfBirth: LocalDate,
+                    inviteCode: String?,
                 ) = SignUpOutcome.Cancelled
 
                 override suspend fun isAuthenticated(): Boolean = gate.await()

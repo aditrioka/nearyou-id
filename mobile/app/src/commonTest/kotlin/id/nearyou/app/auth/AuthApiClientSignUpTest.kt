@@ -11,6 +11,8 @@ import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -86,6 +88,56 @@ class AuthApiClientSignUpTest {
         assertFalse(encoded.contains("dateOfBirth"), encoded)
         assertFalse(encoded.contains("device_fingerprint_hash"), encoded)
     }
+
+    // mobile-referral — an entered invite code is forwarded as the snake_case invite_code key.
+    @Test
+    fun `signup with an entered invite code includes invite_code`() =
+        runTest {
+            var capturedBody = ""
+            val httpClient =
+                client(InMemoryTokenStore()) { request ->
+                    capturedBody = request.body.bodyText()
+                    respond(SIGNUP_CREATED_BODY, HttpStatusCode.Created, headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+
+            AuthApiClient(httpClient) { 0L }.signUp(idToken = "g-id", dateOfBirth = "1995-03-14", inviteCode = "a3f7k2mq")
+
+            val obj = Json.parseToJsonElement(capturedBody).jsonObject
+            assertEquals("a3f7k2mq", obj["invite_code"]?.jsonPrimitive?.content, "body: $capturedBody")
+        }
+
+    // mobile-referral — a blank invite code omits the invite_code key entirely (not a null value).
+    @Test
+    fun `signup with a blank invite code omits the invite_code key`() =
+        runTest {
+            var capturedBody = ""
+            val httpClient =
+                client(InMemoryTokenStore()) { request ->
+                    capturedBody = request.body.bodyText()
+                    respond(SIGNUP_CREATED_BODY, HttpStatusCode.Created, headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+
+            AuthApiClient(httpClient) { 0L }.signUp(idToken = "g-id", dateOfBirth = "1995-03-14", inviteCode = "   ")
+
+            val obj = Json.parseToJsonElement(capturedBody).jsonObject
+            assertFalse(obj.containsKey("invite_code"), "blank input must omit the key: $capturedBody")
+        }
+
+    // mobile-referral — the default (no invite code passed) likewise omits the key (back-compat).
+    @Test
+    fun `signup with no invite code omits the invite_code key`() =
+        runTest {
+            var capturedBody = ""
+            val httpClient =
+                client(InMemoryTokenStore()) { request ->
+                    capturedBody = request.body.bodyText()
+                    respond(SIGNUP_CREATED_BODY, HttpStatusCode.Created, headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+
+            AuthApiClient(httpClient) { 0L }.signUp(idToken = "g-id", dateOfBirth = "1995-03-14")
+
+            assertFalse(capturedBody.contains("invite_code"), "no code → no key: $capturedBody")
+        }
 
     // 201 Created parses the token pair (note: signup success is 201, not 200).
     @Test

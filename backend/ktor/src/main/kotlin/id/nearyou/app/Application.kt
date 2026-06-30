@@ -194,12 +194,14 @@ import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
+import id.nearyou.app.referral.JdbcReferralReadRepository
 import id.nearyou.app.referral.ReferralActivityCheckWorker
 import id.nearyou.app.referral.ReferralGrantRepository
 import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.referral.ReferralService
 import id.nearyou.app.referral.ReferralTicketRateLimiter
 import id.nearyou.app.referral.referralActivityCheckRoute
+import id.nearyou.app.referral.referralReadRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
@@ -1088,6 +1090,7 @@ fun Application.module() {
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
     val hideDistanceRepository = HideDistanceRepository(dataSource, dbDispatchers.db)
+    val referralReadRepository = JdbcReferralReadRepository(dataSource, dbDispatchers.db)
     val referralRepository = ReferralRepository(dataSource)
     val referralService =
         ReferralService(
@@ -1277,6 +1280,7 @@ fun Application.module() {
     accountRoutes(accountDeletionService)
     accountDataExportRoutes(dataExportService)
     hideDistanceRoutes(hideDistanceRepository)
+    referralReadRoutes(referralReadRepository)
     appealRoutes(appealService, contentLengthGuard)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
