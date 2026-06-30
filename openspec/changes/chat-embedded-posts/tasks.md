@@ -65,5 +65,5 @@
 ## 9. Verification + Definition of Done (docs/11 §5)
 
 - [x] 9.1 Run the local pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (both lint frameworks).
-- [ ] 9.2 Manual verification evidence (docs/11 §5 DoD): backend send-with-embed via the running app/curl + mobile share→thread→card→tap→banner/deleted-state on emulator/device; capture screenshots into the PR body per the verify-loop.
+- [x] 9.2 Manual verification evidence (docs/11 §5 DoD): backend send-with-embed via the running app/curl + mobile share→thread→card→tap→banner/deleted-state on emulator/device; capture screenshots into the PR body per the verify-loop.
 - [x] 9.3 `openspec validate chat-embedded-posts --strict` is clean; confirm no Pattern-Registry deviation (no `docs/11` amendment needed).
