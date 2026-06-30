@@ -1,5 +1,7 @@
 package id.nearyou.app.screens.chat
 
+import android.content.ComponentName
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -8,8 +10,17 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
+import org.koin.compose.KoinContext
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.module
+import org.koin.mp.KoinPlatformTools
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -25,6 +36,29 @@ import kotlin.test.assertTrue
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)
 class EmbeddedPostCardTest {
+    // Two pieces of shared-JVM hygiene so this composable renders reliably inside the full
+    // dev-release CI run (1000+ tests), not just in isolation:
+    //  1. Register the host ComponentActivity that `runComposeUiTest` launches via ActivityScenario.
+    //     A prior test in the shared Robolectric sandbox can leave the package manager without it →
+    //     "Unable to resolve activity for ... ComponentActivity" (Robolectric#4736). addActivityIfNotPresent
+    //     is order-independent and a no-op when it is already registered.
+    //  2. Start a clean (empty) Koin context + wrap renders in KoinContext, matching the CI-stable
+    //     Compose-test harness (ChatThreadScreenTest). EmbeddedPostCard injects nothing — this is
+    //     purely environment parity.
+    @BeforeTest
+    fun setUp() {
+        val app = RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(app.packageManager)
+            .addActivityIfNotPresent(ComponentName(app.packageName, ComponentActivity::class.java.name))
+        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
+        startKoin { modules(module {}) }
+    }
+
+    @AfterTest
+    fun tearDown() {
+        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
+    }
+
     private val snapshot =
         EmbeddedPostSnapshot(
             authorUsername = "raka",
@@ -40,13 +74,15 @@ class EmbeddedPostCardTest {
         runComposeUiTest {
             var tapped = false
             setContent {
-                NearYouTheme {
-                    EmbeddedPostCard(
-                        snapshot = snapshot,
-                        isDeleted = false,
-                        editedSinceShared = false,
-                        onTap = { tapped = true },
-                    )
+                KoinContext {
+                    NearYouTheme {
+                        EmbeddedPostCard(
+                            snapshot = snapshot,
+                            isDeleted = false,
+                            editedSinceShared = false,
+                            onTap = { tapped = true },
+                        )
+                    }
                 }
             }
             onNodeWithText("Raka Pratama").assertExists()
@@ -62,8 +98,10 @@ class EmbeddedPostCardTest {
     fun editedBannerShownWhenEditedSinceShared() =
         runComposeUiTest {
             setContent {
-                NearYouTheme {
-                    EmbeddedPostCard(snapshot = snapshot, isDeleted = false, editedSinceShared = true, onTap = {})
+                KoinContext {
+                    NearYouTheme {
+                        EmbeddedPostCard(snapshot = snapshot, isDeleted = false, editedSinceShared = true, onTap = {})
+                    }
                 }
             }
             onNodeWithTag(EMBEDDED_POST_EDITED_BANNER_TAG, useUnmergedTree = true).assertExists()
@@ -75,13 +113,15 @@ class EmbeddedPostCardTest {
         runComposeUiTest {
             var tapped = false
             setContent {
-                NearYouTheme {
-                    EmbeddedPostCard(
-                        snapshot = snapshot,
-                        isDeleted = true,
-                        editedSinceShared = false,
-                        onTap = { tapped = true },
-                    )
+                KoinContext {
+                    NearYouTheme {
+                        EmbeddedPostCard(
+                            snapshot = snapshot,
+                            isDeleted = true,
+                            editedSinceShared = false,
+                            onTap = { tapped = true },
+                        )
+                    }
                 }
             }
             onNodeWithTag(EMBEDDED_POST_DELETED_TAG).assertExists()

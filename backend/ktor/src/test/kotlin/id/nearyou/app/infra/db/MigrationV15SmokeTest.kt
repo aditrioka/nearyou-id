@@ -344,7 +344,11 @@ class MigrationV15SmokeTest : StringSpec({
         }
     }
 
-    "embedded_post_edit_id comment still mentions post_edits AND deferred (post-V16)" {
+    // V37 (chat-embedded-posts) replaced the V15-era deferred-FK COMMENT with text describing the
+    // now-shipped FK. As this smoke runs the FULL migration chain, the comment is the post-V37 one:
+    // mentions post_edits(id) + SET NULL, and no longer says "deferred" (the chat-conversations
+    // MODIFIED delta + tasks 5.7 pg_description assertion; full detail in MigrationV37SmokeTest).
+    "embedded_post_edit_id comment mentions post_edits(id) + SET NULL, no longer deferred (post-V37)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
@@ -360,8 +364,9 @@ class MigrationV15SmokeTest : StringSpec({
                     rs.next() shouldBe true
                     val comment = rs.getString(1)
                     comment shouldNotBe null
-                    comment shouldContain "post_edits"
-                    comment.lowercase() shouldContain "deferred"
+                    comment shouldContain "post_edits(id)"
+                    comment shouldContain "SET NULL"
+                    (comment.lowercase().contains("deferred")) shouldBe false
                 }
             }
         }
