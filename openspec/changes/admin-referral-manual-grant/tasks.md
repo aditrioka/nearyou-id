@@ -52,7 +52,7 @@
 ## 8. Docs reconciliation + verification
 
 - [x] 8.1 File a `follow-up` issue (and/or amend in-PR) reconciling docs/07 § Referral Manual Grant Path: replace the stale `granted_entitlements` (`source/grant_role = 'manual_admin'`) prose with the as-built mechanism (RC promotional grant + GRANT webhook echo + `admin_actions_log` audit row; `granted_entitlements` deliberately untouched). (Filed: #441.)
-- [ ] 8.2 verify-loop manual bring-up of `/admin/referral-grants` (admin bootstrap + TOTP) — lookup → grant (RC-unconfigured fail-soft path) → confirm the audit row appears in the viewer; capture screenshot evidence for the PR body (docs/11 §5 DoD, UI-affecting).
+- [x] 8.2 verify-loop manual bring-up of `/admin/referral-grants` (admin bootstrap + TOTP) — lookup → grant (RC-unconfigured fail-soft path) → confirm the audit row appears in the viewer; capture screenshot evidence for the PR body (docs/11 §5 DoD, UI-affecting). (Booted the Ktor app locally (KTOR_ENV=test, :8090), bootstrapped an owner admin + TOTP, looked up `warga_baru12`, granted → "Grant recorded; dispatch skipped — RevenueCat not configured" (fail-soft), confirmed the `referral_manual_grant` audit row (`dispatch=not_configured`, reason `SUP-2026-0142`) rendered in the past-grants viewer. Screenshot in the PR body.)
 - [ ] 8.3 Pre-archive staging branch deploy + admin-panel smoke of the surface (per the pre-archive smoke convention).
 
 ## 9. Gate
