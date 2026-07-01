@@ -23,9 +23,11 @@ import id.nearyou.app.admin.ratelimit.CsamMetadataDecryptRateLimiter
 import id.nearyou.app.admin.ratelimit.DeletionQueueExpediteRateLimiter
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
+import id.nearyou.app.admin.ratelimit.ReferralGrantActionRateLimiter
 import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
 import id.nearyou.app.admin.ratelimit.UsernameOversightActionRateLimiter
+import id.nearyou.app.admin.referralgrants.ReferralGrantRepository
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
@@ -42,6 +44,7 @@ import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
 import id.nearyou.app.admin.routes.adminPostEdits
 import id.nearyou.app.admin.routes.adminPrivacyFlips
+import id.nearyou.app.admin.routes.adminReferralGrants
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
@@ -60,6 +63,8 @@ import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
+import id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter
+import id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter
 import id.nearyou.app.moderation.csam.CsamDetectionService
 import id.nearyou.app.moderation.csam.CsamMetadataEncryptor
 import id.nearyou.app.moderation.csam.CsamRepository
@@ -152,6 +157,12 @@ fun Application.admin(
             encryptor = csamMetadataEncryptor,
             auditLogger = AdminAuditLogger(dataSource),
         ),
+    // RC promotional-grant port for the Referral Manual Grant surface
+    // (admin-referral-manual-grant). Production passes the SAME granter the
+    // referral worker dispatches through (built in Application.module() from the
+    // `revenuecat-secret-api-key` slot); standalone admin wiring (tests) defaults
+    // to the fail-soft NoOp (audit row still written, RC call skipped).
+    referralEntitlementGranter: ReferralEntitlementGranter = NoOpReferralEntitlementGranter,
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
@@ -197,6 +208,14 @@ fun Application.admin(
     val graceExpediteRateLimiter = GraceExpediteActionRateLimiter(dataSource)
     val subscriptionGraceRepository =
         SubscriptionGraceRepository(dataSource, auditLogger, graceExpediteRateLimiter)
+    val referralGrantActionRateLimiter = ReferralGrantActionRateLimiter(dataSource)
+    val referralGrantRepository =
+        ReferralGrantRepository(
+            dataSource,
+            referralEntitlementGranter,
+            auditLogger,
+            referralGrantActionRateLimiter,
+        )
     val deletionQueueExpediteRateLimiter = DeletionQueueExpediteRateLimiter(dataSource)
     val deletionQueueRepository =
         DeletionQueueRepository(dataSource, auditLogger, deletionQueueExpediteRateLimiter)
@@ -329,6 +348,12 @@ fun Application.admin(
                 adminSubscriptionGrace(
                     subscriptionGraceRepository,
                     graceExpediteRateLimiter,
+                    auditLogger,
+                    layout,
+                )
+                adminReferralGrants(
+                    referralGrantRepository,
+                    referralGrantActionRateLimiter,
                     auditLogger,
                     layout,
                 )

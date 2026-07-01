@@ -604,6 +604,41 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a MANUAL REFERRAL GRANT (`admin-referral-manual-grant`
+     * capability, admin board frame 19) — the AUTHORITATIVE "a human granted
+     * this" record. Written regardless of the RC dispatch outcome (dispatched /
+     * not-configured / failed), so the admin's attempt is always recorded.
+     * [beforeState]/[afterState] carry the subscription snapshot (design D3);
+     * activation + the `subscription_events` row stay owned by the GRANT webhook
+     * echo, so this row never asserts the entitlement is live. The mandatory
+     * support-ticket reference is carried in [reason]. `adminId` is the acting
+     * human admin, never the `system` sentinel.
+     */
+    fun logReferralManualGrant(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "referral_manual_grant",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a hard-delete-queue MANUAL EXPEDITE (`admin-hard-delete-queue`
      * capability): `POST /admin/deletion-requests/{id}/expedite` advancing a
      * pending `deletion_requests` row's `scheduled_hard_delete_at` to `NOW()` so

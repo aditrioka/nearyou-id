@@ -1,0 +1,92 @@
+{# Swappable Referral Manual Grant content fragment (admin-referral-manual-grant,
+   frame 19). Rendered standalone for HTMX requests (HX-Request: true) and
+   {% include %}d by referral-grants.peb for the full-page / no-JS path. #rg-content
+   is the hx-target swapped in place.
+
+   Every value is Pebble-autoescaped on output — NO `raw` filter. Escaping is
+   LOAD-BEARING: `user.username`, `q`, and the past-grant `reason`/`grantee` are
+   user-controlled free text.
+
+   CSRF on the grant form: the full-page (no-JS) render carries `csrfToken` so the
+   `_csrf` hidden field populates; the HTMX-fragment render omits it (the layout's
+   htmx:configRequest hook adds the X-CSRF-Token header from the meta tag). #}
+<div id="rg-content">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+{% if quotaCap is not null %}
+    <p class="quota-chip">Manual grants this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+{% endif %}
+
+{% if user is not null %}
+    <div class="cardlet">
+        <h4>Grant entitlement — {{ user.username }}{% if user.deleted %} <span class="st err">DELETED</span>{% endif %}</h4>
+        <dl class="kv">
+            <dt>Subscription status</dt><dd><span class="code">{{ user.subscriptionStatus }}</span></dd>
+            <dt>Current entitlement end</dt>
+            <dd>{% if user.entitlementEnd is not empty %}{{ user.entitlementEnd }}{% else %}<span class="muted">— (no active entitlement)</span>{% endif %}</dd>
+            <dt>Referral grants received</dt>
+            <dd>invitee {{ user.grantsAsInvitee }} · inviter {{ user.grantsAsInviter }}</dd>
+        </dl>
+        <form class="grant"
+              action="/admin/referral-grants"
+              method="POST"
+              hx-post="/admin/referral-grants"
+              hx-target="#rg-content"
+              hx-swap="outerHTML"
+              hx-confirm="Grant 7 days of Premium to {{ user.username }}? This is a support-desk remedy, not a referral-system action.">
+            <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+            <input type="hidden" name="user_id" value="{{ user.id }}">
+            <input type="text" name="reason" maxlength="200" placeholder="Support ticket ref (required)" required aria-label="Support ticket reference">
+            <button type="submit" class="btn filled">Grant 7 days Premium</button>
+        </form>
+        <div class="banner info">
+            <span>Dispatches a 1-week promotional Premium entitlement via RevenueCat and records one immutable audit-log row. It does NOT write <code>granted_entitlements</code> — the inviter 5-referral track and lifetime reward stay untouched. Premium activates on the RevenueCat GRANT webhook echo (audit-only when RevenueCat is unconfigured). Rate-limited + audit-logged.</span>
+        </div>
+    </div>
+{% elseif noMatch %}
+    <div class="cardlet">
+        <p class="empty-state">No user matches “{{ q }}”. Check the username or UUID.</p>
+    </div>
+{% endif %}
+
+<h3>Past manual grants</h3>
+{% if hasRows %}
+    <div class="tbl-wrap">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th>Granted (UTC)</th>
+                <th>Recipient</th>
+                <th>Support ticket</th>
+                <th>By</th>
+                <th>Dispatch</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>{{ row.createdAt }}</td>
+                <td>{{ row.grantee }}</td>
+                <td>{% if row.reason is not empty %}<span class="code">{{ row.reason }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{{ row.adminName }}</td>
+                <td>{% if row.dispatch is not empty %}<span class="st info">{{ row.dispatch }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if nextUrl is not null %}
+    <div class="pager">
+        <a class="pagination-next"
+           href="{{ nextUrl }}"
+           hx-get="{{ nextUrl }}"
+           hx-target="#rg-content"
+           hx-swap="outerHTML"
+           hx-push-url="true">Next</a>
+    </div>
+    {% endif %}
+{% else %}
+    <p class="empty-state">No manual grants recorded yet.</p>
+{% endif %}
+</div>
