@@ -30,4 +30,4 @@
 
 - [x] 6.1 Verify the mobile UI/UX fundamentals (layout/insets, theming/tokens, contrast, touch targets, loading/empty/error states) per the `mobile-ui-foundation` checklist + the relevant Settings mockup frame.
 - [x] 6.2 Run the local mobile gate (`./gradlew :mobile:app:testStagingDebugUnitTest` + `ktlintCheck detekt`) and a device/emulator verify of the data-export row → confirm → status flow (verify-loop); capture manual-verification evidence for the PR body (docs/11 §5 DoD).
-- [ ] 6.3 On merge: close follow-up issue #362 (the deferred mobile data-export entry).
+- [x] 6.3 On merge: close follow-up issue #362 — wired via the "Closes #362" keyword in PR #424's body (GitHub auto-closes at squash-merge).

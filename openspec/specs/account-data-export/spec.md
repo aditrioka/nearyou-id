@@ -193,18 +193,6 @@ This change is the user-facing export **producer** only. It SHALL NOT add any `/
 - **WHEN** the change is delivered
 - **THEN** a `follow-up` issue exists describing the admin Data Export Queue surface to be built on `data_export_requests`
 
-### Requirement: Mobile Settings entry is deferred (out of scope)
-
-This change ships the backend endpoints the mobile "Unduh Data Saya" Settings entry will call; it SHALL NOT add Compose/mobile UI. The mobile Settings row + confirm dialog + status banner are a deferred mobile-lane follow-up. A `follow-up` issue tracks it.
-
-#### Scenario: No mobile UI added here
-- **WHEN** the change's touched modules are enumerated
-- **THEN** `:mobile:app` is not modified (the change is backend + `:infra:*` only)
-
-#### Scenario: Backend is ready for the future mobile entry
-- **WHEN** the deferred mobile entry is later built
-- **THEN** it can drive the export entirely through the shipped `POST`/`GET /api/v1/account/export` endpoints (no further backend change required for the happy path) AND a `follow-up` issue tracks the mobile entry
-
 ### Requirement: Session-history export is sourced from login_events with the IP included
 
 The "session history" category of the personal-data export (the canonical Data Export Scope Matrix row "Session history (fingerprint, IP) — 90-day window only") SHALL be sourced from `login_events`, emitting — for each of the requester's own `login_events` rows whose `occurred_at` is within the last 90 days — a CSV record carrying `occurred_at`, `event_type`, `device_fingerprint_hash`, `ip`, and `ip_subnet_24`. This supersedes the prior best-effort emission (the `refresh_tokens`-sourced rows that omitted IP because that schema carried no IP column): the IP and /24 subnet are now included, fully satisfying the matrix row. The session-history read is the requester's own keyed read of their own login history (no peer references, so no peer-hashing applies); it carries the own-content lint annotations consistent with the other own-data export reads.
@@ -216,4 +204,18 @@ The "session history" category of the personal-data export (the canonical Data E
 #### Scenario: Session-history export is bounded to the 90-day window
 - **WHEN** a user whose login history still contains rows older than 90 days (not yet purged) requests an export
 - **THEN** only `login_events` rows within the last 90 days appear in the session-history CSV (matching the matrix's "90-day window only")
+
+### Requirement: The mobile Settings data-export entry is owned by mobile-settings
+
+The `account-data-export` capability is the user-facing export **producer** only — it SHALL ship the `POST` / `GET /api/v1/account/export` endpoints and SHALL add **no** Compose/mobile UI. The mobile "Unduh Data Saya" Settings row + confirm dialog + status banner SHALL be owned by the `mobile-settings` capability and ship in the `mobile-data-export-entry` change (no longer deferred); the mobile entry MUST drive the export entirely through these shipped endpoints with no further backend change for the happy path.
+
+#### Scenario: account-data-export adds no mobile UI
+
+- **WHEN** the modules touched by the `account-data-export` change are enumerated
+- **THEN** `:mobile:app` is not modified (this capability is backend + `:infra:*` only); the mobile entry lives in `mobile-settings`
+
+#### Scenario: The mobile entry drives the export through the shipped endpoints
+
+- **WHEN** the mobile "Unduh Data Saya" Settings entry runs
+- **THEN** it drives the export entirely through the shipped `POST` / `GET /api/v1/account/export` endpoints (no further backend change required for the happy path), and the previously-tracking `follow-up` issue is closed by the `mobile-data-export-entry` change
 
