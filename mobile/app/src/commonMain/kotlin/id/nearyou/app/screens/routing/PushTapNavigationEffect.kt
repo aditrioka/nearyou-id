@@ -58,7 +58,9 @@ fun PushTapNavigationEffect(backStack: NavBackStack<NavKey>) {
                     NotificationNavTargetResolver.Resolution.None,
                     -> Unit
                 }
-                signal.consume()
+                // CAS-consume: a newer tap offered while resolve() was suspended stays pending
+                // (the collector processes it next); only THIS routing is cleared.
+                signal.consume(routing)
             }
     }
 }

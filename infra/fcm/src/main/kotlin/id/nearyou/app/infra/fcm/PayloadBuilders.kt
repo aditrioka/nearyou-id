@@ -158,10 +158,11 @@ internal const val APNS_NOTIFICATION_OVERHEAD_BYTES = 256
  * and CJK characters are never sliced mid-codepoint.
  *
  * [routingFieldBytes] is the UTF-8 byte size of the routing custom-data
- * VALUES (`type` + `target_type` + `target_id`) added by the
- * `mobile-push-message-handling` MODIFY — subtracted from the budget so the
- * clamp accounts for them (their key names ride inside the fixed
- * [APNS_NOTIFICATION_OVERHEAD_BYTES] envelope headroom).
+ * VALUES (`type` + `target_type` + `target_id` + `actor_user_id`) added by
+ * the `mobile-push-message-handling` MODIFY — subtracted from the budget so
+ * the clamp accounts for them. Their KEY names + JSON syntax (~70 bytes) ride
+ * inside the fixed [APNS_NOTIFICATION_OVERHEAD_BYTES] envelope headroom —
+ * sized with slack for that; re-check if another routing field is ever added.
  *
  * If [bodyFull] is below threshold, returns it unchanged. If the JSON has no
  * single field large enough to truncate down to fit (e.g., 20 small fields

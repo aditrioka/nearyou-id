@@ -94,6 +94,7 @@ class MessagePayloadStructuralTest : StringSpec(
             data["actor_user_id"]!!.jsonPrimitive.content shouldBe ""
             data["actor_username"]!!.jsonPrimitive.content shouldBe ""
             data["target_type"]!!.jsonPrimitive.content shouldBe ""
+            data["target_id"]!!.jsonPrimitive.content shouldBe ""
             data["body_data"]!!.jsonPrimitive.content shouldBe ""
         }
 

@@ -28,7 +28,12 @@ object NsePayloadProjection {
         if (!previewEnabled) return serverBody
         val obj = parse(bodyFull) ?: return serverBody
         if (conversationId(obj) == null) return serverBody
-        val preview = (obj["preview"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        // Blank-guarded like the Android render: an empty-string preview must not blank the body.
+        val preview =
+            (obj["preview"] as? JsonPrimitive)
+                ?.takeIf { it.isString }
+                ?.content
+                ?.ifBlank { null }
         return preview ?: serverBody
     }
 

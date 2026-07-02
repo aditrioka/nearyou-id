@@ -156,6 +156,15 @@ class FcmPushSourceGuardTest {
                     "IncomingPushHandler" to incomingPushHandler,
                     "PushBatchTracker" to pushBatchTracker,
                     "MainActivity(tap-routing)" to code("mobile/app/src/androidMain/kotlin/id/nearyou/app/MainActivity.kt"),
+                    // The spec scenario explicitly scopes "the iOS delegate/NSE" — the Kotlin iOS
+                    // sources AND the Swift NSE target source (same comment syntax, so the
+                    // comment-stripper applies).
+                    "PushNotificationTapDelegate" to
+                        code("mobile/app/src/iosMain/kotlin/id/nearyou/app/push/PushNotificationTapDelegate.kt"),
+                    "NsePayloadProjection" to code("mobile/app/src/iosMain/kotlin/id/nearyou/app/push/NsePayloadProjection.kt"),
+                    "IosNotificationContentPreferenceStore" to
+                        code("mobile/app/src/iosMain/kotlin/id/nearyou/app/push/IosNotificationContentPreferenceStore.kt"),
+                    "NotificationService.swift(NSE)" to code("iosApp/NotificationService/NotificationService.swift"),
                 )
         for ((name, src) in sources) {
             assertFalse(src.contains("println"), "$name must not println (ids/preview would reach stdout)")

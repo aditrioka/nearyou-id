@@ -50,7 +50,9 @@ object PushDisplayCopy {
         return when (type) {
             "chat_message" ->
                 when {
-                    showPreview && preview != null -> preview
+                    // Blank-guarded: an empty-string preview (valid JSON string) must not render
+                    // a blank notification body — it degrades to the embedded fallback below.
+                    showPreview && !preview.isNullOrBlank() -> preview
                     showPreview ->
                         actor?.let { getString(Res.string.push_chat_embedded_fallback, it) }
                             ?: getString(Res.string.notif_chat_message)

@@ -61,13 +61,13 @@ class IncomingPushHandler(
         val showPreview = previewEnabled && !bodyData.malformed
         val body = PushDisplayCopy.body(type, actorUsername, showPreview, bodyData.preview)
 
-        val isChat = type == "chat_message" && bodyData.conversationId != null
+        val chatConversationId = if (type == "chat_message") bodyData.conversationId else null
         val tag: String
         val displayBody: String
         val suppressSound: Boolean
-        if (isChat) {
-            val batch = batchTracker.recordChatPush(bodyData.conversationId!!, now())
-            tag = bodyData.conversationId
+        if (chatConversationId != null) {
+            val batch = batchTracker.recordChatPush(chatConversationId, now())
+            tag = chatConversationId
             if (batch.withinWindow) {
                 displayBody = PushDisplayCopy.batchedChatBody(batch.count, actorUsername)
                 suppressSound = true
@@ -111,6 +111,12 @@ class IncomingPushHandler(
     ): PendingIntent {
         val intent =
             Intent(context, MainActivity::class.java).apply {
+                // A per-tag data URI makes the intents filterEquals-DISTINCT: PendingIntent
+                // equality ignores extras, so without it two tags with colliding hashCodes would
+                // share one PendingIntent and FLAG_UPDATE_CURRENT would cross-wire their routing.
+                // (setData, not `data =` — the apply lambda would resolve `data` to the function
+                // parameter shadowing Intent.data.)
+                setData(android.net.Uri.parse("nearyou://push/$tag"))
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 putExtra(EXTRA_TYPE, data["type"].orEmpty())
                 putExtra(EXTRA_TARGET_TYPE, data["target_type"].orEmpty())

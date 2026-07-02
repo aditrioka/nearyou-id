@@ -53,7 +53,8 @@ final class NotificationService: UNNotificationServiceExtension {
         let previewEnabled =
             UserDefaults(suiteName: Self.appGroupSuite)?
                 .object(forKey: Self.previewEnabledKey) as? Bool ?? false
-        if previewEnabled, parsed?.conversationId != nil, let preview = parsed?.preview {
+        if previewEnabled, parsed?.conversationId != nil,
+           let preview = parsed?.preview, !preview.isEmpty {
             content.body = preview
         }
 

@@ -14,7 +14,7 @@ Consequences that drove the decisions below: Android has everything it needs to 
 **Goals:**
 - Render an incoming FCM push on Android (local notification) and iOS (alert + NSE body rewrite), default content-private.
 - Route the notification tap to the same in-app destination the in-app list resolves to, on **both** platforms, via the existing resolver + consumed-once nav signal.
-- Ship the additive backend payload fields that make a faithful, tappable cross-platform render possible (Android `actor_username`; iOS `type`/`target_type`/`target_id`), within the APNs 4 KB clamp.
+- Ship the additive backend payload fields that make a faithful, tappable cross-platform render possible (Android `actor_username`; iOS `type`/`target_type`/`target_id`/`actor_user_id`), within the APNs 4 KB clamp.
 - Ship the content-privacy preference store (default OFF) read by the Android render path and the iOS NSE.
 - Per-conversation batching on the display side.
 - Build + unit-test + assemble green without operator Firebase / App-Group config.
@@ -45,7 +45,7 @@ Android `onMessageReceived` may cold-start per message, so an in-memory window i
 
 ### D6 — Backend MODIFY to `fcm-push-dispatch`: add iOS routing fields + Android `actor_username`
 Two additive payload fields, both reusing existing seams, both within the 4 KB clamp:
-- **iOS**: add `type`, `target_type`, `target_id` as custom APNs data fields (delivered in `userInfo` at tap time) so the iOS `UNUserNotificationCenterDelegate` can feed the shared resolver. This relaxes the spec's "MUST NOT include the same data block as Android" line — the now-shared routing fields are exactly what tap deep-linking needs; `body_full` remains the NSE's body source.
+- **iOS**: add `type`, `target_type`, `target_id`, `actor_user_id` as custom APNs data fields (delivered in `userInfo` at tap time) so the iOS `UNUserNotificationCenterDelegate` can feed the shared resolver — whose 5-tuple needs `actor_user_id` for the `followed` → profile and chat → partner-identity paths. This relaxes the spec's "MUST NOT include the same data block as Android" line — the now-shared routing fields are exactly what tap deep-linking needs; `body_full` remains the NSE's body source.
 - **Android**: add `actor_username` (via the existing `ActorUsernameLookup` from `visible_users`, with the generic-fallback masking — "Seseorang …" — already used for the iOS body) so Android renders faithful copy without a network call. For chat (shadow-ban suppressed entirely at the emit site) and public-engagement (generic-fallback) the masking already applies; this field just surfaces it to the Android client.
 
 **Alternative** (defer iOS tap routing entirely, declare it a docs/12 §3 deferred layer) was the other option offered; operator chose the full slice. **Alternative** (encode routing in `aps.category` only) rejected — explicit `type`/`target_type`/`target_id` data fields are symmetric with Android, reuse the same resolver inputs, and avoid a category-string vocabulary. Both additions keep the APNs payload well under 4 KB (a UUID-pair + a short type string).

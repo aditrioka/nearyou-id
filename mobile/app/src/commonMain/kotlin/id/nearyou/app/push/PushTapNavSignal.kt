@@ -53,7 +53,13 @@ class PushTapNavSignal {
         _pending.value = routing
     }
 
-    fun consume() {
-        _pending.value = null
+    /**
+     * Clears [expected] ONLY if it is still the pending value (CAS): a newer tap [offer]ed while
+     * the consumer was suspended mid-resolution replaces the old value and must NOT be cleared by
+     * the old tap's consume — latest-tap-wins would otherwise silently become latest-tap-LOST
+     * (the StateFlow conflates, so the dropped tap would never reach the collector).
+     */
+    fun consume(expected: PushTapRouting) {
+        _pending.compareAndSet(expected, null)
     }
 }
