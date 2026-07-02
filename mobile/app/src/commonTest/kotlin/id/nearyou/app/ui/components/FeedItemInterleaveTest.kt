@@ -32,7 +32,7 @@ class FeedItemInterleaveTest {
     }
 
     @Test
-    fun `feed exactly N yields one trailing slot (boundary definition)`() {
+    fun `feed exactly N yields one trailing slot - boundary definition`() {
         val result = interleaveNativeAds(posts(6), 6, keyOf)
         assertEquals(7, result.size) // 6 posts + 1 trailing ad
         assertTrue(result.last() is FeedItem.NativeAdSlot)

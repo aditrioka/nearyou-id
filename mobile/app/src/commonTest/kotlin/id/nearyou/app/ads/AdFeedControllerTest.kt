@@ -72,7 +72,7 @@ private fun controller(
 /** Ad-eligibility + UMP gate ordering + data-minimization coverage with a fake provider (task 5.2). */
 class AdFeedControllerTest {
     @Test
-    fun `consent is requested before any ad load, and frequency is published`() =
+    fun `consent is requested before any ad load and frequency is published`() =
         runTest {
             val provider = RecordingAdProvider(ConsentState.OBTAINED)
             val controller = controller(AdsConfigOutcome.Enabled(6), provider)
@@ -91,7 +91,7 @@ class AdFeedControllerTest {
         }
 
     @Test
-    fun `a consent failure yields no ads (fail-safe)`() =
+    fun `a consent failure yields no ads - fail-safe`() =
         runTest {
             val provider = RecordingAdProvider(ConsentState.ERROR)
             val controller = controller(AdsConfigOutcome.Enabled(6), provider)
@@ -137,7 +137,7 @@ class AdFeedControllerTest {
         }
 
     @Test
-    fun `the ad request carries no precise coordinate (data minimization)`() =
+    fun `the ad request carries no precise coordinate - data minimization`() =
         runTest {
             val provider = RecordingAdProvider(ConsentState.OBTAINED)
             val controller = controller(AdsConfigOutcome.Enabled(6), provider)
@@ -150,7 +150,7 @@ class AdFeedControllerTest {
         }
 
     @Test
-    fun `the same slot loads at most one ad (cached, single-flight)`() =
+    fun `the same slot loads at most one ad - cached single-flight`() =
         runTest {
             val provider = RecordingAdProvider(ConsentState.OBTAINED)
             val controller = controller(AdsConfigOutcome.Enabled(6), provider)
