@@ -45,10 +45,17 @@ kotlin {
         // ComposeApp framework links the binaries (the Sentry/RevenueCat linkOnly precedent). -fmodules is
         // required by the Pods' modular headers. Versions pinned in libs.versions.toml.
         pod("Google-Mobile-Ads-SDK") {
+            // The pod is `Google-Mobile-Ads-SDK` but the clang module it vends is `GoogleMobileAds` —
+            // cinterop @imports the module name; without this it generates EMPTY bindings (all GAD* refs
+            // unresolved). The Kotlin package stays pod-based (`cocoapods.Google_Mobile_Ads_SDK`).
+            moduleName = "GoogleMobileAds"
             version = libs.versions.googleMobileAdsIos.get()
             extraOpts += listOf("-compiler-option", "-fmodules")
         }
         pod("GoogleUserMessagingPlatform") {
+            // The pod is `GoogleUserMessagingPlatform` but the framework/clang module it vends is
+            // `UserMessagingPlatform` — cinterop @imports the module name, not the pod name.
+            moduleName = "UserMessagingPlatform"
             version = libs.versions.googleUmpIos.get()
             extraOpts += listOf("-compiler-option", "-fmodules")
         }

@@ -39,7 +39,10 @@ userMessagingPlatformAndroid = "4.0.0"
 # Pods — the GoogleSignIn-pod precedent; design D7). The same Pods are added `linkOnly = true` in the
 # :mobile:app cocoapods block so the final ComposeApp framework links the binaries (the Sentry/RevenueCat
 # linkOnly precedent). Latest stable verified 2026-06-27: Google-Mobile-Ads-SDK 12.12.0 (cocoapods.org),
-# GoogleUserMessagingPlatform 3.0.0 (released 2025-03-24).
+# GoogleUserMessagingPlatform 3.0.0 (2025-03-24). Both cinterop cleanly ONLY with an explicit `moduleName`
+# in the :infra:admob cocoapods block (pod name ≠ clang module: Google-Mobile-Ads-SDK → GoogleMobileAds,
+# GoogleUserMessagingPlatform → UserMessagingPlatform) — without it cinterop generates EMPTY bindings (all
+# GAD*/UMP* refs unresolved). Verified at the linkDebugFrameworkIosSimulatorArm64 gate 2026-06-27.
 googleMobileAdsIos = "12.12.0"
 googleUmpIos = "3.0.0"
 composeMultiplatform = "1.11.1"
