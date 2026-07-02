@@ -18,7 +18,14 @@ import id.nearyou.data.repository.NotificationType
 object PushCopy {
     private const val APP_NAME = "NearYou"
     private const val FALLBACK_BODY = "Notifikasi baru dari NearYou"
-    private const val UNKNOWN_ACTOR = "Seseorang"
+
+    /**
+     * The generic-fallback masking token for a non-null-but-unresolvable actor
+     * (shadow-banned / deleted / not visible via `visible_users`). Shared with
+     * the Android `actor_username` data field (`mobile-push-message-handling`
+     * MODIFY) so both platforms mask identically.
+     */
+    const val UNKNOWN_ACTOR = "Seseorang"
 
     /**
      * Per-type push title. Currently a constant (`"NearYou"`) for every type

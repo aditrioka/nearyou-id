@@ -1,15 +1,15 @@
 ## 1. Preflight / preconditions
 
-- [ ] 1.1 Re-confirm the shipped wire against `fcm-push-dispatch` + `in-app-notifications` specs: Android data-only keys (`type`, `actor_user_id`, `target_type`, `target_id`, `body_data`); iOS alert + `body_full` (= JSON-stringified `body_data`); `chat_message` `body_data = {conversation_id, preview≤80cp|null}`. Record exact keys the client + backend touch.
-- [ ] 1.2 Verify whether the shipped chat screen requests the Android `POST_NOTIFICATIONS` runtime permission (#257 closed). If it does NOT, file a `follow-up` (labels `follow-up` + `mobile`) for the runtime prompt — this change declares the manifest permission only.
-- [ ] 1.3 Confirm the App-Group identifier `group.id.nearyou.shared` against any existing iOS entitlements (`docs/04` §490); no divergent suite name.
-- [ ] 1.4 (Operator, tracked — not a code blocker) iOS NSE Xcode extension target + App-Group capability on both app + NSE targets + provisioning + `application-groups` entitlement (`docs/04` §494–502) — issue [#430](https://github.com/aditrioka/nearyou-id/issues/430); Firebase client config + APNs `.p8` for live verify — issue [#258](https://github.com/aditrioka/nearyou-id/issues/258). Code must build/test/assemble without these.
+- [x] 1.1 Re-confirm the shipped wire against `fcm-push-dispatch` + `in-app-notifications` specs: Android data-only keys (`type`, `actor_user_id`, `target_type`, `target_id`, `body_data`); iOS alert + `body_full` (= JSON-stringified `body_data`); `chat_message` `body_data = {conversation_id, preview≤80cp|null}`. Record exact keys the client + backend touch.
+- [x] 1.2 Verify whether the shipped chat screen requests the Android `POST_NOTIFICATIONS` runtime permission (#257 closed). If it does NOT, file a `follow-up` (labels `follow-up` + `mobile`) for the runtime prompt — this change declares the manifest permission only.
+- [x] 1.3 Confirm the App-Group identifier `group.id.nearyou.shared` against any existing iOS entitlements (`docs/04` §490); no divergent suite name.
+- [x] 1.4 (Operator, tracked — not a code blocker) iOS NSE Xcode extension target + App-Group capability on both app + NSE targets + provisioning + `application-groups` entitlement (`docs/04` §494–502) — issue [#430](https://github.com/aditrioka/nearyou-id/issues/430); Firebase client config + APNs `.p8` for live verify — issue [#258](https://github.com/aditrioka/nearyou-id/issues/258). Code must build/test/assemble without these.
 
 ## 2. Backend MODIFY — `fcm-push-dispatch` payload fields (:infra:fcm)
 
-- [ ] 2.1 iOS payload builder: add `type`, `target_type`, `target_id` custom data fields (same string/empty-string semantics as Android) so the iOS tap can deep-link; keep `body_full` for the NSE; ensure the 4 KB clamp accounts for the added fields.
-- [ ] 2.2 Android payload builder: add `actor_username` data field resolved via the existing `ActorUsernameLookup` from `visible_users` (the same generic-fallback masking the iOS body uses); empty string when `actor_user_id == null`.
-- [ ] 2.3 Dispatcher tests: iOS payload carries the routing fields + stays ≤4 KB (incl. the oversized-`body_full` clamp case + the clamp-pathology multi-field case still holding with the extra fields); Android `actor_username` masking — resolved name; non-null-but-unresolvable (shadow-banned/deleted) → `"Seseorang"` (NOT `""`, NOT the real handle); `actor_user_id == null` → `""`.
+- [x] 2.1 iOS payload builder: add `type`, `target_type`, `target_id` custom data fields (same string/empty-string semantics as Android) so the iOS tap can deep-link; keep `body_full` for the NSE; ensure the 4 KB clamp accounts for the added fields.
+- [x] 2.2 Android payload builder: add `actor_username` data field resolved via the existing `ActorUsernameLookup` from `visible_users` (the same generic-fallback masking the iOS body uses); empty string when `actor_user_id == null`.
+- [x] 2.3 Dispatcher tests: iOS payload carries the routing fields + stays ≤4 KB (incl. the oversized-`body_full` clamp case + the clamp-pathology multi-field case still holding with the extra fields); Android `actor_username` masking — resolved name; non-null-but-unresolvable (shadow-banned/deleted) → `"Seseorang"` (NOT `""`, NOT the real handle); `actor_user_id == null` → `""`.
 - [ ] 2.4 Apply the `fcm-push-dispatch` delta (MODIFIED Android + iOS payload requirements) at archive time; confirm no orphaned scenario.
 
 ## 3. Content-privacy preference store (commonMain seam + actuals)
