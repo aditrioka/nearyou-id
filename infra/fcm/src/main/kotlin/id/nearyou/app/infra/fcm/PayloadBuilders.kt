@@ -105,6 +105,7 @@ fun buildIosMessage(
     val routingType = notification.type.wire
     val routingTargetType = notification.targetType.orEmpty()
     val routingTargetId = notification.targetId?.toString().orEmpty()
+    val routingActorUserId = notification.actorUserId?.toString().orEmpty()
     // Same NULL-vs-{} contract as the Android arm above.
     val rawBodyFull = notification.bodyDataJson.orEmpty()
     val clampedBodyFull =
@@ -113,7 +114,7 @@ fun buildIosMessage(
             title = title,
             body = body,
             routingFieldBytes =
-                (routingType + routingTargetType + routingTargetId)
+                (routingType + routingTargetType + routingTargetId + routingActorUserId)
                     .toByteArray(Charsets.UTF_8).size,
         ) ?: return IosPayloadResult.OversizedPayload
 
@@ -133,6 +134,9 @@ fun buildIosMessage(
                     .putCustomData("type", routingType)
                     .putCustomData("target_type", routingTargetType)
                     .putCustomData("target_id", routingTargetId)
+                    // The resolver's 5-tuple needs the actor for the `followed` → profile and
+                    // chat → partner-identity paths (opaque routing id — never rendered by iOS).
+                    .putCustomData("actor_user_id", routingActorUserId)
                     .build(),
             )
             .build()

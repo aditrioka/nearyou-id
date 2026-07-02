@@ -7,10 +7,10 @@ import id.nearyou.resources.generated.resources.notif_generic
 import id.nearyou.resources.generated.resources.notif_post_auto_hidden
 import id.nearyou.resources.generated.resources.notif_post_liked
 import id.nearyou.resources.generated.resources.notif_post_replied
+import id.nearyou.resources.generated.resources.push_channel_name
 import id.nearyou.resources.generated.resources.push_chat_batched
 import id.nearyou.resources.generated.resources.push_chat_batched_no_actor
 import id.nearyou.resources.generated.resources.push_chat_embedded_fallback
-import id.nearyou.resources.generated.resources.push_channel_name
 import id.nearyou.resources.generated.resources.push_chat_message_private
 import id.nearyou.resources.generated.resources.push_followed
 import id.nearyou.resources.generated.resources.push_post_liked
@@ -51,17 +51,22 @@ object PushDisplayCopy {
             "chat_message" ->
                 when {
                     showPreview && preview != null -> preview
-                    showPreview -> actor?.let { getString(Res.string.push_chat_embedded_fallback, it) }
-                        ?: getString(Res.string.notif_chat_message)
-                    else -> actor?.let { getString(Res.string.push_chat_message_private, it) }
-                        ?: getString(Res.string.notif_chat_message)
+                    showPreview ->
+                        actor?.let { getString(Res.string.push_chat_embedded_fallback, it) }
+                            ?: getString(Res.string.notif_chat_message)
+                    else ->
+                        actor?.let { getString(Res.string.push_chat_message_private, it) }
+                            ?: getString(Res.string.notif_chat_message)
                 }
-            "post_liked" -> actor?.let { getString(Res.string.push_post_liked, it) }
-                ?: getString(Res.string.notif_post_liked)
-            "post_replied" -> actor?.let { getString(Res.string.push_post_replied, it) }
-                ?: getString(Res.string.notif_post_replied)
-            "followed" -> actor?.let { getString(Res.string.push_followed, it) }
-                ?: getString(Res.string.notif_followed)
+            "post_liked" ->
+                actor?.let { getString(Res.string.push_post_liked, it) }
+                    ?: getString(Res.string.notif_post_liked)
+            "post_replied" ->
+                actor?.let { getString(Res.string.push_post_replied, it) }
+                    ?: getString(Res.string.notif_post_replied)
+            "followed" ->
+                actor?.let { getString(Res.string.push_followed, it) }
+                    ?: getString(Res.string.notif_followed)
             "post_auto_hidden" -> getString(Res.string.notif_post_auto_hidden)
             else -> getString(Res.string.notif_generic)
         }

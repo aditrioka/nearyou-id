@@ -67,10 +67,10 @@ For each row whose `platform = "ios"`, `FcmDispatcher` SHALL build an FCM `Messa
 - A `Notification` block with `title` (per-type via `PushCopy.titleFor(type)`) and `body` (per-type via `PushCopy.bodyFor(notification, actor_username)`).
 - An `ApnsConfig` block with `aps.mutableContent = true`. This is the flag the iOS Notification Service Extension consumes to optionally rewrite the body based on the on-device preview-toggle preference per [`docs/04-Architecture.md`](../../../../../docs/04-Architecture.md).
 - A custom data field `body_full` carrying the JSON-stringified `dto.bodyData`. The NSE rewrites the body based on this field if the preview-toggle is ON.
-- **Routing data fields for tap deep-linking** — `type`, `target_type`, `target_id` (same string/empty-string semantics as the Android data block). These are delivered in the notification `userInfo` at tap time so the iOS `UNUserNotificationCenterDelegate` can resolve the deep-link destination via the shared `(type, target_type, target_id, actor_user_id, body_data) → destination` resolver. `body_data.conversation_id` (inside `body_full`) supplies the chat address; these outer fields supply the rest.
+- **Routing data fields for tap deep-linking** — `type`, `target_type`, `target_id`, `actor_user_id` (same string/empty-string semantics as the Android data block). These are delivered in the notification `userInfo` at tap time so the iOS `UNUserNotificationCenterDelegate` can resolve the deep-link destination via the shared `(type, target_type, target_id, actor_user_id, body_data) → destination` resolver — `actor_user_id` is required by the resolver's `followed` → profile and chat → partner-identity paths (an opaque routing id, never rendered by the iOS client). `body_data.conversation_id` (inside `body_full`) supplies the chat address; these outer fields supply the rest.
 - The `token` set to the row's `token` value.
 
-The iOS payload routing data fields (`type`/`target_type`/`target_id`) are present specifically so an iOS notification tap can deep-link (the prior "MUST NOT include the same data block as Android" restriction is relaxed to exactly these routing fields + `body_full`; the NSE still consumes `body_full` only for the body rewrite). All custom data MUST remain within the APNs 4 KB clamp below.
+The iOS payload routing data fields (`type`/`target_type`/`target_id`/`actor_user_id`) are present specifically so an iOS notification tap can deep-link (the prior "MUST NOT include the same data block as Android" restriction is relaxed to exactly these routing fields + `body_full`; the NSE still consumes `body_full` only for the body rewrite). All custom data MUST remain within the APNs 4 KB clamp below.
 
 **APNs 4 KB clamp:** the assembled APNs payload (notification block + custom data including `body_full` AND the routing fields) MUST stay under the 4 KB APNs hard limit. Per `design.md` D6, the iOS payload builder SHALL pre-clamp `body_full` to a safe ceiling (typically 3 KB after JSON-stringification, leaving headroom for the notification block + the routing fields + APNs envelope overhead). Truncation MAY drop trailing characters from the longest-field — typically `post_excerpt` or `reply_excerpt` — preserving the surrounding JSON shape (the truncated string is still valid JSON; structurally `{"post_excerpt": "Hi from Jakarta...", "reply_id": "uuid"}` retains both keys, only the excerpt is shortened).
 
@@ -95,8 +95,8 @@ The reason this matters: FCM's underlying APNs response surfaces oversized-paylo
 
 #### Scenario: iOS payload carries the tap-routing data fields
 
-- **WHEN** an iOS push is constructed for a `post_liked` notification with `target_type="post"`, `target_id=<uuid>`
-- **THEN** the APNs custom payload (delivered in `userInfo`) contains `"type" -> "post_liked"` AND `"target_type" -> "post"` AND `"target_id" -> "<uuid-as-string>"` (with the same empty-string-when-null semantics as Android) AND the assembled payload remains ≤ 4 KB
+- **WHEN** an iOS push is constructed for a `post_liked` notification with `target_type="post"`, `target_id=<uuid>`, actor `<actor-uuid>`
+- **THEN** the APNs custom payload (delivered in `userInfo`) contains `"type" -> "post_liked"` AND `"target_type" -> "post"` AND `"target_id" -> "<uuid-as-string>"` AND `"actor_user_id" -> "<actor-uuid-as-string>"` (with the same empty-string-when-null semantics as Android) AND the assembled payload remains ≤ 4 KB
 
 #### Scenario: iOS payload uses fallback copy for unwired notification types
 

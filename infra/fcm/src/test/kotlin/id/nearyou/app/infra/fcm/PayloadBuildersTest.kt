@@ -205,8 +205,11 @@ class PayloadBuildersTest : StringSpec(
             val title = PushCopy.titleFor(notification.type.wire)
             val body = PushCopy.bodyFor(notification.type.wire, "bobby")
             val routingBytes =
-                (notification.type.wire + notification.targetType.orEmpty() + notification.targetId?.toString().orEmpty())
-                    .toByteArray(Charsets.UTF_8).size
+                (
+                    notification.type.wire + notification.targetType.orEmpty() +
+                        notification.targetId?.toString().orEmpty() +
+                        notification.actorUserId?.toString().orEmpty()
+                ).toByteArray(Charsets.UTF_8).size
             val assembled =
                 result.bodyFull.toByteArray(Charsets.UTF_8).size +
                     title.toByteArray(Charsets.UTF_8).size +

@@ -25,9 +25,10 @@ private val Context.pushBatchStore: DataStore<Preferences> by preferencesDataSto
  * tagged notification with the merged form, no fresh alert sound); outside it the count resets to 1
  * (fresh notification). The `conversation_id` key is opaque route payload — never rendered or
  * logged.
+ *
+ * Per-conversation keys accrete in the prefs file; a retention sweep can prune them if the file
+ * ever measurably grows (each entry is ~a timestamp + an int).
  */
-// ponytail: per-conversation keys accrete in the prefs file; a retention sweep can prune them if the
-// file ever measurably grows (each entry is ~a timestamp + an int).
 class PushBatchTracker(private val context: Context) {
     data class Batch(val count: Int, val withinWindow: Boolean)
 

@@ -89,7 +89,10 @@ class IncomingPushHandler(
                 .setContentTitle(PushDisplayCopy.title())
                 .setContentText(displayBody)
                 .setAutoCancel(true)
-                .setSilent(suppressSound)
+                // Within the batching window the tagged notification is REPLACED without a fresh
+                // alert sound (docs/04 §484–486) — FLAG_ONLY_ALERT_ONCE is the canonical
+                // update-without-re-alerting bit for a same-tag re-post.
+                .setOnlyAlertOnce(suppressSound)
                 .setContentIntent(tapIntent(tag, data))
                 .build()
         val manager = NotificationManagerCompat.from(context)

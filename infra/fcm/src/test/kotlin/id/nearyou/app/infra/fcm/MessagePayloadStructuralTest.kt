@@ -134,6 +134,7 @@ class MessagePayloadStructuralTest : StringSpec(
             payload["type"]!!.jsonPrimitive.content shouldBe NotificationType.POST_LIKED.wire
             payload["target_type"]!!.jsonPrimitive.content shouldBe "post"
             payload["target_id"]!!.jsonPrimitive.content shouldBe targetId.toString()
+            payload["actor_user_id"]!!.jsonPrimitive.content shouldBe actor.toString()
 
             // iOS is an alert push (unlike Android) — title + body present.
             val notification = wire["notification"]!!.jsonObject
@@ -161,6 +162,7 @@ class MessagePayloadStructuralTest : StringSpec(
             payload["type"]!!.jsonPrimitive.content shouldBe NotificationType.PRIVACY_FLIP_WARNING.wire
             payload["target_type"]!!.jsonPrimitive.content shouldBe ""
             payload["target_id"]!!.jsonPrimitive.content shouldBe ""
+            payload["actor_user_id"]!!.jsonPrimitive.content shouldBe ""
         }
 
         "ios chat_message payload: notification.body uses chat copy, body_full carries the data keys" {
