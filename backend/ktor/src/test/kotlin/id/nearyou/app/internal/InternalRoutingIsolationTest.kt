@@ -1,5 +1,7 @@
 package id.nearyou.app.internal
 
+import id.nearyou.app.account.AccountDeletionRepository
+import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.privacyFlipWorkerRoute
@@ -74,7 +76,14 @@ class InternalRoutingIsolationTest : StringSpec({
             }
             // Production shape: webhook in its own routing block (appleS2SRoutes
             // opens `routing { post("/internal/apple/s2s-notifications") ... }`).
-            appleS2SRoutes(NullJwksCache, setOf("id.nearyou.app"), InMemoryUsers(), InMemoryDedup())
+            appleS2SRoutes(
+                NullJwksCache,
+                setOf("id.nearyou.app"),
+                InMemoryUsers(),
+                AccountDeletionRepository(UnusedDataSource),
+                AccountHardDeleteWorker(UnusedDataSource),
+                InMemoryDedup(),
+            )
             // Production shape: the RevenueCat vendor webhook in its OWN routing
             // block, mounted OUTSIDE the OIDC gate (revenueCatWebhookRoutes opens
             // its own `routing { post("/internal/revenuecat-webhook") ... }`).

@@ -3,6 +3,8 @@ package id.nearyou.app.auth.routes
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.exceptions.JWTVerificationException
+import id.nearyou.app.account.AccountDeletionRepository
+import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.common.AppJson
 import id.nearyou.app.infra.repo.UserRepository
@@ -48,6 +50,8 @@ fun Application.appleS2SRoutes(
     jwksCache: JwksCache,
     allowedAudiences: Set<String>,
     users: UserRepository,
+    deletionRepo: AccountDeletionRepository,
+    hardDeleteWorker: AccountHardDeleteWorker,
     dedup: InMemoryDedup = InMemoryDedup(),
 ) {
     routing {
@@ -154,11 +158,63 @@ fun Application.appleS2SRoutes(
                     call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
                 }
                 "consent-revoked", "account-delete" -> {
-                    logger.warn("Apple S2S event {} received but deletion handlers are deferred", payload.type)
-                    call.respond(
-                        HttpStatusCode.NotImplemented,
-                        ApiError(ApiError.Envelope("not_implemented", "${payload.type} deferred to deletion-flows change")),
-                    )
+                    val sub = payload.sub
+                    if (sub == null) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ApiError(ApiError.Envelope("invalid_request", "missing sub for ${payload.type}")),
+                        )
+                        return@post
+                    }
+                    // Resolve to a LIVE user: findByAppleIdHash does NOT filter tombstoned
+                    // rows, so an explicit deleted_at guard makes a re-sent notification for
+                    // an already-deleted user a safe no-op (no row, no crash). Never log the
+                    // raw sub / resolved user_id (PII discipline).
+                    val user = users.findByAppleIdHash(sha256Hex(sub))?.takeIf { it.deletedAt == null }
+                    if (user == null) {
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+                        return@post
+                    }
+                    if (payload.type == "consent-revoked") {
+                        // 30-day cancellable grace (idempotent insert) + every-receipt
+                        // session-kick (separate write, fires even on the no-op-insert path).
+                        deletionRepo.scheduleConsentRevoked(user.id)
+                        users.incrementTokenVersion(user.id)
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+                    } else {
+                        // account-delete: persist the immediate row FIRST (durable backstop),
+                        // then synchronously tombstone before the 200 to Apple (design D2/D3).
+                        val rowId =
+                            try {
+                                deletionRepo.scheduleAppleAccountDelete(user.id)
+                            } catch (ex: Exception) {
+                                // Pre-persist failure (DB down) → non-2xx so Apple retries.
+                                logger.warn(
+                                    "event=apple_s2s_account_delete_persist_failed type={} error_class={}",
+                                    payload.type,
+                                    ex::class.simpleName,
+                                )
+                                call.respond(
+                                    HttpStatusCode.InternalServerError,
+                                    ApiError(ApiError.Envelope("internal_error", "could not persist deletion request")),
+                                )
+                                return@post
+                            }
+                        if (rowId != null) {
+                            try {
+                                hardDeleteWorker.executeImmediate(rowId)
+                            } catch (ex: Exception) {
+                                // Row is durably committed → the daily worker backstops it via
+                                // deletion_requests_immediate_idx. Still 200 (D3). No PII in the log.
+                                logger.warn(
+                                    "event=apple_s2s_account_delete_exec_failed type={} error_class={}",
+                                    payload.type,
+                                    ex::class.simpleName,
+                                )
+                            }
+                        }
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+                    }
                 }
                 else -> {
                     logger.info("Apple S2S unknown event type: {}", payload.type)

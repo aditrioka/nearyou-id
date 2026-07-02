@@ -47,6 +47,55 @@ class AccountDeletionRepository(
         }
 
     /**
+     * Apple S2S `consent-revoked` (`apple-s2s-deletion-flows` capability, design D4):
+     * idempotently schedules a **30-day-grace** deletion for [userId] with
+     * `source = 'apple_s2s_consent_revoked'`. Reuses the exact [requestDeletion]
+     * idempotent-CTE shape — a pending (un-cancelled, un-executed) row short-circuits
+     * the insert (no second row). Returns `true` when a fresh row was inserted, `false`
+     * when an existing pending row suppressed it.
+     *
+     * NOT session-terminating on its own: the `token_version` session-kick is a
+     * SEPARATE write (`UserRepository.incrementTokenVersion`) the handler issues on
+     * every receipt — deliberately not folded into this insert (the no-op-insert path
+     * must still kick sessions; design D4). The row stays cancellable during grace
+     * (the cancel guard excludes only `apple_s2s_account_delete`).
+     */
+    suspend fun scheduleConsentRevoked(userId: UUID): Boolean =
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(SQL_SCHEDULE_CONSENT_REVOKED).use { ps ->
+                    ps.setObject(1, userId)
+                    ps.setObject(2, userId)
+                    ps.executeQuery().use { rs -> rs.next() }
+                }
+            }
+        }
+
+    /**
+     * Apple S2S `account-delete` (`apple-s2s-deletion-flows` capability, design D7):
+     * always inserts an **immediate** (`scheduled_hard_delete_at = NOW()`)
+     * `source = 'apple_s2s_account_delete'` row and returns its id so the handler can
+     * synchronously execute the tombstone. **No pending-row guard** — Apple requires
+     * immediate deletion when the Apple ID itself is deleted, so this escalates any
+     * existing `'user'`/`'apple_s2s_consent_revoked'` grace row to immediate (the now-moot
+     * grace row is harmlessly no-op'd by the idempotent worker after the tombstone).
+     *
+     * The row is committed before this returns (autoCommit), so the daily worker
+     * backstops a synchronous-execution failure via `deletion_requests_immediate_idx`.
+     */
+    suspend fun scheduleAppleAccountDelete(userId: UUID): UUID? =
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(SQL_SCHEDULE_ACCOUNT_DELETE).use { ps ->
+                    ps.setObject(1, userId)
+                    ps.executeQuery().use { rs ->
+                        if (rs.next()) rs.getObject("id", UUID::class.java) else null
+                    }
+                }
+            }
+        }
+
+    /**
      * Cancels the caller's pending deletion (sets `cancelled_at = NOW()`), restoring
      * the account. Matches only an un-executed, un-cancelled, non-`apple_s2s_account_delete`
      * row. Returns `true` when a row was cancelled, `false` when there was nothing to
@@ -100,6 +149,32 @@ class AccountDeletionRepository(
             UNION ALL
             SELECT scheduled_hard_delete_at FROM existing
             LIMIT 1
+            """
+
+        // Apple consent-revoked: same idempotent-CTE shape as SQL_REQUEST but a
+        // 'apple_s2s_consent_revoked' source. Returns one `id` row iff a fresh row was
+        // inserted (the pending-row guard short-circuits to zero rows on a no-op).
+        const val SQL_SCHEDULE_CONSENT_REVOKED =
+            """
+            WITH existing AS (
+                SELECT 1
+                  FROM deletion_requests
+                 WHERE user_id = ? AND cancelled_at IS NULL AND executed_at IS NULL
+                 LIMIT 1
+            )
+            INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source)
+            SELECT ?, NOW() + INTERVAL '30 days', 'apple_s2s_consent_revoked'
+             WHERE NOT EXISTS (SELECT 1 FROM existing)
+            RETURNING id
+            """
+
+        // Apple account-delete: UNCONDITIONAL immediate insert (no pending-row guard,
+        // design D7), returning the new id for the synchronous executor.
+        const val SQL_SCHEDULE_ACCOUNT_DELETE =
+            """
+            INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source)
+            VALUES (?, NOW(), 'apple_s2s_account_delete')
+            RETURNING id
             """
 
         const val SQL_CANCEL =

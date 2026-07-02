@@ -165,6 +165,72 @@ class AccountDeletionRepositoryTest : StringSpec({
         }
     }
 
+    // apple-s2s-deletion-flows: scheduleConsentRevoked (2.1) — 30-day grace, idempotent.
+    "scheduleConsentRevoked schedules ~30 days out as apple_s2s_consent_revoked, idempotent against a pending row" {
+        val uid = seedUser()
+        try {
+            runBlocking { repo.scheduleConsentRevoked(uid) } shouldBe true // fresh insert
+            pendingCount(uid) shouldBe 1
+            val scheduled =
+                dataSource.connection.use { conn ->
+                    conn.prepareStatement("SELECT scheduled_hard_delete_at, source FROM deletion_requests WHERE user_id = ?").use { ps ->
+                        ps.setObject(1, uid)
+                        ps.executeQuery().use { rs ->
+                            rs.next()
+                            rs.getString("source") shouldBe "apple_s2s_consent_revoked"
+                            rs.getTimestamp("scheduled_hard_delete_at").toInstant()
+                        }
+                    }
+                }
+            val expected = Instant.now().plus(30, ChronoUnit.DAYS)
+            (Duration.between(scheduled, expected).abs().toHours() < 2) shouldBe true
+            // second receipt: a pending row exists → no second row (the insert no-ops).
+            runBlocking { repo.scheduleConsentRevoked(uid) } shouldBe false
+            pendingCount(uid) shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    // apple-s2s-deletion-flows: scheduleAppleAccountDelete (2.2 / D7) — immediate, NO pending-row guard.
+    "scheduleAppleAccountDelete always inserts an immediate row even when a grace row is pending" {
+        val uid = seedUser()
+        try {
+            runBlocking { repo.requestDeletion(uid) } // a pending 'user' grace row
+            pendingCount(uid) shouldBe 1
+            val rowId = runBlocking { repo.scheduleAppleAccountDelete(uid) }
+            (rowId != null) shouldBe true // unconditional insert returns the new id
+            pendingCount(uid) shouldBe 2 // the immediate row is ADDED, not suppressed
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "SELECT source, scheduled_hard_delete_at FROM deletion_requests WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, rowId)
+                    ps.executeQuery().use { rs ->
+                        rs.next()
+                        rs.getString("source") shouldBe "apple_s2s_account_delete"
+                        val scheduledAt = rs.getTimestamp("scheduled_hard_delete_at").toInstant()
+                        (Duration.between(scheduledAt, Instant.now()).abs().toMinutes() < 5) shouldBe true
+                    }
+                }
+            }
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    // apple-s2s-deletion-flows (2.3): consent-revoked is a CANCELLABLE source (cancel guard excludes only account-delete).
+    "cancel restores an apple_s2s_consent_revoked row (cancellable source)" {
+        val uid = seedUser()
+        try {
+            runBlocking { repo.scheduleConsentRevoked(uid) } shouldBe true
+            runBlocking { repo.cancelDeletion(uid) } shouldBe true // consent-revoked is NOT excluded
+            pendingCount(uid) shouldBe 0
+        } finally {
+            cleanup(uid)
+        }
+    }
+
     "status reflects pending then absent after cancel" {
         val uid = seedUser()
         try {

@@ -58,6 +58,20 @@ class AccountHardDeleteWorker(
             )
         }
 
+    /**
+     * Synchronously execute a single due deletion row by id, reusing the exact
+     * per-row path [execute] uses ([processOne]: claim `FOR UPDATE SKIP LOCKED` →
+     * tombstone+cascade → `deletion_log` → stamp `executed_at`). Idempotent and a
+     * no-op if the row was already executed/cancelled or is claimed concurrently.
+     *
+     * The `apple-s2s-deletion-flows` handler calls this inline for an
+     * `apple_s2s_account_delete` row (immediate, before the `200` to Apple). If it
+     * throws or no-ops, the row stays due (`executed_at IS NULL`) and the daily
+     * worker backstops it via `deletion_requests_immediate_idx`. Returns `true` iff
+     * this call tombstoned the row.
+     */
+    suspend fun executeImmediate(requestId: UUID): Boolean = withContext(dbDispatcher) { processOne(requestId) }
+
     /** Phase 1: snapshot the due, un-cancelled, un-executed request ids (no lock held). */
     private fun snapshotCandidates(): List<UUID> {
         val ids = mutableListOf<UUID>()

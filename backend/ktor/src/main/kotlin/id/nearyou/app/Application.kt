@@ -1247,7 +1247,7 @@ fun Application.module() {
     )
     signupRoutes(signupService, authRateLimiter)
     realtimeRoutes(realtimeIssuer)
-    appleS2SRoutes(appleJwks, appleAudiences, userRepository, InMemoryDedup())
+    appleS2SRoutes(appleJwks, appleAudiences, userRepository, accountDeletionRepository, accountHardDeleteWorker, InMemoryDedup())
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
 
     // --- CSAM detection (csam-detection capability) ---
