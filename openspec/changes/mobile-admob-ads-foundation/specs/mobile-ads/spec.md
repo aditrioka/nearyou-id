@@ -118,7 +118,7 @@ The chat thread (1:1 conversation) screen SHALL NEVER display any ad, in this ch
 
 ### Requirement: This change ships only the timeline native placement
 
-Ad placements other than the timeline native ad are out of scope for THIS slice and SHALL NOT render: no interstitials (app-open #5/#10/#15 or post-submit), no profile banner, and no chat-list native ad. Each deferred placement (interstitials, profile banner, chat-list native) SHALL be tracked as a `follow-up` issue, whose number is recorded in this requirement when filed (docs/12 §3).
+Ad placements other than the timeline native ad are out of scope for THIS slice and SHALL NOT render: no interstitials (app-open #5/#10/#15 or post-submit), no profile banner, and no chat-list native ad. Each deferred placement is tracked as a `follow-up` issue (docs/12 §3): interstitials → [#442](https://github.com/aditrioka/nearyou-id/issues/442); profile banner + chat-list native → [#443](https://github.com/aditrioka/nearyou-id/issues/443).
 
 #### Scenario: No interstitial on app-open or post-submit
 
@@ -132,7 +132,7 @@ Ad placements other than the timeline native ad are out of scope for THIS slice 
 
 ### Requirement: This change does not add ad mediation
 
-Ad requests SHALL go directly to Google AdMob with no mediation adapter; AppLovin MAX mediation (docs/01 Phase 2+) is out of scope and SHALL be tracked as a `follow-up`.
+Ad requests SHALL go directly to Google AdMob with no mediation adapter; AppLovin MAX mediation (docs/01 Phase 2+) is out of scope and is tracked as `follow-up` [#444](https://github.com/aditrioka/nearyou-id/issues/444).
 
 #### Scenario: No mediation adapter is wired
 
