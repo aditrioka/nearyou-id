@@ -413,7 +413,7 @@ This marker is documentation-only (not a Detekt-enforced rule in this change) â€
 - **THEN** the response is HTTP `201` AND `NotificationEmitter.emit(...)` IS invoked (the in-flight notification slips through; this race acceptance mirrors `chat-realtime-broadcast`'s D2 broadcast-side race acceptance â€” both notification and broadcast skip on stale principal state) AND `ChatRealtimeClient.publish(...)` IS invoked. All subsequent sends from A in new requests will see `viewer.isShadowBanned = TRUE` (loaded fresh per-request) and correctly skip both emit and publish.
 
 #### Scenario: Preview frozen at emit (later content edit does not mutate notification)
-- **GIVEN** A successfully sends a message at T1 with content "halo"; the resulting notification row has `body_data.preview = "halo"`; an admin later redacts the message at T2 (via the future Phase 3.5 redaction endpoint, simulated in test by a direct UPDATE)
+- **GIVEN** A successfully sends a message at T1 with content "halo"; the resulting notification row has `body_data.preview = "halo"`; an admin later redacts the message at T2 (via the shipped `admin-chat-message-redaction` capability's `POST /admin/chat-messages/{id}/redact`, simulated in test by a direct UPDATE)
 - **WHEN** the recipient queries `GET /api/v1/notifications` after the redaction
 - **THEN** the returned `body_data.preview` for the original notification row is still `"halo"` (frozen at emit time, not regenerated on read)
 
