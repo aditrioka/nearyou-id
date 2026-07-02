@@ -79,8 +79,10 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             // flips (admin-privacy-flip-monitor) + Hard delete queue (admin-hard-
             // delete-queue) + Data export queue (admin-data-export-queue); the
             // Anti-abuse group holds the Block registry item (admin-block-registry)
-            // + the CSAM detection log (admin-csam-detection-log).
-            Regex("class=\"nitem").findAll(body).count() shouldBe 15
+            // + the CSAM detection log (admin-csam-detection-log); the Premium group
+            // holds Subscription grace (admin-subscription-grace-monitor) + Referral
+            // grants (admin-referral-manual-grant).
+            Regex("class=\"nitem").findAll(body).count() shouldBe 16
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
             body shouldContain "Lifecycle"

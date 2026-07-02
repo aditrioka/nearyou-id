@@ -12,6 +12,7 @@ import id.nearyou.app.core.domain.chat.ChatRealtimeClient
 import id.nearyou.app.core.domain.chat.PublishResult
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.guard.ContentLengthGuard
+import id.nearyou.app.infra.repo.JdbcEmbeddedPostResolver
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.notifications.DbNotificationEmitter
@@ -155,6 +156,27 @@ class ChatMessageNotificationTest : StringSpec({
         b: UUID,
     ): UUID = repository.findOrCreate1to1(a, b).conversation.id
 
+    // chat-embedded-posts: seed a post owned by [authorId] (visible to that author via the
+    // own-content self-arm) so a share-to-chat embed resolves. cleanup() deletes posts by author.
+    fun seedPost(authorId: UUID): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO posts (id, author_id, content, display_location, actual_location)
+                VALUES (?, ?, 'shared post',
+                  ST_SetSRID(ST_MakePoint(106.8, -6.2), 4326)::geography,
+                  ST_SetSRID(ST_MakePoint(106.8, -6.2), 4326)::geography)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, authorId)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
     fun lastMessageAtFor(conversationId: UUID): Instant? {
         dataSource.connection.use { conn ->
             conn.prepareStatement("SELECT last_message_at FROM conversations WHERE id = ?").use { ps ->
@@ -226,6 +248,8 @@ class ChatMessageNotificationTest : StringSpec({
                     st.executeUpdate("DELETE FROM notifications WHERE user_id = '$uid' OR actor_user_id = '$uid'")
                     st.executeUpdate("DELETE FROM user_blocks WHERE blocker_id = '$uid' OR blocked_id = '$uid'")
                     st.executeUpdate("DELETE FROM chat_messages WHERE sender_id = '$uid'")
+                    st.executeUpdate("DELETE FROM post_edits WHERE post_id IN (SELECT id FROM posts WHERE author_id = '$uid')")
+                    st.executeUpdate("DELETE FROM posts WHERE author_id = '$uid'")
                 }
                 userIds.forEach { uid ->
                     val convIds = mutableListOf<String>()
@@ -269,6 +293,7 @@ class ChatMessageNotificationTest : StringSpec({
             remoteConfig = NullRemoteConfigChatNotif,
             textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
             moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
+            embeddedPostResolver = JdbcEmbeddedPostResolver(dataSource),
         )
 
     suspend fun withChat(
@@ -700,7 +725,8 @@ class ChatMessageNotificationTest : StringSpec({
                     override fun sendMessage(
                         conversationId: UUID,
                         senderId: UUID,
-                        content: String,
+                        content: String?,
+                        embed: EmbeddedPostData?,
                         emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)?,
                         preInsertHookInTx: ((Connection) -> Unit)?,
                         afterInsertHookInTx: ((Connection, ChatMessageRow) -> Unit)?,
@@ -710,6 +736,7 @@ class ChatMessageNotificationTest : StringSpec({
                                 conversationId = conversationId,
                                 senderId = senderId,
                                 content = content,
+                                embed = embed,
                                 emitInTx = emitInTx,
                                 preInsertHookInTx = preInsertHookInTx,
                                 afterInsertHookInTx = afterInsertHookInTx,
@@ -1081,7 +1108,8 @@ class ChatMessageNotificationTest : StringSpec({
                     override fun sendMessage(
                         conversationId: UUID,
                         senderId: UUID,
-                        content: String,
+                        content: String?,
+                        embed: EmbeddedPostData?,
                         emitInTx: ((Connection, ChatMessageRow, UUID) -> Unit)?,
                         preInsertHookInTx: ((Connection) -> Unit)?,
                         afterInsertHookInTx: ((Connection, ChatMessageRow) -> Unit)?,
@@ -1154,14 +1182,17 @@ class ChatMessageNotificationTest : StringSpec({
     }
 
     // -----------------------------------------------------------------------
-    // 4.20 — silent-ignore composition: embedded fields silently ignored AND preview
-    // is from `content`, not from the silently-ignored embedded value.
+    // 4.20 — composition: a content + embed message (chat-embedded-posts) emits a
+    // notification whose preview is derived from `content`, NOT from the embedded post.
+    // (Previously this asserted embedded_post_id was silently ignored; chat-embedded-posts
+    // flipped that — the embed is now resolved + persisted, but the preview stays content-based.)
     // -----------------------------------------------------------------------
-    "4.20a — embedded_post_id silently ignored: 201, preview from content" {
+    "4.20a — content + embed: 201, notification preview is from content (not the embed)" {
         val (sender, tok) = seedUser()
         val (recipient, _) = seedUser()
         val conv = createConv(sender, recipient)
         try {
+            val post = seedPost(sender) // sender shares their OWN post (own-content arm)
             val recorder = RecordingNotificationEmitter()
             withChat(emitter = recorder) { _, _ ->
                 val resp =
@@ -1169,7 +1200,7 @@ class ChatMessageNotificationTest : StringSpec({
                         tok,
                         conv,
                         content = "halo",
-                        extraJson = "\"embedded_post_id\":\"${UUID.randomUUID()}\"",
+                        extraJson = "\"embedded_post_id\":\"$post\"",
                     )
                 resp.status shouldBe HttpStatusCode.Created
             }

@@ -26,6 +26,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Instant
 
 private const val CTA_GOOGLE = "Masuk dengan Google"
 private const val CTA_RETRY = "Coba lagi"
@@ -36,6 +37,7 @@ private const val TITLE = "Masuk ke NearYouID"
 private const val DISCLOSURE = "Akun Google dan akun Apple terpisah. Satu identifier = satu akun NearYouID"
 private const val ERR_NO_ACCOUNT = "Akun belum terdaftar. Daftar dulu lewat pembaruan aplikasi berikutnya."
 private const val ERR_BANNED = "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."
+private const val ERR_SUSPENDED = "Akun kamu sedang ditangguhkan sementara. Kamu bisa mengajukan banding." // signin_error_suspended
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val SESSION_EXPIRED = "Sesi kamu berakhir. Masuk lagi untuk lanjut." // signin_session_expired
 private const val AGE_GATE_TITLE = "Verifikasi usia kamu" // AgeGateScreen title — proves the 404 navigation landed
@@ -131,11 +133,11 @@ class SignInScreenTest {
         }
     }
 
-    // 6.7d — Banned renders the banned banner, disables the CTA, AND a second (raw-pointer) tap
-    // on the disabled CTA does NOT re-invoke signInWithGoogle (visual-AND-tap-handler disable).
+    // 6.7d — a permanent Banned renders the banned banner, disables the CTA, AND a second (raw-pointer)
+    // tap on the disabled CTA does NOT re-invoke signInWithGoogle (visual-AND-tap-handler disable).
     @Test
     fun bannedOutcome_disablesCtaAndRejectsSecondTap() {
-        installKoin(SignInOutcome.Banned)
+        installKoin(SignInOutcome.Banned(suspendedUntil = null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
@@ -195,7 +197,7 @@ class SignInScreenTest {
     // is covered by AgeGateScreenTest).
     @Test
     fun errorState_rendersNoGooglePii() {
-        installKoin(SignInOutcome.Banned)
+        installKoin(SignInOutcome.Banned(suspendedUntil = null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).performClick()
@@ -205,13 +207,13 @@ class SignInScreenTest {
         }
     }
 
-    // content-moderation-appeal (mobile-appeal "Sign-in banned-state appeal entry") — on the Banned
-    // outcome the "Ajukan banding" entry is shown AND tapping it invokes onOpenAppeal (the navigation
-    // to the appeal screen). The entry gate reads `outcome` directly (not signInUiState), so this
-    // composes the real screen rather than relying on SignInUiStateTest.
+    // content-moderation-appeal + appeal-sign-in-ban-distinction (mobile-appeal "Sign-in banned-state
+    // appeal entry") — on a SUSPENSION (non-null suspended_until) the suspension copy + the "Ajukan
+    // banding" entry are shown AND tapping the entry invokes onOpenAppeal. The entry gate reads the
+    // VM-computed showAppealEntry, so this composes the real screen rather than relying on SignInUiStateTest.
     @Test
-    fun bannedOutcome_showsAppealEntry_andTapInvokesOnOpenAppeal() {
-        installKoin(SignInOutcome.Banned)
+    fun suspensionOutcome_showsSuspendedCopyAndAppealEntry_andTapInvokesOnOpenAppeal() {
+        installKoin(SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z")))
         var appealTaps = 0
         runComposeUiTest {
             setContent {
@@ -223,10 +225,28 @@ class SignInScreenTest {
             }
             onNodeWithText(CTA_GOOGLE).performClick()
             waitForIdle()
+            // Suspension copy (not the permanent-ban "Hubungi support" copy).
+            onNodeWithText(ERR_SUSPENDED).assertExists()
+            onNodeWithText(ERR_BANNED).assertDoesNotExist()
             onNodeWithText(APPEAL_ENTRY).assertExists()
             onNodeWithText(APPEAL_ENTRY).performClick()
             waitForIdle()
             assertEquals(1, appealTaps, "tapping the appeal entry opens the appeal screen")
+        }
+    }
+
+    // appeal-sign-in-ban-distinction — a PERMANENT ban (null suspended_until) shows the "Hubungi support"
+    // copy and NO appeal entry (the support path). The negative guard for the suspension-only entry.
+    @Test
+    fun permanentBanOutcome_showsSupportCopyAndHidesAppealEntry() {
+        installKoin(SignInOutcome.Banned(suspendedUntil = null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
+            onNodeWithText(CTA_GOOGLE).performClick()
+            waitForIdle()
+            onNodeWithText(ERR_BANNED).assertExists()
+            onNodeWithText(ERR_SUSPENDED).assertDoesNotExist()
+            onNodeWithText(APPEAL_ENTRY).assertDoesNotExist()
         }
     }
 

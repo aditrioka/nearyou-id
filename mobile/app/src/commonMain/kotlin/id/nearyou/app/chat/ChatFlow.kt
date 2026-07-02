@@ -12,10 +12,16 @@ interface ChatFlow {
         cursor: String? = null,
     ): ChatThreadOutcome
 
-    /** Sends a message; maps the POST status to a [SendOutcome] (403 → Blocked, 400 → TooLong/Error, …). */
+    /**
+     * Sends a message; maps the POST status to a [SendOutcome] (403 → Blocked, 400 → TooLong/Error, …).
+     * The text-bar path passes [content] only; the share-to-chat flow (`mobile-chat-embedded-posts`)
+     * MAY additionally pass an [embeddedPostId] (content then optional) — the same send method, no
+     * separate endpoint.
+     */
     suspend fun send(
         conversationId: String,
-        content: String,
+        content: String? = null,
+        embeddedPostId: String? = null,
     ): SendOutcome
 
     /** Create-or-return a 1:1 conversation with [recipientUserId] (the future profile "Kirim pesan" path). */

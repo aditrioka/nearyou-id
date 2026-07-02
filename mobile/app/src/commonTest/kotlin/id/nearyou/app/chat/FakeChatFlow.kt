@@ -26,7 +26,12 @@ class FakeChatFlow(
         private set
     var sendCount: Int = 0
         private set
-    val sentContents: MutableList<String> = mutableListOf()
+    val sentContents: MutableList<String?> = mutableListOf()
+
+    // chat-embedded-posts: the send args captured so a test can assert an embed send carried the
+    // expected conversation id + embedded_post_id (and no content).
+    val sentConversationIds: MutableList<String> = mutableListOf()
+    val sentEmbeddedPostIds: MutableList<String?> = mutableListOf()
 
     override suspend fun loadHistory(
         conversationId: String,
@@ -38,10 +43,13 @@ class FakeChatFlow(
 
     override suspend fun send(
         conversationId: String,
-        content: String,
+        content: String?,
+        embeddedPostId: String?,
     ): SendOutcome {
         sendCount++
+        sentConversationIds.add(conversationId)
         sentContents.add(content)
+        sentEmbeddedPostIds.add(embeddedPostId)
         return sendOutcome
     }
 

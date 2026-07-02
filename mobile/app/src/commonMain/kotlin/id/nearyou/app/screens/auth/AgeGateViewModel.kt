@@ -38,6 +38,9 @@ data class AgeGateScreenUiState(
     val showPicker: Boolean,
     val identityAbsent: Boolean,
     val navigation: AgeGateNavTarget?,
+    /** The OPTIONAL referral code typed at signup (mobile-referral D5) — held in UI state (survives a
+     *  configuration change + a retryable resubmit), NOT in the `PendingSignupIdentity` credential holder. */
+    val inviteCode: String,
 )
 
 /**
@@ -69,6 +72,7 @@ class AgeGateViewModel(
         val inFlight: Boolean = false,
         val identityAbsent: Boolean = false,
         val navigation: AgeGateNavTarget? = null,
+        val inviteCode: String = "",
     )
 
     private val state = MutableStateFlow(initialState())
@@ -100,11 +104,15 @@ class AgeGateViewModel(
             showPicker = showPicker,
             identityAbsent = identityAbsent,
             navigation = navigation,
+            inviteCode = inviteCode,
         )
     }
 
     /** Toggle the DOB picker dialog. */
     fun onShowPicker(show: Boolean) = state.update { it.copy(showPicker = show) }
+
+    /** The optional referral-code field changed (mobile-referral) — held in UI state, never logged. */
+    fun onInviteCodeChange(value: String) = state.update { it.copy(inviteCode = value) }
 
     /** DOB picker confirmed: a non-null pick updates the DOB (a null pick keeps the prior value); always closes
      *  the dialog — mirroring the screen's prior `if (picked != null) selectedDobMillis = picked; showPicker = false`. */
@@ -118,10 +126,12 @@ class AgeGateViewModel(
         val idToken = pendingSignupIdentity.peek() ?: return
         val dob = current.selectedDobMillis?.let { dobFromUtcMillis(it) } ?: return
         if (!isDobSubmittable(dob, today)) return
+        val inviteCode = current.inviteCode
         state.update { it.copy(inFlight = true) }
         viewModelScope.launch {
             // signUpWithGoogle() returns an outcome for every case; the only throw is cooperative cancellation.
-            val result = authFlow.signUpWithGoogle(idToken, dob)
+            // The invite code is forwarded as the optional `invite_code` (blank → omitted, in the API client).
+            val result = authFlow.signUpWithGoogle(idToken, dob, inviteCode)
             applyOutcome(result)
         }
     }

@@ -40,9 +40,10 @@ class ChatRepository(
 
     override suspend fun send(
         conversationId: String,
-        content: String,
+        content: String?,
+        embeddedPostId: String?,
     ): SendOutcome =
-        when (val result = messagesApiClient.sendMessage(conversationId, content)) {
+        when (val result = messagesApiClient.sendMessage(conversationId, content, embeddedPostId)) {
             is SendMessageApiResult.Created -> SendOutcome.Sent(result.message)
             is SendMessageApiResult.NetworkError -> SendOutcome.NetworkError
             is SendMessageApiResult.HttpError ->

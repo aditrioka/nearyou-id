@@ -16,6 +16,7 @@ import id.nearyou.app.auth.session.InMemoryRefreshTokens
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.session.userRow
+import id.nearyou.app.common.AppJson
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -38,6 +39,7 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.security.MessageDigest
@@ -74,7 +76,11 @@ class SignInFlowTest : StringSpec({
         val service = RefreshTokenService(tokens, users, nowProvider = { now })
         testApplication {
             application {
-                install(ContentNegotiation) { json() }
+                // Use the SHARED production AppJson (explicitNulls = false) so wire-shape assertions
+                // (notably the permanent-ban suspended_until OMISSION) reflect what production emits —
+                // the Ktor-default json() has explicitNulls = true and would serialize an explicit
+                // null this server never sends (appeal-sign-in-ban-distinction review finding).
+                install(ContentNegotiation) { json(AppJson) }
                 install(Authentication) {
                     configureUserJwt(keys, users, nowProvider = { now })
                 }
@@ -126,10 +132,10 @@ class SignInFlowTest : StringSpec({
         }
     }
 
-    "banned user → 403 account_banned with a limited appeal_token (scope=appeal, current token_version, ≤1h TTL) and NO refresh row" {
+    "permanently-banned user → 403 account_banned, suspended_until null, limited appeal_token, NO refresh row" {
         val sub = "google-banned"
         // A non-default token_version (7) so the claim assertion proves the route copies the
-        // user's CURRENT version, not a hardcoded constant.
+        // user's CURRENT version, not a hardcoded constant. suspended_until defaults null (permanent).
         val user = userRow(googleIdHash = sha256Hex(sub), isBanned = true, tokenVersion = 7)
         setup(InMemoryUsers(listOf(user)), StaticVerifier(sub)) { tokens ->
             val client = createClient { install(ClientCN) { json() } }
@@ -151,7 +157,45 @@ class SignInFlowTest : StringSpec({
             decoded.getClaim("scope").asString() shouldBe "appeal"
             decoded.getClaim("token_version").asInt() shouldBe 7
             ((decoded.expiresAt.time - decoded.issuedAt.time) / 1000L) shouldBe 3600L
+            // appeal-sign-in-ban-distinction: a permanent ban has NO suspended_until on the wire —
+            // the shared AppJson (explicitNulls = false) omits the null-valued field. Absent (or an
+            // explicit null) both read as "no suspension expiry" → the client routes to permanent.
+            val suspendedUntilField = Json.parseToJsonElement(body).jsonObject["suspended_until"]
+            (suspendedUntilField == null || suspendedUntilField is JsonNull) shouldBe true
             // … and NO normal access/refresh token is issued (no refresh_tokens row).
+            tokens.rows.size shouldBe 0
+        }
+    }
+
+    "suspended user → 403 account_banned, suspended_until the future expiry, with a limited appeal_token and NO refresh row" {
+        val sub = "google-suspended"
+        // A 7-day suspension is is_banned = TRUE with a future suspended_until.
+        val suspendedUntil = now.plusSeconds(7 * 24 * 3600)
+        val user =
+            userRow(googleIdHash = sha256Hex(sub), isBanned = true, suspendedUntil = suspendedUntil, tokenVersion = 3)
+        setup(InMemoryUsers(listOf(user)), StaticVerifier(sub)) { tokens ->
+            val client = createClient { install(ClientCN) { json() } }
+            val response =
+                client.post("/api/v1/auth/signin") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SignInRequest(provider = "google", idToken = "ok"))
+                }
+            response.status shouldBe HttpStatusCode.Forbidden
+            val body = response.bodyAsText()
+            // The code stays account_banned for a suspension (the distinction is the field).
+            body shouldContain "account_banned"
+            // appeal-sign-in-ban-distinction: suspended_until echoes the ISO-8601 expiry so the
+            // client routes to the in-app appeal form.
+            Json.parseToJsonElement(body).jsonObject["suspended_until"]!!.jsonPrimitive.content shouldBe
+                suspendedUntil.toString()
+            // The same limited appeal-token contract applies to a suspension (scope=appeal,
+            // the user's current token_version (3), ≤1h).
+            val appealToken = Json.parseToJsonElement(body).jsonObject["appeal_token"]!!.jsonPrimitive.content
+            val decoded = JWT.decode(appealToken)
+            decoded.getClaim("scope").asString() shouldBe "appeal"
+            decoded.getClaim("token_version").asInt() shouldBe 3
+            ((decoded.expiresAt.time - decoded.issuedAt.time) / 1000L) shouldBe 3600L
+            // No normal access/refresh token is issued for a suspension either.
             tokens.rows.size shouldBe 0
         }
     }
