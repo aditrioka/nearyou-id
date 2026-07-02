@@ -116,17 +116,19 @@ Feature rules: `02-Product.md` § Premium Username Customization.
 
 ### Customization Screen
 
-- Current username + field for the new one; live availability probe (debounced 500ms) with inline validation
-- Error states:
-  - Reserved: "Username ini tidak tersedia. Coba username lain."
-  - Collision: "Username ini sudah dipakai."
-  - On release hold: "Username ini sedang dalam masa tahan. Coba lagi nanti."
-  - Profanity/UU ITE soft flag: "Username ini akan ditinjau tim moderasi. Silakan pilih username lain atau tunggu hasil review."
-  - Cooldown active: "Kamu bisa ganti username lagi pada {date}."
+> Reconciled 2026-07-02 to the shipped wire (`premium-username-customization` backend + `mobile-premium-username` client): the availability probe is **3/day rate-limited and non-authoritative**, and the `409` envelope carries **no unavailability reason** — so validation is local-first and the unavailable message is generic. The fuller UX is tracked: distinct unavailable messages [#334](https://github.com/aditrioka/nearyou-id/issues/334), proactive cooldown entry state [#333](https://github.com/aditrioka/nearyou-id/issues/333), autocomplete [#336](https://github.com/aditrioka/nearyou-id/issues/336).
+
+- Current username + field for the new one; **live LOCAL format validation** (debounced 500ms; 3–30 chars, lowercase/digit/dot/underscore rules) gates both the probe and submit — format errors surface instantly with no network call ("Username harus 3–30 karakter: huruf kecil, angka, titik, atau garis bawah (tidak di awal/akhir, tanpa titik ganda).")
+- **Budget-aware availability probe**: `GET /api/v1/username/check` fires only for a format-valid, settled, not-yet-probed candidate (NOT per keystroke — the probe is rate-limited 3/user/day). Probe available: "Username tersedia." Probe exhausted degrades gracefully, not an error: "Ketersediaan akan dicek saat kamu simpan." — the authoritative check happens at submit under the row lock.
+- Error states (shipped envelope):
+  - Unavailable (`409 username_unavailable` — reserved / taken / release hold, undistinguished by the wire): one generic "Username ini tidak tersedia. Coba username lain." (distinct per-reason messages: [#334](https://github.com/aditrioka/nearyou-id/issues/334))
+  - Profanity/UU ITE soft flag (`422 username_rejected`): "Username ini akan ditinjau tim moderasi. Silakan pilih username lain atau tunggu hasil review."
+  - Cooldown active (`429 cooldown_active`, reactive via `Retry-After`): "Ganti username berikutnya tersedia dalam {n} hari."
+  - Probe/change rate-limited (`429 rate_limited`): "Terlalu banyak percobaan. Coba lagi dalam {n} menit."
 
 ### Cooldown Messaging
 
-After a username change, the entry point shows a disabled state with copy "Ganti username berikutnya tersedia dalam {countdown} hari." — personalized per user.
+Cooldown is **reactive-only** at MVP: the countdown copy above renders when a change attempt returns `429 cooldown_active` (whole days rounded up from `Retry-After`). A proactive disabled entry-point state ("Ganti username berikutnya tersedia dalam {countdown} hari." shown before any attempt) needs the self-profile to expose `username_last_changed_at` — deferred, tracked in [#333](https://github.com/aditrioka/nearyou-id/issues/333).
 
 ### Submit Confirmation
 
