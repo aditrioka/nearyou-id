@@ -12,19 +12,21 @@ Today the post-detail post-header and reply-row overflow kebabs (added by `mobil
 - Add "Blokir @{username}" to the post-detail **post-header** and **reply-row** kebabs, with the canonical confirmation dialog + success toast.
 - One block-create implementation (`data/block/BlockSubmitter`) shared by profile and post-detail — no duplicated block path.
 - Ship the full vertical slice: the additive `authorUserId` wire field (backend) + the mobile affordance, together.
+- Reply cards render the author **display identity** (avatar + display name) per canonical mockup frame 7 — the additive `author_username` + `author_display_name` reply-wire fields (backend) + the card identity row (mobile), together (D7).
 
 **Non-Goals:**
-- No change to backend block semantics, the `user_blocks` schema, the rate limit, or any endpoint contract. **No Flyway migration.**
+- No change to backend block semantics, the `user_blocks` schema, the rate limit, or the block-endpoint contract. **No Flyway migration.** (The `single-post-read` + reply wires gain **additive** fields — D1/D7 — with every pre-existing field and all visibility semantics unchanged.)
 - No timeline-card (`PostCard`) block affordance (deferred — owned by in-flight #354).
 - No post-detail header tap-to-profile navigation (deferred — separate concern).
+- No like-per-reply and no premium tenure badge on reply rows (both visible in mockup frame 7 — separate capabilities; this change adds ONLY the identity row + block kebab).
 - No new library/substrate (`gradle/libs.versions.toml` untouched) → no propose-time substrate WebSearch required.
 
 ## Cross-layer scope (docs/12)
 
 | Layer | In this change | Notes |
 |-------|----------------|-------|
-| Backend (`:backend:ktor`) | YES | additive `authorUserId` on `single-post-read` wire DTO + projection; no migration, no new endpoint, block endpoint reused as-is |
-| Mobile (`:mobile:app`) | YES | post-header + reply-row block affordances; shared `BlockSubmitter`; confirmation dialog; `authorUserId` sourced from the single-post freshness read (NOT the serialized back stack) |
+| Backend (`:backend:ktor`) | YES | additive `authorUserId` on `single-post-read` wire DTO + projection; additive `author_username` + `author_display_name` on the reply list/create wire (D7); no migration, no new endpoint, block endpoint reused as-is |
+| Mobile (`:mobile:app`) | YES | post-header + reply-row block affordances; shared `BlockSubmitter`; confirmation dialog; reply-card identity row (mockup frame 7); `authorUserId` sourced from the single-post freshness read (NOT the serialized back stack) |
 | Admin (`:backend:ktor/admin`) | NONE | block has no admin surface in this change; the read-only `admin-block-registry` already shipped |
 
 Deferred layers are captured as explicit `specs/**` deferred requirements (positive statement + negative-guard scenario + tracking issue), not bare prose — see the new capability spec.
@@ -66,16 +68,23 @@ Two entry points are deferred, handled differently by deferral type:
 - **Timeline-card (`PostCard`) block kebab** — a deferred *layer of this capability*, so it is captured as an **explicit deferred requirement** in the new capability spec (positive statement + a negative-guard scenario asserting `PostCard`/`mobile-post-card` are untouched) + a tracking `follow-up` issue — mirroring how `mobile-content-report` deferred the timeline-card report kebab as #363. PostCard is owned by in-flight `image-attached-posts` #354; touching it here would create a merge conflict and violate the footprint-disjoint heuristic.
 - **Post-detail header tap-to-profile** — NOT a layer of the block capability (it is a navigation affordance that would unlock the *whole* profile surface, a separate concern), so it is tracked only as a `follow-up` issue (task 6.2), not a deferred requirement of this spec.
 
+### D7 — Reply author identity on the wire + card (operator-approved deviation, 2026-07-03)
+The canonical "Blokir @{username}" copy is unrenderable on reply kebabs as originally proposed: the reply wire carries only the `author_id` UUID (never rendered), so there is no username to interpolate — an internal contradiction between this change's reply-block requirement and the shipped `mobile-post-detail` "reply cards render no author identity" contract, discovered at implementation time. **Chosen (operator decision):** the backend supplies the identity — additive **`author_username` + `author_display_name`** on the reply list AND create (201) wire, and reply cards render the author display identity (avatar + display name, the same `LetterAvatar`/name treatments as the post header). This conforms to the canonical mockup **frame 7 · "Detail postingan + balasan"**, which has always shown reply author identity ("Sinta Maharani · 25 mnt", …) — the shipped anonymous rendering was a wire-era gap, not product intent; `docs/03` §Block User UX likewise assumes reply kebabs can name their author.
+- *Projection mechanics:* the list query already `LEFT JOIN visible_users vu` for the shadow-ban predicate; identity is projected via a raw-`users` join on the already-visibility-resolved `pr.author_id` (required anyway for the caller's OWN shadow-banned replies, which are absent from `visible_users` — the same self-arm rationale as `resolveVisiblePost`). The INSERT-RETURNING path projects the caller's own identity the same way. Every returned row has already passed the visibility predicates, so the raw-`users` identity read leaks nothing.
+- *Rejected:* (a) a username-free reply dialog copy ("Blokir penulis balasan") — deviates from the canonical docs/03 copy AND cements the mockup-non-conformant anonymous reply card; (b) fetching the username per reply via `GET /api/v1/users/{author_id}` on dialog-open — N round-trips, a loading/failure state inside a confirmation dialog, and the kebab label still can't name the author.
+- *Compatibility:* mobile `ReplyDto` declares the new fields nullable-with-default, so a stale backend (e.g. staging mid-rollout) still decodes; a null identity omits the card identity row gracefully (the post header's legacy-payload precedent).
+
 ## Risks / Trade-offs
 
 - **[`authorUserId` wire exposure read as a PII regression]** → never rendered, block-action-only, byte-for-byte the `ReplyDto.authorId` precedent already in production; KDoc + #202 reconciliation make the relaxation explicit and reviewable. The field leaks nothing the existing `isAuthor` boolean doesn't already encode the existence of.
 - **[Footprint overlap with chat-embedded-posts #423 on single-post-read]** → verified: #423 does not touch `SinglePostRoutes`. No migration → no Flyway V-number collision with any in-flight claim.
 - **[Reply-row removal vs. server truth divergence]** → local-remove is an optimistic UI affordance on a confirmed 204; the next post-detail (re)fetch reconciles from `visible_*` views (the blocked reply is already excluded server-side).
 - **[Shared-seam refactor regresses profile block]** → the profile block path is refactored behavior-preservingly onto `BlockSubmitter`; a regression scenario asserts the existing profile block tests pass unchanged (mirrors the `mobile-content-report` "report behavior unchanged" guard).
+- **[Reply identity exposure read as a privacy regression]** → `username`/`display_name` are the same public display identity every post card already renders; the canonical mockup frame 7 has always shown it on replies. The UUID (`author_id`) posture is unchanged (never rendered/logged). Shadow-ban/block visibility is unaffected: identity is projected only for rows the caller could already see.
 
 ## Migration Plan
 
-No DB migration. The `authorUserId` field is additive and backward-compatible: under the app-wide `explicitNulls = false` ContentNegotiation, older clients ignore the unknown key; the field is always present for new clients. Mobile ships on the normal flavor cadence. **Rollback:** revert the PR — the additive field has no persisted state and no consumer outside this change.
+No DB migration. The `authorUserId` field and the reply-wire `author_username` + `author_display_name` fields are additive and backward-compatible: older clients ignore the unknown keys (`ignoreUnknownKeys`); new clients declare the reply identity fields nullable-with-default so an older backend still decodes. Mobile ships on the normal flavor cadence. **Rollback:** revert the PR — the additive fields have no persisted state and no consumer outside this change.
 
 ## Open Questions
 
