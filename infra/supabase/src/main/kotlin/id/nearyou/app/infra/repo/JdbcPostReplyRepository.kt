@@ -35,19 +35,18 @@ class JdbcPostReplyRepository(
     // ReplyService runs TextModerator.moderate() before either insert sink
     // (PostRepliesModerationIntegrationTest pins the call order).
     @AllowContentWriteWithoutModeration("service_layer_moderated")
+    @AllowMissingBlockJoin(
+        "self-identity projection of the just-inserted own reply (mobile-block-from-content D7): " +
+            "the JOIN users reads only the CALLER's own username/display_name for the 201 body — " +
+            "no cross-user surface, nothing to block-exclude",
+    )
     override fun insert(
         postId: UUID,
         authorId: UUID,
         content: String,
     ): PostReplyRow {
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                INSERT INTO post_replies (post_id, author_id, content)
-                VALUES (?, ?, ?)
-                RETURNING id, post_id, author_id, content, is_auto_hidden, created_at, updated_at, deleted_at
-                """.trimIndent(),
-            ).use { ps ->
+            conn.prepareStatement(INSERT_RETURNING_WITH_IDENTITY).use { ps ->
                 ps.setObject(1, postId)
                 ps.setObject(2, authorId)
                 ps.setString(3, content)
@@ -78,6 +77,11 @@ class JdbcPostReplyRepository(
         //  - deleted_at IS NULL excludes soft-deleted rows (including the author's own).
         //  - (is_auto_hidden = FALSE OR author_id = :viewer) — author still sees
         //    their own auto-hidden replies; everyone else does not.
+        //  - Author display identity via raw `users au` (mobile-block-from-content D7): every
+        //    returned row has already passed the visibility predicates, and the caller's OWN
+        //    shadow-banned replies (author bypass) have no visible_users row — so identity MUST
+        //    come from raw users; the join changes no visibility predicate (same block tokens,
+        //    BlockExclusionJoinRule passes on the single literal).
         //  - Keyset on (created_at DESC, id DESC) via post_replies_post_idx.
         val sql =
             buildString {
@@ -86,12 +90,15 @@ class JdbcPostReplyRepository(
                     SELECT pr.id,
                            pr.post_id,
                            pr.author_id,
+                           au.username AS author_username,
+                           au.display_name AS author_display_name,
                            pr.content,
                            pr.is_auto_hidden,
                            pr.created_at,
                            pr.updated_at
                       FROM post_replies pr
                       LEFT JOIN visible_users vu ON vu.id = pr.author_id
+                      JOIN users au ON au.id = pr.author_id
                      WHERE pr.post_id = ?
                        AND pr.deleted_at IS NULL
                        AND (vu.id IS NOT NULL OR pr.author_id = ?)
@@ -186,19 +193,18 @@ class JdbcPostReplyRepository(
     }
 
     @AllowContentWriteWithoutModeration("service_layer_moderated")
+    @AllowMissingBlockJoin(
+        "self-identity projection of the just-inserted own reply (mobile-block-from-content D7): " +
+            "the JOIN users reads only the CALLER's own username/display_name for the 201 body — " +
+            "no cross-user surface, nothing to block-exclude",
+    )
     override fun insertInTx(
         conn: Connection,
         postId: UUID,
         authorId: UUID,
         content: String,
     ): PostReplyRow {
-        conn.prepareStatement(
-            """
-            INSERT INTO post_replies (post_id, author_id, content)
-            VALUES (?, ?, ?)
-            RETURNING id, post_id, author_id, content, is_auto_hidden, created_at, updated_at, deleted_at
-            """.trimIndent(),
-        ).use { ps ->
+        conn.prepareStatement(INSERT_RETURNING_WITH_IDENTITY).use { ps ->
             ps.setObject(1, postId)
             ps.setObject(2, authorId)
             ps.setString(3, content)
@@ -233,6 +239,8 @@ class JdbcPostReplyRepository(
             id = getObject("id", UUID::class.java),
             postId = getObject("post_id", UUID::class.java),
             authorId = getObject("author_id", UUID::class.java),
+            authorUsername = getString("author_username"),
+            authorDisplayName = getString("author_display_name"),
             content = getString("content"),
             isAutoHidden = getBoolean("is_auto_hidden"),
             createdAt = getTimestamp("created_at").toInstant(),
@@ -248,10 +256,29 @@ class JdbcPostReplyRepository(
             id = getObject("id", UUID::class.java),
             postId = getObject("post_id", UUID::class.java),
             authorId = getObject("author_id", UUID::class.java),
+            authorUsername = getString("author_username"),
+            authorDisplayName = getString("author_display_name"),
             content = getString("content"),
             isAutoHidden = getBoolean("is_auto_hidden"),
             createdAt = getTimestamp("created_at").toInstant(),
             updatedAt = getTimestamp("updated_at")?.toInstant(),
             deletedAt = null,
         )
+
+    private companion object {
+        // INSERT ... RETURNING wrapped in a CTE so the 201 body carries the CALLER's own display
+        // identity (mobile-block-from-content D7) in the same statement — a raw-`users` read of
+        // self, so a shadow-banned caller still gets their own identity.
+        const val INSERT_RETURNING_WITH_IDENTITY: String =
+            """
+            WITH ins AS (
+                INSERT INTO post_replies (post_id, author_id, content)
+                VALUES (?, ?, ?)
+                RETURNING id, post_id, author_id, content, is_auto_hidden, created_at, updated_at, deleted_at
+            )
+            SELECT ins.*, u.username AS author_username, u.display_name AS author_display_name
+              FROM ins
+              JOIN users u ON u.id = ins.author_id
+            """
+    }
 }

@@ -6,8 +6,14 @@ import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
+import id.nearyou.app.image.ImageDeliveryUrls
+import id.nearyou.app.infra.repo.JdbcPostsGlobalRepository
 import id.nearyou.app.infra.repo.JdbcSinglePostRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.timeline.GlobalTimelineService
+import id.nearyou.app.timeline.TimelineReadRateLimiter
+import id.nearyou.app.timeline.globalTimelineRoutes
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -27,6 +33,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.sql.Date
@@ -237,6 +244,13 @@ class SinglePostRoutesTest : StringSpec({
                 }
                 install(Authentication) { configureUserJwt(keys, users, Instant::now) }
                 singlePostRoutes(service)
+                // Mounted ONLY for the authorUserId timeline-wire-parity assertion (task 1.2a):
+                // the same post read via the Global feed and by id must project the same author UUID.
+                globalTimelineRoutes(
+                    GlobalTimelineService(JdbcPostsGlobalRepository(dataSource)),
+                    TimelineReadRateLimiter(InMemoryRateLimiter()),
+                    ImageDeliveryUrls { null },
+                )
             }
             block()
         }
@@ -275,6 +289,7 @@ class SinglePostRoutesTest : StringSpec({
                 status shouldBe HttpStatusCode.OK
                 val o = body.obj()
                 o.str("id") shouldBe postId.toString()
+                o.str("authorUserId") shouldBe author.id.toString()
                 o.str("authorUsername") shouldBe author.username
                 o.str("authorDisplayName") shouldBe "Raka Pratama"
                 o.str("content") shouldBe "halo"
@@ -341,11 +356,14 @@ class SinglePostRoutesTest : StringSpec({
         try {
             val edited = seedPost(author.id, content = "v2")
             val unedited = seedPost(author.id)
+            // Two history rows — the wire value must be the MAX(edited_at), not the first/any row.
             seedEdit(edited, author.id, Instant.parse("2026-02-02T03:04:05Z"))
+            seedEdit(edited, author.id, Instant.parse("2026-02-02T09:10:11Z"))
             withApp {
                 val editedObj = getPost(edited.toString(), viewer.token).second.obj()
                 editedObj.hasKey("editedAt") shouldBe true // bare camelCase, present iff edited
                 editedObj.hasKey("edited_at") shouldBe false // not snake_case
+                Instant.parse(editedObj.str("editedAt")) shouldBe Instant.parse("2026-02-02T09:10:11Z")
                 val uneditedObj = getPost(unedited.toString(), viewer.token).second.obj()
                 uneditedObj.isAbsentOrNull("editedAt") shouldBe true // omitted under explicitNulls = false
             }
@@ -354,24 +372,51 @@ class SinglePostRoutesTest : StringSpec({
         }
     }
 
-    "5.2 200 — body carries no author UUID, no coordinates, no non-null distanceM" {
+    "5.2 200 — body carries authorUserId (timeline-wire parity) but no coordinates, no non-null distanceM" {
         val author = seedUser()
         val viewer = seedUser()
         try {
             val postId = seedPost(author.id)
             withApp {
                 val o = getPost(postId.toString(), viewer.token).second.obj()
-                // No author UUID under any plausible key.
-                o.hasKey("authorUserId") shouldBe false
+                // mobile-block-from-content D1: the author UUID IS carried (the deliberate, scoped
+                // #202 relaxation) — under the bare-camelCase key only, at timeline-wire parity.
+                o.str("authorUserId") shouldBe author.id.toString()
                 o.hasKey("authorId") shouldBe false
                 o.hasKey("author_id") shouldBe false
-                // No coordinates.
+                // No coordinates (the #202 coordinate discipline is unchanged).
                 o.hasKey("latitude") shouldBe false
                 o.hasKey("longitude") shouldBe false
                 o.hasKey("lat") shouldBe false
                 o.hasKey("lng") shouldBe false
                 // distanceM is null/absent in v1 (explicitNulls=false omits it).
                 o.isAbsentOrNull("distanceM") shouldBe true
+            }
+        } finally {
+            cleanup(author.id, viewer.id)
+        }
+    }
+
+    "5.2 200 — authorUserId equals the value the timeline post wire projects for the same post" {
+        val author = seedUser()
+        val viewer = seedUser()
+        try {
+            val postId = seedPost(author.id)
+            withApp {
+                val single = getPost(postId.toString(), viewer.token).second.obj()
+                val client = createClient { install(ClientCN) { json() } }
+                val feed =
+                    client.get("/api/v1/timeline/global") {
+                        header(HttpHeaders.Authorization, "Bearer ${viewer.token}")
+                    }
+                feed.status shouldBe HttpStatusCode.OK
+                val feedItem =
+                    Json.parseToJsonElement(feed.bodyAsText()).jsonObject["posts"]!!
+                        .jsonArray.map { it.jsonObject }
+                        .single { it.str("id") == postId.toString() }
+                // The parity claim that justifies the #202 relaxation: the by-id read projects the
+                // SAME author UUID the timeline wire already carries for the same post.
+                single.str("authorUserId") shouldBe feedItem.str("authorUserId")
             }
         } finally {
             cleanup(author.id, viewer.id)

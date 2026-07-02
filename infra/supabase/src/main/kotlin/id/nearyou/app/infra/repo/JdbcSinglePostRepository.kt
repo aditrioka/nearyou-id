@@ -108,11 +108,14 @@ class JdbcSinglePostRepository(
                 ps.setObject(i, viewerId) // pl.user_id = ?
                 ps.executeQuery().use { rs ->
                     return if (rs.next()) {
+                        val authorId = rs.getObject("author_id", UUID::class.java)
                         SinglePostRow(
                             id = rs.getObject("id", UUID::class.java),
-                            // author_id is read ONLY to compute the per-viewer authorship flag (the
-                            // mobile-post-editing edit affordance); it is NEVER projected to the response (no-PII).
-                            isAuthor = rs.getObject("author_id", UUID::class.java) == viewerId,
+                            // author_id backs the per-viewer authorship flag AND (as of
+                            // mobile-block-from-content) the authorUserId wire field — timeline-wire
+                            // parity, never rendered client-side, block-action-only (design D1).
+                            isAuthor = authorId == viewerId,
+                            authorUserId = authorId,
                             authorUsername = rs.getString("author_username"),
                             authorDisplayName = rs.getString("author_display_name"),
                             content = rs.getString("content"),

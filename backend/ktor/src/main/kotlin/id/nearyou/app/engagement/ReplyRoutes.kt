@@ -195,6 +195,11 @@ data class ReplyDto(
     val id: String,
     @SerialName("post_id") val postId: String,
     @SerialName("author_id") val authorId: String,
+    // Author public display identity (mobile-block-from-content design D7): drives the client's
+    // reply-card identity row (mockup frame 7) + the canonical "Blokir @{username}" copy. Additive —
+    // every pre-existing field unchanged.
+    @SerialName("author_username") val authorUsername: String,
+    @SerialName("author_display_name") val authorDisplayName: String,
     val content: String,
     @SerialName("is_auto_hidden") val isAutoHidden: Boolean,
     @SerialName("created_at") val createdAt: String,
@@ -213,6 +218,8 @@ private fun PostReplyRow.toDto(): ReplyDto =
         id = id.toString(),
         postId = postId.toString(),
         authorId = authorId.toString(),
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
         content = content,
         isAutoHidden = isAutoHidden,
         createdAt = createdAt.toString(),

@@ -105,6 +105,12 @@ data class PostReplyRow(
     val id: UUID,
     val postId: UUID,
     val authorId: UUID,
+    // Author public display identity (NOT NULL since V2), added by mobile-block-from-content
+    // design D7 so reply cards can render the mockup-frame-7 identity row and the canonical
+    // "Blokir @{username}" copy. Projected from raw `users` against the already-visibility-resolved
+    // author (the caller's OWN shadow-banned replies have no visible_users row).
+    val authorUsername: String,
+    val authorDisplayName: String,
     val content: String,
     val isAutoHidden: Boolean,
     val createdAt: Instant,

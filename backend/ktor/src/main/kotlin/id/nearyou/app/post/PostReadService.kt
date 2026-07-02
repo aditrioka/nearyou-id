@@ -36,6 +36,7 @@ class PostReadService(
                 ?: throw PostNotFoundException()
         return SinglePostResponse(
             id = row.id.toString(),
+            authorUserId = row.authorUserId.toString(),
             authorUsername = row.authorUsername,
             authorDisplayName = row.authorDisplayName,
             content = row.content,
