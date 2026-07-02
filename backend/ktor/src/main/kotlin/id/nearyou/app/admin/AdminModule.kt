@@ -1,5 +1,7 @@
 package id.nearyou.app.admin
 
+import id.nearyou.app.account.DataExportProcessOutcome
+import id.nearyou.app.account.DataExportSingleProcessor
 import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
 import id.nearyou.app.admin.appealreview.AppealReviewRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
@@ -11,13 +13,17 @@ import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.chatredaction.ChatRedactionRepository
+import id.nearyou.app.admin.dataexportqueue.DataExportQueueRepository
 import id.nearyou.app.admin.deletionqueue.DeletionQueueRepository
 import id.nearyou.app.admin.featureflags.FeatureFlagService
 import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
+import id.nearyou.app.admin.postedits.PostEditHistoryRepository
+import id.nearyou.app.admin.postedits.PostEditHistoryService
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.CsamKominfoReportRateLimiter
 import id.nearyou.app.admin.ratelimit.CsamMetadataDecryptRateLimiter
+import id.nearyou.app.admin.ratelimit.DataExportTriggerRateLimiter
 import id.nearyou.app.admin.ratelimit.DeletionQueueExpediteRateLimiter
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
@@ -35,9 +41,11 @@ import id.nearyou.app.admin.routes.adminAppealReview
 import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminChatRedaction
 import id.nearyou.app.admin.routes.adminCsam
+import id.nearyou.app.admin.routes.adminDataExportQueue
 import id.nearyou.app.admin.routes.adminDeletionQueue
 import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
+import id.nearyou.app.admin.routes.adminPostEdits
 import id.nearyou.app.admin.routes.adminPrivacyFlips
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
@@ -123,6 +131,14 @@ fun Application.admin(
     // (admin-hard-delete-queue). Production uses the system clock; tests inject a
     // fixed instant for a deterministic countdown.
     deletionQueueClock: () -> Instant = Instant::now,
+    // The producer single-request processing seam consumed by the Data Export Queue
+    // trigger (admin-data-export-queue): the SAME pipeline the batch
+    // `/internal/data-export-worker` run uses (one export path, two callers). Production
+    // passes the in-process `DataExportWorker` constructed in Application.module(); the
+    // default is a no-op (returns SKIPPED) so standalone admin wiring still mounts the
+    // read surface — a route test that exercises the trigger injects a real worker.
+    dataExportProcessor: DataExportSingleProcessor =
+        DataExportSingleProcessor { DataExportProcessOutcome.SKIPPED },
     // The SHARED one-shot per-candidate username-override store (admin-premium-
     // username-oversight): the SAME repo the `PATCH /api/v1/user/username` gate
     // consults/consumes — the admin accept side writes approvals through it
@@ -158,6 +174,7 @@ fun Application.admin(
     val rejectedIdentifiersRepository =
         AdminRejectedIdentifiersRepository(dataSource, auditLogger, rejectedIdentifierClearRateLimiter)
     val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
+    val postEditHistoryService = PostEditHistoryService(PostEditHistoryRepository(dataSource))
     val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
@@ -196,6 +213,9 @@ fun Application.admin(
     val deletionQueueExpediteRateLimiter = DeletionQueueExpediteRateLimiter(dataSource)
     val deletionQueueRepository =
         DeletionQueueRepository(dataSource, auditLogger, deletionQueueExpediteRateLimiter)
+    val dataExportTriggerRateLimiter = DataExportTriggerRateLimiter(dataSource)
+    val dataExportQueueRepository =
+        DataExportQueueRepository(dataSource, auditLogger, dataExportTriggerRateLimiter, dataExportProcessor)
     val csamKominfoReportRateLimiter = CsamKominfoReportRateLimiter(dataSource)
     val csamMetadataDecryptRateLimiter = CsamMetadataDecryptRateLimiter(dataSource)
     val loginRoutes =
@@ -290,6 +310,7 @@ fun Application.admin(
                 adminActionsLog(actionsLogRepository, layout)
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, auditLogger, layout)
                 adminBlockRegistry(blockRegistryRepository, layout)
+                adminPostEdits(postEditHistoryService, layout)
                 adminPrivacyFlips(privacyFlipsRepository, layout, privacyFlipsClock)
                 adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
@@ -333,6 +354,12 @@ fun Application.admin(
                     auditLogger,
                     layout,
                     deletionQueueClock,
+                )
+                adminDataExportQueue(
+                    dataExportQueueRepository,
+                    dataExportTriggerRateLimiter,
+                    auditLogger,
+                    layout,
                 )
                 adminCsam(
                     repo = csamRepository,

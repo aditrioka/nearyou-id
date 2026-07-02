@@ -273,6 +273,39 @@ class ReportQueueRepositoryTest : StringSpec({
         rows.single { it.id == rTwo }.queueTrigger shouldBe "csam_detected"
     }
 
+    // post-area-density-cap task 4.3 (docs/12 cohesion negative-guard): an
+    // `area_spam` moderation_queue row is displayable + resolvable in the existing
+    // report-queue viewer with NO admin code change — the trigger is rendered
+    // generically (no hardcoded enum allow-list; the filter is free-text), so the
+    // new value surfaces on parity with the uu_ite_keyword_match soft-flag.
+    "4.3 — area_spam queue row renders + is resolvable in the report queue (filterable, non-null queueId)" {
+        val reporter = user()
+        val author = user()
+        val base = Instant.parse("2091-02-01T00:00:00Z")
+        // An over-dense-area post that a user ALSO reports surfaces in the queue,
+        // carrying its area_spam row as resolvable context.
+        val postId = ReportQueueTestSupport.seedPost(dataSource, author).also { seeded.add(it) }
+        val report = ReportQueueTestSupport.seedReport(dataSource, reporter, "post", postId, base.plusSeconds(1))
+        ReportQueueTestSupport.seedQueueRow(
+            dataSource,
+            "post",
+            postId,
+            trigger = "area_spam",
+            priority = 5,
+            status = "pending",
+        )
+
+        // (a) renders the area_spam trigger + a non-null queueId (the in-row
+        //     resolution form binds to queueId → enforcement actions available).
+        val row = repo.query(windowQuery(base)).rows.single { it.id == report }
+        row.queueTrigger shouldBe "area_spam"
+        row.queueId.shouldNotBeNull()
+        row.queueStatus shouldBe "pending"
+
+        // (b) the free-text trigger filter matches area_spam (no hardcoded allow-list).
+        repo.query(windowQuery(base, trigger = "area_spam")).rows.map { it.id } shouldBe listOf(report)
+    }
+
     "5.10 — deep-link user resolves per target_type; hard-deleted target → null" {
         val reporter = user()
         val base = Instant.parse("2090-10-01T00:00:00Z")

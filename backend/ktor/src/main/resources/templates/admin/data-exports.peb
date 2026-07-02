@@ -1,0 +1,49 @@
+{% extends "layout.peb" %}
+
+{% block title %}Data Export Queue — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Data Export Queue</h2>
+<p class="pg-sub">data_export_requests — UU PDP data-portability export jobs. Delivery is via the in-app data_export_ready notification + Resend email. The panel orchestrates STATUS only; the archive contents, object key, and signed download URL are never shown (the export is the user's own data, delivered only to them via a short-lived signed link).</p>
+
+{# Read list over `data_export_requests` + a per-row manual "trigger" write that
+   re-runs a stalled/failed export through the producer pipeline. Every value is
+   autoescaped; `username` is user-controlled free text, so escaping is load-bearing
+   here (and in the /admin/users?q= deep-link href). #}
+
+{# Filter form. hx-get swaps only the #data-exports-table fragment; method=GET means it
+   also works as plain navigation when JS is unavailable. #}
+<div class="filterbar">
+    <input type="checkbox" id="filters-toggle" class="filters-toggle" aria-label="Toggle filters">
+    <label for="filters-toggle" class="btn tonal sm filters-label">Filters</label>
+    <span class="filters-chips">{% for f in filters %}{% if f.value is not empty %}<span class="pill">{{ f.key }}: {{ f.value }}</span>{% endif %}{% endfor %}</span>
+    <form class="filters"
+          hx-get="/admin/data-exports"
+          hx-target="#data-exports-table"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>User (username or ID)</span>
+            <input type="text" name="q" value="{{ filters.q | default('') }}" placeholder="username or UUID">
+        </label>
+        <label class="field">
+            <span>Status</span>
+            <select name="status">
+                <option value="">All</option>
+                {% for s in statuses %}
+                <option value="{{ s }}"{% if filters.status == s %} selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit" class="btn filled">Filter</button>
+    </form>
+</div>
+
+{% include "data-exports-table.peb" %}
+
+<div class="banner info">
+    <span class="ms">info</span>
+    <span>The download link is short-lived; an admin never sees the archive contents — only the job status. Trigger a manual re-run only when the scheduler failed or stalled: it requires a reason and a confirmation, runs the export through the producer pipeline, and writes an audit-log row.</span>
+</div>
+{% endblock %}

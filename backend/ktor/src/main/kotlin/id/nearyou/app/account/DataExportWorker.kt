@@ -30,6 +30,31 @@ data class DataExportRunResult(
     val durationMs: Long,
 )
 
+/** Outcome of driving ONE `data_export_requests` row through the per-request pipeline. */
+enum class DataExportProcessOutcome {
+    /** Claimed + gathered + uploaded + set `ready` + notification emitted. */
+    READY,
+
+    /** Gather/upload failed → row set `failed` (+ `attempt_count++`); no ready/notification/email. */
+    FAILED,
+
+    /** The claim guard skipped it (not `pending` — already `processing`/`ready`/claimed by another runner). */
+    SKIPPED,
+}
+
+/**
+ * The reusable single-request processing seam (capability `account-data-export`):
+ * drives one identified `data_export_requests` row through the SAME claim → gather
+ * → serialize → upload → set-`ready` → notify → email pipeline as the batch run,
+ * preserving the identical fail-soft + claim-race (`SKIPPED`) semantics. Consumed
+ * by BOTH the batch `/internal/data-export-worker` run (via [DataExportWorker.execute])
+ * and the admin Data Export Queue trigger (`admin-data-export-queue`) — one export
+ * path, two callers. Implemented by [DataExportWorker].
+ */
+fun interface DataExportSingleProcessor {
+    suspend fun processSingle(requestId: UUID): DataExportProcessOutcome
+}
+
 /**
  * Worker (Cloud-Scheduler-invoked via `/internal/data-export-worker`) that packages and
  * delivers pending data exports (capability `account-data-export`, Phase 7).
@@ -59,7 +84,7 @@ class DataExportWorker(
     private val emailSender: EmailSender,
     private val notificationEmitter: NotificationEmitter,
     private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
+) : DataExportSingleProcessor {
     suspend fun execute(): DataExportRunResult {
         val startNanos = System.nanoTime()
         val pending = requests.snapshotPending()
@@ -67,16 +92,18 @@ class DataExportWorker(
         var ready = 0
         var failed = 0
         for (requestId in pending) {
-            when (processOne(requestId)) {
-                ProcessOutcome.READY -> {
+            // The batch run drains its pending snapshot through the SAME
+            // single-request seam the admin trigger uses (one export path).
+            when (processSingle(requestId)) {
+                DataExportProcessOutcome.READY -> {
                     processed++
                     ready++
                 }
-                ProcessOutcome.FAILED -> {
+                DataExportProcessOutcome.FAILED -> {
                     processed++
                     failed++
                 }
-                ProcessOutcome.SKIPPED -> Unit // claimed by another runner since the snapshot
+                DataExportProcessOutcome.SKIPPED -> Unit // claimed by another runner since the snapshot
             }
         }
         return DataExportRunResult(
@@ -87,10 +114,8 @@ class DataExportWorker(
         )
     }
 
-    private enum class ProcessOutcome { READY, FAILED, SKIPPED }
-
-    private suspend fun processOne(requestId: UUID): ProcessOutcome {
-        val claim = requests.claimPending(requestId) ?: return ProcessOutcome.SKIPPED
+    override suspend fun processSingle(requestId: UUID): DataExportProcessOutcome {
+        val claim = requests.claimPending(requestId) ?: return DataExportProcessOutcome.SKIPPED
 
         // --- gather + serialize + upload: failure here → soft `failed` --------
         val readyState =
@@ -105,10 +130,10 @@ class DataExportWorker(
                 ReadyState(objectKey = objectKey, signedUrl = signedUrl, expiresAt = expiresAt, generatedAt = generatedAt)
             } catch (e: ObjectStoreUnconfiguredException) {
                 markFailed(requestId, "object_store_unconfigured", e)
-                return ProcessOutcome.FAILED
+                return DataExportProcessOutcome.FAILED
             } catch (e: Exception) {
                 markFailed(requestId, "gather_or_upload_failed", e)
-                return ProcessOutcome.FAILED
+                return DataExportProcessOutcome.FAILED
             }
 
         // --- durable notification: emit inside its own transaction -----------
@@ -122,7 +147,7 @@ class DataExportWorker(
             requestId,
             claim.userId,
         )
-        return ProcessOutcome.READY
+        return DataExportProcessOutcome.READY
     }
 
     private suspend fun markFailed(

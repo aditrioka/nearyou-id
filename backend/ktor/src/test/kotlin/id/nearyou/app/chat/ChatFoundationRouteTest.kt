@@ -267,6 +267,18 @@ class ChatFoundationRouteTest : StringSpec({
         redactionAdminIds.clear()
     }
 
+    fun countMessages(conversationId: UUID): Int {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT COUNT(*) FROM chat_messages WHERE conversation_id = ?").use { ps ->
+                ps.setObject(1, conversationId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    return rs.getInt(1)
+                }
+            }
+        }
+    }
+
     fun chatRowEmbedColumns(messageId: UUID): Triple<String?, String?, String?> {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
@@ -385,10 +397,14 @@ class ChatFoundationRouteTest : StringSpec({
         }
     }
 
-    fun ListAppender<ILoggingEvent>.embedIgnoredLines(): List<String> =
+    // chat-embedded-posts flipped the "embed fields silently ignored" behavior: `embedded_post_id`
+    // is now CONSUMED (server resolves the post). The two SERVER-derived fields a client should
+    // never send (`embedded_post_snapshot` / `embedded_post_edit_id`) are still ignored, now with
+    // the WARN event `chat_send_client_supplied_server_field`.
+    fun ListAppender<ILoggingEvent>.embedClientSuppliedServerFieldLines(): List<String> =
         list.filter { it.level == Level.WARN }
             .map { it.formattedMessage }
-            .filter { it.contains("event=chat_send_embedded_field_ignored") }
+            .filter { it.contains("event=chat_send_client_supplied_server_field") }
 
     // ---- 7.1: create returns 201 then 200 -------------------------------------
 
@@ -1482,33 +1498,31 @@ class ChatFoundationRouteTest : StringSpec({
         }
     }
 
-    // ---- 7.18: embedded_post_id silently ignored + WARN ----------------------
+    // ---- 7.18: embedded_post_id that does not resolve → constant 404 ----------
+    // chat-embedded-posts flipped this from "silently ignored, 201" to "consumed".
+    // This suite wires ChatService with the default null-returning EmbeddedPostResolver,
+    // so any embedded_post_id is unresolvable → the constant post_not_found 404 (the
+    // forbidden-indistinguishable-from-absent idiom). Full positive embed coverage lives
+    // in ChatEmbeddedPostSendTest (which wires a real JdbcEmbeddedPostResolver).
 
-    "7.18 POST /chat/{id}/messages — embedded_post_id silently ignored, row NULL, WARN log includes field name" {
+    "7.18 POST /chat/{id}/messages — unresolvable embedded_post_id returns constant 404, no row persisted" {
         val (a, ta) = seedUser()
         val (b, _) = seedUser()
         try {
             val cAB = createConversationDirect(a, b)
             val embedTarget = UUID.randomUUID()
-            withLogCapture { appender ->
-                withChat {
-                    val resp =
-                        createClient { install(ClientCN) { json() } }
-                            .post("/api/v1/chat/$cAB/messages") {
-                                header(HttpHeaders.Authorization, "Bearer $ta")
-                                contentType(ContentType.Application.Json)
-                                setBody("""{"content":"halo","embedded_post_id":"$embedTarget"}""")
-                            }
-                    resp.status shouldBe HttpStatusCode.Created
-                    val mid =
-                        Json.parseToJsonElement(resp.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
-                    val (embId, embSnap, embEdit) = chatRowEmbedColumns(UUID.fromString(mid))
-                    embId shouldBe null
-                    embSnap shouldBe null
-                    embEdit shouldBe null
-                    val warns = appender.embedIgnoredLines()
-                    warns.any { it.contains("field=embedded_post_id") && it.contains(mid) } shouldBe true
-                }
+            withChat {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .post("/api/v1/chat/$cAB/messages") {
+                            header(HttpHeaders.Authorization, "Bearer $ta")
+                            contentType(ContentType.Application.Json)
+                            setBody("""{"content":"halo","embedded_post_id":"$embedTarget"}""")
+                        }
+                resp.status shouldBe HttpStatusCode.NotFound
+                resp.bodyAsText() shouldBe """{"error":{"code":"post_not_found"}}"""
+                // No row persisted for the rejected send (the conversation has no messages).
+                countMessages(cAB) shouldBe 0
             }
         } finally {
             cleanup(a, b)
@@ -1538,7 +1552,7 @@ class ChatFoundationRouteTest : StringSpec({
                         Json.parseToJsonElement(resp.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
                     val (_, snap, _) = chatRowEmbedColumns(UUID.fromString(mid))
                     snap shouldBe null
-                    val warns = appender.embedIgnoredLines()
+                    val warns = appender.embedClientSuppliedServerFieldLines()
                     warns.any { it.contains("field=embedded_post_snapshot") && it.contains(mid) } shouldBe true
                 }
             }
@@ -1569,7 +1583,7 @@ class ChatFoundationRouteTest : StringSpec({
                         Json.parseToJsonElement(resp.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
                     val (_, _, ed) = chatRowEmbedColumns(UUID.fromString(mid))
                     ed shouldBe null
-                    val warns = appender.embedIgnoredLines()
+                    val warns = appender.embedClientSuppliedServerFieldLines()
                     warns.any { it.contains("field=embedded_post_edit_id") && it.contains(mid) } shouldBe true
                 }
             }

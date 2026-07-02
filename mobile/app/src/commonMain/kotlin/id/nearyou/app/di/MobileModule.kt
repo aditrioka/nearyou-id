@@ -93,6 +93,9 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileRepository
 import id.nearyou.app.push.FcmTokenApiClient
 import id.nearyou.app.push.FcmTokenRegistrar
+import id.nearyou.app.referral.DefaultReferralRepository
+import id.nearyou.app.referral.ReferralApiClient
+import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
@@ -352,6 +355,15 @@ val mobileModule =
         // the screen tests; reuses the shared bearer-authed HttpClient.
         single { HideDistanceApiClient(get()) }
         single<HideDistanceRepository> { DefaultHideDistanceRepository(get()) }
+
+        // mobile-referral — the referral surface seam (GET /api/v1/user/referral). ApiClient →
+        // DefaultReferralRepository bound behind the ReferralRepository interface so a fake drives the
+        // screen + ViewModel tests; reuses the shared bearer-authed HttpClient (no new client, no
+        // X-Session-Id — the referral read is not session-soft-capped). The entry-scoped ReferralViewModel
+        // is created via `viewModel { ReferralViewModel(get()) }` in ReferralScreen (the AgeGate/Username
+        // precedent), resolving this ReferralRepository — it is NOT a Koin single.
+        single { ReferralApiClient(get()) }
+        single<ReferralRepository> { DefaultReferralRepository(get()) }
 
         // mobile-settings-screen — the settings graph. The block-list seam (ApiClient → Repository bound
         // behind BlockedUsersFlow so a FakeBlockedUsersFlow drives the screen tests) reuses the shared

@@ -60,6 +60,7 @@ import id.nearyou.resources.generated.resources.ic_description
 import id.nearyou.resources.generated.resources.ic_lock
 import id.nearyou.resources.generated.resources.ic_logout
 import id.nearyou.resources.generated.resources.ic_nav_profile
+import id.nearyou.resources.generated.resources.ic_person_add
 import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_privacy_shield
 import id.nearyou.resources.generated.resources.ic_workspace_premium
@@ -78,6 +79,8 @@ import id.nearyou.resources.generated.resources.settings_row_delete_account
 import id.nearyou.resources.generated.resources.settings_row_edit_profile
 import id.nearyou.resources.generated.resources.settings_row_hide_distance
 import id.nearyou.resources.generated.resources.settings_row_hide_distance_sub
+import id.nearyou.resources.generated.resources.settings_row_invite_friends
+import id.nearyou.resources.generated.resources.settings_row_invite_friends_sub
 import id.nearyou.resources.generated.resources.settings_row_legal
 import id.nearyou.resources.generated.resources.settings_row_logout
 import id.nearyou.resources.generated.resources.settings_row_manage_subscription
@@ -121,6 +124,7 @@ fun SettingsScreen(
     onOpenUsernameCustomization: () -> Unit = {},
     onOpenBlocked: () -> Unit,
     onOpenConsent: () -> Unit,
+    onOpenReferral: () -> Unit = {},
     onLoggedOut: () -> Unit,
 ) {
     val tokenStore = koinInject<TokenStore>()
@@ -313,8 +317,16 @@ fun SettingsScreen(
                 onClick = onOpenBlocked,
             )
 
-            // LAINNYA — legal opens the external policy URL; logout confirms then wipes the token.
+            // LAINNYA — "Undang teman" navigates to the referral surface (mobile-referral, open to ALL
+            // tiers — NOT a paywall divert); legal opens the external policy URL; logout confirms then
+            // wipes the token.
             SettingsSectionHeader(stringResource(Res.string.settings_section_other))
+            SettingsRow(
+                icon = Res.drawable.ic_person_add,
+                title = stringResource(Res.string.settings_row_invite_friends),
+                subtitle = stringResource(Res.string.settings_row_invite_friends_sub),
+                onClick = onOpenReferral,
+            )
             SettingsRow(
                 icon = Res.drawable.ic_description,
                 title = stringResource(Res.string.settings_row_legal),

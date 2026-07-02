@@ -125,6 +125,7 @@ import id.nearyou.app.infra.remoteconfig.RemoteConfigInitException
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.firebaseRemoteConfigClient
 import id.nearyou.app.infra.remoteconfig.remoteConfigServerPublisher
+import id.nearyou.app.infra.repo.JdbcEmbeddedPostResolver
 import id.nearyou.app.infra.repo.JdbcLayer3ModerationWriter
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
@@ -185,6 +186,7 @@ import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.notifications.NotificationService
 import id.nearyou.app.notifications.notificationRoutes
+import id.nearyou.app.post.AreaPostDensityLimiter
 import id.nearyou.app.post.CreatePostService
 import id.nearyou.app.post.PostEditRateLimiter
 import id.nearyou.app.post.PostEditService
@@ -193,12 +195,14 @@ import id.nearyou.app.post.PostReadService
 import id.nearyou.app.post.postEditRoutes
 import id.nearyou.app.post.postRoutes
 import id.nearyou.app.post.singlePostRoutes
+import id.nearyou.app.referral.JdbcReferralReadRepository
 import id.nearyou.app.referral.ReferralActivityCheckWorker
 import id.nearyou.app.referral.ReferralGrantRepository
 import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.referral.ReferralService
 import id.nearyou.app.referral.ReferralTicketRateLimiter
 import id.nearyou.app.referral.referralActivityCheckRoute
+import id.nearyou.app.referral.referralReadRoutes
 import id.nearyou.app.search.SearchRateLimiter
 import id.nearyou.app.search.SearchService
 import id.nearyou.app.search.searchRoutes
@@ -868,6 +872,9 @@ fun Application.module() {
             layer3Moderator = layer3Moderator,
             rateLimiter = PostRateLimiter(rateLimiter),
             imageUploads = imageUploadRepository,
+            // docs/05 § Layer 4 per-area density gate — shares the Redis-backed
+            // rateLimiter (geocell key axis via tryAcquireByKey); post-area-density-cap.
+            areaDensityLimiter = AreaPostDensityLimiter(rateLimiter),
             dbDispatcher = dbDispatchers.db,
         )
     // premium-post-editing: PATCH /api/v1/posts/{post_id} + GET .../edits. Mirrors
@@ -946,6 +953,9 @@ fun Application.module() {
             dbDispatcher = dbDispatchers.db,
         )
     val chatRepository = ChatRepository(dataSource)
+    // chat-embedded-posts: resolves a shared post for the sender (visibility-respecting) and the
+    // version anchor. A read-only JDBC component over the same dataSource as the other repos.
+    val embeddedPostResolver = JdbcEmbeddedPostResolver(dataSource)
     val chatService =
         ChatService(
             repository = chatRepository,
@@ -955,6 +965,7 @@ fun Application.module() {
             remoteConfig = remoteConfig,
             textModerator = textModerator,
             moderationQueue = moderationQueueRepository,
+            embeddedPostResolver = embeddedPostResolver,
             dbDispatcher = dbDispatchers.db,
         )
     // chat-realtime-broadcast wiring per design § D8 (extends `:infra:supabase`).
@@ -1084,6 +1095,7 @@ fun Application.module() {
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
     val hideDistanceRepository = HideDistanceRepository(dataSource, dbDispatchers.db)
+    val referralReadRepository = JdbcReferralReadRepository(dataSource, dbDispatchers.db)
     val referralRepository = ReferralRepository(dataSource)
     val referralService =
         ReferralService(
@@ -1273,6 +1285,7 @@ fun Application.module() {
     accountRoutes(accountDeletionService)
     accountDataExportRoutes(dataExportService)
     hideDistanceRoutes(hideDistanceRepository)
+    referralReadRoutes(referralReadRepository)
     appealRoutes(appealService, contentLengthGuard)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
@@ -1346,6 +1359,10 @@ fun Application.module() {
         csamRepository = csamRepository,
         csamMetadataEncryptor = csamMetadataEncryptor,
         csamDetectionService = csamDetectionService,
+        // Pass the SAME DataExportWorker the batch `/internal/data-export-worker` run uses,
+        // so the Data Export Queue trigger (admin-data-export-queue) re-runs an export
+        // through the EXACT producer single-request pipeline (design D1 — one export path).
+        dataExportProcessor = dataExportWorker,
     )
 
     // Boot-time moderation-list prime (per `### Requirement: Boot-time loader prime

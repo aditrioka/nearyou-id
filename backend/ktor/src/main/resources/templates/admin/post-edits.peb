@@ -1,0 +1,28 @@
+{% extends "layout.peb" %}
+
+{% block title %}Post edit history — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Post detail — edit history <span class="st neut">READ-ONLY</span></h2>
+
+{% if found %}
+{# Page-sub: the post id + the author deep-link to the shipped /admin/users?q=
+   lookup (admin mockup frame 8). The author is the same across all versions
+   (edits are self-only), so it is surfaced once here AND per-row in the table.
+   All values are Pebble-autoescaped. #}
+<p class="pg-sub">post <span class="code">{{ postId }}</span> · author <a href="{{ authorUrl }}">{{ authorUsername | default(postId) }}</a></p>
+
+{# Read-only viewer. Versions are composed from the live post + its post_edits
+   snapshots, newest-first ("Versi terbaru" on top, "Versi ke-N" descending).
+   Content-moderation actions stay in the Report Queue — there is no action
+   control of any kind on this surface (design Non-Goals). #}
+<div class="banner info">
+    Read-only — versi disusun dari live post + snapshot <code>post_edits</code> (terbaru di atas).
+    Aksi moderasi konten tetap lewat <a href="/admin/reports">Report Queue</a>.
+</div>
+{% else %}
+<p class="pg-sub">Tautan balik ke <a href="/admin/reports">Report Queue</a>.</p>
+{% endif %}
+
+{% include "post-edits-table.peb" %}
+{% endblock %}

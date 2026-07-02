@@ -155,6 +155,19 @@ data object BlockedUsersRoute : NavKey
 data object ConsentSettingsRoute : NavKey
 
 /**
+ * Referral sub-surface (Settings › "Undang teman" → `ReferralScreen`, the `mobile-referral` capability),
+ * pushed onto the ROOT back stack above [SettingsRoute] (overlaying the section bar — the
+ * [BlockedUsersRoute] / [ConsentSettingsRoute] mechanism). A **parameterless** marker carrying NO
+ * payload (the `UsernameCustomizationRoute` self-read precedent): the invite code + progress are fetched
+ * by the screen's ViewModel from `GET /api/v1/user/referral`, never carried on the route — the back stack
+ * persists to disk on iOS (the same PII discipline [AgeGateRoute] applies to the `id_token`). The surface
+ * is open to all tiers (design D3) — it carries no `PaywallEntry`. Registered in the
+ * `navSavedStateConfiguration` polymorphic `SerializersModule` for the iOS-saveable back stack.
+ */
+@Serializable
+data object ReferralRoute : NavKey
+
+/**
  * The ban/suspension appeal surface (`mobile-appeal`, `content-moderation-appeal`), reached from the
  * banned/suspended session state. A **parameterless** marker: the limited appeal token lives in the
  * in-memory [id.nearyou.app.appeal.AppealSession] holder, NEVER on the route — a credential must not enter
@@ -230,6 +243,23 @@ data class ChatThreadRoute(
     val conversationId: String,
     val partnerUsername: String = "",
     val partnerDisplayName: String = "",
+) : NavKey
+
+/**
+ * Share-a-post-to-chat conversation picker surface (`mobile-chat-embedded-posts`), opened by the
+ * post-detail "Bagikan ke chat" action and pushed onto the ROOT back stack above the [PostDetailRoute]
+ * it came from (overlaying the section bar — the [PostDetailRoute] mechanism). A payload-carrying
+ * `@Serializable data class`, so it MUST be registered in the `navSavedStateConfiguration` polymorphic
+ * `SerializersModule` for the iOS-saveable back stack.
+ *
+ * Carries ONLY [postId] — the resource key of the post to embed (a post UUID, already on the public
+ * timeline wire; the same non-PII discipline as [PostDetailRoute.postId]). It MUST NOT carry the
+ * snapshot, message content, a recipient UUID, or any coordinate — the back stack persists to disk on
+ * iOS. On a successful share the entry pops and pushes [ChatThreadRoute].
+ */
+@Serializable
+data class ConversationPickerRoute(
+    val postId: String,
 ) : NavKey
 
 /**

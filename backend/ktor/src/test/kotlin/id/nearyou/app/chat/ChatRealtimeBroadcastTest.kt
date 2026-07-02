@@ -580,7 +580,8 @@ class ChatRealtimeBroadcastTest : StringSpec({
                     override fun sendMessage(
                         conversationId: UUID,
                         senderId: UUID,
-                        content: String,
+                        content: String?,
+                        embed: EmbeddedPostData?,
                         emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
                         preInsertHookInTx: ((java.sql.Connection) -> Unit)?,
                         afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)?,
@@ -732,7 +733,8 @@ class ChatRealtimeBroadcastTest : StringSpec({
                     override fun sendMessage(
                         conversationId: UUID,
                         senderId: UUID,
-                        content: String,
+                        content: String?,
+                        embed: EmbeddedPostData?,
                         emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
                         preInsertHookInTx: ((java.sql.Connection) -> Unit)?,
                         afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)?,
@@ -742,6 +744,7 @@ class ChatRealtimeBroadcastTest : StringSpec({
                                 conversationId = conversationId,
                                 senderId = senderId,
                                 content = content,
+                                embed = embed,
                                 emitInTx = emitInTx,
                                 preInsertHookInTx = preInsertHookInTx,
                                 afterInsertHookInTx = afterInsertHookInTx,
