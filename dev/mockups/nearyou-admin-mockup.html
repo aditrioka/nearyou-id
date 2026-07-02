@@ -1088,7 +1088,7 @@ after:  { is_banned: true,
         <div class="filters" style="margin-top:8px;">
           <div class="field"><label>Matched URL / image_id (from CF email)</label>
             <div class="ctl" style="min-width:430px;">img.nearyou.id/p/4f1c09aa…</div></div>
-          <div class="btn danger"><span class="ms">bolt</span>Invoke /internal/csam-webhook</div>
+          <div class="btn danger"><span class="ms">bolt</span>Invoke takedown handler</div>
         </div>
         <div style="font-size:11px;color:var(--on-surface-variant);margin-top:8px;">
           Runs atomically: hard-delete post → permanent ban + token_version bump → cascade-delete
@@ -1122,7 +1122,7 @@ after:  { is_banned: true,
     </div>
   </div>
   <div class="cap">
-    <h3>13 · CSAM Detection Log Viewer + handler + Kominfo <span class="path">— GET /admin/csam · POST /internal/csam-webhook (via panel)</span></h3>
+    <h3>13 · CSAM Detection Log Viewer + handler + Kominfo <span class="path">— GET /admin/csam · POST /admin/csam/takedown (in-process handler)</span></h3>
     <p>docs/07 § CSAM Detection Log Viewer + docs/06 (trigger path): arsip event
     <code>csam_detection_archive</code> (filter source cf_worker vs admin_manual), invokasi handler
     manual MVP (paste URL/image_id dari email CF), review unblock request, workflow Kominfo
