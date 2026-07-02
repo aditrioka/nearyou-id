@@ -318,7 +318,7 @@ The `chat_message` `body_data` SHALL NOT carry `embedded_post_id`, `embedded_pos
 - **THEN** the `notifications.body_data.post_excerpt` on the already-written row is unchanged
 
 #### Scenario: chat_message preview frozen at emit (later redaction does not mutate notification)
-- **GIVEN** Bob successfully sent "halo Alice" to Alice in conversation X; the resulting notification row has `body_data.preview = "halo Alice"`; an admin later redacts the message via the future Phase 3.5 redaction endpoint (simulated in test by a direct UPDATE on `chat_messages` setting `redacted_at` and clearing `content`)
+- **GIVEN** Bob successfully sent "halo Alice" to Alice in conversation X; the resulting notification row has `body_data.preview = "halo Alice"`; an admin later redacts the message via the shipped `admin-chat-message-redaction` capability's `POST /admin/chat-messages/{id}/redact` (simulated in test by a direct UPDATE on `chat_messages` setting `redacted_at` and clearing `content`)
 - **WHEN** Alice subsequently queries `GET /api/v1/notifications`
 - **THEN** the returned `body_data.preview` for the original `chat_message` notification row is still `"halo Alice"` (frozen at emit time, not regenerated on read)
 
