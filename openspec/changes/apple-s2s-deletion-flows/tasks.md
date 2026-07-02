@@ -44,5 +44,5 @@
 
 - [x] 6.1 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (note the CI test lane excludes `!network`, not `!database` — `database`-tagged tests run in CI).
 - [x] 6.2 `openspec validate apple-s2s-deletion-flows --strict` green.
-- [ ] 6.3 Pre-archive staging smoke (per docs/13 + the one-PR convention): branch-deploy and exercise an Apple S2S `account-delete` + `consent-revoked` against staging (signed/test payload or the integration harness), assert the row + execution + session-kick. Backend-only runtime surface — no mobile bring-up required (cohesion-verified: existing mobile banner + admin queue read `deletion_requests` generically).
+- [x] 6.3 Pre-archive staging smoke (per docs/13 + the one-PR convention): branch-deploy and exercise an Apple S2S `account-delete` + `consent-revoked` against staging (signed/test payload or the integration harness), assert the row + execution + session-kick. Backend-only runtime surface — no mobile bring-up required (cohesion-verified: existing mobile banner + admin queue read `deletion_requests` generically).
 - [x] 6.4 Confirm no new module / Dockerfile COPY / README sync needed (no new Gradle module added).
