@@ -58,7 +58,7 @@
 
 ## 10. Verification + DoD
 
-- [ ] 10.1 `./gradlew :mobile:app:testStagingDebugUnitTest` (+ `:iosSimulatorArm64Test` for the NSE logic) green; `assembleStagingDebug` green config-free.
-- [ ] 10.2 Backend gate for the `:infra:fcm` MODIFY: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (the dispatcher tests + lint) green.
-- [ ] 10.3 Record manual-verification evidence per `docs/11` §5 DoD (config-free build + unit coverage; live device push verify recorded against #258 when provisioned).
-- [ ] 10.4 Confirm the deferred-row follow-up [#431](https://github.com/aditrioka/nearyou-id/issues/431) (Settings preview toggle) + operator-setup [#430](https://github.com/aditrioka/nearyou-id/issues/430) are referenced in the PR body; file any runtime-prompt follow-up from task 1.2 if needed.
+- [x] 10.1 `./gradlew :mobile:app:testStagingDebugUnitTest` (+ `:iosSimulatorArm64Test` for the NSE logic) green; `assembleStagingDebug` green config-free.
+- [x] 10.2 Backend gate for the `:infra:fcm` MODIFY: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (the dispatcher tests + lint) green.
+- [x] 10.3 Record manual-verification evidence per `docs/11` §5 DoD (config-free build + unit coverage; live device push verify recorded against #258 when provisioned).
+- [x] 10.4 Confirm the deferred-row follow-up [#431](https://github.com/aditrioka/nearyou-id/issues/431) (Settings preview toggle) + operator-setup [#430](https://github.com/aditrioka/nearyou-id/issues/430) are referenced in the PR body; file any runtime-prompt follow-up from task 1.2 if needed.
