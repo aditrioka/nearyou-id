@@ -38,6 +38,9 @@ import id.nearyou.app.data.accountdeletion.AccountDeletionRepository
 import id.nearyou.app.data.block.BlockedUsersApiClient
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
+import id.nearyou.app.data.dataexport.DataExportApiClient
+import id.nearyou.app.data.dataexport.DataExportFlow
+import id.nearyou.app.data.dataexport.DataExportRepository
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportApiClient
 import id.nearyou.app.data.report.ReportSubmitter
@@ -378,6 +381,14 @@ val mobileModule =
         single { AccountDeletionApiClient(get()) }
         single { AccountDeletionRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<AccountDeletionFlow> { get<AccountDeletionRepository>() }
+
+        // mobile-data-export-entry — the "Unduh Data Saya" request + status seam (ApiClient → Repository
+        // bound behind DataExportFlow so a FakeDataExportFlow drives the screen tests). Reuses the shared
+        // bearer-authed HttpClient; no new client. The endpoints are not session-soft-capped. The
+        // diagnostic sink receives status/cause-type strings only — NEVER the downloadUrl (PII discipline).
+        single { DataExportApiClient(get()) }
+        single { DataExportRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<DataExportFlow> { get<DataExportRepository>() }
 
         // mobile-post-detail-screen — the post-detail graph (like toggle + replies + reply composer).
         // Reuses the shared HttpClient (NO new client, NO X-Session-Id — the like/reply endpoints are not

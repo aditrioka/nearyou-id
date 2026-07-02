@@ -315,6 +315,22 @@
     <string name="delete_account_banner">Akun dijadwalkan dihapus. Pulihkan sebelum %1$s.</string>
     <string name="delete_account_banner_cancel">Batalkan</string>
     <string name="delete_account_error">Gagal. Coba lagi sebentar.</string>
+    <!-- mobile-data-export-entry: "Unduh Data Saya" (UU-PDP portability). The dialog body is the canonical
+         email-delivery disclosure from docs/03 § Data Export; the in-app ready banner is the convenience
+         path complementing the email (design D2). The subtitle/banner/status copy is status-driven across
+         the shipped vocabulary (none/pending|processing/ready/expired/failed). FLAGGED FOR UX REVIEW. -->
+    <string name="settings_row_data_export">Unduh Data Saya</string>
+    <string name="settings_row_data_export_sub">Minta salinan data akunmu</string>
+    <string name="data_export_dialog_title">Unduh data kamu?</string>
+    <string name="data_export_dialog_body">Export akan dikirim sebagai link download via email dalam 7 hari. Link berlaku 24 jam setelah dikirim.</string>
+    <string name="data_export_confirm">Ya, minta export</string>
+    <string name="data_export_cancel">Batal</string>
+    <string name="data_export_in_progress">Sedang diproses</string>
+    <string name="data_export_ready_banner">Data kamu siap diunduh. Unduh sebelum %1$s.</string>
+    <string name="data_export_ready_open">Buka unduhan</string>
+    <string name="data_export_expired">Tautan kedaluwarsa. Minta ulang.</string>
+    <string name="data_export_failed">Export gagal. Minta ulang.</string>
+    <string name="data_export_error">Gagal. Coba lagi sebentar.</string>
     <string name="blocked_users_title">Pengguna diblokir</string>
     <string name="blocked_users_empty">Belum ada pengguna yang diblokir.</string>
     <string name="blocked_users_unblock">Buka blokir</string>
