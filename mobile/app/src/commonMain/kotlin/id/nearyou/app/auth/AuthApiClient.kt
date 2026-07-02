@@ -24,17 +24,21 @@ data class SignInRequest(
 )
 
 /**
- * `POST /api/v1/auth/signup` request body (Mobile #4). Carries exactly `{provider, id_token,
- * date_of_birth}` in snake_case per the `auth-signup` spec wire contract (pinned by the backend
- * `AuthWireFormatTest`). `device_fingerprint_hash` is omitted (design D4 — attestation deferred,
- * consistent with the sign-in DTO's Decision 9). `dateOfBirth` is an ISO-8601 `YYYY-MM-DD` string
- * (the `LocalDate.toString()` form).
+ * `POST /api/v1/auth/signup` request body (Mobile #4). Carries `{provider, id_token, date_of_birth}`
+ * in snake_case per the `auth-signup` spec wire contract (pinned by the backend `AuthWireFormatTest`),
+ * plus an OPTIONAL [inviteCode] (`invite_code`) when the user entered a referral code at signup
+ * (mobile-referral). `device_fingerprint_hash` is omitted (design D4 — attestation deferred, consistent
+ * with the sign-in DTO's Decision 9). `dateOfBirth` is an ISO-8601 `YYYY-MM-DD` string (the
+ * `LocalDate.toString()` form). [inviteCode] defaults to `null`; with the client's `encodeDefaults =
+ * false` / `explicitNulls = false` Json, a null value omits the `invite_code` key from the body
+ * entirely (matching the backend's `inviteCode?.trim()?.takeIf { it.isNotEmpty() }` treatment).
  */
 @Serializable
 data class SignUpRequest(
     val provider: String,
     @SerialName("id_token") val idToken: String,
     @SerialName("date_of_birth") val dateOfBirth: String,
+    @SerialName("invite_code") val inviteCode: String? = null,
 )
 
 /** `POST /api/v1/auth/refresh` request body. */
@@ -58,6 +62,10 @@ data class BackendErrorBody(
     // content-moderation-appeal: the banned/suspended sign-in `403` carries the limited appeal token
     // alongside the error envelope (`auth-signin`). Null on every other error body.
     @SerialName("appeal_token") val appealToken: String? = null,
+    // appeal-sign-in-ban-distinction: the `account_banned` `403` carries `suspended_until` (ISO-8601
+    // expiry ⇒ suspension; `null` ⇒ permanent ban). Defaulted so an OLDER backend that omits the
+    // field (or any non-banned error body) parses as `null` — the safe-degrade-to-permanent path.
+    @SerialName("suspended_until") val suspendedUntil: String? = null,
 )
 
 @Serializable
@@ -78,13 +86,16 @@ sealed interface SignInApiResult {
     /** Non-2xx response. [code] is the backend error envelope's `error.code` when parseable
      *  (the flat `/signup` `403 user_blocked` body has no `code` → `null`; map on [status]).
      *  [appealToken] is the limited appeal token from the banned/suspended sign-in `403` body
-     *  (content-moderation-appeal); null on every other non-2xx. [retryAfterSeconds] is the
-     *  parsed `Retry-After` header on a `429` (auth-endpoint-rate-limits); null when absent /
-     *  unparseable / not a `429`. */
+     *  (content-moderation-appeal); null on every other non-2xx. [suspendedUntil] is the raw
+     *  ISO-8601 `suspended_until` from the `account_banned` `403` (appeal-sign-in-ban-distinction):
+     *  non-null ⇒ suspension, null ⇒ permanent ban (or an older backend that omits the field).
+     *  [retryAfterSeconds] is the parsed `Retry-After` header on a `429`
+     *  (auth-endpoint-rate-limits); null when absent / unparseable / not a `429`. */
     data class HttpError(
         val status: Int,
         val code: String?,
         val appealToken: String? = null,
+        val suspendedUntil: String? = null,
         val retryAfterSeconds: Long? = null,
     ) : SignInApiResult
 
@@ -149,13 +160,15 @@ class AuthApiClient(
             status = response.status.value,
             code = parsed?.error?.code,
             appealToken = parsed?.appealToken,
+            suspendedUntil = parsed?.suspendedUntil,
             retryAfterSeconds = response.headers[HttpHeaders.RetryAfter]?.toLongOrNull(),
         )
     }
 
     /**
      * `POST /api/v1/auth/signup` (Mobile #4). Body is `{provider:"google", id_token, date_of_birth}`
-     * — snake_case, NO `device_fingerprint_hash` (design D4). Success is HTTP **`201 Created`** (not
+     * plus an optional `invite_code` when [inviteCode] is non-blank (mobile-referral) — snake_case, NO
+     * `device_fingerprint_hash` (design D4). Success is HTTP **`201 Created`** (not
      * `200`). On non-201 the [SignInApiResult.HttpError.status] is what `AuthRepository` keys on:
      * the `403 user_blocked` body is the FLAT `{"error":"user_blocked",...}` shape that
      * [BackendErrorBody] (nested parser) cannot decode, so [code] comes back `null` for it — that
@@ -165,12 +178,21 @@ class AuthApiClient(
     suspend fun signUp(
         idToken: String,
         dateOfBirth: String,
+        inviteCode: String? = null,
     ): SignInApiResult {
         val response: HttpResponse =
             try {
                 client.post("/api/v1/auth/signup") {
                     contentType(ContentType.Application.Json)
-                    setBody(SignUpRequest(provider = "google", idToken = idToken, dateOfBirth = dateOfBirth))
+                    setBody(
+                        SignUpRequest(
+                            provider = "google",
+                            idToken = idToken,
+                            dateOfBirth = dateOfBirth,
+                            // Trim + drop a blank code so the `invite_code` key is omitted when not entered.
+                            inviteCode = inviteCode?.trim()?.takeIf { it.isNotEmpty() },
+                        ),
+                    )
                 }
             } catch (cause: CancellationException) {
                 throw cause

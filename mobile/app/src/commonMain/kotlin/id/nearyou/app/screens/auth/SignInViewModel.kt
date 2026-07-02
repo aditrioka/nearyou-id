@@ -77,7 +77,9 @@ class SignInViewModel(
             ctaEnabled = projected.ctaEnabled,
             errorBanner = projected.errorBanner,
             sessionExpired = sessionExpired,
-            showAppealEntry = outcome == SignInOutcome.Banned,
+            // appeal-sign-in-ban-distinction: the "Ajukan banding" entry shows for a SUSPENSION only
+            // (non-null suspended_until). A permanent ban (null) routes to the support path — no entry.
+            showAppealEntry = (outcome as? SignInOutcome.Banned)?.suspendedUntil != null,
             navigation = navigation,
         )
     }

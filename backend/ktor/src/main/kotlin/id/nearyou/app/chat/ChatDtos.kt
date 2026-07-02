@@ -97,6 +97,13 @@ const val BLOCKED_BODY_TEXT: String = "Tidak dapat mengirim pesan ke user ini"
 /**
  * Manual JSON build for a chat-message row. NULL-masks `content` when [redactedAt] is non-null
  * AND deliberately omits the `redaction_reason` field from the body shape regardless of value.
+ *
+ * The three `embedded_*` fields (chat-embedded-posts) are ALWAYS present (present-with-null for a
+ * plain message, populated for an embed message) so the mobile parser sees a stable shape and a
+ * cold thread open (REST history) renders the context card identically to the realtime path. The
+ * embed fields are NOT nulled on redaction — the stored snapshot survives at rest (D9: no admin
+ * write-path scrub) and the mobile thread applies render precedence (a redacted message shows the
+ * placeholder, not the card), so the snapshot must reach the client for that precedence to apply.
  */
 fun chatMessageJson(
     id: String,
@@ -105,6 +112,9 @@ fun chatMessageJson(
     content: String?,
     createdAt: String,
     redactedAt: String?,
+    embeddedPostId: String?,
+    embeddedPostSnapshot: JsonElement?,
+    embeddedPostEditId: String?,
 ): JsonObject =
     buildJsonObject {
         put("id", JsonPrimitive(id))
@@ -116,6 +126,9 @@ fun chatMessageJson(
         } else {
             put("content", content?.let(::JsonPrimitive) ?: JsonNull)
         }
+        put("embedded_post_id", embeddedPostId?.let(::JsonPrimitive) ?: JsonNull)
+        put("embedded_post_snapshot", embeddedPostSnapshot ?: JsonNull)
+        put("embedded_post_edit_id", embeddedPostEditId?.let(::JsonPrimitive) ?: JsonNull)
         put("created_at", JsonPrimitive(createdAt))
         // redaction_reason is intentionally NEVER included on the chat data plane — admin-only.
     }

@@ -679,6 +679,48 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a Data Export Queue MANUAL TRIGGER (`admin-data-export-queue`
+     * capability): `POST /admin/data-exports/{id}/trigger` re-running a stalled or
+     * failed export through the producer's single-request pipeline. Joins the
+     * caller's [conn] so this audit INSERT + the rate-limit COUNT read the same
+     * ledger snapshot and the state transition (re-enqueue `failed → pending`, or
+     * confirming an already-`pending` row for the drive) + the audit row commit
+     * atomically inside the trigger transaction (the in-tx cap-check requirement).
+     * `target_type = 'data_export_request'`, `target_id` = the request id. The audit
+     * is keyed on the trigger CAUSING the transition, NOT on the final delivery
+     * outcome: if the scheduler races in and claims the re-enqueued row before the
+     * synchronous drive (the drive then no-ops `SKIPPED`), this is still the one
+     * audited action — so [beforeState]/[afterState] record the request `status`
+     * transition (e.g. `{"status":"failed"}` → `{"status":"pending","triggered":true}`),
+     * never the archive contents / object key / signed URL. The mandatory [reason]
+     * is the operator justification. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logDataExportTriggered(
+        conn: Connection,
+        adminId: UUID,
+        requestId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "data_export_triggered",
+            adminId = adminId,
+            targetType = "data_export_request",
+            targetId = requestId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a feature-flag publish (`admin-feature-flags` capability):
      * exactly one immutable row per applied Server-template parameter write.
      * Joins the caller's [conn] so the rate-limit COUNT and this INSERT read +

@@ -22,10 +22,11 @@ import java.sql.DriverManager
  *     conversation_participants + 3 on chat_messages).
  *   - Four CHECK constraints exist (slot ∈ {1,2}, empty-message guard, redaction
  *     atomicity 3-column coupling).
- *   - `chat_messages.embedded_post_edit_id` remains a deferred-FK column with
- *     NO FK referential constraint and a COMMENT ON COLUMN marker documenting
- *     the deferred `post_edits(id)` target (the future post-edit-history change
- *     will ship that table).
+ *   - `chat_messages.embedded_post_edit_id` was DEFERRED at V15 but V37
+ *     (chat-embedded-posts) backfilled the FK to `post_edits(id)`. As this smoke
+ *     runs the FULL migration chain, the FK is present post-V37; the full
+ *     confrelid/confdeltype/convalidated assertion lives in MigrationV37SmokeTest +
+ *     the chat-conversations MODIFIED delta.
  *   - `chat_messages.redacted_by` was DEFERRED at V15 but V16 (admin-schema-
  *     bootstrap) backfilled the FK to `admin_users(id)` and replaced the
  *     comment text. The V15 smoke now asserts only the comment-replacement
@@ -291,13 +292,14 @@ class MigrationV15SmokeTest : StringSpec({
     }
 
     // V15 originally shipped redacted_by + embedded_post_edit_id with NO FK (both deferred).
-    // V16 (admin-schema-bootstrap) backfilled chat_messages.redacted_by → admin_users(id);
-    // the FK-presence assertion lives in the V16 schema spec + chat-conversations MODIFIED
-    // delta. embedded_post_edit_id remains deferred (target table post_edits ships with the
-    // future post-edit-history change). The remaining V15-owned assertion: that embedded_-
-    // post_edit_id still has no FK.
+    // V16 (admin-schema-bootstrap) backfilled chat_messages.redacted_by → admin_users(id), and
+    // V37 (chat-embedded-posts) backfilled chat_messages.embedded_post_edit_id → post_edits(id).
+    // This smoke runs the FULL migration chain (Flyway.migrate through the latest), so the FK is
+    // now present; the full FK assertion (confrelid/confdeltype/convalidated) lives in
+    // MigrationV37SmokeTest + the chat-conversations MODIFIED delta. Here we just confirm the
+    // column carries an FK post-V37 (the deferred-state assertion flipped with V37).
 
-    "embedded_post_edit_id has no referential constraint (still deferred)" {
+    "embedded_post_edit_id carries a referential constraint post-V37" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
@@ -313,7 +315,7 @@ class MigrationV15SmokeTest : StringSpec({
                 ).use { rs ->
                     val fkCols = mutableSetOf<String>()
                     while (rs.next()) fkCols.add(rs.getString(1))
-                    fkCols shouldBe emptySet()
+                    fkCols shouldBe setOf("embedded_post_edit_id")
                 }
             }
         }
@@ -342,7 +344,11 @@ class MigrationV15SmokeTest : StringSpec({
         }
     }
 
-    "embedded_post_edit_id comment still mentions post_edits AND deferred (post-V16)" {
+    // V37 (chat-embedded-posts) replaced the V15-era deferred-FK COMMENT with text describing the
+    // now-shipped FK. As this smoke runs the FULL migration chain, the comment is the post-V37 one:
+    // mentions post_edits(id) + SET NULL, and no longer says "deferred" (the chat-conversations
+    // MODIFIED delta + tasks 5.7 pg_description assertion; full detail in MigrationV37SmokeTest).
+    "embedded_post_edit_id comment mentions post_edits(id) + SET NULL, no longer deferred (post-V37)" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.createStatement().use { st ->
                 st.executeQuery(
@@ -358,8 +364,9 @@ class MigrationV15SmokeTest : StringSpec({
                     rs.next() shouldBe true
                     val comment = rs.getString(1)
                     comment shouldNotBe null
-                    comment shouldContain "post_edits"
-                    comment.lowercase() shouldContain "deferred"
+                    comment shouldContain "post_edits(id)"
+                    comment shouldContain "SET NULL"
+                    (comment.lowercase().contains("deferred")) shouldBe false
                 }
             }
         }

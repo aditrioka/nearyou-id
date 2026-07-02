@@ -22,7 +22,13 @@ enum class SignInCtaLabel {
  *  `AgeGateScreen` instead of showing a banner (the `signin_error_no_account` copy is retired
  *  from this path per the `mobile-auth-signin` MODIFIED routing). */
 enum class SignInErrorBanner {
+    /** `signin_error_banned` — a PERMANENT ban (403 `account_banned`, `suspended_until` null): the
+     *  "Hubungi support" copy, no appeal entry (appeal-sign-in-ban-distinction). */
     BANNED,
+
+    /** `signin_error_suspended` — a 7-day SUSPENSION (403 `account_banned`, non-null `suspended_until`):
+     *  the suspension copy that pairs with the "Ajukan banding" appeal entry. */
+    SUSPENDED,
     NETWORK,
     TOKEN_INVALID,
 
@@ -44,7 +50,8 @@ data class SignInUiState(
  *
  * - in-flight ⇒ LOADING label, disabled, no banner.
  * - [SignInOutcome.NetworkError] ⇒ RETRY label, enabled, NETWORK banner.
- * - [SignInOutcome.Banned] ⇒ GOOGLE label, **disabled** (tap-rejected), BANNED banner.
+ * - [SignInOutcome.Banned] ⇒ GOOGLE label, **disabled** (tap-rejected); SUSPENDED banner when
+ *   `suspendedUntil` is non-null (a suspension), else BANNED banner (a permanent ban).
  * - [SignInOutcome.InvalidIdToken] ⇒ GOOGLE label, enabled, TOKEN_INVALID banner.
  * - [SignInOutcome.NoAccount] (Mobile #4: navigates to `AgeGateScreen`) / [SignInOutcome.Success] /
  *   [SignInOutcome.Cancelled] / null ⇒ GOOGLE label, enabled, no banner.
@@ -57,8 +64,15 @@ fun signInUiState(
         return SignInUiState(ctaLabel = SignInCtaLabel.LOADING, ctaEnabled = false, errorBanner = null)
     }
     return when (outcome) {
-        SignInOutcome.Banned ->
-            SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = false, errorBanner = SignInErrorBanner.BANNED)
+        is SignInOutcome.Banned ->
+            // appeal-sign-in-ban-distinction: a non-null suspended_until ⇒ suspension (SUSPENDED copy
+            // pairing with the appeal entry); null ⇒ permanent ban (BANNED "Hubungi support" copy). Both
+            // disable the CTA (tap-rejected) to prevent a retry.
+            SignInUiState(
+                SignInCtaLabel.GOOGLE,
+                ctaEnabled = false,
+                errorBanner = if (outcome.suspendedUntil != null) SignInErrorBanner.SUSPENDED else SignInErrorBanner.BANNED,
+            )
         SignInOutcome.InvalidIdToken ->
             SignInUiState(SignInCtaLabel.GOOGLE, ctaEnabled = true, errorBanner = SignInErrorBanner.TOKEN_INVALID)
         SignInOutcome.NetworkError ->

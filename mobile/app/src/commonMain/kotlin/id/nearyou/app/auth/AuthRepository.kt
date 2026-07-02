@@ -7,6 +7,7 @@ import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.LocalDate
+import kotlin.time.Instant
 
 /**
  * The auth orchestration contract consumed by `SignInScreen` / `AgeGateScreen` / `RootRouterScreen`.
@@ -19,11 +20,14 @@ interface AuthFlow {
     /**
      * The Mobile #4 signup-new-user flow. [idToken] is the verified Google ID token carried from
      * the sign-in `404 user_not_found` (reused, NOT re-fetched — design D3); [dateOfBirth] is the
-     * picked DOB. Returns the status-driven [SignUpOutcome] (design D8).
+     * picked DOB; [inviteCode] is the OPTIONAL referral code typed on the age gate (mobile-referral) —
+     * forwarded to the signup call as `invite_code` when non-blank, omitted otherwise. Returns the
+     * status-driven [SignUpOutcome] (design D8).
      */
     suspend fun signUpWithGoogle(
         idToken: String,
         dateOfBirth: LocalDate,
+        inviteCode: String? = null,
     ): SignUpOutcome
 
     suspend fun isAuthenticated(): Boolean
@@ -124,10 +128,15 @@ class AuthRepository(
                     // to AgeGateScreen; no on-SignInScreen banner.
                     api.status == 404 -> SignInOutcome.NoAccount(idToken)
                     api.status == 403 -> {
-                        // Stash the limited appeal token (when present) so the appeal screen can submit;
-                        // the Banned outcome surfaces the "Ajukan banding" entry on SignInScreen.
+                        // Stash the limited appeal token (when present) so the appeal screen can submit.
+                        // Capture is sub-state-independent — done BEFORE the suspension/permanent branch.
                         api.appealToken?.let { appealSession.set(it) }
-                        SignInOutcome.Banned
+                        // appeal-sign-in-ban-distinction: branch on `suspended_until` null-ness.
+                        // A non-null (parseable) timestamp ⇒ suspension (appeal entry + suspension copy);
+                        // null OR absent OR unparseable ⇒ permanent ban (support copy, no entry — the
+                        // safe degrade). `SignInOutcome.Banned` carries the parsed expiry so #208 can
+                        // reuse it for a countdown without a second wire field.
+                        SignInOutcome.Banned(suspendedUntil = parseSuspendedUntil(api.suspendedUntil))
                     }
                     api.status == 401 ->
                         // invalid_id_token: re-run the Google ceremony ONCE for a fresh token,
@@ -159,6 +168,7 @@ class AuthRepository(
     override suspend fun signUpWithGoogle(
         idToken: String,
         dateOfBirth: LocalDate,
+        inviteCode: String?,
     ): SignUpOutcome {
         if (!signUpMutex.tryLock()) {
             // A signup is already in flight — reject the concurrent invocation silently.
@@ -166,7 +176,7 @@ class AuthRepository(
         }
         return try {
             // ISO-8601 YYYY-MM-DD (kotlinx-datetime LocalDate.toString()), per the auth-signup wire.
-            attemptSignUp(idToken, dateOfBirth.toString(), allowRetry = true)
+            attemptSignUp(idToken, dateOfBirth.toString(), inviteCode, allowRetry = true)
         } finally {
             signUpMutex.unlock()
         }
@@ -182,9 +192,10 @@ class AuthRepository(
     private suspend fun attemptSignUp(
         idToken: String,
         dateOfBirth: String,
+        inviteCode: String?,
         allowRetry: Boolean,
     ): SignUpOutcome =
-        when (val api = authApiClient.signUp(idToken, dateOfBirth)) {
+        when (val api = authApiClient.signUp(idToken, dateOfBirth, inviteCode)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
                 val sub = decodeJwtSubject(api.tokens.accessToken)
@@ -209,7 +220,7 @@ class AuthRepository(
                     // invalid_id_token: refresh the Google token ONCE and retry; a second 401 is
                     // terminal (the inner attempt below runs with allowRetry = false).
                     api.status == 401 ->
-                        if (allowRetry) refreshTokenAndRetrySignUp(dateOfBirth) else SignUpOutcome.InvalidIdToken
+                        if (allowRetry) refreshTokenAndRetrySignUp(dateOfBirth, inviteCode) else SignUpOutcome.InvalidIdToken
                     // 429 from the auth-endpoint limiter (auth-endpoint-rate-limits): a defined
                     // rate-limited state with a Retry-After hint — NOT the generic RetryableError.
                     api.status == 429 -> SignUpOutcome.RateLimited(api.retryAfterSeconds)
@@ -232,15 +243,27 @@ class AuthRepository(
      * cancelled refresh sheet is treated as terminal token-invalid; a failed ceremony is a
      * retryable connectivity problem (mirroring the sign-in `Failed`→NetworkError mapping).
      */
-    private suspend fun refreshTokenAndRetrySignUp(dateOfBirth: String): SignUpOutcome =
+    private suspend fun refreshTokenAndRetrySignUp(
+        dateOfBirth: String,
+        inviteCode: String?,
+    ): SignUpOutcome =
         when (val ceremony = googleSignIn.signIn()) {
-            is GoogleSignInResult.Success -> attemptSignUp(ceremony.idToken, dateOfBirth, allowRetry = false)
+            is GoogleSignInResult.Success -> attemptSignUp(ceremony.idToken, dateOfBirth, inviteCode, allowRetry = false)
             is GoogleSignInResult.UserCancelled -> SignUpOutcome.InvalidIdToken
             is GoogleSignInResult.Failed -> {
                 diagnosticLog("signup_refresh_ceremony_failed: ${ceremony.message}")
                 SignUpOutcome.RetryableError
             }
         }
+
+    /**
+     * appeal-sign-in-ban-distinction: parse the raw `suspended_until` from the `account_banned` 403
+     * into an [Instant], or `null` for a permanent ban. The discriminator is null-ness, so an absent
+     * field, an explicit `null`, OR an unparseable value all collapse to `null` (the safe degrade to
+     * the permanent sub-state). A non-null value already in the PAST still parses to a non-null
+     * [Instant] (suspension sub-state) — null-ness, not future-ness, is the discriminator.
+     */
+    private fun parseSuspendedUntil(raw: String?): Instant? = raw?.let { runCatching { Instant.parse(it) }.getOrNull() }
 }
 
 /**
@@ -258,7 +281,19 @@ sealed interface SignInOutcome {
      */
     data class NoAccount(val idToken: String) : SignInOutcome
 
-    data object Banned : SignInOutcome
+    /**
+     * `403 account_banned` — the matched account is under a moderation action. The sub-state is the
+     * null-ness of [suspendedUntil] (appeal-sign-in-ban-distinction):
+     * - **non-null** (the ISO-8601 suspension expiry, even if already in the past) ⇒ a 7-day
+     *   suspension → suspension copy + the "Ajukan banding" appeal entry (per `mobile-appeal`).
+     * - **null** (a permanent ban, OR an older backend that omits / sends an unparseable field —
+     *   the safe degrade) ⇒ the permanent-ban "Hubungi support" copy, NO appeal entry.
+     *
+     * The limited appeal token is captured into the appeal-session holder BEFORE this outcome is
+     * built (capture is sub-state-independent). [suspendedUntil] is carried (not just a boolean) so
+     * follow-up #208 can render a suspension countdown from the same value without a second field.
+     */
+    data class Banned(val suspendedUntil: Instant?) : SignInOutcome
 
     data object InvalidIdToken : SignInOutcome
 
