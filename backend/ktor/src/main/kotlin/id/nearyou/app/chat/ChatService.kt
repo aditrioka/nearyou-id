@@ -3,6 +3,8 @@ package id.nearyou.app.chat
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
+import id.nearyou.app.infra.repo.EmbeddedPostResolver
+import id.nearyou.app.infra.repo.ResolvedEmbeddedPost
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
@@ -69,6 +71,12 @@ class ChatService(
     private val remoteConfig: RemoteConfig,
     private val textModerator: TextModerator,
     private val moderationQueue: ModerationQueueRepository,
+    // chat-embedded-posts: resolves an `embedded_post_id` to the coordinate-free snapshot +
+    // version anchor, applying the sender's visibility rules (block / shadow-ban / fuzzing).
+    // Defaulted to a null-returning resolver (mirrors PostReadService's `imageUrls` default)
+    // so plain-chat tests that never send an embed construct ChatService unchanged; production
+    // (Application.kt) and the embed tests pass a real JdbcEmbeddedPostResolver.
+    private val embeddedPostResolver: EmbeddedPostResolver = EmbeddedPostResolver { _, _ -> null },
     private val clock: () -> Instant = Instant::now,
     // Pool-bounded JDBC/Redis-sync dispatcher (docs/11 §3.2); production passes
     // DbDispatchers.db — the default keeps direct-construction tests working.
@@ -201,9 +209,33 @@ class ChatService(
     suspend fun sendMessage(
         conversationId: UUID,
         senderId: UUID,
-        content: String,
+        content: String?,
+        embeddedPostId: UUID?,
         senderShadowBanned: Boolean,
     ): ChatMessageRow {
+        // chat-embedded-posts: resolve the shared post for the SENDER as viewer (block /
+        // shadow-ban / spatial-fuzzing) and serialize the coordinate-free snapshot + version
+        // anchor BEFORE opening the chat send transaction. A post the sender cannot see
+        // (unknown / soft-deleted / blocked / shadow-banned-author-not-self / auto-hidden)
+        // throws EmbeddedPostNotFoundException → the route's constant-404 (design D1/D3/D4).
+        // Ordering note (deliberate): this runs BEFORE the participant/block tx checks, so a
+        // sender posting an UNresolvable embed to a conversation they're not in gets the
+        // post-404 rather than the not-participant-403. Not a leak — the resolver applies the
+        // sender's OWN visibility (which they already know), revealing nothing about
+        // conversation membership; and it avoids opening a tx for a post that can't resolve.
+        val embed: EmbeddedPostData? =
+            if (embeddedPostId != null) {
+                val resolved =
+                    withContext(dbDispatcher) { embeddedPostResolver.resolveForSender(senderId, embeddedPostId) }
+                        ?: throw EmbeddedPostNotFoundException()
+                EmbeddedPostData(
+                    postId = resolved.postId,
+                    snapshotJson = buildEmbeddedPostSnapshotJson(resolved),
+                    editId = resolved.latestEditId,
+                )
+            } else {
+                null
+            }
         var emittedId: UUID? = null
         // @chat-shadow-ban-skip-couples: realtime-broadcast+notification-emit
         // Both ChatRealtimeClient.publish and NotificationEmitter.emit MUST skip together
@@ -248,13 +280,20 @@ class ChatService(
         // cache and is AUDIT-FLAGGED for a spec amendment (move the block
         // check pre-tx) rather than silently reordered here.
         var verdictForFlag: Verdict.Flag? = null
-        val preInsertHookInTx: (java.sql.Connection) -> Unit = { _ ->
-            when (val verdict = textModerator.moderate(content)) {
-                is Verdict.Reject -> throw ContentModeratedProfanityException(verdict.matchedKeywords)
-                is Verdict.Flag -> verdictForFlag = verdict
-                Verdict.Allow -> Unit
+        // Moderate the user-typed `content` only. An embed-only send (content == null) carries
+        // no new free text — the snapshot copies post content that already passed Layer 1/2
+        // moderation at post-creation time — so the hook is omitted entirely (null) and no
+        // TextModerator call is made.
+        val preInsertHookInTx: ((java.sql.Connection) -> Unit)? =
+            content?.let { typed ->
+                { _: java.sql.Connection ->
+                    when (val verdict = textModerator.moderate(typed)) {
+                        is Verdict.Reject -> throw ContentModeratedProfanityException(verdict.matchedKeywords)
+                        is Verdict.Flag -> verdictForFlag = verdict
+                        Verdict.Allow -> Unit
+                    }
+                }
             }
-        }
         val afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)? =
             { conn, row ->
                 if (verdictForFlag != null) {
@@ -272,6 +311,7 @@ class ChatService(
                     conversationId = conversationId,
                     senderId = senderId,
                     content = content,
+                    embed = embed,
                     emitInTx = emitInTx,
                     preInsertHookInTx = preInsertHookInTx,
                     afterInsertHookInTx = afterInsertHookInTx,
@@ -280,6 +320,24 @@ class ChatService(
         emittedId?.let(dispatcher::dispatch)
         return row
     }
+
+    /**
+     * Serialize a resolved post into the `embedded_post_snapshot` JSONB. The key set is EXACTLY
+     * `{authorUsername, authorDisplayName, content, cityName, createdAt, editedAt}` (camelCase) —
+     * an allowlist, NOT a denylist: no `latitude` / `longitude` / `display_location` / author UUID
+     * is ever emitted (spatial-fuzzing critical invariant; the snapshot is a new serialization
+     * path). `cityName` is the empty string for a legacy/polygon-gap null (mirrors single-post-read);
+     * `editedAt` is present-with-null when the post has never been edited.
+     */
+    private fun buildEmbeddedPostSnapshotJson(resolved: ResolvedEmbeddedPost): String =
+        buildJsonObject {
+            put("authorUsername", JsonPrimitive(resolved.authorUsername))
+            put("authorDisplayName", JsonPrimitive(resolved.authorDisplayName))
+            put("content", JsonPrimitive(resolved.content))
+            put("cityName", JsonPrimitive(resolved.cityName.orEmpty()))
+            put("createdAt", JsonPrimitive(resolved.createdAt.toString()))
+            put("editedAt", resolved.editedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        }.toString()
 
     private fun buildChatMessageBodyData(
         conversationId: UUID,

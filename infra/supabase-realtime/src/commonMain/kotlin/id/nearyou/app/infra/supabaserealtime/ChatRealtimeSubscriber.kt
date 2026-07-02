@@ -2,6 +2,7 @@ package id.nearyou.app.infra.supabaserealtime
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.Instant
+import kotlinx.serialization.Serializable
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -35,12 +36,19 @@ interface ChatRealtimeSubscriber {
 
 /**
  * A realtime inbound message, projected from the broadcast payload owned by the
- * `chat-realtime-broadcast` capability. Mirrors the 9-key snake_case wire EXCEPT the three
- * `embedded_*` keys (parsed-and-dropped at the [SupabaseChatRealtimeSubscriber] boundary — this
- * change does not render embeds) and `redaction_reason` (never serialized on the wire). [content]
- * is `null` when the message is redacted ([redactedAt] non-null). [senderId] is carried so the
- * ViewModel can apply own-vs-other alignment without a re-fetch — shadow-ban filtering is
- * server-authoritative (the client carries no ban signal; design.md D6).
+ * `chat-realtime-broadcast` capability. Mirrors the 9-key snake_case wire (minus `redaction_reason`,
+ * which is never serialized). [content] is `null` when the message is redacted ([redactedAt]
+ * non-null). [senderId] is carried so the ViewModel can apply own-vs-other alignment without a
+ * re-fetch — shadow-ban filtering is server-authoritative (the client carries no ban signal;
+ * design.md D6).
+ *
+ * The three `embedded_*` fields (chat-embedded-posts) surface the shared-post context card:
+ * [embeddedPostId] is the live post id (null after the source post is hard-deleted — the snapshot
+ * still renders in a "deleted" state); [embeddedPostSnapshot] is the self-contained coordinate-free
+ * snapshot (a plain Kotlin model decoded from the snapshot JSON at the
+ * [SupabaseChatRealtimeSubscriber] boundary — never a vendor type); [embeddedPostEditId] is the
+ * version-at-share-time anchor the thread compares against the live post for the edited-since-shared
+ * banner. All three are null for a plain text / redacted message.
  */
 @OptIn(ExperimentalUuidApi::class)
 data class ChatMessageInbound(
@@ -50,6 +58,29 @@ data class ChatMessageInbound(
     val content: String?,
     val createdAt: Instant,
     val redactedAt: Instant?,
+    val embeddedPostId: Uuid? = null,
+    val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
+    val embeddedPostEditId: Uuid? = null,
+)
+
+/**
+ * The coordinate-free, self-contained snapshot of a shared post (chat-embedded-posts), decoded from
+ * the `embedded_post_snapshot` JSONB built server-side. A plain Kotlin model — NO vendor/Supabase
+ * symbol — carrying ONLY display fields: the author handle + display name, the post `content`, the
+ * `cityName` label, and the `createdAt` / `editedAt` ISO-8601 timestamps. It carries NO coordinate
+ * (`latitude` / `longitude` / `display_location`) and no author UUID (spatial-fuzzing invariant; the
+ * key set mirrors the server's allowlist exactly). [editedAt] is null when the post was unedited at
+ * share time (it drives the card's own "Diedit" label, NOT the edited-since-shared banner — that
+ * uses [ChatMessageInbound.embeddedPostEditId]).
+ */
+@Serializable
+data class EmbeddedPostSnapshot(
+    val authorUsername: String,
+    val authorDisplayName: String,
+    val content: String,
+    val cityName: String,
+    val createdAt: String,
+    val editedAt: String? = null,
 )
 
 /**

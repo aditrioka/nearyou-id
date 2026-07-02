@@ -4,6 +4,7 @@ import id.nearyou.app.chat.ChatMessageDto
 import id.nearyou.app.chat.ChatThreadOutcome
 import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.screens.post.codePointLength
 
 /** The chat message length cap — 2000 code points (`chat-conversations` content guard, docs/02 §319).
@@ -22,10 +23,16 @@ data class ChatMessage(
     val content: String?,
     val createdAtIso: String,
     val isRedacted: Boolean,
+    // chat-embedded-posts: the shared-post context (null for a plain message). [embeddedPostId] is
+    // null after the source post is hard-deleted (snapshot still present → "deleted" card state).
+    val embeddedPostId: String? = null,
+    val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
+    val embeddedPostEditId: String? = null,
 )
 
 /** Maps a REST/realtime DTO to the merge model — content is forced null when redacted (defensive; the
- *  backend already nulls it). A non-null `redacted_at` marks the message redacted. */
+ *  backend already nulls it). A non-null `redacted_at` marks the message redacted. The embed fields are
+ *  carried through (the redaction-precedence suppression happens at the row projection, not here). */
 fun ChatMessageDto.toChatMessage(): ChatMessage =
     ChatMessage(
         id = id,
@@ -33,6 +40,9 @@ fun ChatMessageDto.toChatMessage(): ChatMessage =
         content = if (redactedAt != null) null else content,
         createdAtIso = createdAt,
         isRedacted = redactedAt != null,
+        embeddedPostId = embeddedPostId,
+        embeddedPostSnapshot = embeddedPostSnapshot,
+        embeddedPostEditId = embeddedPostEditId,
     )
 
 /**
@@ -47,7 +57,18 @@ data class ChatMessageRow(
     val isOwn: Boolean,
     val isRedacted: Boolean,
     val createdAtIso: String,
+    // chat-embedded-posts: the context-card data, present ONLY on a non-redacted embed message. A
+    // redacted message carries NULL embed fields here (the redaction-precedence rule keys on
+    // redacted_at, not on a null content — design D9) so the screen renders the placeholder, not the
+    // card. [embeddedPostId] null + [embeddedPostSnapshot] present = the source post was hard-deleted
+    // ("post telah dihapus" state, not tappable).
+    val embeddedPostId: String? = null,
+    val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
+    val embeddedPostEditId: String? = null,
 ) {
+    /** True when this row should render the shared-post context card (a non-redacted embed message). */
+    val hasEmbeddedPost: Boolean get() = !isRedacted && embeddedPostSnapshot != null
+
     /**
      * The report-affordance gate (`mobile-chat-message-report`): a message is reportable only when it is
      * the OTHER party's ([isOwn] false) AND not already redacted ([isRedacted] false). Derived purely
@@ -99,6 +120,11 @@ private fun mergeOne(
         isRedacted = redacted,
         createdAtIso = minOf(a.createdAtIso, b.createdAtIso),
         senderId = a.senderId,
+        // Preserve the embed across a REST↔realtime collapse (both sources carry the same embed for
+        // the same id); prefer whichever source populated it.
+        embeddedPostId = a.embeddedPostId ?: b.embeddedPostId,
+        embeddedPostSnapshot = a.embeddedPostSnapshot ?: b.embeddedPostSnapshot,
+        embeddedPostEditId = a.embeddedPostEditId ?: b.embeddedPostEditId,
     )
 }
 
@@ -109,12 +135,18 @@ fun chatMessageRows(
     viewerId: String,
 ): List<ChatMessageRow> =
     merged.map { message ->
+        // Redaction precedence (design D9): a redacted message renders the neutral placeholder and
+        // NEVER the context card, so the embed fields are dropped from the row when redacted.
+        val redacted = message.isRedacted
         ChatMessageRow(
             id = message.id,
-            content = if (message.isRedacted) null else message.content,
+            content = if (redacted) null else message.content,
             isOwn = message.senderId == viewerId,
-            isRedacted = message.isRedacted,
+            isRedacted = redacted,
             createdAtIso = message.createdAtIso,
+            embeddedPostId = if (redacted) null else message.embeddedPostId,
+            embeddedPostSnapshot = if (redacted) null else message.embeddedPostSnapshot,
+            embeddedPostEditId = if (redacted) null else message.embeddedPostEditId,
         )
     }
 
@@ -184,6 +216,27 @@ fun sendBarState(
         SendOutcome.TooLong -> SendBarState.TooLong
         SendOutcome.NetworkError, SendOutcome.Error -> SendBarState.NetworkRetry
     }
+}
+
+/**
+ * The edited-since-shared banner gate (`mobile-chat-embedded-posts`): the context card shows the
+ * "diedit sejak dibagikan" banner when the live post's latest-edit signal ([liveLatestEditId])
+ * differs from the message's [anchorEditId] (the version-at-share-time anchor). Both-null (the post
+ * was unedited at share time AND is still unedited) → no banner. A null [liveLatestEditId] is treated
+ * as "live edit state UNKNOWN" → no banner (never a false positive from missing data).
+ *
+ * DEFERRED (live source): the chat thread does not yet fetch a per-card live-edit signal — the card
+ * renders from the immutable snapshot (design D1) and the thread fetches no live post state. Until
+ * that source is wired the runtime caller passes [liveLatestEditId] == [anchorEditId] (no banner).
+ * This pure gate IS the spec'd comparison (and is exercised directly by the banner test); only the
+ * live-edit fetch is deferred to a follow-up, captured as an explicit spec requirement.
+ */
+fun editedSinceShared(
+    anchorEditId: String?,
+    liveLatestEditId: String?,
+): Boolean {
+    if (liveLatestEditId == null) return false
+    return anchorEditId != liveLatestEditId
 }
 
 /**

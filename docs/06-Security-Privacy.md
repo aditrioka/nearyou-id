@@ -272,10 +272,10 @@ Early phase: manual review via Admin Panel; add AI moderation when Premium media
 
 Two distinct admin actions, same underlying columns:
 
-- **7-day suspension**: `UPDATE users SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days', token_version = token_version + 1 WHERE id = :uid`. A daily worker (`/internal/unban-worker`) flips `is_banned = FALSE` and nulls `suspended_until` when the window elapses. See `05-Implementation.md`.
-- **Permanent ban**: `UPDATE users SET is_banned = TRUE, suspended_until = NULL, token_version = token_version + 1 WHERE id = :uid`. No automatic unban.
+- **7-day suspension**: `UPDATE users SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days' WHERE id = :uid`. A daily worker (`/internal/unban-worker`) flips `is_banned = FALSE` and nulls `suspended_until` when the window elapses. See `05-Implementation.md`.
+- **Permanent ban**: `UPDATE users SET is_banned = TRUE, suspended_until = NULL WHERE id = :uid`. No automatic unban.
 
-In both cases all active refresh tokens for the user are deleted, so all active sessions are kicked on the next REST call.
+Neither path bumps `token_version` or deletes refresh tokens — the `token_version` bump is reserved for the CSAM handler's auto-action (see § Media Moderation above; `07-Operations.md` § CSAM Detection Log Viewer). Enforcement is the account-state gate pair instead: every authenticated request from a banned/suspended user is 403'd by the per-request `AuthPlugin` `is_banned` gate, and `POST /api/v1/auth/refresh` re-loads the owner's account state and refuses a banned or soft-deleted owner a new access token (`auth-session` § "Refresh denies a banned or soft-deleted account"). A ban or suspension therefore takes full effect within one ~15-minute access-token TTL, and new sign-ins are rejected at the auth boundary with 403 `account_banned` (`auth-signin`).
 
 ---
 

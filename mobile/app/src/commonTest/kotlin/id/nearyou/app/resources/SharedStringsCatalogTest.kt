@@ -5,6 +5,7 @@ import id.nearyou.resources.generated.resources.account_separation_disclosure
 import id.nearyou.resources.generated.resources.age_gate_dob_label
 import id.nearyou.resources.generated.resources.age_gate_dob_picker_cta
 import id.nearyou.resources.generated.resources.age_gate_explainer
+import id.nearyou.resources.generated.resources.age_gate_invite_code_label
 import id.nearyou.resources.generated.resources.age_gate_title
 import id.nearyou.resources.generated.resources.age_gate_under18_blocked
 import id.nearyou.resources.generated.resources.app_name
@@ -147,6 +148,14 @@ import id.nearyou.resources.generated.resources.profile_report_reason_title
 import id.nearyou.resources.generated.resources.profile_report_submit
 import id.nearyou.resources.generated.resources.profile_report_success_toast
 import id.nearyou.resources.generated.resources.profile_unfollow
+import id.nearyou.resources.generated.resources.referral_code_copied
+import id.nearyou.resources.generated.resources.referral_code_heading
+import id.nearyou.resources.generated.resources.referral_copy_action
+import id.nearyou.resources.generated.resources.referral_explainer
+import id.nearyou.resources.generated.resources.referral_progress
+import id.nearyou.resources.generated.resources.referral_progress_heading
+import id.nearyou.resources.generated.resources.referral_reward_unlocked
+import id.nearyou.resources.generated.resources.referral_title
 import id.nearyou.resources.generated.resources.report_reason_adult_content
 import id.nearyou.resources.generated.resources.report_reason_harassment
 import id.nearyou.resources.generated.resources.report_reason_hate_speech_sara
@@ -181,6 +190,8 @@ import id.nearyou.resources.generated.resources.settings_row_change_username_sub
 import id.nearyou.resources.generated.resources.settings_row_edit_profile
 import id.nearyou.resources.generated.resources.settings_row_hide_distance
 import id.nearyou.resources.generated.resources.settings_row_hide_distance_sub
+import id.nearyou.resources.generated.resources.settings_row_invite_friends
+import id.nearyou.resources.generated.resources.settings_row_invite_friends_sub
 import id.nearyou.resources.generated.resources.settings_row_legal
 import id.nearyou.resources.generated.resources.settings_row_logout
 import id.nearyou.resources.generated.resources.settings_row_manage_subscription
@@ -264,6 +275,8 @@ class SharedStringsCatalogTest {
             Res.string.age_gate_under18_blocked,
             Res.string.signup_error_account_exists,
             Res.string.signup_loading,
+            // mobile-referral: the optional invite-code label on the age gate.
+            Res.string.age_gate_invite_code_label,
             // Mobile #5 Nearby timeline (mobile-nearby-timeline-screen)
             Res.string.timeline_nearby_title,
             Res.string.timeline_loading,
@@ -498,6 +511,18 @@ class SharedStringsCatalogTest {
             Res.string.paywall_unavailable_title,
             Res.string.paywall_unavailable_body,
             Res.string.paywall_purchase_error,
+            // mobile-referral (Settings entry row + the referral surface). The age-gate invite-code label
+            // is counted up in the Mobile #4 block above; loading/error reuse loading / error_generic / cta_retry.
+            Res.string.settings_row_invite_friends,
+            Res.string.settings_row_invite_friends_sub,
+            Res.string.referral_title,
+            Res.string.referral_explainer,
+            Res.string.referral_code_heading,
+            Res.string.referral_copy_action,
+            Res.string.referral_code_copied,
+            Res.string.referral_progress_heading,
+            Res.string.referral_progress,
+            Res.string.referral_reward_unlocked,
         )
 
     @Test
@@ -514,7 +539,10 @@ class SharedStringsCatalogTest {
         // + 20 (mobile-paywall-screen, frame 17: title + 3 entry-context subheads + 6 benefits + 3 period
         // labels + per-day + savings + best-value + disclosure + 2 unavailable + purchase-error; the CTA
         // reuses cta_activate_premium and the close/retry reuse cta_close / cta_retry) = 218.
-        assertEquals(218, allDeclaredStrings.size)
+        // + 11 (mobile-referral: age_gate_invite_code_label + 2 Settings-row strings + 8 referral-surface
+        // strings — title, explainer, code heading, copy action, copy confirmation, progress heading,
+        // formatted progress, reward-unlocked; loading/error reuse loading / error_generic / cta_retry) = 229.
+        assertEquals(229, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

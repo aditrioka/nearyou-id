@@ -1,5 +1,7 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.ads.AdFeedController
+import id.nearyou.app.ads.nativeAdUnitId
 import id.nearyou.app.analytics.ConsentGatedAnalyticsTracker
 import id.nearyou.app.appeal.AppealApiClient
 import id.nearyou.app.appeal.AppealFlow
@@ -35,9 +37,15 @@ import id.nearyou.app.consent.ConsentRepository
 import id.nearyou.app.data.accountdeletion.AccountDeletionApiClient
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.AccountDeletionRepository
+import id.nearyou.app.data.ads.AdsConfigApiClient
+import id.nearyou.app.data.ads.AdsConfigFlow
+import id.nearyou.app.data.ads.AdsConfigRepository
 import id.nearyou.app.data.block.BlockedUsersApiClient
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
+import id.nearyou.app.data.dataexport.DataExportApiClient
+import id.nearyou.app.data.dataexport.DataExportFlow
+import id.nearyou.app.data.dataexport.DataExportRepository
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportApiClient
 import id.nearyou.app.data.report.ReportSubmitter
@@ -93,6 +101,9 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileRepository
 import id.nearyou.app.push.FcmTokenApiClient
 import id.nearyou.app.push.FcmTokenRegistrar
+import id.nearyou.app.referral.DefaultReferralRepository
+import id.nearyou.app.referral.ReferralApiClient
+import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
@@ -360,6 +371,15 @@ val mobileModule =
         single { PrivateProfileApiClient(get()) }
         single<PrivateProfileRepository> { DefaultPrivateProfileRepository(get()) }
 
+        // mobile-referral — the referral surface seam (GET /api/v1/user/referral). ApiClient →
+        // DefaultReferralRepository bound behind the ReferralRepository interface so a fake drives the
+        // screen + ViewModel tests; reuses the shared bearer-authed HttpClient (no new client, no
+        // X-Session-Id — the referral read is not session-soft-capped). The entry-scoped ReferralViewModel
+        // is created via `viewModel { ReferralViewModel(get()) }` in ReferralScreen (the AgeGate/Username
+        // precedent), resolving this ReferralRepository — it is NOT a Koin single.
+        single { ReferralApiClient(get()) }
+        single<ReferralRepository> { DefaultReferralRepository(get()) }
+
         // mobile-settings-screen — the settings graph. The block-list seam (ApiClient → Repository bound
         // behind BlockedUsersFlow so a FakeBlockedUsersFlow drives the screen tests) reuses the shared
         // (bearer-authed) HttpClient; no new client, no X-Session-Id (the block endpoints carry no
@@ -376,6 +396,30 @@ val mobileModule =
         single { AccountDeletionApiClient(get()) }
         single { AccountDeletionRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<AccountDeletionFlow> { get<AccountDeletionRepository>() }
+
+        // mobile-admob-ads-foundation — the ads-config read seam (GET /api/v1/config/ads; fail-safe to ads
+        // OFF) + the shared ad-eligibility/load controller. The controller's AdProvider + ConsentSnapshotStore
+        // are the platform bindings (platformModule); the vendor Ads SDKs are fenced in :infra:admob
+        // (invariant #16). Reuses the shared bearer-authed HttpClient; no new client.
+        single { AdsConfigApiClient(get()) }
+        single { AdsConfigRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<AdsConfigFlow> { get<AdsConfigRepository>() }
+        single {
+            AdFeedController(
+                adsConfigFlow = get(),
+                adProvider = get(),
+                consentStore = get(),
+                adUnitId = nativeAdUnitId,
+            )
+        }
+
+        // mobile-data-export-entry — the "Unduh Data Saya" request + status seam (ApiClient → Repository
+        // bound behind DataExportFlow so a FakeDataExportFlow drives the screen tests). Reuses the shared
+        // bearer-authed HttpClient; no new client. The endpoints are not session-soft-capped. The
+        // diagnostic sink receives status/cause-type strings only — NEVER the downloadUrl (PII discipline).
+        single { DataExportApiClient(get()) }
+        single { DataExportRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<DataExportFlow> { get<DataExportRepository>() }
 
         // mobile-post-detail-screen — the post-detail graph (like toggle + replies + reply composer).
         // Reuses the shared HttpClient (NO new client, NO X-Session-Id — the like/reply endpoints are not

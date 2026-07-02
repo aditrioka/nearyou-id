@@ -32,7 +32,7 @@ private const val SIGNIN_MARKER = "Masuk dengan Google"
  * iOS counterpart to the Robolectric [RootRouterScreenTest] — the auth-gated start-destination
  * decision run natively on the iOS simulator, migrated to the Nav3 [TestNavHost] (the real
  * [appEntryProvider] over a `rememberNavBackStack` seeded with `RootRoute`). `waitUntil` is used (not
- * `waitForIdle`) because the splash `CircularProgressIndicator` is an infinite animation that never
+ * `waitForIdle`) because the splash `NearYouLoader` is an infinite animation that never
  * reaches global idle. See [id.nearyou.app.screens.auth.SignInFlowIosTest] for the v1-API +
  * iosTest-placement rationale.
  */

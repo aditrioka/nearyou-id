@@ -30,11 +30,23 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.deletionDateLabel
+import id.nearyou.app.data.dataexport.DataExportFlow
+import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
+import id.nearyou.resources.generated.resources.data_export_cancel
+import id.nearyou.resources.generated.resources.data_export_confirm
+import id.nearyou.resources.generated.resources.data_export_dialog_body
+import id.nearyou.resources.generated.resources.data_export_dialog_title
+import id.nearyou.resources.generated.resources.data_export_error
+import id.nearyou.resources.generated.resources.data_export_expired
+import id.nearyou.resources.generated.resources.data_export_failed
+import id.nearyou.resources.generated.resources.data_export_in_progress
+import id.nearyou.resources.generated.resources.data_export_ready_banner
+import id.nearyou.resources.generated.resources.data_export_ready_open
 import id.nearyou.resources.generated.resources.delete_account_banner
 import id.nearyou.resources.generated.resources.delete_account_banner_cancel
 import id.nearyou.resources.generated.resources.delete_account_cancel
@@ -49,6 +61,7 @@ import id.nearyou.resources.generated.resources.ic_description
 import id.nearyou.resources.generated.resources.ic_lock
 import id.nearyou.resources.generated.resources.ic_logout
 import id.nearyou.resources.generated.resources.ic_nav_profile
+import id.nearyou.resources.generated.resources.ic_person_add
 import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_privacy_shield
 import id.nearyou.resources.generated.resources.ic_workspace_premium
@@ -63,10 +76,14 @@ import id.nearyou.resources.generated.resources.settings_private_profile_error
 import id.nearyou.resources.generated.resources.settings_private_profile_premium_only
 import id.nearyou.resources.generated.resources.settings_row_change_username
 import id.nearyou.resources.generated.resources.settings_row_change_username_sub
+import id.nearyou.resources.generated.resources.settings_row_data_export
+import id.nearyou.resources.generated.resources.settings_row_data_export_sub
 import id.nearyou.resources.generated.resources.settings_row_delete_account
 import id.nearyou.resources.generated.resources.settings_row_edit_profile
 import id.nearyou.resources.generated.resources.settings_row_hide_distance
 import id.nearyou.resources.generated.resources.settings_row_hide_distance_sub
+import id.nearyou.resources.generated.resources.settings_row_invite_friends
+import id.nearyou.resources.generated.resources.settings_row_invite_friends_sub
 import id.nearyou.resources.generated.resources.settings_row_legal
 import id.nearyou.resources.generated.resources.settings_row_logout
 import id.nearyou.resources.generated.resources.settings_row_manage_subscription
@@ -111,6 +128,7 @@ fun SettingsScreen(
     onOpenUsernameCustomization: () -> Unit = {},
     onOpenBlocked: () -> Unit,
     onOpenConsent: () -> Unit,
+    onOpenReferral: () -> Unit = {},
     onLoggedOut: () -> Unit,
 ) {
     val tokenStore = koinInject<TokenStore>()
@@ -143,8 +161,35 @@ fun SettingsScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val deleteErrorText = stringResource(Res.string.delete_account_error)
 
+    // mobile-data-export-entry — the "Unduh Data Saya" request + status holder, NavEntry-scoped.
+    val dataExportFlow = koinInject<DataExportFlow>()
+    val dataExportVm = viewModel { SettingsDataExportViewModel(dataExportFlow) }
+    val dataExportState by dataExportVm.uiState.collectAsStateWithLifecycle()
+    val dataExportTerminal401 by dataExportVm.terminal401.collectAsStateWithLifecycle()
+    val dataExportRequestError by dataExportVm.requestError.collectAsStateWithLifecycle()
+    val dataExportStatusError by dataExportVm.statusError.collectAsStateWithLifecycle()
+    var showDataExportDialog by remember { mutableStateOf(false) }
+    val dataExportErrorText = stringResource(Res.string.data_export_error)
+
     LaunchedEffect(loggedOut) {
         if (loggedOut) onLoggedOut()
+    }
+    // A 401 on any data-export call is terminal → route to sign-in (same destination as logout).
+    LaunchedEffect(dataExportTerminal401) {
+        if (dataExportTerminal401) onLoggedOut()
+    }
+    // Request / status-read failures surface a non-trapping snackbar; the screen stays functional.
+    LaunchedEffect(dataExportRequestError) {
+        if (dataExportRequestError) {
+            snackbarHostState.showSnackbar(dataExportErrorText)
+            dataExportVm.consumeRequestError()
+        }
+    }
+    LaunchedEffect(dataExportStatusError) {
+        if (dataExportStatusError) {
+            snackbarHostState.showSnackbar(dataExportErrorText)
+            dataExportVm.consumeStatusError()
+        }
     }
     // A 401 on any account-deletion call is terminal → route to sign-in (same destination as logout).
     LaunchedEffect(deletionTerminal401) {
@@ -215,6 +260,16 @@ fun SettingsScreen(
                 DeletionScheduledBanner(
                     restoreByDate = deletionDateLabel(banner.scheduledHardDeleteAt),
                     onCancel = { accountDeletionVm.cancelDeletion() },
+                )
+            }
+
+            // mobile-data-export-entry — non-blocking ready banner when an export is ready to download. The
+            // signed downloadUrl is held only transiently in UI state and handed to the platform open-URL
+            // affordance (the same LocalUriHandler path the legal row uses) — never persisted, never logged.
+            (dataExportState as? DataExportUiState.Ready)?.let { ready ->
+                DataExportReadyBanner(
+                    deadlineDate = exportDeadlineLabel(ready.downloadExpiresAt),
+                    onOpen = { uriHandler.openUri(ready.downloadUrl) },
                 )
             }
 
@@ -289,12 +344,30 @@ fun SettingsScreen(
                 onClick = onOpenBlocked,
             )
 
-            // LAINNYA — legal opens the external policy URL; logout confirms then wipes the token.
+            // LAINNYA — "Undang teman" navigates to the referral surface (mobile-referral, open to ALL
+            // tiers — NOT a paywall divert); legal opens the external policy URL; logout confirms then
+            // wipes the token.
             SettingsSectionHeader(stringResource(Res.string.settings_section_other))
+            SettingsRow(
+                icon = Res.drawable.ic_person_add,
+                title = stringResource(Res.string.settings_row_invite_friends),
+                subtitle = stringResource(Res.string.settings_row_invite_friends_sub),
+                onClick = onOpenReferral,
+            )
             SettingsRow(
                 icon = Res.drawable.ic_description,
                 title = stringResource(Res.string.settings_row_legal),
                 onClick = { uriHandler.openUri(LEGAL_URL) },
+            )
+            // mobile-data-export-entry — "Unduh Data Saya" (docs/03 § Data Export; absent from mockup frame
+            // 16 per design D5). The subtitle is status-driven; the row opens the confirmation dialog only
+            // when a fresh request is allowed (canRequest() — the single source of truth, false while the
+            // seed GET is loading or while single-active in progress, so the dialog never opens then).
+            SettingsRow(
+                icon = Res.drawable.ic_description,
+                title = stringResource(Res.string.settings_row_data_export),
+                subtitle = dataExportRowSubtitle(dataExportState),
+                onClick = { if (dataExportVm.canRequest()) showDataExportDialog = true },
             )
             SettingsRow(
                 icon = Res.drawable.ic_logout,
@@ -354,6 +427,77 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+
+    if (showDataExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showDataExportDialog = false },
+            title = { Text(stringResource(Res.string.data_export_dialog_title)) },
+            text = { Text(stringResource(Res.string.data_export_dialog_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDataExportDialog = false
+                    dataExportVm.confirmExport()
+                }) {
+                    Text(stringResource(Res.string.data_export_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDataExportDialog = false }) {
+                    Text(stringResource(Res.string.data_export_cancel))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Status-driven subtitle for the "Unduh Data Saya" row, exhaustive over [DataExportUiState]. [Loading]
+ * shows the default request prompt (the seed `GET` is in flight); [InProgress] the single-active
+ * "sedang diproses"; [Expired]/[Failed] their re-request note; [None]/[Ready] the default prompt (the
+ * ready state's detail lives in the banner above the list). All copy via `:shared:resources`.
+ */
+@Composable
+private fun dataExportRowSubtitle(state: DataExportUiState): String =
+    when (state) {
+        DataExportUiState.InProgress -> stringResource(Res.string.data_export_in_progress)
+        DataExportUiState.Expired -> stringResource(Res.string.data_export_expired)
+        DataExportUiState.Failed -> stringResource(Res.string.data_export_failed)
+        DataExportUiState.Loading,
+        DataExportUiState.None,
+        is DataExportUiState.Ready,
+        -> stringResource(Res.string.settings_row_data_export_sub)
+    }
+
+/**
+ * Non-blocking banner shown when a data export is ready to download. States the download deadline and
+ * offers an in-app affordance to open the freshly-signed `downloadUrl` (the convenience path complementing
+ * the email delivery — design D2). Rendered in the primary-container tone (a non-destructive, positive cue,
+ * distinct from the destructive error-container of the deletion banner).
+ */
+@Composable
+private fun DataExportReadyBanner(
+    deadlineDate: String,
+    onOpen: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(Res.string.data_export_ready_banner, deadlineDate),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onOpen) {
+                Text(stringResource(Res.string.data_export_ready_open))
+            }
+        }
     }
 }
 

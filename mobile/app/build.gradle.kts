@@ -89,6 +89,20 @@ kotlin {
             linkOnly = true
             extraOpts += listOf("-compiler-option", "-fmodules")
         }
+        // mobile-admob-ads-foundation — the Google Mobile Ads + UMP iOS Pods REQUIRED by the :infra:admob
+        // cinterop klib (which owns the Kotlin bindings — design D7). linkOnly = true: the :infra:admob
+        // klib owns the cinterop, so these Pods supply ONLY the framework binaries at link time (no
+        // duplicate cinterop). -fmodules for the modular headers. Versions pinned in libs.versions.toml.
+        pod("Google-Mobile-Ads-SDK") {
+            version = libs.versions.googleMobileAdsIos.get()
+            linkOnly = true
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
+        pod("GoogleUserMessagingPlatform") {
+            version = libs.versions.googleUmpIos.get()
+            linkOnly = true
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
     }
 
     sourceSets {
@@ -160,6 +174,11 @@ kotlin {
             // mobile-amplitude-analytics — the vendor-FREE AnalyticsTracker seam (Amplitude HTTP V2
             // wrapper; no vendor SDK to fence). Consumed via the app-layer ConsentGatedAnalyticsTracker.
             implementation(projects.infra.amplitude)
+            // mobile-admob-ads-foundation — the vendor-FREE AdProvider seam + NativeAdContent + the
+            // NativeAdSurface composable. The Google Mobile Ads + UMP SDKs are `implementation`-scoped
+            // transitive deps of :infra:admob, so they NEVER reach the app's compile classpath (invariant
+            // #16, enforced by VendorSdkLeakageScanTest).
+            implementation(projects.infra.admob)
             // Mobile #3 — Ktor KMP client + serialization + datetime for token expiration.
             implementation(libs.ktor.kmp.clientCore)
             implementation(libs.ktor.kmp.clientContentNegotiation)
@@ -371,7 +390,7 @@ tasks.named("check") {
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / FollowingTimelineScreenTest / HomeTabHostScreenTest /
 // NotificationsScreenTest / NotificationsScreenNavTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ListStatesTest / ProfileScreenTest /
-// ReportDialogTest / ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest) need the debug-only
+// ReportDialogTest / ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest / NearYouLoaderTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release variants —
 // so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a host-activity
 // RuntimeException. Skip those classes in release unit-test tasks; they are build-type-agnostic (they
@@ -387,6 +406,7 @@ tasks.withType<Test>().configureEach {
             "**/AgeGateScreenTest*",
             "**/NearbyTimelineScreenTest*",
             "**/NearbyLocationGateScreenTest*",
+            "**/TimelineAdsScreenTest*",
             "**/NearYouThemeTest*",
             "**/PostCreationScreenTest*",
             "**/HomeScreenFabTest*",
@@ -413,6 +433,8 @@ tasks.withType<Test>().configureEach {
             "**/SearchScreenTest*",
             "**/PaywallScreenTest*",
             "**/UsernameCustomizationScreenTest*",
+            "**/ReferralScreenTest*",
+            "**/NearYouLoaderTest*",
         )
     }
 }
