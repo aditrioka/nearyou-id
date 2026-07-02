@@ -91,6 +91,10 @@ class AdminReferralGrantsRouteTest : StringSpec({
             body shouldContain "Referral Manual Grant"
             body shouldContain "Past manual grants"
             body shouldContain "name=\"q\""
+            // The nav glyph is the real `redeem` path, not the icons.peb
+            // missing-name sentinel (a typo'd icon name renders data-icon="missing-…").
+            body shouldContain "data-icon=\"redeem\""
+            body shouldNotContain "data-icon=\"missing-"
         }
     }
 
