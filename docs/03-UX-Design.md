@@ -266,9 +266,11 @@ Onboarding + FAQ disclose explicitly: losing your Google/Apple account means los
 
 ### Suspension UX
 
-When `users.is_banned = TRUE` AND `users.suspended_until > NOW()`: login succeeds but all write endpoints return 403 with a countdown modal — "Akun kamu dalam suspensi sementara sampai {date}. Alasan: lihat email pemberitahuan." Global content stays readable; auto-unban when the daily worker flips the flag.
+Suspension is **session-terminating and enforced at the auth boundary** — login does NOT succeed while `is_banned = TRUE`, and there is no in-app read-only mode or write-endpoint countdown modal (an earlier design; superseded by the shipped `auth-signin` / `mobile-appeal` model).
 
-When `users.is_banned = TRUE` AND `users.suspended_until IS NULL` (permanent): login screen shows "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru."
+When `users.is_banned = TRUE` AND `users.suspended_until` is non-null (7-day suspension): sign-in returns 403 `account_banned` carrying a limited-scope appeal token and the `suspended_until` expiry timestamp. The sign-in screen shows "Akun kamu sedang ditangguhkan sementara. Kamu bisa mengajukan banding." (`signin_error_suspended`) with the "Ajukan banding" in-app appeal entry (`mobile-appeal`). Any session that was live when the suspension landed is cut off within one ~15-minute access-token TTL: every authenticated request is 403'd by the per-request `AuthPlugin` `is_banned` gate, and `POST /api/v1/auth/refresh` refuses a banned/suspended owner a new access token. Auto-unban when the daily worker flips the flag.
+
+When `users.is_banned = TRUE` AND `users.suspended_until IS NULL` (permanent): same sign-in 403 `account_banned`, but with no `suspended_until` value in the body (presence-vs-absence is the client's suspension-vs-permanent discriminator). The sign-in screen shows "Akun kamu telah dinonaktifkan. Hubungi support jika ini keliru." (`signin_error_banned`) and routes to the support path — no in-app appeal entry.
 
 ---
 
