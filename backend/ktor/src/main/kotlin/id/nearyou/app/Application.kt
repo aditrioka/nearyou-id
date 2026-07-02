@@ -29,6 +29,9 @@ import id.nearyou.app.appeal.AppealService
 import id.nearyou.app.appeal.JdbcAppealRepository
 import id.nearyou.app.appeal.appealRoutes
 import id.nearyou.app.auth.AuthRateLimiter
+import id.nearyou.app.auth.anomaly.JdbcLoginAnomalyRepository
+import id.nearyou.app.auth.anomaly.LoginAnomalyDetectionService
+import id.nearyou.app.auth.anomaly.loginAnomalyCheckRoutes
 import id.nearyou.app.auth.installAuth
 import id.nearyou.app.auth.jwks.jwksRoutes
 import id.nearyou.app.auth.jwt.JwtIssuer
@@ -463,6 +466,12 @@ fun Application.module() {
     // running the three retention sweeps (refresh_tokens / notifications / user_fcm_tokens).
     val retentionCleanupRepository = JdbcRetentionCleanupRepository(dataSource, dbDispatchers.db)
     val retentionCleanupWorker = RetentionCleanupWorker(retentionCleanupRepository)
+
+    // auth-login-anomaly-detection: periodic Cloud-Scheduler worker (→ /internal/login-anomaly-check)
+    // flagging per-user login-source spread (> 5 distinct /24 subnets in 1h over login_events)
+    // as an idempotent, non-PII moderation_queue anomaly_detection row. Zero schema change.
+    val loginAnomalyRepository = JdbcLoginAnomalyRepository(dataSource, dbDispatchers.db)
+    val loginAnomalyDetectionService = LoginAnomalyDetectionService(loginAnomalyRepository)
 
     // account-data-export: user-facing request/status API + the Cloud-Scheduler-invoked
     // worker (/internal/data-export-worker). R2 (object storage) + Resend (email) are
@@ -1209,6 +1218,7 @@ fun Application.module() {
                 single { dataExportService }
                 single { dataExportWorker }
                 single { retentionCleanupWorker }
+                single { loginAnomalyDetectionService }
                 single { appealRepository }
                 single { appealService }
             },
@@ -1305,6 +1315,7 @@ fun Application.module() {
             csamArchivePurgeRoute(csamDetectionService, oidcTokenVerifier)
             dataExportWorkerRoute(dataExportWorker, oidcTokenVerifier)
             retentionCleanupRoutes(retentionCleanupWorker, oidcTokenVerifier)
+            loginAnomalyCheckRoutes(loginAnomalyDetectionService, oidcTokenVerifier)
         }
     }
 
