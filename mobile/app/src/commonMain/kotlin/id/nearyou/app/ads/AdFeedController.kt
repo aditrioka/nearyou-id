@@ -87,6 +87,10 @@ class AdFeedController(
         }
     }
 
+    // ponytail: no caller today — this controller is a Koin app-singleton with no onCleared, so loaded ads
+    // are retained for the process lifetime (bounded: one per feed slot the user scrolled past). Acceptable
+    // while ads are gated OFF pre-launch; wire this to a real lifecycle owner (or a memory-pressure hook)
+    // when ads go live if the retained-ad count matters. Tracked with the ads follow-ups (#442–#444).
     fun dispose() {
         loadedAds.clear()
         adProvider.dispose()

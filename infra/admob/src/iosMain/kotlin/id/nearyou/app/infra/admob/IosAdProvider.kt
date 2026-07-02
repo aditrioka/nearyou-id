@@ -39,8 +39,10 @@ class IosAdProvider : AdProvider {
 
     private var consent: ConsentState = ConsentState.UNKNOWN
 
-    private var lastAdLoader: GADAdLoader? = null
-    private var lastDelegate: NativeAdDelegate? = null
+    // Retain EVERY loader + delegate (not just the last): the delegate is the only strong ref keeping an
+    // in-flight load alive, and the caller keeps all loaded ads live across slots. Cleared in dispose().
+    private val loaders = mutableListOf<GADAdLoader>()
+    private val delegates = mutableListOf<NativeAdDelegate>()
 
     override suspend fun initialize() {
         if (!initialized) {
@@ -90,7 +92,7 @@ class IosAdProvider : AdProvider {
                     onLoaded = { nativeAd -> if (cont.isActive) cont.resume(nativeAd.toContent()) },
                     onFailed = { if (cont.isActive) cont.resume(null) },
                 )
-            lastDelegate = delegate
+            delegates.add(delegate)
             val loader =
                 GADAdLoader(
                     adUnitID = adUnitId,
@@ -99,7 +101,7 @@ class IosAdProvider : AdProvider {
                     options = null,
                 )
             loader.delegate = delegate
-            lastAdLoader = loader
+            loaders.add(loader)
 
             val request = GADRequest()
             if (mode == AdRequestMode.NON_PERSONALIZED) {
@@ -114,8 +116,8 @@ class IosAdProvider : AdProvider {
     }
 
     override fun dispose() {
-        lastAdLoader = null
-        lastDelegate = null
+        loaders.clear()
+        delegates.clear()
     }
 
     private fun GADNativeAd.toContent(): NativeAdContent =

@@ -41,8 +41,11 @@ class AndroidAdProvider(
     @Volatile
     private var consent: ConsentState = ConsentState.UNKNOWN
 
-    @Volatile
-    private var lastAd: NativeAd? = null
+    // The caller (AdFeedController) caches one ad per feed slot and keeps ALL of them live, so the provider
+    // must NOT destroy a prior ad on the next load — that would invalidate a still-rendered slot. Retain
+    // every loaded ad and destroy them together in dispose(). Guarded: loads are serialized by the
+    // controller's mutex, but forNativeAd resumes on the main thread — synchronize the list mutation.
+    private val loadedAds = mutableListOf<NativeAd>()
 
     override suspend fun initialize() {
         if (initialized.compareAndSet(false, true)) {
@@ -96,8 +99,7 @@ class AndroidAdProvider(
             val adLoader =
                 AdLoader.Builder(context, adUnitId)
                     .forNativeAd { nativeAd ->
-                        lastAd?.destroy()
-                        lastAd = nativeAd
+                        synchronized(loadedAds) { loadedAds.add(nativeAd) }
                         if (cont.isActive) cont.resume(nativeAd.toContent())
                     }
                     .withAdListener(
@@ -120,8 +122,10 @@ class AndroidAdProvider(
         }
 
     override fun dispose() {
-        lastAd?.destroy()
-        lastAd = null
+        synchronized(loadedAds) {
+            loadedAds.forEach { it.destroy() }
+            loadedAds.clear()
+        }
     }
 
     private fun NativeAd.toContent(): NativeAdContent =
