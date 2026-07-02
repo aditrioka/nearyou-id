@@ -51,7 +51,7 @@ private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_
  * [appEntryProvider] over a `rememberNavBackStack` seeded with `RootRoute`): the router replaces
  * itself at launch via `backStack.replaceAll(HomeRoute/SignInRoute)`, and the visible destination
  * post-route is asserted (`mobile-auth-signin` § "RootRouterScreen routes based on token presence").
- * Uses `waitUntil` (not `waitForIdle`) because the splash `CircularProgressIndicator` is an infinite
+ * Uses `waitUntil` (not `waitForIdle`) because the splash `NearYouLoader` is an infinite
  * animation that never reaches global idle.
  *
  * Koin is started BEFORE `runComposeUiTest` (the composition's `koinInject` captures the scope
@@ -130,7 +130,7 @@ class RootRouterScreenTest {
         }
     }
 
-    // 6.8c — splash (brand logo + spinner) renders while the token read is in flight; no
+    // 6.8c — splash (the branded NearYouLoader) renders while the token read is in flight; no
     // routing decision is made before it completes.
     @Test
     fun inFlightCheck_rendersSplashNotEitherDestination() {
@@ -151,7 +151,7 @@ class RootRouterScreenTest {
             }
         installKoin(neverCompletes)
         runComposeUiTest {
-            // Freeze the clock so the infinite spinner animation does not advance.
+            // Freeze the clock so the infinite loader animation does not advance.
             mainClock.autoAdvance = false
             setContent { KoinContext { TestNavHost(RootRoute) } }
 
