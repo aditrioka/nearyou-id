@@ -220,12 +220,14 @@ import id.nearyou.app.user.JdbcActorUsernameLookup
 import id.nearyou.app.user.JdbcUserFcmTokenReader
 import id.nearyou.app.user.JdbcUserProfileReader
 import id.nearyou.app.user.JdbcUsernameHistoryRepository
+import id.nearyou.app.user.PrivateProfileRepository
 import id.nearyou.app.user.UserProfileService
 import id.nearyou.app.user.UsernameChangeService
 import id.nearyou.app.user.UsernameRateLimiter
 import id.nearyou.app.user.consentRoutes
 import id.nearyou.app.user.fcmTokenRoutes
 import id.nearyou.app.user.hideDistanceRoutes
+import id.nearyou.app.user.privateProfileRoutes
 import id.nearyou.app.user.userProfileRoutes
 import id.nearyou.app.user.userUsernameRoutes
 import id.nearyou.data.repository.ActorUsernameLookup
@@ -1088,6 +1090,7 @@ fun Application.module() {
     val fcmTokenRepository = FcmTokenRepository(dataSource, dbDispatchers.db)
     val consentRepository = ConsentRepository(dataSource, dbDispatchers.db)
     val hideDistanceRepository = HideDistanceRepository(dataSource, dbDispatchers.db)
+    val privateProfileRepository = PrivateProfileRepository(dataSource, dbDispatchers.db)
     val referralRepository = ReferralRepository(dataSource)
     val referralService =
         ReferralService(
@@ -1277,6 +1280,7 @@ fun Application.module() {
     accountRoutes(accountDeletionService)
     accountDataExportRoutes(dataExportService)
     hideDistanceRoutes(hideDistanceRepository)
+    privateProfileRoutes(privateProfileRepository)
     appealRoutes(appealService, contentLengthGuard)
 
     // /internal/* — Cloud-Scheduler-invoked job endpoints. The OIDC gate is
