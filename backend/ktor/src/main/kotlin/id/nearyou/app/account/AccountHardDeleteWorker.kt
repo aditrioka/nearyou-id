@@ -246,7 +246,7 @@ class AccountHardDeleteWorker(
         const val SQL_DEL_FCM = "DELETE FROM user_fcm_tokens WHERE user_id = ?"
         const val SQL_DEL_NOTIFS = "DELETE FROM notifications WHERE user_id = ?"
 
-        // login-history (V34) — explicit (the tombstoned, un-row-deleted user never fires the
+        // login-history (V35) — explicit (the tombstoned, un-row-deleted user never fires the
         // login_events FK ON DELETE CASCADE). Erases the departing user's IP / device / identity.
         const val SQL_DEL_LOGIN_EVENTS = "DELETE FROM login_events WHERE user_id = ?"
         const val SQL_INSERT_LOG = "INSERT INTO deletion_log (user_id, source) VALUES (?, ?)"

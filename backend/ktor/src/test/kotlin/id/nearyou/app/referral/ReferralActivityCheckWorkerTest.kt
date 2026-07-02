@@ -135,7 +135,7 @@ class ReferralActivityCheckWorkerTest : StringSpec({
         }
     }
 
-    /** Insert one `login_events` row (V34) per instant for [userId]. */
+    /** Insert one `login_events` row (V35) per instant for [userId]. */
     fun seedLoginEvents(
         userId: UUID,
         instants: List<Instant>,
