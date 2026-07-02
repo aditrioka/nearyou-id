@@ -77,13 +77,16 @@ sealed interface EditHistoryOutcome {
 /**
  * The post-freshness fetch maps to [Loaded] (`200` with the current content + nullable `editedAt`) or
  * [Unavailable] (any non-200 + transport/IO). [Unavailable] is the graceful-degradation signal: post-detail
- * keeps its nav-payload content and hides the "Diedit" label.
+ * keeps its nav-payload content and hides the "Diedit" label. [Loaded.authorUserId]
+ * (mobile-block-from-content D1) is the post author's UUID — never rendered/logged, block-target-only;
+ * null on an older-backend body, which simply hides the post-header block affordance.
  */
 sealed interface PostRefreshOutcome {
     data class Loaded(
         val content: String,
         val editedAt: String?,
         val isAuthor: Boolean,
+        val authorUserId: String? = null,
     ) : PostRefreshOutcome
 
     data object Unavailable : PostRefreshOutcome

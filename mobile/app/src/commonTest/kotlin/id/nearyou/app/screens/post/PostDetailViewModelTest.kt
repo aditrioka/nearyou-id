@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.post
 
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
@@ -54,7 +55,7 @@ class PostDetailViewModelTest {
     @Test
     fun init_loadsRepliesOnce_andExposesOutcome() {
         val fake = FakePostDetailFlow(repliesOutcome = loaded(null, "r1"))
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
         assertEquals(1, fake.loadRepliesCount, "the first replies page loads exactly once on construction")
         assertEquals(listOf("r1"), viewModel.replyIds())
         assertFalse(viewModel.repliesInFlight.value, "repliesInFlight clears after the first load")
@@ -68,7 +69,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(loaded("c2", "r2")),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
 
         viewModel.onLoadMore()
 
@@ -79,7 +80,7 @@ class PostDetailViewModelTest {
     @Test
     fun onLoadMore_whenEndReached_isNoOp() {
         val fake = FakePostDetailFlow(repliesOutcome = loaded(null, "r1"))
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
 
         viewModel.onLoadMore()
 
@@ -93,7 +94,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(RepliesOutcome.NetworkError),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
 
         viewModel.onLoadMore()
 
@@ -104,7 +105,7 @@ class PostDetailViewModelTest {
     @Test
     fun onReplyPosted_prepends_bumpsCount_withoutRefetch() {
         val fake = FakePostDetailFlow(repliesOutcome = loaded("c1", "r1"))
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 2, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
 
         viewModel.onReplyPosted(fakeReply(id = "rNew"))
 
@@ -120,7 +121,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(loaded("c2", "r2")),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
         viewModel.onLoadMore()
 
         viewModel.onReplyPosted(fakeReply(id = "rNew"))
@@ -139,7 +140,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = RepliesOutcome.NetworkError,
                 secondRepliesOutcome = loaded(null, "rNew"),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
 
         viewModel.onReplyPosted(fakeReply(id = "rNew"))
 
@@ -154,7 +155,7 @@ class PostDetailViewModelTest {
                 repliesOutcome = loaded("c1", "r1"),
                 loadMoreRepliesPages = listOf(RepliesOutcome.NetworkError),
             )
-        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter())
+        val viewModel = PostDetailViewModel(fake, postId = "p1", initialReplyCount = 0, reportSubmitter = FakeReportSubmitter(), blockSubmitter = FakeBlockSubmitter())
         viewModel.onLoadMore()
         assertTrue(viewModel.loadMoreError.value)
 
@@ -171,6 +172,7 @@ class PostDetailViewModelTest {
             postId = "p1",
             initialReplyCount = 2,
             reportSubmitter = reportSubmitter,
+            blockSubmitter = FakeBlockSubmitter(),
         )
 
     @Test

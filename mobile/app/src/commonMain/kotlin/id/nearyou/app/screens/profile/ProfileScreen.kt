@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -48,11 +47,10 @@ import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.UserProfile
+import id.nearyou.app.ui.components.BlockConfirmDialog
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.cta_block
-import id.nearyou.resources.generated.resources.cta_cancel
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_action_settings
@@ -63,8 +61,6 @@ import id.nearyou.resources.generated.resources.profile_action_failed
 import id.nearyou.resources.generated.resources.profile_action_user_unavailable
 import id.nearyou.resources.generated.resources.profile_actions_menu_description
 import id.nearyou.resources.generated.resources.profile_block_action
-import id.nearyou.resources.generated.resources.profile_block_confirm_body
-import id.nearyou.resources.generated.resources.profile_block_confirm_title
 import id.nearyou.resources.generated.resources.profile_block_rate_limited
 import id.nearyou.resources.generated.resources.profile_block_success_toast
 import id.nearyou.resources.generated.resources.profile_follow
@@ -351,6 +347,8 @@ private fun ProfileContent(
     }
 
     if (showBlockDialog) {
+        // The shared ui/components dialog (mobile-block-from-content D3) — extracted from the private
+        // composable that used to live in this file; same canonical copy + tag, zero behavior change.
         BlockConfirmDialog(
             username = profile.username,
             onConfirm = {
@@ -358,6 +356,7 @@ private fun ProfileContent(
                 onBlockConfirmed()
             },
             onDismiss = { showBlockDialog = false },
+            testTag = PROFILE_BLOCK_DIALOG_TAG,
         )
     }
     if (showReportDialog) {
@@ -432,28 +431,6 @@ private fun ProfileActionsMenu(
             )
         }
     }
-}
-
-@Composable
-private fun BlockConfirmDialog(
-    username: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        modifier = Modifier.testTag(PROFILE_BLOCK_DIALOG_TAG),
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(Res.string.profile_block_confirm_title, username)) },
-        text = { Text(stringResource(Res.string.profile_block_confirm_body)) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(stringResource(Res.string.cta_block), color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.cta_cancel)) }
-        },
-    )
 }
 
 @Composable

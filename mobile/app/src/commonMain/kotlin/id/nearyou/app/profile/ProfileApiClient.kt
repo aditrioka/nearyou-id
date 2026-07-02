@@ -70,9 +70,10 @@ sealed interface ActionApiResult {
 
 /**
  * Thin wrapper over the shared [HttpClient] for the profile surface's reads + actions
- * (`GET /api/v1/users/{id}`, `POST`/`DELETE /api/v1/follows/{id}`, `POST /api/v1/blocks/{id}`). Reporting
- * moved to the shared `data/report/` seam (`ReportApiClient` — mobile-content-report), so this client no
- * longer carries `POST /api/v1/reports`. The Bearer `Authorization` header is attached by the shipped
+ * (`GET /api/v1/users/{id}`, `POST`/`DELETE /api/v1/follows/{id}`). Reporting moved to the shared
+ * `data/report/` seam (`ReportApiClient` — mobile-content-report) and block-create to the shared
+ * `data/block/BlockSubmitter` seam (mobile-block-from-content D2), so this client carries neither
+ * `POST /api/v1/reports` nor `POST /api/v1/blocks/{id}`. The Bearer `Authorization` header is attached by the shipped
  * `Auth` plugin and a terminal 401 is handled there (→ `SessionInvalidator` → `SignInScreen`) — this
  * client MUST NOT reimplement token attachment or 401 refresh. NO `X-Session-Id` header (none of these
  * endpoints are per-session soft-capped). This client MUST NOT `println`/log bodies, the `userId`, or any
@@ -107,8 +108,6 @@ class ProfileApiClient(
     suspend fun follow(userId: String): ActionApiResult = action { client.post("/api/v1/follows/$userId") }
 
     suspend fun unfollow(userId: String): ActionApiResult = action { client.delete("/api/v1/follows/$userId") }
-
-    suspend fun block(userId: String): ActionApiResult = action { client.post("/api/v1/blocks/$userId") }
 
     private suspend fun action(execute: suspend () -> HttpResponse): ActionApiResult {
         val response: HttpResponse =

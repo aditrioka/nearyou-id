@@ -30,7 +30,10 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.network.HttpClientFactory
@@ -53,6 +56,7 @@ import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.post.fakeReply
 import id.nearyou.app.screens.routing.PostDetailRoute
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
@@ -77,6 +81,9 @@ import kotlin.time.Clock
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val CONTENT = "halo"
 private const val CITY = "Jakarta Selatan"
+
+/** The session user for the reply self-block gate — matches NO fixture reply author by default. */
+private const val SELF_USER_ID = "99999999-9999-9999-9999-999999999999"
 private const val CREATED_AT = "2026-06-06T10:00:00Z"
 private const val POSTED_FROM = "Diposting dari Jakarta Selatan, 2026-06-06" // post_detail_posted_from
 private const val POSTED_FROM_NO_CITY = "Diposting 2026-06-06" // post_detail_posted_from_no_city
@@ -127,6 +134,10 @@ class PostDetailScreenTest {
         flow: PostDetailFlow,
         editFlow: PostEditFlow = FakePostEditFlow(),
         reportSubmitter: ReportSubmitter = FakeReportSubmitter(),
+        blockSubmitter: BlockSubmitter = FakeBlockSubmitter(),
+        // The session user for the reply self-block gate; SELF_USER_ID owns none of the fixture replies,
+        // so the block item defaults to visible on another user's reply.
+        selfUserIdProvider: SelfUserIdProvider = FakeSelfUserIdProvider(SELF_USER_ID),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         startKoin {
@@ -135,6 +146,8 @@ class PostDetailScreenTest {
                     single { flow }
                     single { editFlow }
                     single { reportSubmitter }
+                    single { blockSubmitter }
+                    single { selfUserIdProvider }
                 },
             )
         }
@@ -845,6 +858,8 @@ class PostDetailScreenTest {
                     single<PostDetailFlow> { detailRepo }
                     single<PostEditFlow> { editRepo }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider(SELF_USER_ID) }
                 },
             )
         }

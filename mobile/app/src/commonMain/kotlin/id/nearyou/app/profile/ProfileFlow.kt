@@ -1,5 +1,6 @@
 package id.nearyou.app.profile
 
+import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
 
@@ -60,18 +61,6 @@ sealed interface FollowToggleOutcome {
 }
 
 /**
- * A block maps to EXACTLY one member. `204` → [Blocked]; `429` → [RateLimited]; `5xx`/transport/any
- * other (incl. an unreachable-from-UI `404`) → [NetworkError].
- */
-sealed interface BlockOutcome {
-    data object Blocked : BlockOutcome
-
-    data class RateLimited(val retryAfterSeconds: Long) : BlockOutcome
-
-    data object NetworkError : BlockOutcome
-}
-
-/**
  * The profile orchestration contract consumed by `ProfileViewModel`. The production binding is
  * [ProfileRepository] (a stateless Koin singleton); commonTest substitutes a `FakeProfileFlow` so the
  * screen + VM tests drive specific outcomes without a backend — mirroring `PostDetailFlow`. Every method
@@ -87,6 +76,8 @@ interface ProfileFlow {
 
     suspend fun unfollow(userId: String): FollowToggleOutcome
 
+    /** Delegates to the shared `data/block/BlockSubmitter` seam (mobile-block-from-content D2);
+     *  [BlockOutcome] is the shared `data/block/` type, consumed by profile AND post-detail. */
     suspend fun block(userId: String): BlockOutcome
 
     suspend fun report(

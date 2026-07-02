@@ -59,13 +59,39 @@ class PostDetailSourceGuardTest {
         assertTrue(screen.contains("onBack"), "the screen takes navigation via the hoisted onBack lambda")
     }
 
-    // mobile-content-report ships the post/reply report affordance, so "Laporkan" + the report overflow
-    // (DropdownMenu) are now expected in the screen; only the BLOCK affordance stays deferred
-    // (mobile-post-detail "Block kebab action is deferred"). This guard now asserts the block half only.
+    // mobile-block-from-content UN-defers the post/reply block: the screen now hosts the shared
+    // BlockConfirmDialog + the VM-wired block menu items. The deferral guard MOVES to the timeline card:
+    // PostCard stays block-free (footprint-disjoint from in-flight #354 — the spec's
+    // "Timeline-card block entry point is deferred" negative guard).
     @Test
-    fun postDetailScreen_hasNoBlockAffordance() {
-        assertFalse(screen.contains("Blokir"), "PostDetailScreen must have no block affordance (Blokir) — block stays deferred")
-        assertFalse(screen.contains("BlockConfirm"), "no block-confirmation dialog (block stays deferred)")
+    fun postDetailScreen_hasBlockAffordance_andPostCardStaysBlockFree() {
+        assertTrue(screen.contains("BlockConfirmDialog"), "PostDetailScreen hosts the shared block dialog (mobile-block-from-content)")
+        assertTrue(screen.contains("onBlockPostClicked"), "the post-header block wires through the VM")
+        assertTrue(screen.contains("onBlockReplyClicked"), "the reply-row block wires through the VM")
+        val postCard = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/ui/components/PostCard.kt")
+        assertFalse(postCard.contains("BlockConfirmDialog"), "PostCard must carry no block dialog (timeline-card block deferred)")
+        assertFalse(postCard.contains("BlockSubmitter"), "PostCard must issue no block call (timeline-card block deferred)")
+        assertFalse(postCard.contains("profile_block_action"), "PostCard must carry no block menu item (timeline-card block deferred)")
+    }
+
+    // mobile-block-from-content spec § "A single shared block-create seam": exactly ONE source file may
+    // issue POST /api/v1/blocks/{userId} — the data/block/BlockSubmitter. A second call site is the
+    // patchwork failure mode the shared seam exists to prevent.
+    @Test
+    fun exactlyOneBlockCreateCallSite() {
+        val commonMain = File(repoRoot, "mobile/app/src/commonMain")
+        val hits =
+            commonMain
+                .walkTopDown()
+                .filter { it.isFile && it.extension == "kt" }
+                .filter { it.readText().stripComments().contains("post(\"/api/v1/blocks/") }
+                .map { it.name }
+                .sorted()
+                .toList()
+        assertTrue(
+            hits == listOf("BlockSubmitter.kt"),
+            "exactly ONE block-create call site (data/block/BlockSubmitter.kt) may POST /api/v1/blocks/{userId}; found: $hits",
+        )
     }
 
     @Test

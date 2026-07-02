@@ -36,13 +36,20 @@ data class ReplyCreateRequest(val content: String)
  *    live one — no "under review" badge or dimming (spec § "Viewer's own auto-hidden reply…").
  *  - [deletedAt] is effectively dead on this list path (the backend excludes `deleted_at IS NOT NULL`
  *    rows); the DTO mirrors the wire faithfully but the field gets no v1 rendering.
- * [authorId] is a UUID (PII) and is NEVER rendered (consistent with the author-free post cards).
+ * [authorId] is a UUID (PII) and is NEVER rendered; as of `mobile-block-from-content` it feeds the
+ * client-side self-block gate (`SelfUserIdProvider` comparison) and the reply block target — nothing else.
+ * [authorUsername] + [authorDisplayName] (mobile-block-from-content D7) are the author's public display
+ * identity, driving the reply-card identity row (mockup frame 7) + the "Blokir @{username}" copy —
+ * nullable-with-default so a body from an older backend still decodes (a null identity omits the row
+ * and the block item gracefully).
  */
 @Serializable
 data class ReplyDto(
     val id: String,
     @SerialName("post_id") val postId: String,
     @SerialName("author_id") val authorId: String,
+    @SerialName("author_username") val authorUsername: String? = null,
+    @SerialName("author_display_name") val authorDisplayName: String? = null,
     val content: String,
     @SerialName("is_auto_hidden") val isAutoHidden: Boolean,
     @SerialName("created_at") val createdAt: String,

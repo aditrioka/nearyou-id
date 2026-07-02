@@ -1,5 +1,6 @@
 package id.nearyou.app.profile
 
+import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
 

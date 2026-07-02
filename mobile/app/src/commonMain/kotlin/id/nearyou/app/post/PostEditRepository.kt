@@ -36,7 +36,12 @@ class PostEditRepository(
     override suspend fun refreshPost(postId: String): PostRefreshOutcome =
         when (val result = singlePostApiClient.fetchPost(postId)) {
             is SinglePostApiResult.Success ->
-                PostRefreshOutcome.Loaded(result.post.content, result.post.editedAt, result.post.isAuthor)
+                PostRefreshOutcome.Loaded(
+                    result.post.content,
+                    result.post.editedAt,
+                    result.post.isAuthor,
+                    result.post.authorUserId,
+                )
             // Graceful degradation: a non-200 OR transport failure both leave post-detail on its nav payload.
             SinglePostApiResult.Unavailable -> PostRefreshOutcome.Unavailable
         }
