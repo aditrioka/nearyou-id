@@ -53,7 +53,7 @@
 
 - [x] 8.1 File a `follow-up` issue (and/or amend in-PR) reconciling docs/07 § Referral Manual Grant Path: replace the stale `granted_entitlements` (`source/grant_role = 'manual_admin'`) prose with the as-built mechanism (RC promotional grant + GRANT webhook echo + `admin_actions_log` audit row; `granted_entitlements` deliberately untouched). (Filed: #441.)
 - [x] 8.2 verify-loop manual bring-up of `/admin/referral-grants` (admin bootstrap + TOTP) — lookup → grant (RC-unconfigured fail-soft path) → confirm the audit row appears in the viewer; capture screenshot evidence for the PR body (docs/11 §5 DoD, UI-affecting). (Booted the Ktor app locally (KTOR_ENV=test, :8090), bootstrapped an owner admin + TOTP, looked up `warga_baru12`, granted → "Grant recorded; dispatch skipped — RevenueCat not configured" (fail-soft), confirmed the `referral_manual_grant` audit row (`dispatch=not_configured`, reason `SUP-2026-0142`) rendered in the past-grants viewer. Screenshot in the PR body.)
-- [ ] 8.3 Pre-archive staging branch deploy + admin-panel smoke of the surface (per the pre-archive smoke convention).
+- [x] 8.3 Pre-archive staging branch deploy + admin-panel smoke of the surface (per the pre-archive smoke convention). (deploy-staging run 28558533479 on the change branch → success; smoke: unauth `GET /admin/referral-grants` → 302 `/admin/login`, unauth `POST` → 302, `/admin/login` 200, `/health/live` 200 — route mounted + auth-gated on the real Cloud Run deploy.)
 
 ## 9. Gate
 
