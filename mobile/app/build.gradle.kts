@@ -371,7 +371,7 @@ tasks.named("check") {
 // NearbyTimelineScreenTest / NearbyLocationGateScreenTest / NearYouThemeTest / PostCreationScreenTest /
 // HomeScreenFabTest / GlobalTimelineScreenTest / FollowingTimelineScreenTest / HomeTabHostScreenTest /
 // NotificationsScreenTest / NotificationsScreenNavTest / AppShellScreenTest / PostDetailScreenTest / PostCardTest / ListStatesTest / ProfileScreenTest /
-// ReportDialogTest / ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest) need the debug-only
+// ReportDialogTest / ConversationListScreenTest / ChatThreadScreenTest / SearchScreenTest / NearYouLoaderTest) need the debug-only
 // `androidx.compose.ui:ui-test-manifest` ComponentActivity, which is NOT merged into release variants —
 // so `./gradlew test` (all variants) fails `testDevReleaseUnitTest` etc. with a host-activity
 // RuntimeException. Skip those classes in release unit-test tasks; they are build-type-agnostic (they
@@ -414,6 +414,7 @@ tasks.withType<Test>().configureEach {
             "**/PaywallScreenTest*",
             "**/UsernameCustomizationScreenTest*",
             "**/ReferralScreenTest*",
+            "**/NearYouLoaderTest*",
         )
     }
 }
