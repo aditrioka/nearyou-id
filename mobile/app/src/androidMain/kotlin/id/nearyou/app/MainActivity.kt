@@ -1,5 +1,6 @@
 package id.nearyou.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,11 +13,17 @@ import id.nearyou.app.di.initKoin
 import id.nearyou.app.image.ImagePickerRequestBridge
 import id.nearyou.app.location.LocationPermissionRequestBridge
 import id.nearyou.app.notifications.NotificationPermissionRequestBridge
+import id.nearyou.app.push.IncomingPushHandler
+import id.nearyou.app.push.PushTapNavSignal
+import id.nearyou.app.push.PushTapRouting
 import org.koin.android.ext.koin.androidContext
 import org.koin.mp.KoinPlatformTools
 
 class MainActivity : ComponentActivity() {
     private val activityHolder: CurrentActivityHolder
+        get() = KoinPlatformTools.defaultContext().get().get()
+
+    private val pushTapNavSignal: PushTapNavSignal
         get() = KoinPlatformTools.defaultContext().get().get()
 
     private val locationPermissionBridge: LocationPermissionRequestBridge
@@ -74,6 +81,40 @@ class MainActivity : ComponentActivity() {
         setContent {
             App()
         }
+
+        // mobile-push-message-handling (task 5.3): a cold start from a notification tap carries the
+        // routing extras on the launch intent — offer them to the consumed-once nav signal.
+        offerPushTapRouting(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // A notification tap while the Activity is alive (SINGLE_TOP|CLEAR_TOP) lands here.
+        offerPushTapRouting(intent)
+    }
+
+    /**
+     * Reads the push-tap routing extras (set by [IncomingPushHandler]) into the [PushTapNavSignal],
+     * then strips them from the intent so an Activity recreation (configuration change / process
+     * restore re-delivering the same intent) does not re-offer — the consume-once half lives in
+     * `PushTapNavigationEffect`. The extras are opaque ids — never rendered or logged here.
+     */
+    private fun offerPushTapRouting(intent: Intent?) {
+        val type = intent?.getStringExtra(IncomingPushHandler.EXTRA_TYPE) ?: return
+        pushTapNavSignal.offer(
+            PushTapRouting.fromWire(
+                type = type,
+                targetType = intent.getStringExtra(IncomingPushHandler.EXTRA_TARGET_TYPE),
+                targetId = intent.getStringExtra(IncomingPushHandler.EXTRA_TARGET_ID),
+                actorUserId = intent.getStringExtra(IncomingPushHandler.EXTRA_ACTOR_USER_ID),
+                bodyDataJson = intent.getStringExtra(IncomingPushHandler.EXTRA_BODY_DATA),
+            ),
+        )
+        intent.removeExtra(IncomingPushHandler.EXTRA_TYPE)
+        intent.removeExtra(IncomingPushHandler.EXTRA_TARGET_TYPE)
+        intent.removeExtra(IncomingPushHandler.EXTRA_TARGET_ID)
+        intent.removeExtra(IncomingPushHandler.EXTRA_ACTOR_USER_ID)
+        intent.removeExtra(IncomingPushHandler.EXTRA_BODY_DATA)
     }
 
     override fun onResume() {

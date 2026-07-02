@@ -90,6 +90,7 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileRepository
 import id.nearyou.app.push.FcmTokenApiClient
 import id.nearyou.app.push.FcmTokenRegistrar
+import id.nearyou.app.push.PushTapNavSignal
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.ProactiveTokenRefreshTrigger
@@ -295,6 +296,11 @@ val mobileModule =
             )
         }
         single<NotificationsFlow> { get<NotificationsRepository>() }
+
+        // mobile-push-message-handling — the consumed-once push-tap nav signal (docs/11 §2.2): the
+        // platform tap handlers (MainActivity intent extras / the iOS notification delegate) offer the
+        // raw routing fields; PushTapNavigationEffect resolves + navigates + consumes at the app root.
+        single { PushTapNavSignal() }
 
         // mobile-post-creation-screen — the create-post graph. Reuses the shared HttpClient, the
         // unqualified LocationProvider (the CachingLocationProvider decorator above, shared with

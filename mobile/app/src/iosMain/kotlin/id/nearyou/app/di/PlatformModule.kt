@@ -15,6 +15,9 @@ import id.nearyou.app.notifications.IosNotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.IosFcmTokenProvider
+import id.nearyou.app.push.IosNotificationContentPreferenceStore
+import id.nearyou.app.push.NotificationContentPreference
+import id.nearyou.app.push.PersistedNotificationContentPreference
 import id.nearyou.app.timeline.LocationProvider
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
@@ -38,6 +41,11 @@ actual val platformModule: Module =
         // mobile-fcm-token-registration — the iOS FCM token provider (Firebase Messaging Pod). The
         // vendor SDK import is confined to this actual (FcmPushSourceGuardTest enforces the boundary).
         single<FcmTokenProvider> { IosFcmTokenProvider() }
+        // mobile-push-message-handling — the content-privacy preference (default OFF); persisted into the
+        // group.id.nearyou.shared App-Group suite so the out-of-process NSE can read it (design D4).
+        single<NotificationContentPreference> {
+            PersistedNotificationContentPreference(IosNotificationContentPreferenceStore())
+        }
         // image-attached-posts (Phase 4) — the iOS PHPickerViewController actual (presented from the
         // key-window top view controller). The picker needs NO Photo Library permission; the actual
         // downscales + re-encodes the picked image to ≤5 MB JPEG (IosImageCompressor).

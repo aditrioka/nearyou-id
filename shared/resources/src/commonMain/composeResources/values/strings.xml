@@ -206,6 +206,23 @@
          single-post-read endpoint collapses all to one 404). No navigation occurs; the row is still read. -->
     <string name="notifications_post_unavailable">Postingan tidak tersedia</string>
 
+    <!-- mobile-push-message-handling: the incoming-push display copy (docs/03 §163–176 type-keyed forms,
+         actor-parameterized — the push wire carries the dispatcher-masked `actor_username`, unlike the
+         in-app list's #194 deferral above). `push_chat_message_private` is the default content-private
+         chat body; `push_chat_batched` the per-conversation merge; `push_chat_embedded_fallback` the
+         preview-ON null-preview (embedded-only message) body. A blank actor_username degrades to the
+         username-free `notif_*` forms above (no orphaned "dari " / leading space). Unknown/future types
+         fall back to `notif_generic`. -->
+    <string name="push_title">NearYou</string>
+    <string name="push_channel_name">Notifikasi</string>
+    <string name="push_post_liked" formatted="true">%1$s menyukai postingan kamu</string>
+    <string name="push_post_replied" formatted="true">%1$s membalas postingan kamu</string>
+    <string name="push_followed" formatted="true">%1$s mulai mengikuti kamu</string>
+    <string name="push_chat_message_private" formatted="true">Pesan baru dari %1$s</string>
+    <string name="push_chat_batched" formatted="true">%1$d pesan baru dari %2$s</string>
+    <string name="push_chat_batched_no_actor" formatted="true">%1$d pesan baru</string>
+    <string name="push_chat_embedded_fallback" formatted="true">%1$s mengirim sebuah postingan</string>
+
     <!-- mobile-post-detail-screen. `post_detail_posted_from` mirrors docs/03-UX-Design.md:14
          ("Diposting dari {city}, {relative_time}"); the like/reply cap-upsell copy parallels the
          docs/03-UX-Design.md:205 Free-cap upsell register (docs have no canonical reply-cap string —

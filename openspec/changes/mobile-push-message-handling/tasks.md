@@ -14,25 +14,25 @@
 
 ## 3. Content-privacy preference store (commonMain seam + actuals)
 
-- [ ] 3.1 Add commonMain `interface NotificationContentPreference` (Compose-free): `suspend fun previewEnabled(): Boolean` (default `false`), `suspend fun setPreviewEnabled(v: Boolean)`.
-- [ ] 3.2 Android actual: DataStore-backed implementation; default OFF when unset.
-- [ ] 3.3 iOS actual: persist into `UserDefaults(suiteName="group.id.nearyou.shared")` so the out-of-process NSE can read it; default OFF when unset.
-- [ ] 3.4 Koin-bind the platform actuals in the respective `PlatformModule`s.
-- [ ] 3.5 commonTest: default-OFF-when-unset + write-round-trips-to-read.
+- [x] 3.1 Add commonMain `interface NotificationContentPreference` (Compose-free): `suspend fun previewEnabled(): Boolean` (default `false`), `suspend fun setPreviewEnabled(v: Boolean)`.
+- [x] 3.2 Android actual: DataStore-backed implementation; default OFF when unset.
+- [x] 3.3 iOS actual: persist into `UserDefaults(suiteName="group.id.nearyou.shared")` so the out-of-process NSE can read it; default OFF when unset.
+- [x] 3.4 Koin-bind the platform actuals in the respective `PlatformModule`s.
+- [x] 3.5 commonTest: default-OFF-when-unset + write-round-trips-to-read.
 
 ## 4. Shared deep-link resolver + nav signal (commonMain)
 
-- [ ] 4.1 Ensure the pure `(type, target_type, target_id, actor_user_id, body_data) → destination` resolver from `mobile-notifications-list` is a shared commonMain function (lift it if currently private to the notifications screen); do NOT introduce a second resolver.
-- [ ] 4.2 Define / reuse a consumed-once nav-signal entry point (`docs/11` §2.2) the push tap feeds (no event bus).
-- [ ] 4.3 commonTest: resolver maps post → post-detail, `followed` → profile, `chat_message` → chat-thread by `body_data.conversation_id`, actor-less / reply-target → no destination (mirror the notifications-list resolver tests).
+- [x] 4.1 Ensure the pure `(type, target_type, target_id, actor_user_id, body_data) → destination` resolver from `mobile-notifications-list` is a shared commonMain function (lift it if currently private to the notifications screen); do NOT introduce a second resolver.
+- [x] 4.2 Define / reuse a consumed-once nav-signal entry point (`docs/11` §2.2) the push tap feeds (no event bus).
+- [x] 4.3 commonTest: resolver maps post → post-detail, `followed` → profile, `chat_message` → chat-thread by `body_data.conversation_id`, actor-less / reply-target → no destination (mirror the notifications-list resolver tests).
 
 ## 5. Android incoming-push display
 
-- [ ] 5.1 Extend `NearYouFirebaseMessagingService` with `onMessageReceived(RemoteMessage)`: parse `type`/`actor_user_id`/`actor_username`/`target_type`/`target_id`/`body_data`; keep all Firebase / `NotificationCompat` imports in `androidMain`.
-- [ ] 5.2 Create the app notification channel (idempotent) + a notification builder producing type-keyed Bahasa Indonesia copy from `:shared:resources` with `actor_username` substituted; chat default body = "Pesan baru dari {actor_username}"; preview-ON chat body = `body_data.preview` (null → "{actor_username} mengirim sebuah postingan" fallback).
-- [ ] 5.3 Attach a tap `PendingIntent` → `MainActivity` carrying `type`/`target_type`/`target_id`/`body_data` as extras; consume-once on launch/resume → emit the nav signal (task 4.2). Never log preview / ids / token.
-- [ ] 5.4 Declare `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>` in the Android manifest (no runtime prompt — task 1.2).
-- [ ] 5.5 Per-conversation batching: persist a per-`conversation_id` last-push timestamp + count (DataStore); within 10 s replace the `conversation_id`-tagged notification with "{n} pesan baru dari {actor_username}" + suppress fresh sound; outside the window post fresh; non-chat uses a per-`(type,target_id)` tag.
+- [x] 5.1 Extend `NearYouFirebaseMessagingService` with `onMessageReceived(RemoteMessage)`: parse `type`/`actor_user_id`/`actor_username`/`target_type`/`target_id`/`body_data`; keep all Firebase / `NotificationCompat` imports in `androidMain`.
+- [x] 5.2 Create the app notification channel (idempotent) + a notification builder producing type-keyed Bahasa Indonesia copy from `:shared:resources` with `actor_username` substituted; chat default body = "Pesan baru dari {actor_username}"; preview-ON chat body = `body_data.preview` (null → "{actor_username} mengirim sebuah postingan" fallback).
+- [x] 5.3 Attach a tap `PendingIntent` → `MainActivity` carrying `type`/`target_type`/`target_id`/`body_data` as extras; consume-once on launch/resume → emit the nav signal (task 4.2). Never log preview / ids / token.
+- [x] 5.4 Declare `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>` in the Android manifest (no runtime prompt — task 1.2).
+- [x] 5.5 Per-conversation batching: persist a per-`conversation_id` last-push timestamp + count (DataStore); within 10 s replace the `conversation_id`-tagged notification with "{n} pesan baru dari {actor_username}" + suppress fresh sound; outside the window post fresh; non-chat uses a per-`(type,target_id)` tag.
 - [ ] 5.6 Robolectric/unit `onMessageReceived` tests: default-private chat body ("Pesan baru dari {username}"); masked actor (`actor_username="Seseorang"`) rendered verbatim; **blank `actor_username` degrades to a username-free form (no orphaned leading/trailing space)**; **malformed `body_data` (empty-string / non-JSON / missing keys) renders the private form and never throws out of the handler**; preview-ON surfaces `body_data.preview`; null-preview fallback; post-interaction type-keyed copy with `actor_username`; tap PendingIntent → correct resolver destination; batching merge within window + fresh outside window (timestamp persisted across cold start); no-destination tap navigates nowhere.
 
 ## 6. iOS incoming-push display (delegate + NSE)
@@ -54,7 +54,7 @@
 
 ## 9. Strings + resources
 
-- [ ] 9.1 Add the type-keyed notification copy strings to `:shared:resources` (`docs/03` §163–176), incl. the private "Pesan baru dari {username}" form, the "{n} pesan baru dari {username}" batched form, and the "{username} mengirim sebuah postingan" null-preview fallback.
+- [x] 9.1 Add the type-keyed notification copy strings to `:shared:resources` (`docs/03` §163–176), incl. the private "Pesan baru dari {username}" form, the "{n} pesan baru dari {username}" batched form, and the "{username} mengirim sebuah postingan" null-preview fallback.
 
 ## 10. Verification + DoD
 

@@ -19,7 +19,10 @@ import id.nearyou.app.notifications.AndroidNotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionRequestBridge
 import id.nearyou.app.push.AndroidFcmTokenProvider
+import id.nearyou.app.push.AndroidNotificationContentPreferenceStore
 import id.nearyou.app.push.FcmTokenProvider
+import id.nearyou.app.push.NotificationContentPreference
+import id.nearyou.app.push.PersistedNotificationContentPreference
 import id.nearyou.app.timeline.LocationProvider
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
@@ -56,6 +59,10 @@ actual val platformModule: Module =
         // mobile-fcm-token-registration — the Android FCM token provider (Firebase Messaging SDK). The
         // vendor SDK import is confined to this actual (FcmPushSourceGuardTest enforces the boundary).
         single<FcmTokenProvider> { AndroidFcmTokenProvider() }
+        // mobile-push-message-handling — the content-privacy preference (default OFF); DataStore-backed.
+        single<NotificationContentPreference> {
+            PersistedNotificationContentPreference(AndroidNotificationContentPreferenceStore(androidContext()))
+        }
         // image-attached-posts (Phase 4) — the Android Photo Picker (PickVisualMedia) actual + its
         // Activity-result bridge (launcher set by MainActivity, mirroring the location/notification
         // permission bridges). The picker requires NO storage permission; the actual re-encodes the
