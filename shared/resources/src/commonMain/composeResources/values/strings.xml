@@ -520,6 +520,11 @@
     <string name="radius_value_km" formatted="true">%1$d km</string>
     <string name="radius_upsell_title">Radius khusus Premium</string>
     <string name="radius_upsell_body">Pengguna gratis tetap di 20 km. Aktifkan Premium untuk memilih radius 10, 50, atau 100 km.</string>
+
+    <!-- mobile-admob-ads-foundation — the sponsored-content label on the timeline native-ad card
+         (Indonesian "Sponsored"). No hardcoded UI string (invariant); imported per-key at the use site. -->
+    <string name="native_ad_label">Bersponsor</string>
+
     <!-- mobile-referral: the Settings "Undang teman" entry row + the referral surface (invite code,
          copy action, "X dari 5" progress, reward-unlocked state, explainer). Open to ALL tiers (design
          D3) — no paywall/upsell copy. The reward mechanics mirror docs/01-Business.md § Referral System

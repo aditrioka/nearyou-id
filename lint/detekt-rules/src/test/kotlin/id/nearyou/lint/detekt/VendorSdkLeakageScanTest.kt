@@ -119,4 +119,33 @@ class VendorSdkLeakageScanTest : StringSpec({
         }
         violations shouldBe emptyList()
     }
+
+    "no Google Mobile Ads + UMP SDK imports in :mobile:app — reach AdMob only via :infra:admob" {
+        // mobile-admob-ads-foundation (invariant #16): :mobile:app must NOT import the Google Mobile Ads /
+        // UMP SDKs directly — it depends on the vendor-free `AdProvider` interface + `NativeAdContent` +
+        // `NativeAdSurface` composable in :infra:admob, where the vendor imports are fenced +
+        // `implementation`-scoped. The PRECISE `com.google.android.gms.ads.` prefix (NOT a bare
+        // `com.google.android.gms.`) avoids over-matching the legitimate Play-services *client* deps
+        // (`play-services-location` / `credentials-play-services-auth`) the app uses directly. The iOS
+        // cinterop packages are guarded too so the iosMain actual can't leak either.
+        val violations =
+            scanImports(
+                roots = listOf(File(repoRoot, "mobile/app/src")),
+                prefixes =
+                    listOf(
+                        "com.google.android.gms.ads.",
+                        "com.google.android.ump.",
+                        "cocoapods.Google_Mobile_Ads_SDK.",
+                        "cocoapods.GoogleUserMessagingPlatform.",
+                    ),
+            )
+        if (violations.isNotEmpty()) {
+            error(
+                "Google Mobile Ads / UMP SDK imports detected in :mobile:app — the vendor SDKs are fenced" +
+                    " to :infra:admob (CLAUDE.md invariant #16). Depend on the `AdProvider` interface" +
+                    " (id.nearyou.app.infra.admob) instead.\n\n" + violations.joinToString("\n"),
+            )
+        }
+        violations shouldBe emptyList()
+    }
 })

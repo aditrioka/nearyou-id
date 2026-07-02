@@ -1,5 +1,7 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.ads.AdFeedController
+import id.nearyou.app.ads.nativeAdUnitId
 import id.nearyou.app.analytics.ConsentGatedAnalyticsTracker
 import id.nearyou.app.appeal.AppealApiClient
 import id.nearyou.app.appeal.AppealFlow
@@ -35,6 +37,9 @@ import id.nearyou.app.consent.ConsentRepository
 import id.nearyou.app.data.accountdeletion.AccountDeletionApiClient
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.AccountDeletionRepository
+import id.nearyou.app.data.ads.AdsConfigApiClient
+import id.nearyou.app.data.ads.AdsConfigFlow
+import id.nearyou.app.data.ads.AdsConfigRepository
 import id.nearyou.app.data.block.BlockedUsersApiClient
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
@@ -381,6 +386,22 @@ val mobileModule =
         single { AccountDeletionApiClient(get()) }
         single { AccountDeletionRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<AccountDeletionFlow> { get<AccountDeletionRepository>() }
+
+        // mobile-admob-ads-foundation — the ads-config read seam (GET /api/v1/config/ads; fail-safe to ads
+        // OFF) + the shared ad-eligibility/load controller. The controller's AdProvider + ConsentSnapshotStore
+        // are the platform bindings (platformModule); the vendor Ads SDKs are fenced in :infra:admob
+        // (invariant #16). Reuses the shared bearer-authed HttpClient; no new client.
+        single { AdsConfigApiClient(get()) }
+        single { AdsConfigRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single<AdsConfigFlow> { get<AdsConfigRepository>() }
+        single {
+            AdFeedController(
+                adsConfigFlow = get(),
+                adProvider = get(),
+                consentStore = get(),
+                adUnitId = nativeAdUnitId,
+            )
+        }
 
         // mobile-data-export-entry — the "Unduh Data Saya" request + status seam (ApiClient → Repository
         // bound behind DataExportFlow so a FakeDataExportFlow drives the screen tests). Reuses the shared
