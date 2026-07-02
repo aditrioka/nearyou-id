@@ -244,6 +244,25 @@ class AppleS2SRoutesTest : StringSpec({
         }
     }
 
+    // qodo review: a replayed malformed deletion event (no sub, no transaction_id) must
+    // 400 on EVERY receipt — the dedup key is only recorded on a 2xx outcome, so the
+    // 400 path never marks the key as seen.
+    "replayed missing-sub deletion event returns 400 both times (never 'duplicate')" {
+        setup(InMemoryUsers(emptyList())) {
+            val signed =
+                makeAppleSignedPayload(priv, pub, kid, "account-delete", null, null, bundleId)
+            val client = createClient { install(ClientCN) { json() } }
+            repeat(2) {
+                val response =
+                    client.post("/internal/apple/s2s-notifications") {
+                        contentType(ContentType.Application.Json)
+                        setBody(AppleS2SEnvelope(signedPayload = signed))
+                    }
+                response.status shouldBe HttpStatusCode.BadRequest
+            }
+        }
+    }
+
     "wrong audience → 401" {
         val sub = "apple-sub-5"
         val user = userRow(appleIdHash = sha256Hex(sub))

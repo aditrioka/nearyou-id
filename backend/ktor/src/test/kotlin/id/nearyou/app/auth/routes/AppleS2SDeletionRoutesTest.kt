@@ -16,6 +16,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -74,6 +75,19 @@ private fun signedPayload(
     if (sub != null) builder.withClaim("sub", sub)
     if (transactionId != null) builder.withClaim("transaction_id", transactionId)
     return builder.sign(Algorithm.RSA256(publicKey, privateKey))
+}
+
+/** Fails the FIRST getConnection, then delegates — models a transient DB blip for the retry test. */
+private class FlakyOnceDataSource(private val real: DataSource) : DataSource by real {
+    private var failed = false
+
+    override fun getConnection(): java.sql.Connection =
+        if (!failed) {
+            failed = true
+            error("transient DB blip")
+        } else {
+            real.connection
+        }
 }
 
 /** Throwing source for the pre-persist (5.4) + synchronous-execution-failure (5.3 / 5.14) paths. */
@@ -477,6 +491,60 @@ class AppleS2SDeletionRoutesTest : StringSpec({
             runBlocking { realWorker.executeImmediate(rowId) } shouldBe false // already executed
             runBlocking { realWorker.execute() } // daily backstop scan — must not re-process
             deletionLogCount(uid) shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    // Review B1 — a pre-persist failure must NOT consume the dedup key: Apple's retry of
+    // the SAME transaction_id is processed (not short-circuited to "duplicate") and completes.
+    "B1 pre-persist failure leaves the dedup key unconsumed — the retry completes the deletion" {
+        val sub = "del-sub-b1"
+        val uid = seedUser(sub)
+        val flakyRepo = AccountDeletionRepository(FlakyOnceDataSource(dataSource))
+        try {
+            runApp(deletionRepo = flakyRepo) {
+                // First receipt: transient DB blip pre-persist → non-2xx (Apple will retry).
+                val first = postEvent("account-delete", sub, "tx-b1")
+                (first.status.value in 500..599) shouldBe true
+                // Retry with the SAME transaction_id inside the same app instance (same dedup):
+                // must be processed, not deduped.
+                val second = postEvent("account-delete", sub, "tx-b1")
+                second.status shouldBe HttpStatusCode.OK
+                second.bodyAsText() shouldBe """{"status":"ok"}"""
+            }
+            deletionRequestCount(uid, "apple_s2s_account_delete") shouldBe 1
+            (userDeletedAt(uid) != null) shouldBe true
+            deletionLogCount(uid) shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    // Review B2 — a leftover grace row for an already-tombstoned user is MOOTED by the
+    // daily worker (stamped executed, no second deletion_log row, deleted_at untouched).
+    "B2 leftover grace row after account-delete is mooted — no second deletion_log, no re-tombstone" {
+        val sub = "del-sub-b2"
+        val uid = seedUser(sub)
+        try {
+            seedPendingRow(uid, "apple_s2s_consent_revoked", Instant.now().plus(30, ChronoUnit.DAYS))
+            runApp { postEvent("account-delete", sub, "tx-b2").status shouldBe HttpStatusCode.OK }
+            deletionLogCount(uid) shouldBe 1
+            val tombstonedAt = userDeletedAt(uid)!!
+            // Force the grace row due and run the daily worker.
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "UPDATE deletion_requests SET scheduled_hard_delete_at = NOW() - INTERVAL '1 minute' " +
+                        "WHERE user_id = ? AND source = 'apple_s2s_consent_revoked'",
+                ).use { ps ->
+                    ps.setObject(1, uid)
+                    ps.executeUpdate()
+                }
+            }
+            runBlocking { realWorker.execute() }
+            deletionLogCount(uid) shouldBe 1 // NOT re-logged
+            userDeletedAt(uid) shouldBe tombstonedAt // NOT re-tombstoned
+            pendingCount(uid) shouldBe 0 // the moot row was stamped executed
         } finally {
             cleanup(uid)
         }

@@ -2,7 +2,7 @@
 
 ### Requirement: Apple S2S `account-delete` schedules an immediate, non-cancellable deletion and runs it synchronously
 
-When the verified Apple S2S notification at `POST /internal/apple/s2s-notifications` has `type = "account-delete"` (the user deleted their Apple ID entirely), the handler SHALL resolve the Apple `sub` to a live user via `sha256Hex(sub)` → `apple_id_hash` → user lookup, INSERT a `deletion_requests` row with `source = 'apple_s2s_account_delete'` and `scheduled_hard_delete_at = NOW()` (no grace), commit that row, and THEN synchronously execute the tombstone + cascade for that row (via the hard-delete worker's per-request executor) before responding `200` to Apple. The synchronous execution MUST reuse the existing hard-delete per-row path (claim `FOR UPDATE SKIP LOCKED`, tombstone, write `deletion_log`, stamp `executed_at`), not a second deletion implementation. The row's `source = 'apple_s2s_account_delete'` MUST be non-cancellable (the existing cancel guard excludes this source). The immediate `apple_s2s_account_delete` insert MUST NOT be suppressed by a pending-row idempotency guard: Apple requires immediate deletion, so account-delete SHALL always insert its own immediate row and execute it even when the user already has a pending `'user'` or `'apple_s2s_consent_revoked'` deletion row (the account-delete escalates an existing grace to immediate; the now-moot pending row is harmlessly no-op'd by the idempotent worker after the tombstone).
+When the verified Apple S2S notification at `POST /internal/apple/s2s-notifications` has `type = "account-delete"` (the user deleted their Apple ID entirely), the handler SHALL resolve the Apple `sub` to a live user via `sha256Hex(sub)` → `apple_id_hash` → user lookup, INSERT a `deletion_requests` row with `source = 'apple_s2s_account_delete'` and `scheduled_hard_delete_at = NOW()` (no grace), commit that row, and THEN synchronously execute the tombstone + cascade for that row (via the hard-delete worker's per-request executor) before responding `200` to Apple. The synchronous execution MUST reuse the existing hard-delete per-row path (claim `FOR UPDATE SKIP LOCKED`, tombstone, write `deletion_log`, stamp `executed_at`), not a second deletion implementation. The row's `source = 'apple_s2s_account_delete'` MUST be non-cancellable (the existing cancel guard excludes this source). The immediate `apple_s2s_account_delete` insert MUST NOT be suppressed by a pending-row idempotency guard: Apple requires immediate deletion, so account-delete SHALL always insert its own immediate row and execute it even when the user already has a pending `'user'` or `'apple_s2s_consent_revoked'` deletion row (the account-delete escalates an existing grace to immediate). The now-moot pending row SHALL be mooted — not re-processed — when it later becomes due: the worker's per-user tombstone guard (`deleted_at IS NULL`) stamps it `executed_at` WITHOUT a second `deletion_log` entry, without re-running the cascade, and without touching the user's original `deleted_at`.
 
 #### Scenario: account-delete inserts an immediate deletion row and tombstones synchronously
 - **WHEN** a verified `account-delete` notification arrives for a `sub` resolving to a live user
@@ -11,7 +11,7 @@ When the verified Apple S2S notification at `POST /internal/apple/s2s-notificati
 #### Scenario: account-delete escalates an existing grace to immediate deletion
 - **GIVEN** a user with a pending un-cancelled `'user'` or `'apple_s2s_consent_revoked'` deletion row (30-day grace)
 - **WHEN** a verified `account-delete` notification arrives for that user
-- **THEN** an `apple_s2s_account_delete` row is inserted at `NOW()` and the user is tombstoned immediately (NOT left in the 30-day grace), honoring Apple's immediate-deletion requirement
+- **THEN** an `apple_s2s_account_delete` row is inserted at `NOW()` and the user is tombstoned immediately (NOT left in the 30-day grace), honoring Apple's immediate-deletion requirement — AND when the leftover grace row later becomes due, the worker moots it (stamps `executed_at`) with exactly one `deletion_log` row for the user and the original `deleted_at` unchanged
 
 #### Scenario: account-delete rows are not cancellable
 - **WHEN** a cancel is attempted against a `source = 'apple_s2s_account_delete'` row (e.g. via `DELETE /api/v1/account/deletion-request`)
@@ -19,7 +19,7 @@ When the verified Apple S2S notification at `POST /internal/apple/s2s-notificati
 
 ### Requirement: A synchronous account-delete failure is backstopped by the daily worker, and Apple still receives `200`
 
-Once the `apple_s2s_account_delete` row is durably committed, the deletion is guaranteed regardless of the synchronous execution outcome. If the synchronous tombstone+cascade throws or is skipped, the handler SHALL still respond `200` to Apple (so Apple does not retry-storm), leaving the row `executed_at IS NULL` and due at `NOW()` so the daily hard-delete worker completes it via `deletion_requests_immediate_idx`. A failure that occurs BEFORE the row is durably committed (e.g. the database is unavailable) SHALL return a non-2xx so Apple retries. No latitude/longitude, raw `sub`, or resolved `user_id` SHALL be written to any log on either path.
+Once the `apple_s2s_account_delete` row is durably committed, the deletion is guaranteed regardless of the synchronous execution outcome. If the synchronous tombstone+cascade throws or is skipped, the handler SHALL still respond `200` to Apple (so Apple does not retry-storm), leaving the row `executed_at IS NULL` and due at `NOW()` so the daily hard-delete worker completes it via `deletion_requests_immediate_idx`. A failure that occurs BEFORE the row is durably committed (e.g. the database is unavailable) SHALL return a non-2xx so Apple retries — and a non-2xx receipt SHALL NOT consume the dedup key (the key is recorded only after a 2xx outcome), so the retry of the same `transaction_id` is processed rather than short-circuited to `duplicate`. No latitude/longitude, raw `sub`, or resolved `user_id` SHALL be written to any log on either path.
 
 #### Scenario: Synchronous execution failure leaves a durable row for the backstop
 - **GIVEN** an `account-delete` whose row is committed but whose synchronous executor throws
@@ -29,6 +29,11 @@ Once the `apple_s2s_account_delete` row is durably committed, the deletion is gu
 #### Scenario: Pre-persist failure returns non-2xx
 - **WHEN** the row cannot be durably persisted (database unavailable) before any response
 - **THEN** the handler responds with a non-2xx status so Apple retries the notification
+
+#### Scenario: The retry of a failed receipt is processed, not deduplicated
+- **GIVEN** an `account-delete` whose first receipt failed pre-persist with a non-2xx
+- **WHEN** Apple retries the notification with the same `transaction_id`
+- **THEN** the retry is processed (row inserted, user tombstoned, `200`) — the failed receipt did not consume the dedup key
 
 ### Requirement: Apple S2S `consent-revoked` schedules a 30-day cancellable deletion and revokes live sessions
 
@@ -73,7 +78,7 @@ Neither deletion handler SHALL write the raw Apple `sub`, the resolved `user_id`
 
 ### Requirement: Existing Apple S2S behavior (verification, email-relay, dedup) is preserved
 
-This change SHALL NOT alter the existing Apple S2S pipeline: JWT signature verification against Apple JWKS (`kid` lookup, RSA256, leeway), the fail-closed `aud` allow-list, the base64url payload parse, the `transaction_id`-keyed dedup, or the `email-enabled`/`email-disabled` relay-email flag handling. A duplicate notification (already-seen dedup key) SHALL short-circuit to `200 {"status":"duplicate"}` before any deletion write. The deletion handlers SHALL only run after the same verification + dedup steps that gate the email events.
+This change SHALL NOT alter the existing Apple S2S pipeline: JWT signature verification against Apple JWKS (`kid` lookup, RSA256, leeway), the fail-closed `aud` allow-list, the base64url payload parse, the `transaction_id`-keyed dedup, or the `email-enabled`/`email-disabled` relay-email flag handling. A duplicate notification (already-seen dedup key) SHALL short-circuit to `200 {"status":"duplicate"}` before any deletion write. The deletion handlers SHALL only run after the same verification + dedup steps that gate the email events. One dedup refinement (review-driven): the key SHALL be recorded only after a 2xx outcome — previously check-and-record on receipt — so a non-2xx receipt (persist failure, missing `sub`) stays retryable; the duplicate short-circuit for successfully-processed notifications is unchanged.
 
 #### Scenario: Duplicate deletion notification is deduped before any DB write
 - **GIVEN** a `consent-revoked` or `account-delete` notification whose dedup key was already seen
