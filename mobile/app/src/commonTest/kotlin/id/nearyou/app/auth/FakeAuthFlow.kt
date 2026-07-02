@@ -28,6 +28,10 @@ class FakeAuthFlow(
     var signUpInvocationCount: Int = 0
         private set
 
+    /** The invite code passed to the most recent `signUpWithGoogle` (mobile-referral); null when omitted. */
+    var lastInviteCode: String? = null
+        private set
+
     override suspend fun signInWithGoogle(): SignInOutcome {
         signInInvocationCount++
         gate?.await()
@@ -37,8 +41,10 @@ class FakeAuthFlow(
     override suspend fun signUpWithGoogle(
         idToken: String,
         dateOfBirth: LocalDate,
+        inviteCode: String?,
     ): SignUpOutcome {
         signUpInvocationCount++
+        lastInviteCode = inviteCode
         gate?.await()
         return signUpOutcome
     }

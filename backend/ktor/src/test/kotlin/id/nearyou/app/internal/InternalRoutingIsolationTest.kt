@@ -7,6 +7,9 @@ import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
 import id.nearyou.app.admin.retention.RetentionCleanupWorker
 import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
+import id.nearyou.app.auth.anomaly.JdbcLoginAnomalyRepository
+import id.nearyou.app.auth.anomaly.LoginAnomalyDetectionService
+import id.nearyou.app.auth.anomaly.loginAnomalyCheckRoutes
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.auth.routes.InMemoryDedup
 import id.nearyou.app.auth.routes.appleS2SRoutes
@@ -90,6 +93,10 @@ class InternalRoutingIsolationTest : StringSpec({
                         RetentionCleanupWorker(JdbcRetentionCleanupRepository(UnusedDataSource)),
                         NeverCalledVerifier,
                     )
+                    loginAnomalyCheckRoutes(
+                        LoginAnomalyDetectionService(JdbcLoginAnomalyRepository(UnusedDataSource)),
+                        NeverCalledVerifier,
+                    )
                 }
             }
         }
@@ -138,6 +145,14 @@ class InternalRoutingIsolationTest : StringSpec({
         testApplication {
             mountProductionShape()
             val response = client.post("/internal/cleanup")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "login-anomaly-check worker without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/login-anomaly-check")
             response.status shouldBe HttpStatusCode.Unauthorized
         }
     }

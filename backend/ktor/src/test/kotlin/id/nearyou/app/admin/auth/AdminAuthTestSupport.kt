@@ -290,6 +290,12 @@ object AdminAuthTestSupport {
         clock: () -> Instant = Instant::now,
         remoteConfigPublisher: RemoteConfigPublisher = NoOpRemoteConfigPublisher,
         csamMetadataEncryptor: id.nearyou.app.moderation.csam.CsamMetadataEncryptor? = null,
+        referralEntitlementGranter: id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter =
+            id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter,
+        // The Data Export Queue trigger's producer seam (admin-data-export-queue). Default
+        // null → the admin module's own no-op (SKIPPED) seam; a trigger route test injects a
+        // real DataExportWorker so a `failed`/`pending` re-run reaches `ready`.
+        dataExportProcessor: id.nearyou.app.account.DataExportSingleProcessor? = null,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
@@ -311,6 +317,11 @@ object AdminAuthTestSupport {
                             ),
                         )
                     }
+                val exportProcessor =
+                    dataExportProcessor
+                        ?: id.nearyou.app.account.DataExportSingleProcessor {
+                            id.nearyou.app.account.DataExportProcessOutcome.SKIPPED
+                        }
                 if (csamArgs == null) {
                     admin(
                         dataSource = dataSource,
@@ -319,6 +330,8 @@ object AdminAuthTestSupport {
                         environmentName = TEST_ENVIRONMENT_NAME,
                         remoteConfigPublisher = remoteConfigPublisher,
                         privacyFlipsClock = clock,
+                        referralEntitlementGranter = referralEntitlementGranter,
+                        dataExportProcessor = exportProcessor,
                     )
                 } else {
                     admin(
@@ -328,9 +341,11 @@ object AdminAuthTestSupport {
                         environmentName = TEST_ENVIRONMENT_NAME,
                         remoteConfigPublisher = remoteConfigPublisher,
                         privacyFlipsClock = clock,
+                        referralEntitlementGranter = referralEntitlementGranter,
                         csamRepository = csamArgs.first,
                         csamMetadataEncryptor = csamArgs.second,
                         csamDetectionService = csamArgs.third,
+                        dataExportProcessor = exportProcessor,
                     )
                 }
             }

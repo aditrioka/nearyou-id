@@ -490,4 +490,37 @@ class PostCreationCallOrderTest : StringSpec({
         (lengthMarker < moderatorMarker) shouldBe true
         (moderatorMarker < insertMarker) shouldBe true
     }
+
+    // post-area-density-cap tasks 5.12 + 5.6 (static half) — the area-density gate
+    // runs AFTER the moderator (Reject short-circuits before it), AFTER the
+    // display_location derivation it keys on, and BEFORE the INSERT; never below it.
+    "POST /api/v1/posts source: area-density gate after moderator + display, before INSERT" {
+        val source =
+            java.io.File("src/main/kotlin/id/nearyou/app/post/CreatePostService.kt").readText()
+
+        val moderatorMarker = source.indexOf("textModerator.moderate")
+        val displayMarker = source.indexOf("JitterEngine.offsetByBearing")
+        val areaGateMarker = source.indexOf("areaDensityLimiter.tryAcquire")
+        val insertMarker = source.indexOf("posts.create(")
+
+        require(moderatorMarker > 0) { "textModerator.moderate not found" }
+        require(displayMarker > 0) { "JitterEngine.offsetByBearing (display derivation) not found" }
+        require(areaGateMarker > 0) { "areaDensityLimiter.tryAcquire not found" }
+        require(insertMarker > 0) { "posts.create() not found" }
+
+        (moderatorMarker < areaGateMarker) shouldBe true
+        (displayMarker < areaGateMarker) shouldBe true
+        (areaGateMarker < insertMarker) shouldBe true
+        // Only one area-gate call site, and it is above the INSERT (never below it).
+        (source.lastIndexOf("areaDensityLimiter.tryAcquire") < insertMarker) shouldBe true
+    }
+
+    "POST /api/v1/posts source: area gate keys on display (fuzzed), never actual_location" {
+        val source =
+            java.io.File("src/main/kotlin/id/nearyou/app/post/CreatePostService.kt").readText()
+        // The gate reads the fuzzed display coordinate the flow already derived.
+        source.shouldContain("areaDensityLimiter.tryAcquire(display.lat, display.lng)")
+        // It must NOT pass the raw actual coordinate (spatial-fuzzing invariant).
+        source.shouldNotContain("areaDensityLimiter.tryAcquire(latitude")
+    }
 })

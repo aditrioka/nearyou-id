@@ -433,6 +433,7 @@ tasks.withType<Test>().configureEach {
             "**/SearchScreenTest*",
             "**/PaywallScreenTest*",
             "**/UsernameCustomizationScreenTest*",
+            "**/ReferralScreenTest*",
         )
     }
 }

@@ -1,0 +1,36 @@
+{% extends "layout.peb" %}
+
+{% block title %}Referral Manual Grant — NearYouID{% endblock %}
+
+{% block content %}
+<h2>Referral Manual Grant</h2>
+<p class="pg-sub">Support-desk remedy when the automated referral gate false-negatives a legitimate referral. A support-desk action, NOT a referral-system action — the grant is not counted against the inviter's 5-referral track or lifetime reward.</p>
+
+{# Recipient lookup. hx-get swaps only the #rg-content fragment; method=GET means
+   it also works as plain navigation when JS is unavailable. `q` is user-controlled
+   free text — Pebble autoescapes the value attr below (load-bearing). #}
+<div class="filterbar">
+    <form class="filters"
+          hx-get="/admin/referral-grants"
+          hx-target="#rg-content"
+          hx-swap="outerHTML"
+          hx-push-url="true"
+          method="GET">
+        <label class="field">
+            <span>Recipient (username or UUID)</span>
+            <input type="text" name="q" value="{{ q | default('') }}" placeholder="username or UUID">
+        </label>
+        <label class="field">
+            <span>From (UTC)</span>
+            <input type="date" name="date_from" value="{{ filters.date_from | default('') }}">
+        </label>
+        <label class="field">
+            <span>To (UTC)</span>
+            <input type="date" name="date_to" value="{{ filters.date_to | default('') }}">
+        </label>
+        <button type="submit" class="btn filled">Look up</button>
+    </form>
+</div>
+
+{% include "referral-grants-content.peb" %}
+{% endblock %}

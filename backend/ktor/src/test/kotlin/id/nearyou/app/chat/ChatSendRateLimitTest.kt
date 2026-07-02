@@ -14,6 +14,7 @@ import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.guard.ContentLengthGuard
+import id.nearyou.app.infra.repo.JdbcEmbeddedPostResolver
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.notifications.NoopNotificationDispatcher
@@ -198,12 +199,34 @@ class ChatSendRateLimitTest : StringSpec({
         }
     }
 
+    // chat-embedded-posts: seed a post owned by [authorId] (resolves via the own-content arm).
+    fun seedPost(authorId: UUID): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO posts (id, author_id, content, display_location, actual_location)
+                VALUES (?, ?, 'rl shared post',
+                  ST_SetSRID(ST_MakePoint(106.8, -6.2), 4326)::geography,
+                  ST_SetSRID(ST_MakePoint(106.8, -6.2), 4326)::geography)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, authorId)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
     fun cleanup(vararg userIds: UUID) {
         dataSource.connection.use { conn ->
             conn.createStatement().use { st ->
                 userIds.forEach { uid ->
                     st.executeUpdate("DELETE FROM user_blocks WHERE blocker_id = '$uid' OR blocked_id = '$uid'")
                     st.executeUpdate("DELETE FROM chat_messages WHERE sender_id = '$uid'")
+                    st.executeUpdate("DELETE FROM post_edits WHERE post_id IN (SELECT id FROM posts WHERE author_id = '$uid')")
+                    st.executeUpdate("DELETE FROM posts WHERE author_id = '$uid'")
                 }
                 userIds.forEach { uid ->
                     val convIds = mutableListOf<String>()
@@ -249,6 +272,7 @@ class ChatSendRateLimitTest : StringSpec({
                 remoteConfig = remoteConfig,
                 textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
                 moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
+                embeddedPostResolver = JdbcEmbeddedPostResolver(dataSource),
                 clock = clock,
             )
         testApplication {
@@ -343,8 +367,12 @@ class ChatSendRateLimitTest : StringSpec({
         }
     }
 
-    fun ListAppender<ILoggingEvent>.embedIgnoredCount(): Int =
-        list.count { it.level == Level.WARN && it.formattedMessage.contains("event=chat_send_embedded_field_ignored") }
+    // chat-embedded-posts: `embedded_post_id` is now CONSUMED (no WARN). Only the two
+    // server-derived fields a client should never send warn, with the new event name.
+    fun ListAppender<ILoggingEvent>.clientSuppliedServerFieldWarnCount(): Int =
+        list.count {
+            it.level == Level.WARN && it.formattedMessage.contains("event=chat_send_client_supplied_server_field")
+        }
 
     // ----------------------------------------------------------------------------------
     // Scenario 1 — 50 chat sends in a day succeed for Free user.
@@ -1127,7 +1155,8 @@ class ChatSendRateLimitTest : StringSpec({
                     override fun sendMessage(
                         conversationId: UUID,
                         senderId: UUID,
-                        content: String,
+                        content: String?,
+                        embed: EmbeddedPostData?,
                         emitInTx: ((java.sql.Connection, ChatMessageRow, UUID) -> Unit)?,
                         preInsertHookInTx: ((java.sql.Connection) -> Unit)?,
                         afterInsertHookInTx: ((java.sql.Connection, ChatMessageRow) -> Unit)?,
@@ -1196,18 +1225,23 @@ class ChatSendRateLimitTest : StringSpec({
     }
 
     // ----------------------------------------------------------------------------------
-    // Scenario 34 — Embedded-field silent-ignore + slot consumption.
-    // Success path: slot 5 → slot 6, 201, embedded_post_id IS NULL, WARN log fired.
+    // Scenario 34 — Embed send + slot consumption (chat-embedded-posts).
+    // Success path: slot 6 is a content+embed send → 201, embedded_post_id persisted.
     // Rejection path: slot 51 → 429 specifically (NOT 422, NOT 400, NOT 201),
-    // tryAcquireInvocations == 1, zero `chat_send_embedded_field_ignored` WARNs emitted.
+    // tryAcquire invoked exactly once + short-circuits BEFORE body parse / embed resolution.
     // ----------------------------------------------------------------------------------
-    "scenario 34 — embedded-field silent-ignore + slot consumption (success and rejection paths)" {
+    "scenario 34 — embed send consumes a slot like a plain send; rate-limited before resolution" {
+        // chat-embedded-posts flipped this from "embedded_post_id silently ignored" to
+        // "consumed". The rate-limit contract is unchanged: an embed send traverses the SAME
+        // daily limiter as a plain send (no bypass), and on the rejection path the limiter runs
+        // BEFORE the body is parsed / the post is resolved.
         val (sender, tok) = seedUser()
         val (recipient, _) = seedUser()
         val conv = createConv(sender, recipient)
         try {
+            val post = seedPost(sender) // sender shares their OWN post (own-content arm)
             val limiter = InMemoryRateLimiter()
-            // Success path: slot 5 → 6, 201 with embedded_post_id ignored + WARN log.
+            // Success path: slots 1–5 plain, slot 6 a content+embed send → 201, embed persisted.
             repeat(5) {
                 withChat(rateLimiter = limiter) {
                     postSend(tok, conv, content = "warm-$it").status shouldBe HttpStatusCode.Created
@@ -1215,34 +1249,33 @@ class ChatSendRateLimitTest : StringSpec({
             }
             captureRoutesWarn { appender ->
                 withChat(rateLimiter = limiter) {
-                    val embedUuid = UUID.randomUUID()
-                    val rawBody = """{"content":"with-embed","embedded_post_id":"$embedUuid"}"""
+                    val rawBody = """{"content":"with-embed","embedded_post_id":"$post"}"""
                     val resp = postSend(tok, conv, rawBody = rawBody)
                     resp.status shouldBe HttpStatusCode.Created
                     val mid = messageId(resp.bodyAsText())
                     val (embId, _, _) = chatRowEmbedColumns(mid)
-                    embId shouldBe null
+                    embId shouldBe post // the embed is resolved + persisted (no longer NULL)
                 }
-                appender.embedIgnoredCount() shouldBe 1
+                // No client-supplied server-controlled field → no WARN.
+                appender.clientSuppliedServerFieldWarnCount() shouldBe 0
             }
             countMessagesFromSender(sender) shouldBe 6
-            // Rejection path: drive to 50 successful, then 51st with embed → 429 specifically.
-            // (Already at 6 successful; 44 more then attempt 51st.)
+            // Rejection path: drive to 50 successful, then the 51st embed send → 429 specifically.
+            // (Already at 6 successful; 44 more then attempt the 51st.)
             withChat(rateLimiter = limiter) {
                 repeat(44) { postSend(tok, conv, content = "f$it").status shouldBe HttpStatusCode.Created }
             }
-            captureRoutesWarn { appender ->
+            captureRoutesWarn { _ ->
                 val spy = SpyRateLimiterChat(limiter)
                 withChat(rateLimiter = spy) {
-                    val rawBody = """{"content":"reject-with-embed","embedded_post_id":"${UUID.randomUUID()}"}"""
+                    val rawBody = """{"content":"reject-with-embed","embedded_post_id":"$post"}"""
                     val resp = postSend(tok, conv, rawBody = rawBody)
                     resp.status shouldBe HttpStatusCode.TooManyRequests
                     rateLimitedCode(resp.bodyAsText()) shouldBe "rate_limited"
                 }
-                // Limiter was invoked exactly once (the reject path).
+                // Limiter was invoked exactly once — and short-circuited BEFORE body parse /
+                // embed resolution (the embed never reaches the resolver on the reject path).
                 spy.acquireKeys().size shouldBe 1
-                // Zero WARN log lines for the rejected request — the body was never parsed.
-                appender.embedIgnoredCount() shouldBe 0
             }
         } finally {
             cleanup(sender, recipient)

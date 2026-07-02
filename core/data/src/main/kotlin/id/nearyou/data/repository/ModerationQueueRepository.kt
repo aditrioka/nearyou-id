@@ -102,4 +102,25 @@ interface ModerationQueueRepository {
         targetType: ReportTargetType,
         targetId: UUID,
     ): Boolean
+
+    /**
+     * `INSERT INTO moderation_queue (target_type, target_id, trigger) VALUES
+     * (?, ?, 'area_spam') ON CONFLICT (target_type, target_id, trigger)
+     * DO NOTHING`. Written by the Layer 4 per-area density gate (`post-area-density-cap`)
+     * when a post is created in an over-dense ~1.1 km cell (`targetType = POST`, the
+     * just-created post). A soft flag for manual review — the post stays visible
+     * (`is_auto_hidden` is NOT set). Idempotent — a retry / concurrent racer for the
+     * same `(post, area_spam)` tuple is suppressed by the UNIQUE
+     * `(target_type, target_id, trigger)` constraint. Returns `true` when a new row
+     * was inserted, `false` when the ON CONFLICT branch fired.
+     *
+     * Caller MUST execute this in the same transaction as the `posts` INSERT so a
+     * rollback also rolls back the queue row. Composes with the [upsertUuIteKeywordMatchRow]
+     * Flag write — both may fire on one post (two rows, one per trigger).
+     */
+    fun upsertAreaSpamRow(
+        conn: Connection,
+        targetType: ReportTargetType,
+        targetId: UUID,
+    ): Boolean
 }

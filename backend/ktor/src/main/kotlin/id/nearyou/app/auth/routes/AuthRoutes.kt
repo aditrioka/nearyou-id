@@ -71,10 +71,20 @@ data class ApiError(val error: Envelope) {
 // content-moderation-appeal: the banned/suspended sign-in 403 carries the limited-scope
 // appeal token alongside the error envelope, so the actioned user has a credential for
 // the ban-exempt appeal realm (auth-signin § "Banned user blocked at sign-in").
+//
+// appeal-sign-in-ban-distinction: the 403 ALSO carries `suspended_until` so the client can
+// route a suspension (in-app appeal form) differently from a permanent ban (support path).
+// A non-null ISO-8601 timestamp ⇒ a 7-day suspension's expiry (present on the wire); a permanent
+// ban ⇒ `suspendedUntil = null`, which the shared server `AppJson` (`explicitNulls = false`)
+// OMITS from the wire entirely — so a permanent-ban body has no `suspended_until` key at all. The
+// client treats absent / null / unparseable identically (⇒ permanent), so the omission is the
+// permanent signal; the distinction is "field present with a value ⇒ suspension, field absent ⇒
+// permanent". The code stays `account_banned` for both states (not a separate code).
 @Serializable
 data class BannedSignInResponse(
     val error: ApiError.Envelope,
     @SerialName("appeal_token") val appealToken: String,
+    @SerialName("suspended_until") val suspendedUntil: String?,
 )
 
 private fun errorBody(
@@ -162,9 +172,17 @@ fun Application.authRoutes(
                 // the ban-exempt appeal realm to contest the action. A suspended user is
                 // is_banned=TRUE, so this path covers suspension + permanent ban alike.
                 val appealToken = jwtIssuer.issueAppealToken(user.id, user.tokenVersion)
+                // appeal-sign-in-ban-distinction: echo the matched user's suspended_until (already
+                // selected on UserRow — no extra query) so the client routes suspension vs permanent.
+                // java.time.Instant.toString() is the ISO-8601 form (e.g. "2026-07-03T00:00:00Z");
+                // null for a permanent ban.
                 call.respond(
                     HttpStatusCode.Forbidden,
-                    BannedSignInResponse(ApiError.Envelope("account_banned", "Account is banned."), appealToken),
+                    BannedSignInResponse(
+                        ApiError.Envelope("account_banned", "Account is banned."),
+                        appealToken,
+                        user.suspendedUntil?.toString(),
+                    ),
                 )
                 return@post
             }

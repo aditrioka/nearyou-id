@@ -1,5 +1,7 @@
 package id.nearyou.app.admin
 
+import id.nearyou.app.account.DataExportProcessOutcome
+import id.nearyou.app.account.DataExportSingleProcessor
 import id.nearyou.app.admin.actionslog.AdminActionsLogRepository
 import id.nearyou.app.admin.appealreview.AppealReviewRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
@@ -11,19 +13,25 @@ import id.nearyou.app.admin.auth.SessionRepository
 import id.nearyou.app.admin.auth.adminAuth
 import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.chatredaction.ChatRedactionRepository
+import id.nearyou.app.admin.dataexportqueue.DataExportQueueRepository
 import id.nearyou.app.admin.deletionqueue.DeletionQueueRepository
 import id.nearyou.app.admin.featureflags.FeatureFlagService
 import id.nearyou.app.admin.featureflags.FeatureFlagToggleRateLimiter
 import id.nearyou.app.admin.moderation.UserModerationRepository
+import id.nearyou.app.admin.postedits.PostEditHistoryRepository
+import id.nearyou.app.admin.postedits.PostEditHistoryService
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.ratelimit.CsamKominfoReportRateLimiter
 import id.nearyou.app.admin.ratelimit.CsamMetadataDecryptRateLimiter
+import id.nearyou.app.admin.ratelimit.DataExportTriggerRateLimiter
 import id.nearyou.app.admin.ratelimit.DeletionQueueExpediteRateLimiter
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
+import id.nearyou.app.admin.ratelimit.ReferralGrantActionRateLimiter
 import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
 import id.nearyou.app.admin.ratelimit.UsernameOversightActionRateLimiter
+import id.nearyou.app.admin.referralgrants.AdminReferralGrantRepository
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
@@ -35,10 +43,13 @@ import id.nearyou.app.admin.routes.adminAppealReview
 import id.nearyou.app.admin.routes.adminBlockRegistry
 import id.nearyou.app.admin.routes.adminChatRedaction
 import id.nearyou.app.admin.routes.adminCsam
+import id.nearyou.app.admin.routes.adminDataExportQueue
 import id.nearyou.app.admin.routes.adminDeletionQueue
 import id.nearyou.app.admin.routes.adminFeatureFlags
 import id.nearyou.app.admin.routes.adminIndex
+import id.nearyou.app.admin.routes.adminPostEdits
 import id.nearyou.app.admin.routes.adminPrivacyFlips
+import id.nearyou.app.admin.routes.adminReferralGrants
 import id.nearyou.app.admin.routes.adminRejectedIdentifiers
 import id.nearyou.app.admin.routes.adminReportQueue
 import id.nearyou.app.admin.routes.adminReportResolution
@@ -57,6 +68,8 @@ import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
 import id.nearyou.app.infra.repo.JdbcUsernameFlagOverrideRepository
+import id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter
+import id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter
 import id.nearyou.app.moderation.csam.CsamDetectionService
 import id.nearyou.app.moderation.csam.CsamMetadataEncryptor
 import id.nearyou.app.moderation.csam.CsamRepository
@@ -123,6 +136,14 @@ fun Application.admin(
     // (admin-hard-delete-queue). Production uses the system clock; tests inject a
     // fixed instant for a deterministic countdown.
     deletionQueueClock: () -> Instant = Instant::now,
+    // The producer single-request processing seam consumed by the Data Export Queue
+    // trigger (admin-data-export-queue): the SAME pipeline the batch
+    // `/internal/data-export-worker` run uses (one export path, two callers). Production
+    // passes the in-process `DataExportWorker` constructed in Application.module(); the
+    // default is a no-op (returns SKIPPED) so standalone admin wiring still mounts the
+    // read surface — a route test that exercises the trigger injects a real worker.
+    dataExportProcessor: DataExportSingleProcessor =
+        DataExportSingleProcessor { DataExportProcessOutcome.SKIPPED },
     // The SHARED one-shot per-candidate username-override store (admin-premium-
     // username-oversight): the SAME repo the `PATCH /api/v1/user/username` gate
     // consults/consumes — the admin accept side writes approvals through it
@@ -149,6 +170,12 @@ fun Application.admin(
             encryptor = csamMetadataEncryptor,
             auditLogger = AdminAuditLogger(dataSource),
         ),
+    // RC promotional-grant port for the Referral Manual Grant surface
+    // (admin-referral-manual-grant). Production passes the SAME granter the
+    // referral worker dispatches through (built in Application.module() from the
+    // `revenuecat-secret-api-key` slot); standalone admin wiring (tests) defaults
+    // to the fail-soft NoOp (audit row still written, RC call skipped).
+    referralEntitlementGranter: ReferralEntitlementGranter = NoOpReferralEntitlementGranter,
 ) {
     val adminUserRepository = AdminUserRepository(dataSource)
     val sessionRepository = SessionRepository(dataSource)
@@ -158,6 +185,7 @@ fun Application.admin(
     val rejectedIdentifiersRepository =
         AdminRejectedIdentifiersRepository(dataSource, auditLogger, rejectedIdentifierClearRateLimiter)
     val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
+    val postEditHistoryService = PostEditHistoryService(PostEditHistoryRepository(dataSource))
     val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
@@ -193,9 +221,20 @@ fun Application.admin(
     val graceExpediteRateLimiter = GraceExpediteActionRateLimiter(dataSource)
     val subscriptionGraceRepository =
         SubscriptionGraceRepository(dataSource, auditLogger, graceExpediteRateLimiter)
+    val referralGrantActionRateLimiter = ReferralGrantActionRateLimiter(dataSource)
+    val referralGrantRepository =
+        AdminReferralGrantRepository(
+            dataSource,
+            referralEntitlementGranter,
+            auditLogger,
+            referralGrantActionRateLimiter,
+        )
     val deletionQueueExpediteRateLimiter = DeletionQueueExpediteRateLimiter(dataSource)
     val deletionQueueRepository =
         DeletionQueueRepository(dataSource, auditLogger, deletionQueueExpediteRateLimiter)
+    val dataExportTriggerRateLimiter = DataExportTriggerRateLimiter(dataSource)
+    val dataExportQueueRepository =
+        DataExportQueueRepository(dataSource, auditLogger, dataExportTriggerRateLimiter, dataExportProcessor)
     val csamKominfoReportRateLimiter = CsamKominfoReportRateLimiter(dataSource)
     val csamMetadataDecryptRateLimiter = CsamMetadataDecryptRateLimiter(dataSource)
     val loginRoutes =
@@ -290,6 +329,7 @@ fun Application.admin(
                 adminActionsLog(actionsLogRepository, layout)
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, auditLogger, layout)
                 adminBlockRegistry(blockRegistryRepository, layout)
+                adminPostEdits(postEditHistoryService, layout)
                 adminPrivacyFlips(privacyFlipsRepository, layout, privacyFlipsClock)
                 adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
@@ -327,12 +367,24 @@ fun Application.admin(
                     auditLogger,
                     layout,
                 )
+                adminReferralGrants(
+                    referralGrantRepository,
+                    referralGrantActionRateLimiter,
+                    auditLogger,
+                    layout,
+                )
                 adminDeletionQueue(
                     deletionQueueRepository,
                     deletionQueueExpediteRateLimiter,
                     auditLogger,
                     layout,
                     deletionQueueClock,
+                )
+                adminDataExportQueue(
+                    dataExportQueueRepository,
+                    dataExportTriggerRateLimiter,
+                    auditLogger,
+                    layout,
                 )
                 adminCsam(
                     repo = csamRepository,

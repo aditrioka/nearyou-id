@@ -604,6 +604,41 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a MANUAL REFERRAL GRANT (`admin-referral-manual-grant`
+     * capability, admin board frame 19) — the AUTHORITATIVE "a human granted
+     * this" record. Written regardless of the RC dispatch outcome (dispatched /
+     * not-configured / failed), so the admin's attempt is always recorded.
+     * [beforeState]/[afterState] carry the subscription snapshot (design D3);
+     * activation + the `subscription_events` row stay owned by the GRANT webhook
+     * echo, so this row never asserts the entitlement is live. The mandatory
+     * support-ticket reference is carried in [reason]. `adminId` is the acting
+     * human admin, never the `system` sentinel.
+     */
+    fun logReferralManualGrant(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "referral_manual_grant",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a hard-delete-queue MANUAL EXPEDITE (`admin-hard-delete-queue`
      * capability): `POST /admin/deletion-requests/{id}/expedite` advancing a
      * pending `deletion_requests` row's `scheduled_hard_delete_at` to `NOW()` so
@@ -635,6 +670,48 @@ class AdminAuditLogger(
             adminId = adminId,
             targetType = "deletion_request",
             targetId = deletionRequestId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
+     * Audit row for a Data Export Queue MANUAL TRIGGER (`admin-data-export-queue`
+     * capability): `POST /admin/data-exports/{id}/trigger` re-running a stalled or
+     * failed export through the producer's single-request pipeline. Joins the
+     * caller's [conn] so this audit INSERT + the rate-limit COUNT read the same
+     * ledger snapshot and the state transition (re-enqueue `failed → pending`, or
+     * confirming an already-`pending` row for the drive) + the audit row commit
+     * atomically inside the trigger transaction (the in-tx cap-check requirement).
+     * `target_type = 'data_export_request'`, `target_id` = the request id. The audit
+     * is keyed on the trigger CAUSING the transition, NOT on the final delivery
+     * outcome: if the scheduler races in and claims the re-enqueued row before the
+     * synchronous drive (the drive then no-ops `SKIPPED`), this is still the one
+     * audited action — so [beforeState]/[afterState] record the request `status`
+     * transition (e.g. `{"status":"failed"}` → `{"status":"pending","triggered":true}`),
+     * never the archive contents / object key / signed URL. The mandatory [reason]
+     * is the operator justification. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logDataExportTriggered(
+        conn: Connection,
+        adminId: UUID,
+        requestId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "data_export_triggered",
+            adminId = adminId,
+            targetType = "data_export_request",
+            targetId = requestId.toString(),
             reason = reason,
             beforeState = beforeState,
             afterState = afterState,

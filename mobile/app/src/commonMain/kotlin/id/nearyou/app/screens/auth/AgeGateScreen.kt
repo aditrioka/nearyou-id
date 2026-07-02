@@ -16,6 +16,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +37,7 @@ import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.age_gate_dob_label
 import id.nearyou.resources.generated.resources.age_gate_dob_picker_cta
 import id.nearyou.resources.generated.resources.age_gate_explainer
+import id.nearyou.resources.generated.resources.age_gate_invite_code_label
 import id.nearyou.resources.generated.resources.age_gate_title
 import id.nearyou.resources.generated.resources.age_gate_under18_blocked
 import id.nearyou.resources.generated.resources.app_name
@@ -182,6 +184,15 @@ fun AgeGateScreen(
         ) {
             Text(text = dobFieldText)
         }
+        // Optional referral code (mobile-referral). Empty/blank is allowed and NEVER blocks the CTA —
+        // the value is forwarded to signup as the optional `invite_code` (omitted when blank).
+        OutlinedTextField(
+            value = uiState.inviteCode,
+            onValueChange = viewModel::onInviteCodeChange,
+            label = { Text(text = stringResource(Res.string.age_gate_invite_code_label)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        )
         if (bannerText != null) {
             Text(
                 text = bannerText,
