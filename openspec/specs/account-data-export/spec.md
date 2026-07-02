@@ -1,7 +1,7 @@
 # account-data-export Specification
 
 ## Purpose
-The account-data-export capability provides the UU-PDP right to data portability: a user requests a copy of all their own personal data and receives it as a time-limited (24h) signed download link by in-app notification + email, within a 7-day SLA. `POST` / `GET /api/v1/account/export` enqueue (idempotent — one active request per user, structurally enforced by a partial-UNIQUE index) and read status; an OIDC-authed worker (`/internal/data-export-worker`, Cloud Scheduler) optimistically claims pending requests, gathers the canonical Data Export Scope Matrix (`06-Security-Privacy.md` §350 — own-data only, peer ids keyed-HMAC-hashed, shadow-ban excluded for stealth), serializes a JSON+CSV ZIP, uploads it to object storage, then delivers via the shipped `data_export_ready` notification (the durable channel) plus a best-effort Resend email. The `data_export_requests` table (V30) backs the request lifecycle (`pending → processing → ready → expired|failed`). This is the producer half of the account-data-rights surface; erasure ships in `account-deletion` + `account-hard-delete-worker`. The admin Data Export Queue and the mobile Settings entry are deferred (explicit deferred requirements + follow-up issues).
+The account-data-export capability provides the UU-PDP right to data portability: a user requests a copy of all their own personal data and receives it as a time-limited (24h) signed download link by in-app notification + email, within a 7-day SLA. `POST` / `GET /api/v1/account/export` enqueue (idempotent — one active request per user, structurally enforced by a partial-UNIQUE index) and read status; an OIDC-authed worker (`/internal/data-export-worker`, Cloud Scheduler) optimistically claims pending requests, gathers the canonical Data Export Scope Matrix (`06-Security-Privacy.md` §350 — own-data only, peer ids keyed-HMAC-hashed, shadow-ban excluded for stealth), serializes a JSON+CSV ZIP, uploads it to object storage, then delivers via the shipped `data_export_ready` notification (the durable channel) plus a best-effort Resend email. The `data_export_requests` table (V30) backs the request lifecycle (`pending → processing → ready → expired|failed`). This is the producer half of the account-data-rights surface; erasure ships in `account-deletion` + `account-hard-delete-worker`. The admin Data Export Queue (operator monitoring + manual re-trigger) shipped separately as the `admin-data-export-queue` capability; the mobile Settings entry ("Unduh Data Saya") remains a deferred follow-up (explicit deferred requirement + follow-up issue).
 ## Requirements
 ### Requirement: data_export_requests schema
 
@@ -181,30 +181,6 @@ The signed download URL SHALL be valid for 24 hours; `download_expires_at` recor
 - **WHEN** a user reads the status of a `ready` request whose `download_expires_at` is in the past
 - **THEN** the response reports `expired` and does not return a fresh durable download URL
 
-### Requirement: Admin Data Export Queue surface is deferred (out of scope)
-
-This change is the user-facing export **producer** only. It SHALL NOT add any `/admin/*` route, admin view, or admin-triggered export path; the admin **Data Export Queue** monitoring/trigger surface (docs/07 § Core Features) is a separate admin-lane change that will build on the `data_export_requests` table this change creates. A `follow-up` issue tracks the deferred admin surface.
-
-#### Scenario: No admin route added here
-- **WHEN** the routes introduced by this change are enumerated
-- **THEN** none is mounted under `/admin/*` (the only new routes are `POST`/`GET /api/v1/account/export` and `POST /internal/data-export-worker`)
-
-#### Scenario: Deferred admin surface is tracked
-- **WHEN** the change is delivered
-- **THEN** a `follow-up` issue exists describing the admin Data Export Queue surface to be built on `data_export_requests`
-
-### Requirement: Mobile Settings entry is deferred (out of scope)
-
-This change ships the backend endpoints the mobile "Unduh Data Saya" Settings entry will call; it SHALL NOT add Compose/mobile UI. The mobile Settings row + confirm dialog + status banner are a deferred mobile-lane follow-up. A `follow-up` issue tracks it.
-
-#### Scenario: No mobile UI added here
-- **WHEN** the change's touched modules are enumerated
-- **THEN** `:mobile:app` is not modified (the change is backend + `:infra:*` only)
-
-#### Scenario: Backend is ready for the future mobile entry
-- **WHEN** the deferred mobile entry is later built
-- **THEN** it can drive the export entirely through the shipped `POST`/`GET /api/v1/account/export` endpoints (no further backend change required for the happy path) AND a `follow-up` issue tracks the mobile entry
-
 ### Requirement: Session-history export is sourced from login_events with the IP included
 
 The "session history" category of the personal-data export (the canonical Data Export Scope Matrix row "Session history (fingerprint, IP) — 90-day window only") SHALL be sourced from `login_events`, emitting — for each of the requester's own `login_events` rows whose `occurred_at` is within the last 90 days — a CSV record carrying `occurred_at`, `event_type`, `device_fingerprint_hash`, `ip`, and `ip_subnet_24`. This supersedes the prior best-effort emission (the `refresh_tokens`-sourced rows that omitted IP because that schema carried no IP column): the IP and /24 subnet are now included, fully satisfying the matrix row. The session-history read is the requester's own keyed read of their own login history (no peer references, so no peer-hashing applies); it carries the own-content lint annotations consistent with the other own-data export reads.
@@ -216,4 +192,40 @@ The "session history" category of the personal-data export (the canonical Data E
 #### Scenario: Session-history export is bounded to the 90-day window
 - **WHEN** a user whose login history still contains rows older than 90 days (not yet purged) requests an export
 - **THEN** only `login_events` rows within the last 90 days appear in the session-history CSV (matching the matrix's "90-day window only")
+
+### Requirement: The mobile Settings data-export entry is owned by mobile-settings
+
+The `account-data-export` capability is the user-facing export **producer** only — it SHALL ship the `POST` / `GET /api/v1/account/export` endpoints and SHALL add **no** Compose/mobile UI. The mobile "Unduh Data Saya" Settings row + confirm dialog + status banner SHALL be owned by the `mobile-settings` capability and ship in the `mobile-data-export-entry` change (no longer deferred); the mobile entry MUST drive the export entirely through these shipped endpoints with no further backend change for the happy path.
+
+#### Scenario: account-data-export adds no mobile UI
+
+- **WHEN** the modules touched by the `account-data-export` change are enumerated
+- **THEN** `:mobile:app` is not modified (this capability is backend + `:infra:*` only); the mobile entry lives in `mobile-settings`
+
+#### Scenario: The mobile entry drives the export through the shipped endpoints
+
+- **WHEN** the mobile "Unduh Data Saya" Settings entry runs
+- **THEN** it drives the export entirely through the shipped `POST` / `GET /api/v1/account/export` endpoints (no further backend change required for the happy path), and the previously-tracking `follow-up` issue is closed by the `mobile-data-export-entry` change
+
+### Requirement: Worker exposes a reusable single-request processing seam
+
+The data-export worker SHALL expose a **single-request processing seam** that drives one identified `data_export_requests` row through the **same** pipeline as the batch run — claim (`pending → processing`, affected-rows guard) → gather the scope matrix → serialize the ZIP → upload to object storage → set `ready` (+ `r2_object_key` + `download_expires_at`) → emit the durable `data_export_ready` notification → best-effort email — preserving the identical fail-soft, claim-race, and delivery semantics. The batch `/internal/data-export-worker` run SHALL process its pending set **using this same seam** (one export path, two callers), so an out-of-band caller (e.g. an operator-triggered re-run) and the scheduler exercise identical behavior with no divergent second path. This seam adds no new external endpoint and does not change the batch worker's scan/claim/fail-soft behavior, the `/api/v1/account/export` contract, the `data_export_requests` schema, or delivery semantics.
+
+#### Scenario: Single-request drive on a claimable request reaches ready
+- **GIVEN** a request in `status = 'pending'` and object storage configured
+- **WHEN** the single-request seam is invoked for that request id
+- **THEN** the request is claimed, gathered, uploaded, and set `ready` (with `r2_object_key` + `download_expires_at`) AND the durable `data_export_ready` notification is emitted — the same outcome the batch run produces
+
+#### Scenario: Single-request drive on a non-claimable request is a no-op
+- **WHEN** the single-request seam is invoked for a request that is not in `status = 'pending'` (already `processing` or `ready`)
+- **THEN** the claim guard skips it and no second processing occurs (consistent with the batch claim guard)
+
+#### Scenario: Fail-soft is preserved on the single-request path
+- **GIVEN** a gather/upload failure (including object storage unconfigured)
+- **WHEN** the single-request seam processes the request
+- **THEN** the row is set `failed` with a non-PII `error` and `attempt_count` incremented, and no `ready`/notification/email is produced — identical to the batch fail-soft path
+
+#### Scenario: The batch worker uses the same seam
+- **WHEN** the batch `/internal/data-export-worker` run processes its pending snapshot
+- **THEN** each request is processed through the same single-request seam (no separate batch-only export code path)
 

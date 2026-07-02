@@ -19,6 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 private const val SIGNIN_OK = """{"access_token":"at-1","refresh_token":"rt-1","expires_in":900}"""
 private val JSON_HEADERS = headersOf(io.ktor.http.HttpHeaders.ContentType, "application/json")
@@ -136,21 +137,49 @@ class AuthRepositoryTest {
             assertEquals(SignInOutcome.NoAccount("g-id"), repo.signInWithGoogle())
         }
 
+    // appeal-sign-in-ban-distinction (5.2): a 403 with a null suspended_until ⇒ the PERMANENT
+    // sub-state (Banned(null)) → support copy, no appeal entry downstream.
     @Test
-    fun `403 maps to Banned`() =
+    fun `403 with null suspended_until maps to permanent Banned`() =
         runTest {
             val repo =
                 repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null))) {
-                    respond("""{"error":{"code":"account_banned"}}""", HttpStatusCode.Forbidden, JSON_HEADERS)
+                    respond(
+                        """{"error":{"code":"account_banned"},"suspended_until":null}""",
+                        HttpStatusCode.Forbidden,
+                        JSON_HEADERS,
+                    )
                 }
-            assertEquals(SignInOutcome.Banned, repo.signInWithGoogle())
+            assertEquals(SignInOutcome.Banned(suspendedUntil = null), repo.signInWithGoogle())
+        }
+
+    // appeal-sign-in-ban-distinction (5.1): a 403 with a non-null future suspended_until ⇒ the
+    // SUSPENSION sub-state (Banned carrying the parsed expiry) AND the appeal token is captured.
+    @Test
+    fun `403 with a non-null suspended_until maps to suspension Banned and stashes the appeal token`() =
+        runTest {
+            val session = AppealSession()
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    appealSession = session,
+                ) {
+                    respond(
+                        """{"error":{"code":"account_banned"},"appeal_token":"appeal-tok-1","suspended_until":"2026-07-03T00:00:00Z"}""",
+                        HttpStatusCode.Forbidden,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z")), repo.signInWithGoogle())
+            assertEquals("appeal-tok-1", session.peek(), "the limited appeal token is stashed for the appeal screen")
         }
 
     @Test
-    fun `403 with an appeal_token stashes it in AppealSession and still maps to Banned`() =
+    fun `403 with an appeal_token but no suspended_until stashes the token and maps to permanent Banned`() =
         runTest {
             // content-moderation-appeal: the banned sign-in 403 carries the limited appeal token; the
-            // repository stashes it (so the appeal screen can submit) and returns Banned.
+            // repository stashes it (capture is sub-state-independent) and, with the field absent,
+            // safe-degrades to the PERMANENT sub-state (appeal-sign-in-ban-distinction).
             val session = AppealSession()
             val repo =
                 repository(
@@ -163,8 +192,40 @@ class AuthRepositoryTest {
                         JSON_HEADERS,
                     )
                 }
-            assertEquals(SignInOutcome.Banned, repo.signInWithGoogle())
+            assertEquals(SignInOutcome.Banned(suspendedUntil = null), repo.signInWithGoogle())
             assertEquals("appeal-tok-1", session.peek(), "the limited appeal token is stashed for the appeal screen")
+        }
+
+    // appeal-sign-in-ban-distinction (5.5a): a non-null PAST suspended_until still parses to a
+    // non-null Instant ⇒ the suspension sub-state (null-ness, not future-ness, is the discriminator).
+    @Test
+    fun `403 with a past suspended_until still maps to suspension Banned`() =
+        runTest {
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null))) {
+                    respond(
+                        """{"error":{"code":"account_banned"},"suspended_until":"2020-01-01T00:00:00Z"}""",
+                        HttpStatusCode.Forbidden,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(SignInOutcome.Banned(Instant.parse("2020-01-01T00:00:00Z")), repo.signInWithGoogle())
+        }
+
+    // appeal-sign-in-ban-distinction (5.5b): an UNPARSEABLE suspended_until safe-degrades to the
+    // permanent sub-state (Banned(null)) — never throws, never misroutes to suspension.
+    @Test
+    fun `403 with an unparseable suspended_until safe-degrades to permanent Banned`() =
+        runTest {
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null))) {
+                    respond(
+                        """{"error":{"code":"account_banned"},"suspended_until":"not-a-timestamp"}""",
+                        HttpStatusCode.Forbidden,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(SignInOutcome.Banned(suspendedUntil = null), repo.signInWithGoogle())
         }
 
     @Test

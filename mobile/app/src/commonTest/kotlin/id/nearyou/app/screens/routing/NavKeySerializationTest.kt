@@ -46,6 +46,9 @@ class NavKeySerializationTest {
                 SettingsRoute,
                 BlockedUsersRoute,
                 ConsentSettingsRoute,
+                // mobile-referral — the parameterless referral route; a missing subclass(...) registration
+                // in AppNavSerialization.kt would fail this round-trip (the iOS-saveable back stack).
+                ReferralRoute,
                 // The second payload-carrying route (mobile-profile) — a missing subclass(...) registration
                 // for ProfileRoute would fail this round-trip.
                 ProfileRoute("11111111-1111-1111-1111-555555555555"),
@@ -57,6 +60,9 @@ class NavKeySerializationTest {
                 // exercise the @Serializable PaywallEntry enum payload (a missing subclass(...) fails here).
                 PaywallRoute(PaywallEntry.LIKE_CAP),
                 PaywallRoute(PaywallEntry.SEARCH_GATE),
+                // chat-embedded-posts — the payload-carrying share-to-chat picker route; a missing
+                // subclass(...) registration in AppNavSerialization.kt would fail this round-trip.
+                ConversationPickerRoute("11111111-1111-1111-1111-777777777777"),
             )
         for (route in routes) {
             val encoded = json.encodeToString(navKeySerializer, route)

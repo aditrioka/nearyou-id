@@ -1,5 +1,7 @@
 package id.nearyou.app.internal
 
+import id.nearyou.app.account.AccountDeletionRepository
+import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.privacyFlipWorkerRoute
@@ -7,6 +9,9 @@ import id.nearyou.app.admin.retention.JdbcRetentionCleanupRepository
 import id.nearyou.app.admin.retention.RetentionCleanupWorker
 import id.nearyou.app.admin.retention.retentionCleanupRoutes
 import id.nearyou.app.admin.unbanWorkerRoute
+import id.nearyou.app.auth.anomaly.JdbcLoginAnomalyRepository
+import id.nearyou.app.auth.anomaly.LoginAnomalyDetectionService
+import id.nearyou.app.auth.anomaly.loginAnomalyCheckRoutes
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.auth.routes.InMemoryDedup
 import id.nearyou.app.auth.routes.appleS2SRoutes
@@ -71,7 +76,14 @@ class InternalRoutingIsolationTest : StringSpec({
             }
             // Production shape: webhook in its own routing block (appleS2SRoutes
             // opens `routing { post("/internal/apple/s2s-notifications") ... }`).
-            appleS2SRoutes(NullJwksCache, setOf("id.nearyou.app"), InMemoryUsers(), InMemoryDedup())
+            appleS2SRoutes(
+                NullJwksCache,
+                setOf("id.nearyou.app"),
+                InMemoryUsers(),
+                AccountDeletionRepository(UnusedDataSource),
+                AccountHardDeleteWorker(UnusedDataSource),
+                InMemoryDedup(),
+            )
             // Production shape: the RevenueCat vendor webhook in its OWN routing
             // block, mounted OUTSIDE the OIDC gate (revenueCatWebhookRoutes opens
             // its own `routing { post("/internal/revenuecat-webhook") ... }`).
@@ -88,6 +100,10 @@ class InternalRoutingIsolationTest : StringSpec({
                     )
                     retentionCleanupRoutes(
                         RetentionCleanupWorker(JdbcRetentionCleanupRepository(UnusedDataSource)),
+                        NeverCalledVerifier,
+                    )
+                    loginAnomalyCheckRoutes(
+                        LoginAnomalyDetectionService(JdbcLoginAnomalyRepository(UnusedDataSource)),
                         NeverCalledVerifier,
                     )
                 }
@@ -138,6 +154,14 @@ class InternalRoutingIsolationTest : StringSpec({
         testApplication {
             mountProductionShape()
             val response = client.post("/internal/cleanup")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "login-anomaly-check worker without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/login-anomaly-check")
             response.status shouldBe HttpStatusCode.Unauthorized
         }
     }

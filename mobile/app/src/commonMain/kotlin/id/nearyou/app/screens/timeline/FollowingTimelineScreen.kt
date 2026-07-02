@@ -19,6 +19,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineOutcome
+import id.nearyou.app.ui.ads.rememberTimelineAds
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -166,6 +167,9 @@ private fun FollowingTimelineContent(
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxSize(),
     ) {
+        // mobile-admob-ads-foundation — shared ad controller (config fetch + UMP gate once/session) → the
+        // placement frequency (null = no ads) + native-ad slot.
+        val timelineAds = rememberTimelineAds()
         when (uiState) {
             FollowingTimelineUiState.Loading ->
                 ListLoadingState(
@@ -204,6 +208,8 @@ private fun FollowingTimelineContent(
                     onOpenProfile = onOpenProfile,
                     listTag = FOLLOWING_TIMELINE_LIST_TAG,
                     cardTag = FOLLOWING_POST_CARD_TAG,
+                    adFrequency = timelineAds.frequency,
+                    adSlot = { timelineAds.Slot(it) },
                 )
             is FollowingTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -221,6 +227,8 @@ private fun FollowingTimelineContent(
                     listTag = FOLLOWING_TIMELINE_LIST_TAG,
                     cardTag = FOLLOWING_POST_CARD_TAG,
                     banner = stringResource(Res.string.timeline_limit_soft),
+                    adFrequency = timelineAds.frequency,
+                    adSlot = { timelineAds.Slot(it) },
                 )
         }
     }

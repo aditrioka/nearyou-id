@@ -1,6 +1,6 @@
 ---
 name: triage-follow-ups
-description: Triage the open `follow-up` GitHub issues end-to-end — list every open issue, run staleness checks, classify each as silently-resolved / superseded / migrate-to-canonical-doc / still-valid (OpenSpec or regular-PR shape) / in-progress, then act per disposition (close, migrate, hand off to `/next-change`, or surface as regular-PR scope). Keeps the `follow-up` backlog accurate. NOT for proposing new capabilities (use `/next-change`). Safe to run as concurrent sweeps — each claims a disjoint set via a transient `triaging` label + a per-session migration branch.
+description: Triage the open `follow-up` GitHub issues end-to-end — list every open issue, run staleness checks, classify each as silently-resolved / superseded / migrate-to-canonical-doc / still-valid (OpenSpec or regular-PR shape) / in-progress, then act per disposition (close, migrate, label still-valid debt `ready-to-burndown` for `/issue-burndown` to execute, or surface as regular-PR scope). Keeps the `follow-up` backlog accurate. NOT for executing the debt (use `/issue-burndown`) or proposing net-new capabilities (use `/next-change`). Safe to run as concurrent sweeps — each claims a disjoint set via a transient `triaging` label + a per-session migration branch.
 ---
 
 List the open `follow-up` issues, verify each is still valid against current code/specs/docs, surface classifications to the user, then execute closes / doc-migrations / promotion hand-offs per the user's choices. **Multiple sweeps may run concurrently** (each in its own worktree) — they partition the backlog by claiming issues with a transient `triaging` label rather than serializing.
@@ -11,7 +11,7 @@ Deferred-work tracking lives in **GitHub Issues labeled `follow-up`** (`gh issue
 
 This skill keeps the open backlog accurate: close issues whose work silently shipped, migrate residual work to a canonical doc, promote ready OpenSpec-shaped work. GitHub Issues rot by staying **open** after intervening changes silently resolve them — that stale-open drift is the primary thing this skill catches.
 
-**Complementary to `/next-change`, not a replacement:** `/next-change` answers "what new capability next?" (roadmap + version docs + spec gaps); this answers "what tracked debt is ready to close, and how?" (open `follow-up` issues + their referenced files). If a cycle promotes a follow-up to a real OpenSpec change, this skill produces a vetted scope summary and recommends the user invoke `/next-change` — it does NOT scaffold the proposal (that skill's reconciliation pass + multi-lens review loop are non-negotiable).
+**Complementary to `/issue-burndown` and `/next-change`, not a replacement.** Three-legged model: triage **classifies & cleans** the backlog (this skill, never codes); `/issue-burndown` **executes** one still-valid debt issue → PR → close; `/next-change` answers "what *new* capability next?" (roadmap + version docs + spec gaps, not issue-driven). When triage finds still-valid debt, it produces a vetted scope summary, labels the issue `ready-to-burndown`, and hands to `/issue-burndown` — it does NOT scaffold or implement (that keeps triage a pure classifier).
 
 **Parallel-session coordination (canonical).** Triage is NOT naturally partitioned the way `/next-change` is: every sweep reads the SAME shared issue list and its side-effects hit shared state (closes are global; migrations historically funneled into ONE branch). Coordinate with zero extra infra — a transient `triaging` label + a per-session migration branch ARE the claim registry:
 
@@ -28,7 +28,7 @@ This skill keeps the open backlog accurate: close issues whose work silently shi
 
 **A.0 — Session identity & claim setup (FIRST).**
 - **Session token:** `SESSION=$(basename "$(git rev-parse --show-toplevel)")` (worktree basename; falls back to repo name). Used for the per-session migration branch (E.15) and surfacing collisions.
-- **Ensure the claim label exists** (idempotent): `gh label create triaging --color FBCA04 --description "Transient claim: /triage-follow-ups sweep" 2>/dev/null || true`.
+- **Ensure the claim + queue labels exist** (idempotent): `gh label create triaging --color FBCA04 --description "Transient claim: /triage-follow-ups sweep" 2>/dev/null || true` and `gh label create ready-to-burndown --color 0E8A16 --description "Still-valid debt, ready for /issue-burndown to execute" 2>/dev/null || true`.
 - **gh account:** nearyou-id needs `aditrioka` (`gh auth switch --user aditrioka` if wrong) — closing/labeling with the wrong account 403s.
 
 1. **Pre-flight checks.**
@@ -100,13 +100,12 @@ This skill keeps the open backlog accurate: close issues whose work silently shi
 
 ### Phase D — Promote real-work candidates
 
-13. **Each approved `still-valid-openspec`** (now claimed):
+13. **Each approved `still-valid-openspec`** (now claimed) — this is tracked debt ready to *execute*, so it hands off to the executor leg (`/issue-burndown`), not to `/next-change` (which is for net-new, non-issue-driven capability scope):
     - Synthesize a scope summary in chat: proposed change name (kebab, no `-v<N>`), one-paragraph "why" (from Finding + Impact), one-paragraph "what changes" (from action items), sources (`follow-up #N` + referenced docs).
-    - Recommend the user invoke `/next-change` — it independently rediscovers + reconfirms scope (disagreement is useful tension).
-    - Add `promoted` (`gh issue edit <N> --add-label promoted`) so it isn't re-surfaced as fresh; leave it **open** until the change ships (closes via the change's PR `Closes #N`). Because it stays open, release its `triaging` claim at E.16.
-    - **Do NOT invoke `openspec-propose` directly** — that bypasses `/next-change`'s reconciliation + multi-lens review.
+    - Add `ready-to-burndown` (`gh issue edit <N> --add-label ready-to-burndown`) so `/issue-burndown` picks it up as a queued, OpenSpec-shaped item; recommend the operator invoke `/issue-burndown` (it routes the issue through `/opsx:propose` → `/opsx:apply` → `/opsx:archive` itself). Leave it **open** until the change ships (closes via the change's PR `Closes #N`); because it stays open, release its `triaging` claim at E.16.
+    - **Do NOT invoke `openspec-propose` directly** from triage — surface the scoped summary and stop. (`/next-change` remains the right tool only for genuinely net-new capability ideas that aren't issue-tracked debt; a follow-up issue is debt, so it burns down rather than re-proposes.)
 
-14. **Each `still-valid-regular-pr` the user wants bundled** (now claimed): synthesize a chore PR scope (one paragraph + file-list from action items, referencing the issue numbers it closes). Surface it; the skill does NOT write the implementation (separate explicit invocation). These stay open → release `triaging` at E.16.
+14. **Each approved `still-valid-regular-pr`** (now claimed): synthesize a fix/refactor PR scope (one paragraph + file-list from action items, referencing the issue numbers it closes). Add `ready-to-burndown` and recommend `/issue-burndown` to execute it; the triage skill does NOT write the implementation. These stay open → release `triaging` at E.16.
 
 ### Phase E — Push migration PR, release claims, wrap up
 
@@ -171,8 +170,8 @@ Issue closes/labels are global side-effects, and close/migration comments + migr
 - **Never silently rewrite issue bodies** — actions are close/label/migrate, not "summarize and shrink." A verbose body is fine.
 - **Concurrent sweeps partition, don't serialize** (supersedes the old "if a triage PR is open, reconcile/wait"). Same coordination shape as `/next-change`, adapted to issues-as-claim-units.
 - **Stale-open is the new rot** — always run the Phase A staleness checks against current code/specs/archive; don't trust an issue's age or title.
-- **Don't expand triage into implementation** — surface regular-PR scope and stop.
-- **Don't merge follow-ups into OpenSpec scope without `/next-change`** (Phase D hands off; never `openspec-propose` directly).
+- **Don't expand triage into implementation** — label still-valid debt `ready-to-burndown`, surface the scope, and stop. Execution is `/issue-burndown`'s leg.
+- **Don't scaffold or propose from triage** — Phase D hands still-valid debt to `/issue-burndown` (which routes OpenSpec-shaped items through `/opsx:propose` itself); never `openspec-propose` directly. `/next-change` is only for net-new, non-issue-driven capability ideas.
 - **Drawdown discipline** — large backlog → prioritize closes/migrations (they shrink it) over promotions; verify the post-triage open count is meaningfully lower before stopping.
 - **Engineering judgment over context budget** (CLAUDE.md): don't silently compress the triage list to fit a fading window — surface tightness and offer to split into a follow-up session; don't skip issues.
 - **Branch naming:** `chore/triage-follow-ups-<YYYY-MM-DD>-<session-token>` (the `<area>/<slug>` convention for non-OpenSpec changes + a per-session suffix). Not the change-name-as-branch convention (OpenSpec-only).

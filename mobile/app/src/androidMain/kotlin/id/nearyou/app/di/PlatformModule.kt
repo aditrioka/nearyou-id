@@ -11,6 +11,9 @@ import id.nearyou.app.data.consent.DurableConsentSnapshotStore
 import id.nearyou.app.image.AndroidImagePicker
 import id.nearyou.app.image.ImagePicker
 import id.nearyou.app.image.ImagePickerRequestBridge
+import id.nearyou.app.infra.admob.AdProvider
+import id.nearyou.app.infra.admob.AdsActivityProvider
+import id.nearyou.app.infra.admob.AndroidAdProvider
 import id.nearyou.app.location.AndroidLocationPermissionController
 import id.nearyou.app.location.AndroidLocationProvider
 import id.nearyou.app.location.LocationPermissionController
@@ -69,4 +72,13 @@ actual val platformModule: Module =
         // picked image to ≤5 MB JPEG (AndroidImageCompressor).
         single { ImagePickerRequestBridge() }
         single<ImagePicker> { AndroidImagePicker(androidContext(), get()) }
+        // mobile-admob-ads-foundation — the Android Google Mobile Ads + UMP AdProvider actual (vendor SDKs
+        // fenced in :infra:admob, invariant #16). The UMP consent form needs a foreground Activity, supplied
+        // via the existing CurrentActivityHolder (set by MainActivity onResume/onPause).
+        single<AdProvider> {
+            AndroidAdProvider(
+                context = androidContext(),
+                activityProvider = AdsActivityProvider { get<CurrentActivityHolder>().activity },
+            )
+        }
     }

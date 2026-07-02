@@ -51,6 +51,7 @@ import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
@@ -123,6 +124,10 @@ const val CHAT_REPORT_DIALOG_TAG: String = "chatReportDialog"
 fun ChatThreadScreen(
     route: ChatThreadRoute,
     onBack: () -> Unit,
+    // chat-embedded-posts: tapping a (live) shared-post context card navigates to that post's detail.
+    // The host builds the PostDetailRoute from the snapshot's display fields (the same nav-arg pattern
+    // a feed-card tap uses); a deleted-source card is not tappable so this never fires for it.
+    onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit = { _, _ -> },
 ) {
     val flow = koinInject<ChatFlow>()
     val subscriber = koinInject<ChatRealtimeSubscriber>()
@@ -193,6 +198,7 @@ fun ChatThreadScreen(
             onRetryHistory = viewModel::retry,
             onLoadOlder = viewModel::loadOlder,
             onReportMessage = viewModel::onReportMessageClicked,
+            onOpenSharedPost = onOpenSharedPost,
             onBack = onBack,
         )
         SnackbarHost(
@@ -225,6 +231,7 @@ private fun ChatThreadContent(
     onRetryHistory: () -> Unit,
     onLoadOlder: () -> Unit,
     onReportMessage: (String) -> Unit,
+    onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
@@ -235,7 +242,7 @@ private fun ChatThreadContent(
                 ChatThreadUiState.Error -> ThreadErrorState(onRetry = onRetryHistory)
                 ChatThreadUiState.SessionRedirect ->
                     CenteredThreadState(stringResource(Res.string.timeline_session_redirect), spinner = false)
-                is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder, onReportMessage)
+                is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder, onReportMessage, onOpenSharedPost)
             }
         }
         if (sendBar == SendBarState.Blocked) {
@@ -276,6 +283,7 @@ private fun MessageList(
     rows: List<ChatMessageRow>,
     onLoadOlder: () -> Unit,
     onReportMessage: (String) -> Unit,
+    onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
 ) {
     val listState = rememberLazyListState()
     // Load-older when the user scrolls to the very top (index 0 visible).
@@ -296,7 +304,12 @@ private fun MessageList(
     ) {
         items(items = rows, key = { it.id }, contentType = { "message" }) { row ->
             // Realtime/optimistic rows animate in (mobile-design-system motion).
-            MessageBubble(row = row, onReport = onReportMessage, modifier = Modifier.animateItem())
+            MessageBubble(
+                row = row,
+                onReport = onReportMessage,
+                onOpenSharedPost = onOpenSharedPost,
+                modifier = Modifier.animateItem(),
+            )
         }
     }
 }
@@ -306,6 +319,7 @@ private fun MessageList(
 private fun MessageBubble(
     row: ChatMessageRow,
     onReport: (String) -> Unit,
+    onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -333,6 +347,8 @@ private fun MessageBubble(
                 ),
         ) {
             if (row.isRedacted) {
+                // Redaction precedence (design D9): the placeholder replaces BOTH the text and the
+                // context card. The row projection already nulled the embed fields when redacted.
                 Text(
                     text = stringResource(Res.string.chat_message_redacted),
                     style = MaterialTheme.typography.bodyMedium,
@@ -340,12 +356,30 @@ private fun MessageBubble(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag(CHAT_THREAD_REDACTED_TAG),
                 )
             } else {
-                Text(
-                    text = row.content.orEmpty(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = onBubbleColor,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                )
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    if (!row.content.isNullOrEmpty()) {
+                        Text(
+                            text = row.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = onBubbleColor,
+                        )
+                    }
+                    // chat-embedded-posts: the shared-post context card (embed-only or content+embed).
+                    // embeddedPostId == null + a present snapshot = the source post was hard-deleted
+                    // ("post telah dihapus", not tappable). Tapping a live card navigates to its detail.
+                    row.embeddedPostSnapshot?.let { snapshot ->
+                        EmbeddedPostCard(
+                            snapshot = snapshot,
+                            isDeleted = row.embeddedPostId == null,
+                            // DEFERRED live source: pass the anchor as the live id (no banner) until a
+                            // per-card live-edit fetch is wired (the editedSinceShared gate is the spec'd
+                            // comparison; only the live signal is deferred — see the deferred requirement).
+                            editedSinceShared = editedSinceShared(row.embeddedPostEditId, row.embeddedPostEditId),
+                            onTap = { row.embeddedPostId?.let { id -> onOpenSharedPost(id, snapshot) } },
+                            modifier = if (row.content.isNullOrEmpty()) Modifier else Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
             }
         }
         if (row.isReportable) {

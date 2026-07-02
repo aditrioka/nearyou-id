@@ -148,6 +148,41 @@ class AgeGateViewModelTest {
         }
 
     @Test
+    fun emptyInviteCode_withSubmittableDob_keepsTheCtaEnabled() =
+        runTest(dispatcher) {
+            // mobile-referral D5 — the optional invite code lives in UI state and is NOT a CTA gate: a
+            // submittable DOB with an empty/blank invite field leaves the create-account CTA enabled.
+            val viewModel = vm()
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onDobPicked(dobMillis)
+            advanceUntilIdle()
+            assertEquals("", viewModel.uiState.value.inviteCode, "the field starts empty")
+            assertTrue(viewModel.uiState.value.ctaEnabled, "an empty invite code does not disable the CTA")
+            viewModel.onInviteCodeChange("   ")
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.ctaEnabled, "a blank invite code still does not disable the CTA")
+        }
+
+    @Test
+    fun enteredInviteCode_isHeldInUiState_andForwardedToSignUp() =
+        runTest(dispatcher) {
+            // mobile-referral — the typed code is held in UI state (survives the resubmit) and forwarded to
+            // signUpWithGoogle as the optional invite code (trim+omit-when-blank happens in the API client).
+            val fake = FakeAuthFlow(signUpOutcome = SignUpOutcome.Success)
+            val viewModel = vm(authFlow = fake)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onInviteCodeChange("a3f7k2mq")
+            viewModel.onDobPicked(dobMillis)
+            advanceUntilIdle()
+            assertEquals("a3f7k2mq", viewModel.uiState.value.inviteCode)
+            viewModel.onCreateAccountClick()
+            advanceUntilIdle()
+            assertEquals("a3f7k2mq", fake.lastInviteCode, "the entered code reaches signUpWithGoogle")
+        }
+
+    @Test
     fun doubleTap_launchesExactlyOneSignup() =
         runTest(dispatcher) {
             val gate = CompletableDeferred<Unit>()
