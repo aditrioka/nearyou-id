@@ -44,10 +44,14 @@ private const val MANAGE_SUBSCRIPTION = "Kelola langganan"
 private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
 
-/** A configurable [HideDistanceRepository] fake: seeds the toggle state and records write calls. */
+/**
+ * A configurable [HideDistanceRepository] fake: seeds the toggle state, records write calls, and
+ * optionally [writeGate]s the write so a single-flight double-tap can be exercised.
+ */
 private class FakeHideDistanceRepository(
     private val initial: HideDistanceState? = null,
     private val writeSucceeds: Boolean = true,
+    private val writeGate: CompletableDeferred<Unit>? = null,
 ) : HideDistanceRepository {
     val setCalls = mutableListOf<Boolean>()
 
@@ -55,6 +59,7 @@ private class FakeHideDistanceRepository(
 
     override suspend fun setHideDistance(value: Boolean): Boolean {
         setCalls += value
+        writeGate?.await()
         return writeSucceeds
     }
 }
@@ -330,6 +335,30 @@ class SettingsScreenTest {
             waitUntil { onAllNodesWithText(HIDE_DISTANCE_ERROR).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(HIDE_DISTANCE_ERROR).assertExists() // the toggle reverts; the error is the observable signal
             assertEquals(listOf(true), fake.setCalls)
+        }
+    }
+
+    @Test
+    fun hideDistance_rapidDoubleTap_issuesAtMostOneInFlightWrite() {
+        // Mirrors the private-profile double-tap test: the synchronous single-flight guard (set
+        // before launch) was applied to BOTH privacy toggles — this covers the hide-distance sibling.
+        val gate = CompletableDeferred<Unit>()
+        val fake =
+            FakeHideDistanceRepository(
+                initial = HideDistanceState(hideDistance = false, premium = true),
+                writeGate = gate,
+            )
+        installKoin(fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(HIDE_DISTANCE).performScrollTo().performClick()
+            onNodeWithText(HIDE_DISTANCE).performClick() // rapid second tap while the first write is in-flight
+            gate.complete(Unit)
+            waitUntil { fake.setCalls.isNotEmpty() }
+            assertEquals(listOf(true), fake.setCalls, "a rapid double-tap issues AT MOST one in-flight PATCH")
         }
     }
 

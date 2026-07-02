@@ -126,6 +126,20 @@ class PrivateProfileApiClientTest {
         }
 
     @Test
+    fun `fetchState maps a transport failure to Failure`() =
+        runTest {
+            val api = PrivateProfileApiClient(client { throw RuntimeException("connection refused") })
+            assertEquals(PrivateProfileStateResult.Failure, api.fetchState())
+        }
+
+    @Test
+    fun `setPrivateProfile maps a transport failure to Failure`() =
+        runTest {
+            val api = PrivateProfileApiClient(client { throw RuntimeException("connection refused") })
+            assertEquals(PrivateProfileWriteResult.Failure, api.setPrivateProfile(true))
+        }
+
+    @Test
     fun `fetchState rethrows CancellationException rather than swallowing it`() =
         runTest {
             val api = PrivateProfileApiClient(client { throw CancellationException("cancelled") })
