@@ -43,9 +43,19 @@ class InMemoryDedup(private val capacity: Int = APPLE_S2S_DEDUP_CAPACITY) {
             },
         )
 
-    /** Check WITHOUT recording — the key is committed via [record] only on a 2xx outcome. */
+    /**
+     * Check WITHOUT recording a NEW key — new keys are committed via [record] only on
+     * a 2xx outcome. A duplicate hit re-adds the present key so the access-order LRU
+     * keeps hot duplicates recent (qodo round-2: a bare `contains` never refreshes).
+     */
     @Synchronized
-    fun seen(id: String): Boolean = id in seen
+    fun seen(id: String): Boolean =
+        if (id in seen) {
+            seen.add(id) // LinkedHashMap put() on a present key refreshes access order
+            true
+        } else {
+            false
+        }
 
     /**
      * Record a fully-processed notification. Deliberately NOT part of [seen]: a
