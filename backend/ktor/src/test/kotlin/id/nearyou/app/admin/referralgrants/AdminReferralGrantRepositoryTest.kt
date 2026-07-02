@@ -20,7 +20,7 @@ import java.util.UUID
 import javax.sql.DataSource
 
 /**
- * Repository-level integration tests for [ReferralGrantRepository]
+ * Repository-level integration tests for [AdminReferralGrantRepository]
  * (`admin-referral-manual-grant` tasks.md 7.3/7.4/7.6/7.7/7.8/7.12/7.13). DB-backed;
  * tagged `database`. A fake [ReferralEntitlementGranter] captures the dispatched
  * [GrantRequest] (so stacking math is asserted exactly) and returns a configured
@@ -35,7 +35,7 @@ import javax.sql.DataSource
  * [AdminReferralGrantsRouteTest].
  */
 @Tags("database")
-class ReferralGrantRepositoryTest : StringSpec({
+class AdminReferralGrantRepositoryTest : StringSpec({
 
     val dataSource: HikariDataSource = AdminAuthTestSupport.hikari()
     afterSpec { dataSource.close() }
@@ -57,7 +57,7 @@ class ReferralGrantRepositoryTest : StringSpec({
     fun repo(
         granter: ReferralEntitlementGranter,
         now: Instant,
-    ) = ReferralGrantRepository(
+    ) = AdminReferralGrantRepository(
         dataSource,
         granter,
         id.nearyou.app.admin.auth.AdminAuditLogger(dataSource),
@@ -209,6 +209,41 @@ class ReferralGrantRepositoryTest : StringSpec({
         granter.requests[0].endTimeMs shouldBe now.plus(Duration.ofDays(7)).toEpochMilli()
         granter.requests[1].endTimeMs shouldBe now.plus(Duration.ofDays(14)).toEpochMilli()
         referralGrantAuditCount(dataSource, a) shouldBe 2
+    }
+
+    // ---- soft-deleted target: rejected pre-dispatch, nothing written ----
+
+    "a soft-deleted target is rejected — no dispatch, no audit row" {
+        val now = Instant.parse("2026-07-01T00:00:00Z")
+        val a = admin()
+        val u = user()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE users SET deleted_at = NOW() WHERE id = ?").use { ps ->
+                ps.setObject(1, u)
+                ps.executeUpdate()
+            }
+        }
+        val granter = RecordingGranter()
+
+        val outcome = repo(granter, now).grant(u, a, "SUP-TOMB", "127.0.0.1", null)
+
+        outcome shouldBe GrantOutcome.DeletedUser
+        granter.requests.size shouldBe 0
+        referralGrantAuditCount(dataSource, a) shouldBe 0
+    }
+
+    // ---- 7.10 cursor codec (the keyset round-trip substrate) ----
+
+    "7.10 — a GrantsCursor encode/decode round-trip is lossless (micros precision)" {
+        val cursor = GrantsCursor(Instant.parse("2026-06-10T10:11:12.123456Z"), UUID.randomUUID())
+        GrantsCursor.decode(cursor.encode()) shouldBe cursor
+    }
+
+    "7.10 — a malformed cursor token decodes to null (first page), never throws" {
+        GrantsCursor.decode(null) shouldBe null
+        GrantsCursor.decode("") shouldBe null
+        GrantsCursor.decode("%%%not-base64%%%") shouldBe null
+        GrantsCursor.decode("bm8tcGlwZS1oZXJl") shouldBe null // valid base64, no "|" separator
     }
 })
 

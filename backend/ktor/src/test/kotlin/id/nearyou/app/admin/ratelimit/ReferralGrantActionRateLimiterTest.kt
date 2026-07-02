@@ -15,7 +15,7 @@ import java.util.UUID
  * (`admin-referral-manual-grant` tasks.md 2.2). DB-backed; tagged `database`.
  * Seeds `admin_actions_log` rows with a controlled RELATIVE age (vs DB `NOW()`)
  * so the action-set + trailing-hour window are exercised without a host-clock
- * flake. The at-cap reject side effect is covered by [ReferralGrantRepositoryTest].
+ * flake. The at-cap reject side effect is covered by [AdminReferralGrantRepositoryTest].
  */
 @Tags("database")
 class ReferralGrantActionRateLimiterTest : StringSpec({
@@ -44,15 +44,17 @@ class ReferralGrantActionRateLimiterTest : StringSpec({
         limiter.countInTrailingHour(admin) shouldBe 2
     }
 
+    fun atOrOverCap(adminId: UUID): Boolean = dataSource.connection.use { limiter.isAtOrOverCap(it, adminId) }
+
     "2.2 — isAtOrOverCap is false at cap-1 and true at cap" {
         val admin = newAdmin()
         repeat(ReferralGrantActionRateLimiter.REFERRAL_MANUAL_GRANT_CAP - 1) {
             GraceTestSupport.seedAuditRow(dataSource, admin, "referral_manual_grant")
         }
-        limiter.isAtOrOverCap(admin) shouldBe false
+        atOrOverCap(admin) shouldBe false
 
         GraceTestSupport.seedAuditRow(dataSource, admin, "referral_manual_grant") // reach the cap
-        limiter.isAtOrOverCap(admin) shouldBe true
+        atOrOverCap(admin) shouldBe true
     }
 
     "2.2 — the cap is per-admin: A at the cap does not constrain B" {
@@ -61,8 +63,8 @@ class ReferralGrantActionRateLimiterTest : StringSpec({
         repeat(ReferralGrantActionRateLimiter.REFERRAL_MANUAL_GRANT_CAP) {
             GraceTestSupport.seedAuditRow(dataSource, adminA, "referral_manual_grant")
         }
-        limiter.isAtOrOverCap(adminA) shouldBe true
-        limiter.isAtOrOverCap(adminB) shouldBe false
+        atOrOverCap(adminA) shouldBe true
+        atOrOverCap(adminB) shouldBe false
         limiter.countInTrailingHour(adminB) shouldBe 0
     }
 })

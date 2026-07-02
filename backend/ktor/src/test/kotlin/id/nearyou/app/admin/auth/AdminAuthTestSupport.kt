@@ -290,6 +290,8 @@ object AdminAuthTestSupport {
         clock: () -> Instant = Instant::now,
         remoteConfigPublisher: RemoteConfigPublisher = NoOpRemoteConfigPublisher,
         csamMetadataEncryptor: id.nearyou.app.moderation.csam.CsamMetadataEncryptor? = null,
+        referralEntitlementGranter: id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter =
+            id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
@@ -319,6 +321,7 @@ object AdminAuthTestSupport {
                         environmentName = TEST_ENVIRONMENT_NAME,
                         remoteConfigPublisher = remoteConfigPublisher,
                         privacyFlipsClock = clock,
+                        referralEntitlementGranter = referralEntitlementGranter,
                     )
                 } else {
                     admin(
@@ -328,6 +331,7 @@ object AdminAuthTestSupport {
                         environmentName = TEST_ENVIRONMENT_NAME,
                         remoteConfigPublisher = remoteConfigPublisher,
                         privacyFlipsClock = clock,
+                        referralEntitlementGranter = referralEntitlementGranter,
                         csamRepository = csamArgs.first,
                         csamMetadataEncryptor = csamArgs.second,
                         csamDetectionService = csamArgs.third,

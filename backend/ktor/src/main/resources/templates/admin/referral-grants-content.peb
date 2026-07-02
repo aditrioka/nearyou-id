@@ -28,6 +28,11 @@
             <dt>Referral grants received</dt>
             <dd>invitee {{ user.grantsAsInvitee }} · inviter {{ user.grantsAsInviter }}</dd>
         </dl>
+        {% if user.deleted %}
+        {# A tombstoned account cannot be granted — the POST also rejects it
+           server-side (GrantOutcome.DeletedUser); this just removes the footgun. #}
+        <p class="empty-state">This account is deleted (tombstoned) — manual grants are disabled.</p>
+        {% else %}
         <form class="grant"
               action="/admin/referral-grants"
               method="POST"
@@ -40,6 +45,7 @@
             <input type="text" name="reason" maxlength="200" placeholder="Support ticket ref (required)" required aria-label="Support ticket reference">
             <button type="submit" class="btn filled">Grant 7 days Premium</button>
         </form>
+        {% endif %}
         <div class="banner info">
             <span>Dispatches a 1-week promotional Premium entitlement via RevenueCat and records one immutable audit-log row. It does NOT write <code>granted_entitlements</code> — the inviter 5-referral track and lifetime reward stay untouched. Premium activates on the RevenueCat GRANT webhook echo (audit-only when RevenueCat is unconfigured). Rate-limited + audit-logged.</span>
         </div>

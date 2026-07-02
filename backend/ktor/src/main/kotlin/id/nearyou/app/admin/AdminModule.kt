@@ -27,7 +27,7 @@ import id.nearyou.app.admin.ratelimit.ReferralGrantActionRateLimiter
 import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
 import id.nearyou.app.admin.ratelimit.UsernameOversightActionRateLimiter
-import id.nearyou.app.admin.referralgrants.ReferralGrantRepository
+import id.nearyou.app.admin.referralgrants.AdminReferralGrantRepository
 import id.nearyou.app.admin.rejectedidentifiers.AdminRejectedIdentifiersRepository
 import id.nearyou.app.admin.reportqueue.ReportQueueRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
@@ -210,7 +210,7 @@ fun Application.admin(
         SubscriptionGraceRepository(dataSource, auditLogger, graceExpediteRateLimiter)
     val referralGrantActionRateLimiter = ReferralGrantActionRateLimiter(dataSource)
     val referralGrantRepository =
-        ReferralGrantRepository(
+        AdminReferralGrantRepository(
             dataSource,
             referralEntitlementGranter,
             auditLogger,

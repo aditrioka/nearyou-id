@@ -29,7 +29,7 @@ import javax.sql.DataSource
  * DB-backed; tagged `database`. `withAdminApp` binds the DEFAULT
  * `NoOpReferralEntitlementGranter`, so a real POST here exercises the fail-soft
  * (RC-unconfigured) path — dispatch-outcome + stacking math live in
- * [ReferralGrantRepositoryTest] with a fake granter.
+ * [AdminReferralGrantRepositoryTest] with a fake granter.
  *
  * Covers: the auth gate (7.1), lookup by username + UUID + no-match + bare GET
  * (7.2), the fail-soft grant write + audit row (7.4), the required-reason guard
@@ -283,7 +283,173 @@ class AdminReferralGrantsRouteTest : StringSpec({
             body shouldContain "<nav>" // full page, not the bare fragment
         }
     }
+
+    // ---- 7.10 keyset pagination (cursor round-trip through the rendered next link) ----
+
+    "7.10 — keyset pagination: page 1 holds the 50 newest, the next link round-trips to the remainder with no overlap" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val u = seedUser("keyset_user")
+        val base = Instant.parse("2026-01-01T00:00:00Z")
+        (1..51).forEach { i ->
+            seedGrantAudit(dataSource, admin.id, u, "SUP-K%02d".format(i), base.plusSeconds(i * 3600L))
+        }
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val page1 = client.get("/admin/referral-grants") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            page1 shouldContain "SUP-K51" // newest first
+            page1 shouldContain "SUP-K02" // 50th row of page 1
+            page1 shouldNotContain "SUP-K01" // beyond the page boundary
+            val nextUrl =
+                Regex("href=\"([^\"]*cursor=[^\"]*)\"").find(page1)!!.groupValues[1].replace("&amp;", "&")
+            val page2 = client.get(nextUrl) { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            page2 shouldContain "SUP-K01" // the remainder
+            page2 shouldNotContain "SUP-K02" // no overlap with page 1
+        }
+    }
+
+    "7.10 — the next link preserves active filters (q survives the cursor round-trip)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val a = seedUser("filter_keep_a")
+        val b = seedUser("filter_keep_b")
+        val base = Instant.parse("2026-01-01T00:00:00Z")
+        (1..51).forEach { i ->
+            seedGrantAudit(dataSource, admin.id, a, "SUP-F%02d".format(i), base.plusSeconds(i * 3600L))
+        }
+        seedGrantAudit(dataSource, admin.id, b, "SUP-OTHER", base.plusSeconds(3600L))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val page1 =
+                client.get("/admin/referral-grants?q=filter_keep_a") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            val nextUrl =
+                Regex("href=\"([^\"]*cursor=[^\"]*)\"").find(page1)!!.groupValues[1].replace("&amp;", "&")
+            nextUrl shouldContain "q=filter_keep_a"
+            val page2 = client.get(nextUrl) { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            page2 shouldContain "SUP-F01"
+            page2 shouldNotContain "SUP-OTHER" // the q filter still applies on page 2
+        }
+    }
+
+    "7.10 — a malformed cursor is ignored (200, first page), never a 500" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val res =
+                client.get("/admin/referral-grants?cursor=%25%25not-base64%25%25") { header(HttpHeaders.Cookie, cookie(token)) }
+            res.status shouldBe HttpStatusCode.OK
+        }
+    }
+
+    // ---- 7.10 q + date_to viewer filters ----
+
+    "7.10 — the q filter narrows the list by grantee username AND by grantee UUID" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val a = seedUser("narrow_a")
+        val b = seedUser("narrow_b")
+        seedGrantAudit(dataSource, admin.id, a, "SUP-A", Instant.parse("2026-06-10T10:00:00Z"))
+        seedGrantAudit(dataSource, admin.id, b, "SUP-B", Instant.parse("2026-06-10T11:00:00Z"))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val byName = client.get("/admin/referral-grants?q=narrow_a") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            byName shouldContain "SUP-A"
+            byName shouldNotContain "SUP-B"
+            val byId = client.get("/admin/referral-grants?q=$a") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            byId shouldContain "SUP-A"
+            byId shouldNotContain "SUP-B"
+        }
+    }
+
+    "7.10 — date_to keeps rows ON the end date (inclusive) and drops later ones" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val u = seedUser("date_to_user")
+        seedGrantAudit(dataSource, admin.id, u, "SUP-ON", Instant.parse("2026-06-10T10:00:00Z"))
+        seedGrantAudit(dataSource, admin.id, u, "SUP-AFTER", Instant.parse("2026-06-20T10:00:00Z"))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/referral-grants?date_to=2026-06-10") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            body shouldContain "SUP-ON" // same-day row kept (inclusive end)
+            body shouldNotContain "SUP-AFTER"
+        }
+    }
+
+    // ---- soft-deleted target (spec: cannot be granted; lookup renders no form) ----
+
+    "lookup of a soft-deleted user renders the DELETED indicator with the grant form disabled" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val u = seedUser("tombstoned_look")
+        softDeleteUser(dataSource, u)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body = client.get("/admin/referral-grants?q=tombstoned_look") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            body shouldContain "DELETED"
+            body shouldContain "manual grants are disabled"
+            body shouldNotContain "Grant 7 days Premium"
+        }
+    }
+
+    "a grant POST for a soft-deleted user is rejected — no dispatch, no audit row" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val u = seedUser("tombstoned_post")
+        softDeleteUser(dataSource, u)
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.post("/admin/referral-grants") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header("X-CSRF-Token", AdminAuthTestSupport.csrfFor(token))
+                    header("HX-Request", "true")
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody("user_id=$u&reason=SUP-TOMB")
+                }.bodyAsText()
+            body shouldContain "deleted (tombstoned)"
+            AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).none { it.actionType == "referral_manual_grant" } shouldBe true
+        }
+    }
+
+    // ---- 7.12 Failed dispatch is surfaced with retry guidance (route render) ----
+
+    "7.12 — a Failed dispatch renders the failure message with retry guidance" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val u = seedUser("fail_render")
+        AdminAuthTestSupport.withAdminApp(dataSource, referralEntitlementGranter = FailingGranter) { client ->
+            val body =
+                client.post("/admin/referral-grants") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    header("X-CSRF-Token", AdminAuthTestSupport.csrfFor(token))
+                    header("HX-Request", "true")
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody("user_id=$u&reason=SUP-FAIL")
+                }.bodyAsText()
+            body shouldContain "Premium did not activate"
+            body shouldContain "rc 500" // the surfaced failure reason
+            AdminAuthTestSupport.latestAuditRows(dataSource, admin.id)
+                .count { it.actionType == "referral_manual_grant" } shouldBe 1 // attempt still recorded
+        }
+    }
 })
+
+/** Fake configured granter whose dispatch always fails — drives the route-level
+ *  `DispatchFailed` render (7.12) without any real RC call. */
+private object FailingGranter : id.nearyou.app.infra.revenuecatapi.ReferralEntitlementGranter {
+    override fun isConfigured(): Boolean = true
+
+    override suspend fun grant(request: id.nearyou.app.infra.revenuecatapi.GrantRequest): id.nearyou.app.infra.revenuecatapi.GrantResult =
+        id.nearyou.app.infra.revenuecatapi.GrantResult.Failed("rc 500")
+}
+
+/** Soft-delete (tombstone) a seeded user — the target shape the grant guard rejects. */
+private fun softDeleteUser(
+    dataSource: DataSource,
+    userId: UUID,
+) {
+    dataSource.connection.use { conn ->
+        conn.prepareStatement("UPDATE users SET deleted_at = NOW() WHERE id = ?").use { ps ->
+            ps.setObject(1, userId)
+            ps.executeUpdate()
+        }
+    }
+}
 
 /** Seed one `referral_manual_grant` audit row (grantee + reason + dispatch outcome). */
 private fun seedGrantAudit(

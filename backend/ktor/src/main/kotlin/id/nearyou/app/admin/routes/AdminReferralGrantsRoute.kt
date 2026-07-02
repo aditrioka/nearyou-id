@@ -5,11 +5,11 @@ import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
 import id.nearyou.app.admin.auth.AdminRoleGate
 import id.nearyou.app.admin.ratelimit.ReferralGrantActionRateLimiter
+import id.nearyou.app.admin.referralgrants.AdminReferralGrantRepository
 import id.nearyou.app.admin.referralgrants.GrantOutcome
 import id.nearyou.app.admin.referralgrants.GrantRow
 import id.nearyou.app.admin.referralgrants.GrantsCursor
 import id.nearyou.app.admin.referralgrants.GrantsQuery
-import id.nearyou.app.admin.referralgrants.ReferralGrantRepository
 import id.nearyou.app.admin.referralgrants.ReferralGrantUserContext
 import id.nearyou.app.common.clientIp
 import io.ktor.http.HttpHeaders
@@ -52,7 +52,7 @@ import java.util.UUID
  * repository grant flow (rate-limit gate → RC dispatch → one immutable audit row).
  */
 fun Route.adminReferralGrants(
-    repo: ReferralGrantRepository,
+    repo: AdminReferralGrantRepository,
     rateLimiter: ReferralGrantActionRateLimiter,
     auditLogger: AdminAuditLogger,
     layout: AdminLayout,
@@ -95,12 +95,16 @@ fun Route.adminReferralGrants(
                 is GrantOutcome.DispatchSkipped -> MSG_DISPATCH_SKIPPED
                 is GrantOutcome.DispatchFailed -> "$MSG_DISPATCH_FAILED (${outcome.reason})"
                 GrantOutcome.NotFound -> MSG_NOT_FOUND
+                GrantOutcome.DeletedUser -> MSG_DELETED_USER
                 GrantOutcome.RateLimited -> MSG_RATE_LIMITED
             }
-        if (call.isHtmx()) {
+        val recorded = outcome is GrantOutcome.Dispatched || outcome is GrantOutcome.DispatchSkipped
+        if (call.isHtmx() || !recorded) {
+            // Failure outcomes render WITH the message on the no-JS path too
+            // (mirrors the grace precedent) — a silent PRG would swallow them.
             call.respondReferralGrants(repo, rateLimiter, layout, message = message)
         } else {
-            // PRG for the no-JS path: the list re-renders with the new row.
+            // PRG for the no-JS success path: the list re-renders with the new row.
             call.response.headers.append(HttpHeaders.Location, "/admin/referral-grants")
             call.respond(HttpStatusCode.SeeOther)
         }
@@ -118,7 +122,7 @@ private fun ApplicationCall.isHtmx(): Boolean = request.headers["HX-Request"] ==
  * positionally-bound parameter.
  */
 private suspend fun ApplicationCall.respondReferralGrants(
-    repo: ReferralGrantRepository,
+    repo: AdminReferralGrantRepository,
     rateLimiter: ReferralGrantActionRateLimiter,
     layout: AdminLayout,
     message: String?,
@@ -236,4 +240,7 @@ private const val MSG_DISPATCH_SKIPPED =
 private const val MSG_DISPATCH_FAILED =
     "Grant recorded, but RevenueCat rejected the dispatch — Premium did not activate. Retry after checking RevenueCat."
 private const val MSG_NOT_FOUND = "No user matches that id. Nothing was granted."
-private const val MSG_RATE_LIMITED = "Manual-grant quota exceeded (10/hour). Try again later. Nothing was granted."
+private const val MSG_DELETED_USER = "That account is deleted (tombstoned). Nothing was granted."
+private val MSG_RATE_LIMITED =
+    "Manual-grant quota exceeded (${ReferralGrantActionRateLimiter.REFERRAL_MANUAL_GRANT_CAP}/hour). " +
+        "Try again later. Nothing was granted."

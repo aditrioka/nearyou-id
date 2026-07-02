@@ -40,7 +40,7 @@ import javax.sql.DataSource
  * are permitted (the `RawFromPostsRule` / block-exclusion lint rules do not fire
  * on these tables); every value is autoescaped at render.
  */
-class ReferralGrantRepository(
+class AdminReferralGrantRepository(
     private val dataSource: DataSource,
     private val granter: ReferralEntitlementGranter,
     private val auditLogger: AdminAuditLogger,
@@ -97,6 +97,18 @@ class ReferralGrantRepository(
      * write's transaction (a pooled connection is never held across the network
      * call); the ±1 soft-cap tolerance (design D4) makes that safe.
      *
+     * A soft-deleted target is rejected ([GrantOutcome.DeletedUser], nothing
+     * dispatched/written) — a promotional grant to a tombstoned account is
+     * near-certainly a support-desk mistake.
+     *
+     * Failure-ordering trade-off (design Risks): the dispatch runs BEFORE the
+     * audit write because the append-only `admin_actions_log` row must carry the
+     * dispatch outcome in `after_state` (no post-hoc UPDATE is grantable to
+     * `admin_app`). If the audit insert fails AFTER a successful dispatch, the
+     * grant is live-but-unrecorded and uncounted by the cap; the admin sees the
+     * error and a retry writes its own row and stacks at most +7d — bounded and
+     * recoverable, accepted for this 10/hr surface.
+     *
      * NEVER writes `granted_entitlements`, `subscription_events`, or
      * `users.subscription_status`.
      */
@@ -113,11 +125,12 @@ class ReferralGrantRepository(
             dataSource.connection.use { conn ->
                 val s =
                     conn.prepareStatement(
-                        "SELECT subscription_status FROM users WHERE id = ?",
+                        "SELECT subscription_status, deleted_at FROM users WHERE id = ?",
                     ).use { ps ->
                         ps.setObject(1, userId)
                         ps.executeQuery().use { rs ->
                             if (!rs.next()) return GrantOutcome.NotFound
+                            if (rs.getTimestamp("deleted_at") != null) return GrantOutcome.DeletedUser
                             rs.getString("subscription_status")
                         }
                     }
@@ -127,15 +140,17 @@ class ReferralGrantRepository(
 
         val now = clock()
         val end = maxOf(currentEnd ?: now, now).plus(Duration.ofDays(GRANT_DAYS))
+        // Our-side sentinel only — the RC v1 promotional endpoint has no dedup
+        // param (design Risk), so this is never sent upstream; persisted in the
+        // audit row's `after_state` so the dispatch stays correlatable to logs.
+        val dedupKey = "manual_admin:${UUID.randomUUID()}"
         val result =
             granter.grant(
                 GrantRequest(
                     appUserId = userId.toString(),
                     entitlementId = ENTITLEMENT_ID,
                     endTimeMs = end.toEpochMilli(),
-                    // Our-side sentinel only — the RC v1 promotional endpoint has
-                    // no dedup param (design Risk), so this is never sent upstream.
-                    dedupKey = "manual_admin:${UUID.randomUUID()}",
+                    dedupKey = dedupKey,
                 ),
             )
 
@@ -158,6 +173,7 @@ class ReferralGrantRepository(
                 put("entitlement_end_requested", JsonPrimitive(end.toString()))
                 put("grant_days", JsonPrimitive(GRANT_DAYS))
                 put("dispatch", JsonPrimitive(dispatch))
+                put("dedup_key", JsonPrimitive(dedupKey))
                 if (result is GrantResult.Failed) put("dispatch_reason", JsonPrimitive(result.reason))
             }
         dataSource.connection.use { conn ->
@@ -338,7 +354,7 @@ data class ReferralGrantUserContext(
     val deleted: Boolean,
 )
 
-/** Typed result of [ReferralGrantRepository.grant]. */
+/** Typed result of [AdminReferralGrantRepository.grant]. */
 sealed interface GrantOutcome {
     /** RC accepted the promotional grant; Premium activates on the webhook echo. */
     data class Dispatched(val entitlementEnd: Instant) : GrantOutcome
@@ -351,6 +367,9 @@ sealed interface GrantOutcome {
 
     /** No user matched the id; nothing dispatched or written. */
     data object NotFound : GrantOutcome
+
+    /** The target is soft-deleted (tombstoned); nothing dispatched or written. */
+    data object DeletedUser : GrantOutcome
 
     /** Acting admin at/over the per-hour cap; nothing dispatched or written. */
     data object RateLimited : GrantOutcome
@@ -375,7 +394,7 @@ data class GrantsQuery(
     val dateFrom: Instant? = null,
     val dateTo: Instant? = null,
     val cursor: GrantsCursor? = null,
-    val pageSize: Int = ReferralGrantRepository.PAGE_SIZE,
+    val pageSize: Int = AdminReferralGrantRepository.PAGE_SIZE,
 )
 
 /** One page of past grants + the cursor for the next page (null = last page). */

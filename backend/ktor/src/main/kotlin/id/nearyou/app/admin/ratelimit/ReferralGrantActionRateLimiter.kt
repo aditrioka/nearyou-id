@@ -53,9 +53,6 @@ class ReferralGrantActionRateLimiter(
         adminId: UUID,
     ): Boolean = countInTrailingHour(conn, adminId) >= REFERRAL_MANUAL_GRANT_CAP
 
-    /** Own-connection overload for the pre-flight gate in the grant flow. */
-    fun isAtOrOverCap(adminId: UUID): Boolean = dataSource.connection.use { conn -> isAtOrOverCap(conn, adminId) }
-
     companion object {
         /** Max manual referral grants per admin per trailing hour (design D4). */
         const val REFERRAL_MANUAL_GRANT_CAP = 10

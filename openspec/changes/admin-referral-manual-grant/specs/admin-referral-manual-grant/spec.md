@@ -24,6 +24,10 @@ The admin panel SHALL expose `GET /admin/referral-grants` (the lookup + past-gra
 - **WHEN** an admin submits `q` that matches no user
 - **THEN** the page shows a no-match state and the grant form is not enabled for any user
 
+#### Scenario: A soft-deleted user's context renders without a grant form
+- **WHEN** an admin submits `q` matching a soft-deleted (tombstoned) user
+- **THEN** the context panel renders with a deleted indicator and the grant form is not enabled
+
 ### Requirement: A manual grant dispatches a 1-week promotional Premium entitlement through the RevenueCat port
 
 `POST /admin/referral-grants` SHALL issue a manual Premium grant by dispatching through the existing `ReferralEntitlementGranter` port (the `:infra:revenuecat-api` RC v1 promotional-entitlement client). The dispatched grant MUST use absolute-expiry stacking math `endTimeMs = GREATEST(current_entitlement_end, NOW()) + 7 days` (extend-if-active, fresh-if-free) and the configured `premium` entitlement id. `:backend:ktor` MUST depend only on the `ReferralEntitlementGranter` interface and MUST NOT import any RevenueCat or HTTP-client symbol.
@@ -43,6 +47,10 @@ The admin panel SHALL expose `GET /admin/referral-grants` (the lookup + past-gra
 #### Scenario: Dispatch failure (RevenueCat rejected or errored) is surfaced, not swallowed
 - **WHEN** the granter returns `GrantResult.Failed` (RC configured but the promotional call was rejected or errored)
 - **THEN** the audit row is still written (the admin's attempt is recorded), Premium does not activate, the rate-limit still counts the attempt, and the response surfaces the failure to the admin with retry guidance — the handler never throws
+
+#### Scenario: A soft-deleted user cannot be granted
+- **WHEN** an admin submits a grant for a soft-deleted (tombstoned) user
+- **THEN** the grant is rejected with no RC dispatch and no audit-row write — a promotional grant to a tombstoned account is a support-desk mistake, not a remedy
 
 ### Requirement: Every manual grant writes exactly one immutable audit-log row as the authoritative record
 
