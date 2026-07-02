@@ -390,7 +390,7 @@ Append-only: each edit inserts a new row with the **before-edit** snapshot, orde
 
 ### Transactional Atomicity (mandatory)
 
-> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the future post-edit service.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the shipped post-edit service (`premium-post-editing`).
 
 ```sql
 BEGIN;
@@ -410,6 +410,8 @@ COMMIT;
 ```
 
 App-level retry on `unique_violation` edge case (sub-microsecond collision): rollback + 409 CONFLICT "Coba lagi sebentar."
+
+**Edit re-moderation (shipped, `premium-post-editing` design D1).** The edit transaction re-runs the same moderation pipeline as creation, mirroring `CreatePostService` (the moderate-before-content-write contract is Detekt-enforced by `ContentWriteRequiresModerationRule`): the synchronous keyword `TextModerator` verdict is taken **before** the snapshot+UPDATE above — a **reject** verdict aborts the edit (`400 content_moderated_profanity`, nothing persists, no Layer-3 dispatch); a **flag** verdict lets the edit persist AND inserts a `moderation_queue` row **in the same transaction**; after a successful commit, the fire-and-forget Layer-3 dispatch runs on the new content (same flow as `06-Security-Privacy.md` § Endpoint Flow). This closes the create-clean→edit-toxic laundering path. Authoritative: `openspec/specs/post-editing/spec.md` § "Edited content is re-moderated before it is persisted".
 
 ---
 
