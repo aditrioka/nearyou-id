@@ -939,11 +939,15 @@ fun Application.module() {
             dbDispatcher = dbDispatchers.db,
         )
     val referralGrantRepository = ReferralGrantRepository()
+    // ONE RC promotional-grant port shared by the automated referral worker AND
+    // the admin Referral Manual Grant surface (admin-referral-manual-grant), so
+    // both dispatch through the same fail-soft binding off the one secret slot.
+    val referralGranter = referralEntitlementGranter(secrets.resolve(secretKey(ktorEnv, "revenuecat-secret-api-key")))
     val referralActivityCheckWorker =
         ReferralActivityCheckWorker(
             dataSource = dataSource,
             repository = referralGrantRepository,
-            granter = referralEntitlementGranter(secrets.resolve(secretKey(ktorEnv, "revenuecat-secret-api-key"))),
+            granter = referralGranter,
             dbDispatcher = dbDispatchers.db,
         )
     val postReplyRepository: PostReplyRepository = JdbcPostReplyRepository(dataSource)
@@ -1370,6 +1374,10 @@ fun Application.module() {
         csamRepository = csamRepository,
         csamMetadataEncryptor = csamMetadataEncryptor,
         csamDetectionService = csamDetectionService,
+        // Same RC port the referral worker uses — the admin manual-grant path
+        // dispatches through it (admin-referral-manual-grant); NoOp fail-soft
+        // when `revenuecat-secret-api-key` is unset.
+        referralEntitlementGranter = referralGranter,
         // Pass the SAME DataExportWorker the batch `/internal/data-export-worker` run uses,
         // so the Data Export Queue trigger (admin-data-export-queue) re-runs an export
         // through the EXACT producer single-request pipeline (design D1 — one export path).
