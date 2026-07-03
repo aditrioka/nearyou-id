@@ -11,6 +11,7 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import id.nearyou.app.screens.routing.ProactiveRefreshEffect
+import id.nearyou.app.screens.routing.PushTapNavigationEffect
 import id.nearyou.app.screens.routing.RootRoute
 import id.nearyou.app.screens.routing.SessionExpiryEffect
 import id.nearyou.app.screens.routing.appEntryProvider
@@ -54,6 +55,9 @@ fun App() {
         // async/non-blocking only when the access token is within 5 min of expiry
         // (mobile-session-expiry-and-proactive-refresh D3).
         ProactiveRefreshEffect()
+        // mobile-push-message-handling: consumes the push-tap nav signal (offered by the platform tap
+        // handlers) once HomeRoute is on the stack, routing via the shared notifications resolver.
+        PushTapNavigationEffect(backStack)
         // Build the entry map once per back-stack instance (not per recomposition): the back stack is
         // stable across recompositions, so the route→composable mapping never needs rebuilding.
         val entryProvider = remember(backStack) { appEntryProvider(backStack) }
