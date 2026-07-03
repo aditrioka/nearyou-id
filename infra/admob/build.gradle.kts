@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 
 plugins {
     id("nearyou.kotlin.multiplatform")
@@ -35,6 +36,14 @@ kotlin {
         summary = "NearYou :infra:admob — Google Mobile Ads + UMP cinterop seam"
         homepage = "https://nearyou.id"
         ios.deploymentTarget = "16.0"
+        // mobile-ios-build-config-matrix: the custom Xcode configuration names must map to K/N build
+        // types in EVERY cocoapods-plugin module the workspace syncs (the :mobile:app precedent) —
+        // without this, any `iosApp (Staging)`/(Dev)/(Production) scheme build fails with
+        // "Could not identify build type for Kotlin framework 'infraAdmob'".
+        xcodeConfigurationToNativeBuildType["Dev Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Staging Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Prod Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Prod Release"] = NativeBuildType.RELEASE
         framework {
             baseName = "infraAdmob"
             isStatic = true
