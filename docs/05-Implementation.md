@@ -1132,6 +1132,8 @@ COMMIT;
 
 Repository-layer query rules: exclude `author_id` from timelines / replies / search if a block exists in either direction; profile view = 404; DM send = 403. Enforced by `BlockExclusionJoinRule` Detekt rule (allowlist: Repository own-content path + admin module). Rate limit 30 block/unblock per hour per user (anti-flip-flop).
 
+Block-target sourcing on mobile (`mobile-block-from-content`, 2026-07): the `single-post-read` response carries `authorUserId` at timeline-wire parity — never rendered client-side, existing solely to drive the post-context block action (a deliberate, scoped relaxation of the issue-#202 "no author UUID on the single-post wire" stance; coordinates stay excluded). The reply wire likewise carries `author_id` (block target, never rendered) plus the `author_username`/`author_display_name` display identity (reply-card identity row, mockup frame 7).
+
 ---
 
 ## FCM Token Registration

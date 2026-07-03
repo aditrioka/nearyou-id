@@ -93,7 +93,7 @@ The author UUID used by a block action (the post's `authorUserId` from the singl
 
 ### Requirement: Timeline-card block entry point is deferred
 
-This capability SHALL NOT add a block affordance to the shared timeline post card (`PostCard`) or modify the `mobile-post-card` spec — the timeline-card block entry point is deferred so this change stays footprint-disjoint from the in-flight `image-attached-posts` change ([#354](https://github.com/aditrioka/nearyou-id/pull/354)), which currently owns `PostCard` (the exact precedent the `mobile-content-report` capability set when it deferred the timeline-card report kebab as [#363](https://github.com/aditrioka/nearyou-id/issues/363)). A GitHub `follow-up` issue SHALL track the deferred timeline-card block kebab as the MODIFY hook for a future change.
+This capability SHALL NOT add a block affordance to the shared timeline post card (`PostCard`) or modify the `mobile-post-card` spec — the timeline-card block entry point is deferred so this change stays footprint-disjoint from the in-flight `image-attached-posts` change ([#354](https://github.com/aditrioka/nearyou-id/pull/354)), which currently owns `PostCard` (the exact precedent the `mobile-content-report` capability set when it deferred the timeline-card report kebab as [#363](https://github.com/aditrioka/nearyou-id/issues/363)). GitHub `follow-up` issue [#456](https://github.com/aditrioka/nearyou-id/issues/456) tracks the deferred timeline-card block kebab as the MODIFY hook for a future change.
 
 #### Scenario: No block affordance is added to the timeline card
 
@@ -103,7 +103,7 @@ This capability SHALL NOT add a block affordance to the shared timeline post car
 #### Scenario: Follow-up issue tracks the timeline-card deferral
 
 - **WHEN** inspecting the project's open GitHub issues (label `follow-up`)
-- **THEN** an issue tracks the deferred timeline-card block kebab
+- **THEN** issue [#456](https://github.com/aditrioka/nearyou-id/issues/456) tracks the deferred timeline-card block kebab
 
 ### Requirement: Test coverage for the block-from-content capability
 

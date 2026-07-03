@@ -36,10 +36,10 @@
 
 ## 6. Deferral tracking + docs reconciliation
 
-- [ ] 6.1 File a `follow-up` GitHub issue for the deferred **timeline-card block kebab** (the MODIFY hook for a future change, mirroring report #363); record its number in the `mobile-block-from-content` spec's "Timeline-card block entry point is deferred" requirement.
-- [ ] 6.2 File a `follow-up` GitHub issue for the deferred **post-detail header tap-to-profile** (separate concern).
-- [ ] 6.3 Confirm GitHub issue [#200](https://github.com/aditrioka/nearyou-id/issues/200) (block-from-post-context deferral) is resolved by this change; close it on archive.
-- [ ] 6.4 Docs reconciliation: add a one-line note to `docs/05-Implementation.md` §"User Blocking" (and/or the issue-#202 reference) that `single-post-read` now carries `authorUserId` at timeline-wire parity for the block action (never rendered). Surface to the operator if a broader #202 amendment is wanted.
+- [x] 6.1 File a `follow-up` GitHub issue for the deferred **timeline-card block kebab** (the MODIFY hook for a future change, mirroring report #363); record its number in the `mobile-block-from-content` spec's "Timeline-card block entry point is deferred" requirement. → filed [#456](https://github.com/aditrioka/nearyou-id/issues/456), recorded in the spec.
+- [x] 6.2 File a `follow-up` GitHub issue for the deferred **post-detail header tap-to-profile** (separate concern). → filed [#455](https://github.com/aditrioka/nearyou-id/issues/455).
+- [x] 6.3 Confirm GitHub issue [#200](https://github.com/aditrioka/nearyou-id/issues/200) (block-from-post-context deferral) is resolved by this change; close it on archive. → confirmed OPEN + resolved by this change (the post-header + reply-row kebabs ship); close at archive.
+- [x] 6.4 Docs reconciliation: add a one-line note to `docs/05-Implementation.md` §"User Blocking" (and/or the issue-#202 reference) that `single-post-read` now carries `authorUserId` at timeline-wire parity for the block action (never rendered). Surface to the operator if a broader #202 amendment is wanted.
 
 ## 7. Verify + gate
 
