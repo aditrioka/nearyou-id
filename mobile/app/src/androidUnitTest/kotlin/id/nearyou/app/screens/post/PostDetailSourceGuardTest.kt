@@ -64,7 +64,10 @@ class PostDetailSourceGuardTest {
         assertTrue(dialog.contains("stringResource(Res.string.cta_block)"), "the confirm must use stringResource")
         assertTrue(dialog.contains("stringResource(Res.string.cta_cancel)"), "the dismiss must use stringResource")
         // The block menu items on the screen interpolate the username via the parameterized resource.
-        assertTrue(screen.contains("stringResource(Res.string.profile_block_action,"), "the block menu label must use the parameterized resource")
+        assertTrue(
+            screen.contains("stringResource(Res.string.profile_block_action,"),
+            "the block menu label must use the parameterized resource",
+        )
     }
 
     @Test

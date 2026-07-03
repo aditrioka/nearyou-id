@@ -269,6 +269,11 @@ class JdbcPostReplyRepository(
         // INSERT ... RETURNING wrapped in a CTE so the 201 body carries the CALLER's own display
         // identity (mobile-block-from-content D7) in the same statement — a raw-`users` read of
         // self, so a shadow-banned caller still gets their own identity.
+        @AllowMissingBlockJoin(
+            "self-identity projection of the just-inserted own reply (mobile-block-from-content D7): " +
+                "the JOIN users reads only the CALLER's own username/display_name for the 201 body — " +
+                "no cross-user surface, nothing to block-exclude",
+        )
         const val INSERT_RETURNING_WITH_IDENTITY: String =
             """
             WITH ins AS (
