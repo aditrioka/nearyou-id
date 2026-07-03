@@ -175,10 +175,10 @@ CREATE INDEX users_privacy_flip_idx ON users(privacy_flip_scheduled_at) WHERE pr
 - `subscription_status` CHECK enforces the 3-state machine (`01-Business.md`).
 - `inviter_reward_claimed_at` (DESIGN): lifetime sentinel for future referral system, set on 5th-referral milestone.
 - `username VARCHAR(60)`: ceiling sized for worst-case auto-generated `{adjective}_{noun}_{uuid8hex}`; Premium customization (DESIGN) tightens to a 30-char user-facing cap.
-- `username_last_changed_at` / `privacy_flip_scheduled_at` are DESIGN-reserved columns.
+- `username_last_changed_at` / `privacy_flip_scheduled_at` were DESIGN-reserved at V2; both are live now (`premium-username-customization` and `privacy-flip-worker` / `private-profile` respectively).
 - `invite_code_prefix`: stable 8-char base32 = `base32(HMAC-SHA256(invite-code-secret, user_id.bytes))[0..8]`, populated at signup, resolves O(1). Implemented in `InviteCodePrefixDeriver.kt`.
 
-**Effective private** = `private_profile_opt_in = TRUE AND subscription_status IN ('premium_active', 'premium_billing_retry')`. The 72h privacy-flip-window short-circuit is DESIGN.
+**Effective private** = `private_profile_opt_in = TRUE AND subscription_status IN ('premium_active', 'premium_billing_retry')`. The 72h privacy-flip-window short-circuit is shipped (`JdbcUserProfileReader`; applied by `privacy-flip-worker`). The user-facing opt-in writer is shipped too: `PATCH /api/v1/user/private-profile` (the `private-profile` capability — the sanctioned `@allow-privacy-write: user_settings` Settings-flow writer; an opt-out also clears `privacy_flip_scheduled_at`, the "confirm switch public" path).
 
 ---
 

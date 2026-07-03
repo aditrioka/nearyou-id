@@ -93,6 +93,9 @@ import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.post.PostEditRepository
 import id.nearyou.app.post.ReplyApiClient
 import id.nearyou.app.post.SinglePostApiClient
+import id.nearyou.app.privateprofile.DefaultPrivateProfileRepository
+import id.nearyou.app.privateprofile.PrivateProfileApiClient
+import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.profile.ProfileApiClient
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileRepository
@@ -366,6 +369,13 @@ val mobileModule =
         // the screen tests; reuses the shared bearer-authed HttpClient.
         single { HideDistanceApiClient(get()) }
         single<HideDistanceRepository> { DefaultHideDistanceRepository(get()) }
+
+        // private-profile capability — the Settings Premium toggle seam (the sanctioned `user_settings`
+        // privacy-flag writer). ApiClient (GET state + PATCH) → DefaultPrivateProfileRepository bound
+        // behind the PrivateProfileRepository interface so a fake drives the screen tests; reuses the
+        // shared bearer-authed HttpClient.
+        single { PrivateProfileApiClient(get()) }
+        single<PrivateProfileRepository> { DefaultPrivateProfileRepository(get()) }
 
         // mobile-referral — the referral surface seam (GET /api/v1/user/referral). ApiClient →
         // DefaultReferralRepository bound behind the ReferralRepository interface so a fake drives the

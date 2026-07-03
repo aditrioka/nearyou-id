@@ -318,6 +318,10 @@
          toggle, and the non-trapping error when the toggle's PATCH fails. FLAGGED FOR UX REVIEW. -->
     <string name="settings_hide_distance_premium_only">Fitur Premium. Aktifkan Premium untuk menyembunyikan jarak.</string>
     <string name="settings_hide_distance_error">Gagal memperbarui pengaturan. Coba lagi.</string>
+    <!-- private-profile capability: the Premium upsell shown when a Free user taps the "Profil privat"
+         toggle, and the non-trapping error when the toggle's PATCH fails. FLAGGED FOR UX REVIEW. -->
+    <string name="settings_private_profile_premium_only">Fitur Premium. Aktifkan Premium untuk profil privat.</string>
+    <string name="settings_private_profile_error">Gagal memperbarui pengaturan. Coba lagi.</string>
     <string name="settings_save">Simpan</string>
     <string name="settings_logout_title">Keluar dari akun?</string>
     <string name="settings_logout_body">Kamu perlu masuk lagi dengan Google untuk memakai NearYouID.</string>

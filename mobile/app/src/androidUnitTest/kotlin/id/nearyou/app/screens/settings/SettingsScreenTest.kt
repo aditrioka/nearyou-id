@@ -17,7 +17,10 @@ import id.nearyou.app.data.dataexport.DataExportStatusOutcome
 import id.nearyou.app.data.dataexport.FakeDataExportFlow
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceState
+import id.nearyou.app.privateprofile.PrivateProfileRepository
+import id.nearyou.app.privateprofile.PrivateProfileState
 import id.nearyou.app.theme.NearYouTheme
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -36,18 +39,25 @@ private const val TITLE = "Pengaturan"
 private const val PRIVACY_DATA = "Privasi & data"
 private const val BLOCKED = "Pengguna diblokir"
 private const val PRIVATE_PROFILE = "Profil privat"
+private const val PRIVATE_PROFILE_UPSELL = "Fitur Premium. Aktifkan Premium untuk profil privat."
+private const val PRIVATE_PROFILE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
 private const val HIDE_DISTANCE = "Sembunyikan jarak"
 private const val HIDE_DISTANCE_UPSELL = "Fitur Premium. Aktifkan Premium untuk menyembunyikan jarak."
 private const val HIDE_DISTANCE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
+private const val MANAGE_SUBSCRIPTION = "Kelola langganan"
 private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
 private const val INVITE_FRIENDS = "Undang teman"
 private const val PAYWALL_CTA = "Aktifkan Premium" // cta_activate_premium — must NOT appear (no paywall divert)
 
-/** A configurable [HideDistanceRepository] fake: seeds the toggle state and records write calls. */
+/**
+ * A configurable [HideDistanceRepository] fake: seeds the toggle state, records write calls, and
+ * optionally [writeGate]s the write so a single-flight double-tap can be exercised.
+ */
 private class FakeHideDistanceRepository(
     private val initial: HideDistanceState? = null,
     private val writeSucceeds: Boolean = true,
+    private val writeGate: CompletableDeferred<Unit>? = null,
 ) : HideDistanceRepository {
     val setCalls = mutableListOf<Boolean>()
 
@@ -55,6 +65,28 @@ private class FakeHideDistanceRepository(
 
     override suspend fun setHideDistance(value: Boolean): Boolean {
         setCalls += value
+        writeGate?.await()
+        return writeSucceeds
+    }
+}
+
+/**
+ * A configurable [PrivateProfileRepository] fake: seeds the toggle state, records write calls, and
+ * optionally [writeGate]s the write so a single-flight double-tap can be exercised (the first write
+ * stays in-flight while the second tap is issued).
+ */
+private class FakePrivateProfileRepository(
+    private val initial: PrivateProfileState? = null,
+    private val writeSucceeds: Boolean = true,
+    private val writeGate: CompletableDeferred<Unit>? = null,
+) : PrivateProfileRepository {
+    val setCalls = mutableListOf<Boolean>()
+
+    override suspend fun loadState(): PrivateProfileState? = initial
+
+    override suspend fun setPrivateProfile(value: Boolean): Boolean {
+        setCalls += value
+        writeGate?.await()
         return writeSucceeds
     }
 }
@@ -89,6 +121,7 @@ class SettingsScreenTest {
 
     private fun installKoin(
         hideDistance: HideDistanceRepository = FakeHideDistanceRepository(),
+        privateProfile: PrivateProfileRepository = FakePrivateProfileRepository(),
         dataExport: FakeDataExportFlow = FakeDataExportFlow(),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
@@ -105,6 +138,7 @@ class SettingsScreenTest {
                     // Default fake → None status (no banner, requestable), so the existing assertions hold.
                     single<DataExportFlow> { dataExportFlow }
                     single<HideDistanceRepository> { hideDistance }
+                    single<PrivateProfileRepository> { privateProfile }
                 },
             )
         }
@@ -224,7 +258,9 @@ class SettingsScreenTest {
                     }
                 }
             }
-            onNodeWithText(PRIVATE_PROFILE).performScrollTo().performClick()
+            // "Profil privat" is now BACKED (private-profile capability) — the deferred-row contract is
+            // asserted on a remaining deferred row, "Kelola langganan".
+            onNodeWithText(MANAGE_SUBSCRIPTION).performScrollTo().performClick()
             waitUntil { onAllNodesWithText(COMING_SOON).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(COMING_SOON).assertExists()
             // A deferred row performs NO navigation and NO logout (and structurally no backend write).
@@ -349,6 +385,105 @@ class SettingsScreenTest {
             waitUntil { onAllNodesWithText(HIDE_DISTANCE_ERROR).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(HIDE_DISTANCE_ERROR).assertExists() // the toggle reverts; the error is the observable signal
             assertEquals(listOf(true), fake.setCalls)
+        }
+    }
+
+    @Test
+    fun hideDistance_rapidDoubleTap_issuesAtMostOneInFlightWrite() {
+        // Mirrors the private-profile double-tap test: the synchronous single-flight guard (set
+        // before launch) was applied to BOTH privacy toggles — this covers the hide-distance sibling.
+        val gate = CompletableDeferred<Unit>()
+        val fake =
+            FakeHideDistanceRepository(
+                initial = HideDistanceState(hideDistance = false, premium = true),
+                writeGate = gate,
+            )
+        installKoin(fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(HIDE_DISTANCE).performScrollTo().performClick()
+            onNodeWithText(HIDE_DISTANCE).performClick() // rapid second tap while the first write is in-flight
+            gate.complete(Unit)
+            waitUntil { fake.setCalls.isNotEmpty() }
+            assertEquals(listOf(true), fake.setCalls, "a rapid double-tap issues AT MOST one in-flight PATCH")
+        }
+    }
+
+    @Test
+    fun privateProfile_premiumToggle_issuesSingleWrite() {
+        val fake = FakePrivateProfileRepository(initial = PrivateProfileState(privateProfile = false, premium = true))
+        installKoin(privateProfile = fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the init GET (loadState) settle so premium=true before the tap
+            onNodeWithText(PRIVATE_PROFILE).performScrollTo().performClick()
+            waitUntil { fake.setCalls.isNotEmpty() }
+            assertEquals(listOf(true), fake.setCalls)
+        }
+    }
+
+    @Test
+    fun privateProfile_freeToggle_showsUpsell_andWritesNothing() {
+        val fake = FakePrivateProfileRepository(initial = PrivateProfileState(privateProfile = false, premium = false))
+        installKoin(privateProfile = fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(PRIVATE_PROFILE).performScrollTo().performClick()
+            waitUntil { onAllNodesWithText(PRIVATE_PROFILE_UPSELL).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(PRIVATE_PROFILE_UPSELL).assertExists()
+            assertEquals(emptyList(), fake.setCalls) // a Free caller issues NO write
+        }
+    }
+
+    @Test
+    fun privateProfile_failedWrite_surfacesErrorAndAttemptedOnce() {
+        val fake =
+            FakePrivateProfileRepository(
+                initial = PrivateProfileState(privateProfile = false, premium = true),
+                writeSucceeds = false,
+            )
+        installKoin(privateProfile = fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(PRIVATE_PROFILE).performScrollTo().performClick()
+            waitUntil { onAllNodesWithText(PRIVATE_PROFILE_ERROR).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(PRIVATE_PROFILE_ERROR).assertExists() // the toggle reverts; the error is the observable signal
+            assertEquals(listOf(true), fake.setCalls)
+        }
+    }
+
+    @Test
+    fun privateProfile_rapidDoubleTap_issuesAtMostOneInFlightWrite() {
+        // The write gate holds the first PATCH in-flight; the second tap must be swallowed by the
+        // synchronous single-flight guard (mirrors the consent / hide-distance double-tap defense).
+        val gate = CompletableDeferred<Unit>()
+        val fake =
+            FakePrivateProfileRepository(
+                initial = PrivateProfileState(privateProfile = false, premium = true),
+                writeGate = gate,
+            )
+        installKoin(privateProfile = fake)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(PRIVATE_PROFILE).performScrollTo().performClick()
+            onNodeWithText(PRIVATE_PROFILE).performClick() // rapid second tap while the first write is in-flight
+            gate.complete(Unit)
+            waitUntil { fake.setCalls.isNotEmpty() }
+            assertEquals(listOf(true), fake.setCalls, "a rapid double-tap issues AT MOST one in-flight PATCH")
         }
     }
 
