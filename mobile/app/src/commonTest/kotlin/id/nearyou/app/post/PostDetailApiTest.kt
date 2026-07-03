@@ -28,15 +28,23 @@ private fun jsonWithRetryAfter(seconds: String) =
 
 private const val POST_ID = "11111111-1111-1111-1111-111111111111"
 
-// A reply on the SHIPPED snake_case wire (post_id / author_id / is_auto_hidden / created_at / …).
+// A reply on the SHIPPED snake_case wire (post_id / author_id / author_username / author_display_name /
+// is_auto_hidden / created_at / … — the identity fields shipped with mobile-block-from-content D7).
 private const val REPLY_JSON =
     """{"id":"r1","post_id":"p1","author_id":"22222222-2222-2222-2222-222222222222",""" +
+        """"author_username":"sinta.mhr","author_display_name":"Sinta Maharani",""" +
         """"content":"hi","is_auto_hidden":false,"created_at":"2026-06-06T00:00:00Z","updated_at":null,"deleted_at":null}"""
 
 // A viewer's-own auto-hidden reply (the only reachable is_auto_hidden = true case) — must parse cleanly.
 private const val REPLY_JSON_AUTO_HIDDEN =
     """{"id":"r2","post_id":"p1","author_id":"22222222-2222-2222-2222-222222222222",""" +
+        """"author_username":"sinta.mhr","author_display_name":"Sinta Maharani",""" +
         """"content":"mine","is_auto_hidden":true,"created_at":"2026-06-06T00:00:00Z","updated_at":null,"deleted_at":null}"""
+
+// An OLDER-backend body WITHOUT the identity keys — must still decode (nullable-with-default guard).
+private const val REPLY_JSON_NO_IDENTITY =
+    """{"id":"r3","post_id":"p1","author_id":"22222222-2222-2222-2222-222222222222",""" +
+        """"content":"legacy","is_auto_hidden":false,"created_at":"2026-06-06T00:00:00Z","updated_at":null,"deleted_at":null}"""
 
 /**
  * MockEngine-backed coverage of `LikeApiClient` / `ReplyApiClient` / `PostDetailRepository` (task 9.2):
@@ -171,11 +179,28 @@ class PostDetailApiTest {
             assertEquals("r1", result.reply.id)
             assertEquals("p1", result.reply.postId)
             assertEquals("22222222-2222-2222-2222-222222222222", result.reply.authorId)
+            // mobile-block-from-content D7: the identity fields bind from their snake_case keys.
+            assertEquals("sinta.mhr", result.reply.authorUsername)
+            assertEquals("Sinta Maharani", result.reply.authorDisplayName)
             assertEquals("hi", result.reply.content)
             assertFalse(result.reply.isAutoHidden)
             assertEquals("2026-06-06T00:00:00Z", result.reply.createdAt)
             assertEquals(HttpMethod.Post, method)
             assertEquals("/api/v1/posts/$POST_ID/replies", path)
+        }
+
+    @Test
+    fun `reply body WITHOUT identity keys still decodes - older-backend guard`() =
+        runTest {
+            // mobile-block-from-content D7: author_username / author_display_name are
+            // nullable-with-default, so an older-backend body decodes with null identity (the card
+            // omits the identity row + block item gracefully) — never a parse failure.
+            val api = replyApi { respond(REPLY_JSON_NO_IDENTITY, HttpStatusCode.Created, JSON_HEADERS) }
+            val result = api.postReply(POST_ID, "legacy")
+            assertTrue(result is ReplyPostApiResult.Created)
+            assertNull(result.reply.authorUsername)
+            assertNull(result.reply.authorDisplayName)
+            assertEquals("legacy", result.reply.content)
         }
 
     @Test

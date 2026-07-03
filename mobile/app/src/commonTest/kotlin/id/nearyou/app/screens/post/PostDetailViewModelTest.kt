@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.post
 
+import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportOutcome
@@ -263,5 +264,95 @@ class PostDetailViewModelTest {
         viewModel.onReportSubmitted(ReportReasonCategory.OTHER, note = null)
 
         assertEquals(PostDetailReportMessage.FAILED, viewModel.reportMessage.value)
+    }
+
+    // ---- mobile-block-from-content: the block dialog target + outcome mapping + nav/removal effects ----
+
+    private fun blockVm(
+        blockSubmitter: FakeBlockSubmitter,
+        replies: RepliesOutcome = loaded(null, "r1", "r2"),
+    ): PostDetailViewModel =
+        PostDetailViewModel(
+            FakePostDetailFlow(repliesOutcome = replies),
+            postId = "p1",
+            initialReplyCount = 2,
+            reportSubmitter = FakeReportSubmitter(),
+            blockSubmitter = blockSubmitter,
+        )
+
+    @Test
+    fun postBlock_confirmed_submitsTheAuthorUuid_popsBack_andShowsSuccess() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.Blocked)
+        val viewModel = blockVm(submitter)
+        viewModel.onBlockPostClicked(authorUserId = "author-A", username = "raka.jkt")
+        assertEquals(BlockTarget.Post("author-A", "raka.jkt"), viewModel.blockTarget.value)
+
+        viewModel.onBlockConfirmed()
+
+        assertNull(viewModel.blockTarget.value, "confirming dismisses the dialog")
+        assertEquals("author-A", submitter.lastUserId, "the post block targets the freshness-read author UUID")
+        assertEquals(PostDetailBlockMessage.SUCCESS, viewModel.blockMessage.value)
+        assertTrue(viewModel.blockPopBack.value, "a confirmed post block pops the screen")
+        assertEquals(listOf("r1", "r2"), viewModel.replyIds(), "a post block removes no reply row")
+
+        viewModel.onBlockPoppedBack()
+        assertFalse(viewModel.blockPopBack.value, "the pop one-shot clears after the pop")
+        viewModel.onBlockMessageShown()
+        assertNull(viewModel.blockMessage.value, "the one-shot message clears after being shown")
+    }
+
+    @Test
+    fun replyBlock_confirmed_submitsTheReplyAuthor_removesTheRow_withoutPopOrCountChange() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.Blocked)
+        val viewModel = blockVm(submitter)
+        viewModel.onBlockReplyClicked(replyId = "r1", authorId = "author-B", username = "sinta.mhr")
+        assertEquals(BlockTarget.Reply("r1", "author-B", "sinta.mhr"), viewModel.blockTarget.value)
+
+        viewModel.onBlockConfirmed()
+
+        assertEquals("author-B", submitter.lastUserId, "the reply block targets the reply author_id")
+        assertEquals(listOf("r2"), viewModel.replyIds(), "the blocked reply row is removed locally")
+        assertFalse(viewModel.blockPopBack.value, "a reply block never pops the screen")
+        assertEquals(PostDetailBlockMessage.SUCCESS, viewModel.blockMessage.value)
+        assertEquals(2, viewModel.replyCount.value, "the public viewer-independent counter is NOT decremented")
+    }
+
+    @Test
+    fun blockRateLimited_showsRateLimitMessage_withNoPopAndNoRemoval() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.RateLimited(retryAfterSeconds = 60))
+        val viewModel = blockVm(submitter)
+        viewModel.onBlockReplyClicked(replyId = "r1", authorId = "author-B", username = "sinta.mhr")
+
+        viewModel.onBlockConfirmed()
+
+        assertEquals(PostDetailBlockMessage.RATE_LIMITED, viewModel.blockMessage.value)
+        assertEquals(listOf("r1", "r2"), viewModel.replyIds(), "a rate-limited block removes nothing")
+        assertFalse(viewModel.blockPopBack.value, "a rate-limited block never navigates")
+    }
+
+    @Test
+    fun blockNetworkError_showsFailedMessage_withNoPopAndNoRemoval() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.NetworkError)
+        val viewModel = blockVm(submitter)
+        viewModel.onBlockPostClicked(authorUserId = "author-A", username = "raka.jkt")
+
+        viewModel.onBlockConfirmed()
+
+        assertEquals(PostDetailBlockMessage.FAILED, viewModel.blockMessage.value)
+        assertEquals(listOf("r1", "r2"), viewModel.replyIds())
+        assertFalse(viewModel.blockPopBack.value, "a failed block never navigates")
+    }
+
+    @Test
+    fun onBlockDialogDismissed_clearsTheTarget_withZeroSubmissions() {
+        val submitter = FakeBlockSubmitter()
+        val viewModel = blockVm(submitter)
+        viewModel.onBlockReplyClicked(replyId = "r1", authorId = "author-B", username = "sinta.mhr")
+
+        viewModel.onBlockDialogDismissed()
+
+        assertNull(viewModel.blockTarget.value)
+        assertEquals(0, submitter.submitCount, "Batal issues ZERO block submissions")
+        assertEquals(listOf("r1", "r2"), viewModel.replyIds())
     }
 }

@@ -51,6 +51,22 @@ class PostDetailSourceGuardTest {
         assertTrue(screen.contains("stringResource(Res.string.post_detail_posted_from"), "the header must use stringResource")
     }
 
+    // mobile-block-from-content spec § "No hardcoded block strings": the shared dialog + the block menu
+    // items resolve every user-facing string via Res.string.* (the canonical docs/03 copy lives in
+    // shared/resources, not in the composables).
+    @Test
+    fun blockConfirmDialog_hasNoHardcodedUiStringLiterals() {
+        val dialog = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/ui/components/BlockConfirmDialog.kt")
+        assertFalse(dialog.contains("Text(\""), "BlockConfirmDialog has a hardcoded Text(\"…\") literal")
+        assertFalse(Regex("""text\s*=\s*"""").containsMatchIn(dialog), "BlockConfirmDialog has a hardcoded text = \"…\" literal")
+        assertTrue(dialog.contains("stringResource(Res.string.profile_block_confirm_title"), "the title must use stringResource")
+        assertTrue(dialog.contains("stringResource(Res.string.profile_block_confirm_body)"), "the body must use stringResource")
+        assertTrue(dialog.contains("stringResource(Res.string.cta_block)"), "the confirm must use stringResource")
+        assertTrue(dialog.contains("stringResource(Res.string.cta_cancel)"), "the dismiss must use stringResource")
+        // The block menu items on the screen interpolate the username via the parameterized resource.
+        assertTrue(screen.contains("stringResource(Res.string.profile_block_action,"), "the block menu label must use the parameterized resource")
+    }
+
     @Test
     fun postDetailScreen_holdsNoBackStackReference() {
         // Navigation comes only via the hoisted onBack lambda (spec § "PostDetailScreen holds no back-stack reference").
