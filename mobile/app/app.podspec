@@ -9,7 +9,12 @@ Pod::Spec.new do |spec|
     spec.vendored_frameworks      = 'build/cocoapods/framework/ComposeApp.framework'
     spec.libraries                = 'c++'
     spec.ios.deployment_target    = '16.0'
+    spec.dependency 'FirebaseMessaging', '11.6.0'
+    spec.dependency 'Google-Mobile-Ads-SDK', '12.12.0'
     spec.dependency 'GoogleSignIn', '8.0.0'
+    spec.dependency 'GoogleUserMessagingPlatform', '3.0.0'
+    spec.dependency 'RevenueCat', '5.77.0'
+    spec.dependency 'Sentry', '8.58.2'
     if !Dir.exist?('build/cocoapods/framework/ComposeApp.framework') || Dir.empty?('build/cocoapods/framework/ComposeApp.framework')
         raise "
         Kotlin framework 'ComposeApp' doesn't exist yet, so a proper Xcode project can't be generated.

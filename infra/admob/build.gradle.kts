@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 
 plugins {
     id("nearyou.kotlin.multiplatform")
@@ -35,6 +36,14 @@ kotlin {
         summary = "NearYou :infra:admob — Google Mobile Ads + UMP cinterop seam"
         homepage = "https://nearyou.id"
         ios.deploymentTarget = "16.0"
+        // The custom Xcode build-configuration matrix (Dev/Staging/Prod × Debug/Release) must map to
+        // K/N build types on EVERY cocoapods module in the workspace, not just :mobile:app — without
+        // these the framework sync fails ("Could not identify build type for Kotlin framework
+        // 'infraAdmob'") for any flavored scheme. Mirrors mobile/app/build.gradle.kts.
+        xcodeConfigurationToNativeBuildType["Dev Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Staging Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Prod Debug"] = NativeBuildType.DEBUG
+        xcodeConfigurationToNativeBuildType["Prod Release"] = NativeBuildType.RELEASE
         framework {
             baseName = "infraAdmob"
             isStatic = true
