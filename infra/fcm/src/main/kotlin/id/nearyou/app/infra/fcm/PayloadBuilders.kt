@@ -16,9 +16,17 @@ import id.nearyou.data.repository.NotificationRow
  * Android push: data-only message with `priority = HIGH` per
  * docs/04-Architecture.md:506. The app handles rendering locally with the
  * user's preview-toggle preference check.
+ *
+ * [actorUsername] is the `ActorUsernameLookup` result for the row's
+ * `actor_user_id` — the SAME masked value `PushCopy.bodyFor` interpolates into
+ * the iOS alert body. The dispatcher-side masking (`mobile-push-message-handling`
+ * MODIFY) is applied here via [maskActorUsername] so the data-only Android
+ * client renders faithful copy without a render-time network call and without
+ * re-deriving the shadow-ban masking.
  */
 fun buildAndroidMessage(
     notification: NotificationRow,
+    actorUsername: String?,
     token: String,
 ): Message =
     Message.builder()
@@ -30,12 +38,31 @@ fun buildAndroidMessage(
         )
         .putData("type", notification.type.wire)
         .putData("actor_user_id", notification.actorUserId?.toString().orEmpty())
+        .putData("actor_username", maskActorUsername(notification.actorUserId, actorUsername))
         .putData("target_type", notification.targetType.orEmpty())
         .putData("target_id", notification.targetId?.toString().orEmpty())
         // Spec: "" ONLY when body_data IS NULL; any real value — including the
         // `followed` type's literal {} — is passed through JSON-stringified.
         .putData("body_data", notification.bodyDataJson.orEmpty())
         .build()
+
+/**
+ * `actor_username` masking per the `fcm-push-dispatch` MODIFY: a resolved name
+ * passes through; a **non-null** actor whose lookup returned null/blank
+ * (shadow-banned / deleted / not visible via `visible_users`) masks to
+ * [PushCopy.UNKNOWN_ACTOR] — NEVER the empty string and NEVER the real handle
+ * (the Shadow-ban-safety seam); a null actor (system-emitted notification)
+ * maps to `""` so the client renders actor-less copy.
+ */
+internal fun maskActorUsername(
+    actorUserId: java.util.UUID?,
+    resolvedUsername: String?,
+): String =
+    when {
+        actorUserId == null -> ""
+        resolvedUsername.isNullOrBlank() -> PushCopy.UNKNOWN_ACTOR
+        else -> resolvedUsername
+    }
 
 /**
  * Outcome of attempting to clamp + build an iOS payload. The pathology case
@@ -53,13 +80,18 @@ sealed interface IosPayloadResult {
 
 /**
  * iOS push: alert + `mutable-content: 1` + `body_full` data field carrying the
- * un-truncated `body_data` JSON. The future iOS NSE consumes `mutable-content`
- * to optionally rewrite the body based on the on-device preview-toggle.
+ * un-truncated `body_data` JSON, PLUS the tap-routing custom data fields
+ * `type` / `target_type` / `target_id` (same string/empty-string semantics as
+ * the Android data block — `mobile-push-message-handling` MODIFY) so the iOS
+ * `UNUserNotificationCenterDelegate` can feed the shared deep-link resolver
+ * from `userInfo`. The NSE consumes `mutable-content` + `body_full` to
+ * optionally rewrite the body based on the on-device preview-toggle.
  *
  * The assembled APNs payload is clamped to ≤ 4 KB by truncating the longest
  * `body_data` field on a UTF-8 codepoint boundary (Kotlin `String.take(n)`
  * operates on `Char` units; an extra guard avoids splitting surrogate pairs
- * that represent astral-plane codepoints like emoji). Returns
+ * that represent astral-plane codepoints like emoji). The clamp budget
+ * accounts for the routing fields' bytes. Returns
  * [IosPayloadResult.OversizedPayload] when even the longest field cannot be
  * truncated enough to fit.
  */
@@ -70,11 +102,21 @@ fun buildIosMessage(
 ): IosPayloadResult {
     val title = PushCopy.titleFor(notification.type.wire)
     val body = PushCopy.bodyFor(notification.type.wire, actorUsername)
+    val routingType = notification.type.wire
+    val routingTargetType = notification.targetType.orEmpty()
+    val routingTargetId = notification.targetId?.toString().orEmpty()
+    val routingActorUserId = notification.actorUserId?.toString().orEmpty()
     // Same NULL-vs-{} contract as the Android arm above.
     val rawBodyFull = notification.bodyDataJson.orEmpty()
     val clampedBodyFull =
-        clampBodyFullForApns(rawBodyFull, title = title, body = body)
-            ?: return IosPayloadResult.OversizedPayload
+        clampBodyFullForApns(
+            rawBodyFull,
+            title = title,
+            body = body,
+            routingFieldBytes =
+                (routingType + routingTargetType + routingTargetId + routingActorUserId)
+                    .toByteArray(Charsets.UTF_8).size,
+        ) ?: return IosPayloadResult.OversizedPayload
 
     val message =
         Message.builder()
@@ -89,6 +131,12 @@ fun buildIosMessage(
                 ApnsConfig.builder()
                     .setAps(Aps.builder().setMutableContent(true).build())
                     .putCustomData("body_full", clampedBodyFull)
+                    .putCustomData("type", routingType)
+                    .putCustomData("target_type", routingTargetType)
+                    .putCustomData("target_id", routingTargetId)
+                    // The resolver's 5-tuple needs the actor for the `followed` → profile and
+                    // chat → partner-identity paths (opaque routing id — never rendered by iOS).
+                    .putCustomData("actor_user_id", routingActorUserId)
                     .build(),
             )
             .build()
@@ -109,6 +157,13 @@ internal const val APNS_NOTIFICATION_OVERHEAD_BYTES = 256
  * boundary (Kotlin `Char` unit + surrogate-pair guard) so multi-byte emoji
  * and CJK characters are never sliced mid-codepoint.
  *
+ * [routingFieldBytes] is the UTF-8 byte size of the routing custom-data
+ * VALUES (`type` + `target_type` + `target_id` + `actor_user_id`) added by
+ * the `mobile-push-message-handling` MODIFY — subtracted from the budget so
+ * the clamp accounts for them. Their KEY names + JSON syntax (~70 bytes) ride
+ * inside the fixed [APNS_NOTIFICATION_OVERHEAD_BYTES] envelope headroom —
+ * sized with slack for that; re-check if another routing field is ever added.
+ *
  * If [bodyFull] is below threshold, returns it unchanged. If the JSON has no
  * single field large enough to truncate down to fit (e.g., 20 small fields
  * totaling >4 KB with no single dominant field), returns `null` — the caller
@@ -118,12 +173,14 @@ internal fun clampBodyFullForApns(
     bodyFull: String,
     title: String,
     body: String,
+    routingFieldBytes: Int = 0,
 ): String? {
     if (bodyFull.isEmpty()) return bodyFull
     val titleBytes = title.toByteArray(Charsets.UTF_8).size
     val bodyBytes = body.toByteArray(Charsets.UTF_8).size
     val budget =
-        APNS_PAYLOAD_BUDGET_BYTES - APNS_NOTIFICATION_OVERHEAD_BYTES - titleBytes - bodyBytes
+        APNS_PAYLOAD_BUDGET_BYTES - APNS_NOTIFICATION_OVERHEAD_BYTES -
+            titleBytes - bodyBytes - routingFieldBytes
     val rawBytes = bodyFull.toByteArray(Charsets.UTF_8).size
     if (rawBytes <= budget) return bodyFull
 

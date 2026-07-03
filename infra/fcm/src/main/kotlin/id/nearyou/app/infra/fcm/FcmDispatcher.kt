@@ -303,7 +303,7 @@ class FcmDispatcher(
         actorUsername: String?,
     ): BuildResult =
         when (row.platform) {
-            "android" -> BuildResult.Built(buildAndroidMessage(notification, row.token))
+            "android" -> BuildResult.Built(buildAndroidMessage(notification, actorUsername, row.token))
             "ios" ->
                 when (val result = buildIosMessage(notification, actorUsername, row.token)) {
                     is IosPayloadResult.Built -> BuildResult.Built(result.message)

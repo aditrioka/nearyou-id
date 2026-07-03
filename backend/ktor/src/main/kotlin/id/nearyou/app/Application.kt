@@ -406,7 +406,7 @@ fun Application.module() {
     val userRepository: UserRepository = JdbcUserRepository(dataSource)
     val refreshTokenRepository: RefreshTokenRepository = JdbcRefreshTokenRepository(dataSource)
     val refreshTokenService = RefreshTokenService(refreshTokenRepository, userRepository)
-    // Durable login-history (V34) — written best-effort from the auth routes (clientIp +
+    // Durable login-history (V35) — written best-effort from the auth routes (clientIp +
     // request body live there); RefreshTokenService stays untouched. Security-purpose data,
     // not analytics-consent-gated (login-history-tracking).
     val loginEventRecorder = LoginEventRecorder(JdbcLoginEventRepository(dataSource, dbDispatchers.db))

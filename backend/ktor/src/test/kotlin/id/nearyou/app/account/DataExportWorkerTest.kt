@@ -597,7 +597,7 @@ class DataExportWorkerTest : StringSpec({
         csv.contains("occurred_at") shouldBe true // login_events-sourced header
         csv.contains("event_type") shouldBe true
         csv.contains("ip_subnet_24") shouldBe true
-        csv.contains("203.0.113.45") shouldBe true // the IP is now present (omitted pre-V34)
+        csv.contains("203.0.113.45") shouldBe true // the IP is now present (omitted pre-V35)
         csv.contains("203.0.113.0/24") shouldBe true // the generated /24 subnet
         csv.contains("198.51.100.7") shouldBe false // the >90-day row is outside the window
     }
