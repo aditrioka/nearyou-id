@@ -39,7 +39,8 @@ kotlin {
         // The custom Xcode build-configuration matrix (Dev/Staging/Prod × Debug/Release) must map to
         // K/N build types on EVERY cocoapods module in the workspace, not just :mobile:app — without
         // these the framework sync fails ("Could not identify build type for Kotlin framework
-        // 'infraAdmob'") for any flavored scheme. Mirrors mobile/app/build.gradle.kts.
+        // 'infraAdmob'") for any flavored scheme. Mirrors mobile/app/build.gradle.kts; Linux CI
+        // cannot exercise this path (xcodebuild-only), so keep the two blocks in sync by hand.
         xcodeConfigurationToNativeBuildType["Dev Debug"] = NativeBuildType.DEBUG
         xcodeConfigurationToNativeBuildType["Staging Debug"] = NativeBuildType.DEBUG
         xcodeConfigurationToNativeBuildType["Prod Debug"] = NativeBuildType.DEBUG
