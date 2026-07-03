@@ -59,8 +59,9 @@ Mobile App (KMP)
     │                        ├──▶ Resend API (transactional email)
     │                        ├──▶ Firebase Remote Config (feature flags)
     │                        ├──▶ Sentry (backend errors)
-    │                        ├──▶ Amplitude (server-side events, consent-gated)
     │                        └──▶ OTel Collector ──▶ Grafana Cloud
+    │
+    ├──HTTPS──▶ Amplitude (client-side HTTP V2 events, consent-gated)
     │
     └──WSS (Realtime, TLS)──▶ Supabase Realtime (Broadcast mode, private channel + RLS)
                          authenticated via HS256 token issued by Ktor
@@ -127,7 +128,7 @@ Redis Streams provide: message persistence within the stream retention window; c
 | `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27) |
 | `:infra:sentry` | shipped | `mobile-sentry-crash-reporting` ([PR #299](https://github.com/aditrioka/nearyou-id/pull/299)) — `CrashReporter` interface + `SentryCrashReporter` androidMain/iosMain actuals + `NoOpCrashReporter` default + `PiiScrubber`. Consumed by `:mobile:app` via Koin. |
-| `:infra:amplitude` | DESIGN | Consent-gated analytics HTTP client |
+| `:infra:amplitude` | shipped | `mobile-amplitude-analytics` ([PR #367](https://github.com/aditrioka/nearyou-id/pull/367)) — consent-gated **client-side** Amplitude HTTP V2 wrapper (mobile-only KMP module, androidTarget + iOS). Consumed by `:mobile:app` via Koin. |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Firebase Remote Config module may be redundant or complementary — needs explicit decision before scaffolding |
 | `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |

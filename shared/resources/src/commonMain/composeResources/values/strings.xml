@@ -43,6 +43,8 @@
     <string name="age_gate_under18_blocked">Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas.</string>
     <string name="signup_error_account_exists">Akun sudah terdaftar. Silakan masuk.</string>
     <string name="signup_loading">Sedang membuat akun…</string>
+    <!-- mobile-referral: the OPTIONAL invite-code field on the age gate. Empty/blank never blocks the CTA. -->
+    <string name="age_gate_invite_code_label">Kode undangan (opsional)</string>
 
     <!-- Mobile #5 Nearby timeline (mobile-nearby-timeline-screen). The title / loading / sparse-area
          copy is byte-identical to docs/02-Product.md § UX Copy Strategy + docs/03-UX-Design.md
@@ -313,6 +315,22 @@
     <string name="delete_account_banner">Akun dijadwalkan dihapus. Pulihkan sebelum %1$s.</string>
     <string name="delete_account_banner_cancel">Batalkan</string>
     <string name="delete_account_error">Gagal. Coba lagi sebentar.</string>
+    <!-- mobile-data-export-entry: "Unduh Data Saya" (UU-PDP portability). The dialog body is the canonical
+         email-delivery disclosure from docs/03 § Data Export; the in-app ready banner is the convenience
+         path complementing the email (design D2). The subtitle/banner/status copy is status-driven across
+         the shipped vocabulary (none/pending|processing/ready/expired/failed). FLAGGED FOR UX REVIEW. -->
+    <string name="settings_row_data_export">Unduh Data Saya</string>
+    <string name="settings_row_data_export_sub">Minta salinan data akunmu</string>
+    <string name="data_export_dialog_title">Unduh data kamu?</string>
+    <string name="data_export_dialog_body">Export akan dikirim sebagai link download via email dalam 7 hari. Link berlaku 24 jam setelah dikirim.</string>
+    <string name="data_export_confirm">Ya, minta export</string>
+    <string name="data_export_cancel">Batal</string>
+    <string name="data_export_in_progress">Sedang diproses</string>
+    <string name="data_export_ready_banner">Data kamu siap diunduh. Unduh sebelum %1$s.</string>
+    <string name="data_export_ready_open">Buka unduhan</string>
+    <string name="data_export_expired">Tautan kedaluwarsa. Minta ulang.</string>
+    <string name="data_export_failed">Export gagal. Minta ulang.</string>
+    <string name="data_export_error">Gagal. Coba lagi sebentar.</string>
     <string name="blocked_users_title">Pengguna diblokir</string>
     <string name="blocked_users_empty">Belum ada pengguna yang diblokir.</string>
     <string name="blocked_users_unblock">Buka blokir</string>
@@ -374,6 +392,18 @@
     <string name="chat_send_blocked">Tidak dapat mengirim pesan ke user ini</string>
     <string name="chat_open_action">Pesan</string>
     <string name="chat_account_deleted">Akun Dihapus</string>
+    <!-- chat-embedded-posts (share a post into a DM): the post-detail "Bagikan ke chat" action, the
+         conversation picker, the in-thread context card chrome (edited-since-shared banner +
+         hard-deleted state), and the picker result one-shots. BI consistent with the existing register
+         (flagged for UX review in the PR). -->
+    <string name="chat_share_to_chat_action">Bagikan ke chat</string>
+    <string name="chat_picker_title">Bagikan ke</string>
+    <string name="chat_picker_empty">Belum ada percakapan untuk dibagikan.</string>
+    <string name="chat_share_blocked">Tidak dapat membagikan ke user ini.</string>
+    <string name="chat_share_failed">Gagal membagikan. Coba lagi.</string>
+    <string name="chat_shared_post_label">Postingan dibagikan</string>
+    <string name="chat_shared_post_edited_banner">Diedit sejak dibagikan</string>
+    <string name="chat_shared_post_deleted">Postingan telah dihapus</string>
     <string name="notif_permission_rationale">Aktifkan notifikasi agar kamu tahu saat ada pesan baru.</string>
     <!-- mobile-search: the Premium-gated Cari surface (docs/03-UX-Design.md § Search UX). The
          empty-results + rate-limit modal copy are verbatim docs/03:244 / :245. The error/session/loading
@@ -490,5 +520,25 @@
     <string name="radius_value_km" formatted="true">%1$d km</string>
     <string name="radius_upsell_title">Radius khusus Premium</string>
     <string name="radius_upsell_body">Pengguna gratis tetap di 20 km. Aktifkan Premium untuk memilih radius 10, 50, atau 100 km.</string>
+
+    <!-- mobile-admob-ads-foundation — the sponsored-content label on the timeline native-ad card
+         (Indonesian "Sponsored"). No hardcoded UI string (invariant); imported per-key at the use site. -->
+    <string name="native_ad_label">Bersponsor</string>
+
+    <!-- mobile-referral: the Settings "Undang teman" entry row + the referral surface (invite code,
+         copy action, "X dari 5" progress, reward-unlocked state, explainer). Open to ALL tiers (design
+         D3) — no paywall/upsell copy. The reward mechanics mirror docs/01-Business.md § Referral System
+         (invitee earns 1 week Premium per activated registration; inviter earns 1 week once at the 5th
+         successful referral). FLAGGED FOR UX REVIEW. -->
+    <string name="settings_row_invite_friends">Undang teman</string>
+    <string name="settings_row_invite_friends_sub">Bagikan kode undanganmu, dapatkan Premium</string>
+    <string name="referral_title">Undang teman</string>
+    <string name="referral_explainer">Bagikan kode undanganmu. Setiap teman yang mendaftar dan aktif mendapat 1 minggu Premium — kamu juga dapat 1 minggu Premium saat referral ke-5 berhasil.</string>
+    <string name="referral_code_heading">Kode undanganmu</string>
+    <string name="referral_copy_action">Salin kode</string>
+    <string name="referral_code_copied">Kode disalin</string>
+    <string name="referral_progress_heading">Referral berhasil</string>
+    <string name="referral_progress" formatted="true">%1$d dari %2$d</string>
+    <string name="referral_reward_unlocked">Hadiah inviter sudah kamu klaim. Terima kasih sudah mengajak teman!</string>
 </resources>
 

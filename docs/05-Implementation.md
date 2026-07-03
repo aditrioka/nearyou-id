@@ -390,7 +390,7 @@ Append-only: each edit inserts a new row with the **before-edit** snapshot, orde
 
 ### Transactional Atomicity (mandatory)
 
-> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the future post-edit service.
+> Mirrors `backend/ktor/src/main/kotlin/id/nearyou/app/post/CreatePostService.kt` and the shipped post-edit service (`premium-post-editing`).
 
 ```sql
 BEGIN;
@@ -410,6 +410,8 @@ COMMIT;
 ```
 
 App-level retry on `unique_violation` edge case (sub-microsecond collision): rollback + 409 CONFLICT "Coba lagi sebentar."
+
+**Edit re-moderation (shipped, `premium-post-editing` design D1).** The edit transaction re-runs the same moderation pipeline as creation, mirroring `CreatePostService` (the moderate-before-content-write contract is Detekt-enforced by `ContentWriteRequiresModerationRule`): the synchronous keyword `TextModerator` verdict is taken **before** the snapshot+UPDATE above — a **reject** verdict aborts the edit (`400 content_moderated_profanity`, nothing persists, no Layer-3 dispatch); a **flag** verdict lets the edit persist AND inserts a `moderation_queue` row **in the same transaction**; after a successful commit, the fire-and-forget Layer-3 dispatch runs on the new content (same flow as `06-Security-Privacy.md` § Endpoint Flow). This closes the create-clean→edit-toxic laundering path. Authoritative: `openspec/specs/post-editing/spec.md` § "Edited content is re-moderated before it is persisted".
 
 ---
 
@@ -615,7 +617,7 @@ CREATE TABLE deletion_requests (
     scheduled_hard_delete_at TIMESTAMPTZ NOT NULL,
     cancelled_at TIMESTAMPTZ,
     executed_at TIMESTAMPTZ,
-    source VARCHAR(24) NOT NULL CHECK (source IN (
+    source VARCHAR(32) NOT NULL CHECK (source IN (
         'user', 'apple_s2s_consent_revoked', 'apple_s2s_account_delete', 'admin'
     ))
 );
@@ -1070,7 +1072,8 @@ CREATE TABLE chat_messages (
     redaction_reason TEXT,
     CHECK (content IS NOT NULL OR embedded_post_id IS NOT NULL OR embedded_post_snapshot IS NOT NULL),
     CHECK ((redacted_at IS NULL AND redacted_by IS NULL AND redaction_reason IS NULL)
-        OR (redacted_at IS NOT NULL AND redacted_by IS NOT NULL))
+        OR (redacted_at IS NOT NULL AND redacted_by IS NOT NULL)),
+    CHECK (embedded_post_snapshot IS NULL OR octet_length(embedded_post_snapshot::text) < 4096)
 );
 
 CREATE INDEX chat_messages_conv_idx ON chat_messages(conversation_id, created_at DESC);
@@ -1078,7 +1081,7 @@ CREATE INDEX chat_messages_sender_idx ON chat_messages(sender_id, created_at DES
 CREATE INDEX chat_messages_redacted_idx ON chat_messages(redacted_by, redacted_at DESC) WHERE redacted_at IS NOT NULL;
 ```
 
-First CHECK prevents fully empty messages (snapshot term keeps historical rows valid after embedded-post hard-delete — FK cascade nulls `embedded_post_id`). Second CHECK enforces redaction atomicity (all-null OR `redacted_at` + `redacted_by` both set). `embedded_post_edit_id` / `redacted_by` ON DELETE SET NULL preserve history. Redaction UX: client renders "Pesan ini telah dihapus oleh moderator." regardless of original content; affected conversation participants receive a `chat_message_redacted` notification (one row per active participant — matches docs/07 "Chat Message Redaction").
+First CHECK prevents fully empty messages (snapshot term keeps historical rows valid after embedded-post hard-delete — FK cascade nulls `embedded_post_id`). Second CHECK enforces redaction atomicity (all-null OR `redacted_at` + `redacted_by` both set). Third CHECK (`embedded_post_snapshot` size cap, V37 `chat-embedded-posts`) bounds the snapshot to `octet_length(::text) < 4096` so an oversized JSONB can never be persisted or broadcast, keeping the Supabase Realtime broadcast payload within its per-message size limit; the `IS NULL OR` guard short-circuits for every plain (non-embed) message. `embedded_post_edit_id` / `redacted_by` ON DELETE SET NULL preserve history. Redaction UX: client renders "Pesan ini telah dihapus oleh moderator." regardless of original content; affected conversation participants receive a `chat_message_redacted` notification (one row per active participant — matches docs/07 "Chat Message Redaction").
 
 ### Block Enforcement in Chat
 

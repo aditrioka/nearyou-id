@@ -20,11 +20,14 @@ interface AuthFlow {
     /**
      * The Mobile #4 signup-new-user flow. [idToken] is the verified Google ID token carried from
      * the sign-in `404 user_not_found` (reused, NOT re-fetched — design D3); [dateOfBirth] is the
-     * picked DOB. Returns the status-driven [SignUpOutcome] (design D8).
+     * picked DOB; [inviteCode] is the OPTIONAL referral code typed on the age gate (mobile-referral) —
+     * forwarded to the signup call as `invite_code` when non-blank, omitted otherwise. Returns the
+     * status-driven [SignUpOutcome] (design D8).
      */
     suspend fun signUpWithGoogle(
         idToken: String,
         dateOfBirth: LocalDate,
+        inviteCode: String? = null,
     ): SignUpOutcome
 
     suspend fun isAuthenticated(): Boolean
@@ -165,6 +168,7 @@ class AuthRepository(
     override suspend fun signUpWithGoogle(
         idToken: String,
         dateOfBirth: LocalDate,
+        inviteCode: String?,
     ): SignUpOutcome {
         if (!signUpMutex.tryLock()) {
             // A signup is already in flight — reject the concurrent invocation silently.
@@ -172,7 +176,7 @@ class AuthRepository(
         }
         return try {
             // ISO-8601 YYYY-MM-DD (kotlinx-datetime LocalDate.toString()), per the auth-signup wire.
-            attemptSignUp(idToken, dateOfBirth.toString(), allowRetry = true)
+            attemptSignUp(idToken, dateOfBirth.toString(), inviteCode, allowRetry = true)
         } finally {
             signUpMutex.unlock()
         }
@@ -188,9 +192,10 @@ class AuthRepository(
     private suspend fun attemptSignUp(
         idToken: String,
         dateOfBirth: String,
+        inviteCode: String?,
         allowRetry: Boolean,
     ): SignUpOutcome =
-        when (val api = authApiClient.signUp(idToken, dateOfBirth)) {
+        when (val api = authApiClient.signUp(idToken, dateOfBirth, inviteCode)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
                 val sub = decodeJwtSubject(api.tokens.accessToken)
@@ -215,7 +220,7 @@ class AuthRepository(
                     // invalid_id_token: refresh the Google token ONCE and retry; a second 401 is
                     // terminal (the inner attempt below runs with allowRetry = false).
                     api.status == 401 ->
-                        if (allowRetry) refreshTokenAndRetrySignUp(dateOfBirth) else SignUpOutcome.InvalidIdToken
+                        if (allowRetry) refreshTokenAndRetrySignUp(dateOfBirth, inviteCode) else SignUpOutcome.InvalidIdToken
                     // 429 from the auth-endpoint limiter (auth-endpoint-rate-limits): a defined
                     // rate-limited state with a Retry-After hint — NOT the generic RetryableError.
                     api.status == 429 -> SignUpOutcome.RateLimited(api.retryAfterSeconds)
@@ -238,9 +243,12 @@ class AuthRepository(
      * cancelled refresh sheet is treated as terminal token-invalid; a failed ceremony is a
      * retryable connectivity problem (mirroring the sign-in `Failed`→NetworkError mapping).
      */
-    private suspend fun refreshTokenAndRetrySignUp(dateOfBirth: String): SignUpOutcome =
+    private suspend fun refreshTokenAndRetrySignUp(
+        dateOfBirth: String,
+        inviteCode: String?,
+    ): SignUpOutcome =
         when (val ceremony = googleSignIn.signIn()) {
-            is GoogleSignInResult.Success -> attemptSignUp(ceremony.idToken, dateOfBirth, allowRetry = false)
+            is GoogleSignInResult.Success -> attemptSignUp(ceremony.idToken, dateOfBirth, inviteCode, allowRetry = false)
             is GoogleSignInResult.UserCancelled -> SignUpOutcome.InvalidIdToken
             is GoogleSignInResult.Failed -> {
                 diagnosticLog("signup_refresh_ceremony_failed: ${ceremony.message}")

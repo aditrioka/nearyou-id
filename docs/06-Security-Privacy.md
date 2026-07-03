@@ -181,6 +181,8 @@ POST /api/v1/post
 **Cloud Run deployment requirement — `--no-cpu-throttling` is MANDATORY for any environment running Layer 3.** Default request-based CPU billing throttles CPU to ~5% when no inbound request is in flight; Layer 3 dispatch is fire-and-forget AFTER the 201 response, so it runs on throttled CPU and every async operation (Redis cache lookup, TLS handshake to OpenAI, response body parse) takes ~20x longer. Empirically (issue [#88](https://github.com/aditrioka/nearyou-id/issues/88) iter 14 vs iter 15 staging data): identical Redis `isEnabled()` calls measured 5-16ms during user requests vs 2800-7400ms on a background heartbeat timer — a 1000x slowdown purely from CPU throttling. Without the flag, Layer 3 dispatches timeout 100% on the 3000ms budget; with it they complete in 300-1200ms total (matching the raw-curl baseline from a one-shot CRJ in the same region). Staging applies the flag in [`.github/workflows/deploy-staging.yml`](../.github/workflows/deploy-staging.yml); production deploy MUST mirror. Trade-off: instance-based billing charges for CPU continuously (~+\$15-25/mo per always-on instance) — the documented Cloud Run pattern for post-response background work ([Cloud Run gets always-on CPU allocation](https://cloud.google.com/blog/products/serverless/cloud-run-gets-always-on-cpu-allocation)).
 ```
 
+**Post edits are re-moderated (shipped, `premium-post-editing`).** `PATCH`-editing a post re-runs the same pipeline — Layer 1 reject → 400 pre-write; Layer 2 flag → `moderation_queue` row in the edit transaction; Layer 3 dispatched async after commit on the new content — so an edit cannot launder clean-at-create→toxic-after-edit content past create-time moderation. Authoritative: `openspec/specs/post-editing/spec.md` § "Edited content is re-moderated before it is persisted"; transaction shape: `05-Implementation.md` § Transactional Atomicity.
+
 ### Legal Documentation
 
 - RoPA includes moderation decision data retention for 1 year
@@ -272,10 +274,10 @@ Early phase: manual review via Admin Panel; add AI moderation when Premium media
 
 Two distinct admin actions, same underlying columns:
 
-- **7-day suspension**: `UPDATE users SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days', token_version = token_version + 1 WHERE id = :uid`. A daily worker (`/internal/unban-worker`) flips `is_banned = FALSE` and nulls `suspended_until` when the window elapses. See `05-Implementation.md`.
-- **Permanent ban**: `UPDATE users SET is_banned = TRUE, suspended_until = NULL, token_version = token_version + 1 WHERE id = :uid`. No automatic unban.
+- **7-day suspension**: `UPDATE users SET is_banned = TRUE, suspended_until = NOW() + INTERVAL '7 days' WHERE id = :uid`. A daily worker (`/internal/unban-worker`) flips `is_banned = FALSE` and nulls `suspended_until` when the window elapses. See `05-Implementation.md`.
+- **Permanent ban**: `UPDATE users SET is_banned = TRUE, suspended_until = NULL WHERE id = :uid`. No automatic unban.
 
-In both cases all active refresh tokens for the user are deleted, so all active sessions are kicked on the next REST call.
+Neither path bumps `token_version` or deletes refresh tokens — the `token_version` bump is reserved for the CSAM handler's auto-action (see § Media Moderation above; `07-Operations.md` § CSAM Detection Log Viewer). Enforcement is the account-state gate pair instead: every authenticated request from a banned/suspended user is 403'd by the per-request `AuthPlugin` `is_banned` gate, and `POST /api/v1/auth/refresh` re-loads the owner's account state and refuses a banned or soft-deleted owner a new access token (`auth-session` § "Refresh denies a banned or soft-deleted account"). A ban or suspension therefore takes full effect within one ~15-minute access-token TTL, and new sign-ins are rejected at the auth boundary with 403 `account_banned` (`auth-signin`).
 
 ---
 

@@ -12,7 +12,7 @@ enum class LoginEventType(val wire: String) {
     REFRESH("refresh"),
 }
 
-/** Writer for `login_events` (V34); the in-memory test fake mirrors this seam. */
+/** Writer for `login_events` (V35); the in-memory test fake mirrors this seam. */
 interface LoginEventRepository {
     suspend fun insert(
         userId: UUID,

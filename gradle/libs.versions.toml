@@ -26,6 +26,25 @@ googleSigninIos = "8.0.0"
 firebaseMessagingIos = "11.6.0"
 googleTink = "1.16.0"
 playServicesLocation = "21.3.0"
+# mobile-admob-ads-foundation — Google Mobile Ads (GMA) SDK + UMP consent SDK, Android side. The vendor
+# imports are fenced to :infra:admob (invariant #16). Pinned at apply after a dated library re-check
+# (2026-06-27, tasks.md 1.1): the STABLE GMA line (native-ads-mature) over the 2026 GMA Next-Gen SDK —
+# Next-Gen is logged as a docs/09 currency watch-item, not adopted blind (design Open Questions). Latest
+# stable on Google's Maven (verified via maven-metadata.xml 2026-06-27): play-services-ads 25.4.0,
+# user-messaging-platform 4.0.0.
+playServicesAdsAndroid = "25.4.0"
+userMessagingPlatformAndroid = "4.0.0"
+# mobile-admob-ads-foundation — the iOS Ads + UMP Pods consumed via the KMP `native.cocoapods` plugin on
+# :infra:admob (Google publishes NO official KMP Ads SDK, so we own the cinterop binding by declaring the
+# Pods — the GoogleSignIn-pod precedent; design D7). The same Pods are added `linkOnly = true` in the
+# :mobile:app cocoapods block so the final ComposeApp framework links the binaries (the Sentry/RevenueCat
+# linkOnly precedent). Latest stable verified 2026-06-27: Google-Mobile-Ads-SDK 12.12.0 (cocoapods.org),
+# GoogleUserMessagingPlatform 3.0.0 (2025-03-24). Both cinterop cleanly ONLY with an explicit `moduleName`
+# in the :infra:admob cocoapods block (pod name ≠ clang module: Google-Mobile-Ads-SDK → GoogleMobileAds,
+# GoogleUserMessagingPlatform → UserMessagingPlatform) — without it cinterop generates EMPTY bindings (all
+# GAD*/UMP* refs unresolved). Verified at the linkDebugFrameworkIosSimulatorArm64 gate 2026-06-27.
+googleMobileAdsIos = "12.12.0"
+googleUmpIos = "3.0.0"
 composeMultiplatform = "1.11.1"
 detekt = "1.23.8"
 firebase-admin = "9.8.0"
@@ -223,6 +242,13 @@ google-tink = { module = "com.google.crypto.tink:tink-android", version.ref = "g
 # Google Play Services Location — Fused Location Provider (first location SDK on the classpath;
 # mobile-location-permission-flow). Android only; iOS uses the system CLLocationManager framework.
 google-playServicesLocation = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+
+# Google Mobile Ads + UMP consent SDK (Android). Consumed ONLY by :infra:admob (implementation-scoped);
+# the vendor imports are fenced there behind the vendor-free AdProvider interface (invariant #16,
+# VendorSdkLeakageScanTest). mobile-admob-ads-foundation. iOS uses the CocoaPods path (see the
+# googleMobileAdsIos / googleUmpIos pins + the :infra:admob cocoapods block).
+google-playServicesAds = { module = "com.google.android.gms:play-services-ads", version.ref = "playServicesAdsAndroid" }
+google-userMessagingPlatform = { module = "com.google.android.ump:user-messaging-platform", version.ref = "userMessagingPlatformAndroid" }
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }

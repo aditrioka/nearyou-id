@@ -272,7 +272,11 @@ class ReferralActivityCheckWorker(
 
     private enum class TicketOutcome { GRANTED, VOIDED, STILL_PENDING }
 
-    private companion object {
+    // `internal` (not `private`) so `ReferralReadRoutes` can source the single `INVITER_MILESTONE`
+    // literal for its `GET /api/v1/user/referral` response (the `referral-read` capability) instead of
+    // duplicating the `5` — same-module read only; these are domain thresholds (docs/01 § Referral),
+    // not secrets.
+    internal companion object {
         const val MIN_POSTS = 2
         const val MIN_LOGIN_DAYS = 3
         const val MIN_SESSIONS = 5

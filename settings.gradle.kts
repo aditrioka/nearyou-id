@@ -71,6 +71,13 @@ if (includeMobile.toBoolean()) {
     // above so the JDK-only backend Docker builder excludes it (it can't be configured without the
     // Android SDK).
     include(":infra:amplitude")
+    // mobile-admob-ads-foundation — :infra:admob is a mobile-only KMP module (androidTarget + iOS, no JVM
+    // target; applies the Android library + Compose + native.cocoapods plugins), consumed solely by
+    // :mobile:app (the AdProvider ad-serving seam fencing the Google Mobile Ads + UMP SDKs, invariant #16).
+    // No backend counterpart — the ads_enabled gate is owned by :backend:ktor's ads-config route, NOT this
+    // module. Mobile-gated like the siblings above so the JDK-only backend Docker builder excludes it (it
+    // can't be configured/COPY'd without the Android SDK; the settings↔Dockerfile guard stays green — D8).
+    include(":infra:admob")
 }
 include(":backend:ktor")
 include(":shared:tmp")

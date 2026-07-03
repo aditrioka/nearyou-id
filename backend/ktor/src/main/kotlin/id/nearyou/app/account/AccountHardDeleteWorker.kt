@@ -58,6 +58,20 @@ class AccountHardDeleteWorker(
             )
         }
 
+    /**
+     * Synchronously execute a single due deletion row by id, reusing the exact
+     * per-row path [execute] uses ([processOne]: claim `FOR UPDATE SKIP LOCKED` →
+     * tombstone+cascade → `deletion_log` → stamp `executed_at`). Idempotent and a
+     * no-op if the row was already executed/cancelled or is claimed concurrently.
+     *
+     * The `apple-s2s-deletion-flows` handler calls this inline for an
+     * `apple_s2s_account_delete` row (immediate, before the `200` to Apple). If it
+     * throws or no-ops, the row stays due (`executed_at IS NULL`) and the daily
+     * worker backstops it via `deletion_requests_immediate_idx`. Returns `true` iff
+     * this call tombstoned the row.
+     */
+    suspend fun executeImmediate(requestId: UUID): Boolean = withContext(dbDispatcher) { processOne(requestId) }
+
     /** Phase 1: snapshot the due, un-cancelled, un-executed request ids (no lock held). */
     private fun snapshotCandidates(): List<UUID> {
         val ids = mutableListOf<UUID>()
@@ -85,15 +99,17 @@ class AccountHardDeleteWorker(
                     conn.rollback()
                     false // already taken (SKIP LOCKED), cancelled, or executed since the snapshot
                 } else {
-                    tombstoneAndCascade(conn, requestId, claim.userId, claim.source)
+                    val tombstoned = tombstoneAndCascade(conn, requestId, claim.userId, claim.source)
                     conn.commit()
-                    true
+                    tombstoned
                 }
             } catch (e: Throwable) {
                 runCatching { conn.rollback() }
                 // Failing row stays due (executed_at IS NULL) for the next scheduled run;
-                // does NOT block the batch. No user_id in the log line (PII discipline).
-                logger.warn("event=account_hard_delete_row_failed error_class={}", e::class.simpleName, e)
+                // does NOT block the batch. Error CLASS only — no throwable arg: an
+                // SQLException message can embed bound key values (a user_id), and the
+                // apple-s2s-deletion-flows spec requires no PII on any log path.
+                logger.warn("event=account_hard_delete_row_failed error_class={}", e::class.simpleName)
                 false
             }
         }
@@ -117,14 +133,31 @@ class AccountHardDeleteWorker(
             }
         }
 
+    /**
+     * Returns `true` iff THIS call tombstoned the user. Per-USER idempotency guard
+     * (apple-s2s-deletion-flows review): an `apple_s2s_account_delete` escalation can
+     * leave an older grace row pending for an already-tombstoned user — when that row
+     * later becomes due, the tombstone UPDATE matches nothing (`deleted_at IS NULL`
+     * guard), and the row is mooted (stamped executed, NO second `deletion_log` entry,
+     * no re-cascade) instead of re-processing the user.
+     */
     private fun tombstoneAndCascade(
         conn: Connection,
         requestId: UUID,
         userId: UUID,
         source: String,
-    ) {
-        // 2. Tombstone the user (UPDATE — never a row-delete).
-        execOne(conn, SQL_TOMBSTONE, userId)
+    ): Boolean {
+        // 2. Tombstone the user (UPDATE — never a row-delete). Zero rows updated =
+        //    user already tombstoned by an earlier request row → moot row.
+        val tombstoned =
+            conn.prepareStatement(SQL_TOMBSTONE).use { ps ->
+                ps.setObject(1, userId)
+                ps.executeUpdate()
+            }
+        if (tombstoned == 0) {
+            execOne(conn, SQL_MARK_EXECUTED, requestId)
+            return false
+        }
         // 3. Cascade-DELETE ephemeral/relational data (explicit — the un-row-deleted
         //    user never fires the FK cascades). Both directions for follows + blocks.
         execOne(conn, SQL_DEL_REFRESH, userId)
@@ -140,6 +173,7 @@ class AccountHardDeleteWorker(
             ps.executeUpdate()
         }
         execOne(conn, SQL_MARK_EXECUTED, requestId)
+        return true
     }
 
     private fun execOne(
@@ -187,7 +221,8 @@ class AccountHardDeleteWorker(
 
         // Tombstone: erase PII. NOT-NULL columns (display_name, date_of_birth) take a
         // placeholder/sentinel (you cannot NULL them); nullable PII is NULLed; username
-        // is renamed to a unique deleted_user_ handle.
+        // is renamed to a unique deleted_user_ handle. `deleted_at IS NULL` = the
+        // per-user idempotency guard (see tombstoneAndCascade KDoc).
         // @allow-username-write: deletion  (username + display_name erasure on the tombstoned row)
         const val SQL_TOMBSTONE =
             """
@@ -202,7 +237,7 @@ class AccountHardDeleteWorker(
                 date_of_birth           = DATE '1900-01-01',
                 apple_relay_email       = FALSE,
                 username                = 'deleted_user_' || left(id::text, 8)
-             WHERE id = ?
+             WHERE id = ? AND deleted_at IS NULL
             """
 
         const val SQL_DEL_REFRESH = "DELETE FROM refresh_tokens WHERE user_id = ?"
@@ -211,7 +246,7 @@ class AccountHardDeleteWorker(
         const val SQL_DEL_FCM = "DELETE FROM user_fcm_tokens WHERE user_id = ?"
         const val SQL_DEL_NOTIFS = "DELETE FROM notifications WHERE user_id = ?"
 
-        // login-history (V34) — explicit (the tombstoned, un-row-deleted user never fires the
+        // login-history (V35) — explicit (the tombstoned, un-row-deleted user never fires the
         // login_events FK ON DELETE CASCADE). Erases the departing user's IP / device / identity.
         const val SQL_DEL_LOGIN_EVENTS = "DELETE FROM login_events WHERE user_id = ?"
         const val SQL_INSERT_LOG = "INSERT INTO deletion_log (user_id, source) VALUES (?, ?)"

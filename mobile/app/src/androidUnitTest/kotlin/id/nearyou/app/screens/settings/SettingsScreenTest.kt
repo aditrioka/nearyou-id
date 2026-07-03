@@ -11,6 +11,10 @@ import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.FakeAccountDeletionFlow
+import id.nearyou.app.data.dataexport.DataExportFlow
+import id.nearyou.app.data.dataexport.DataExportRequestOutcome
+import id.nearyou.app.data.dataexport.DataExportStatusOutcome
+import id.nearyou.app.data.dataexport.FakeDataExportFlow
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceState
 import id.nearyou.app.theme.NearYouTheme
@@ -37,6 +41,8 @@ private const val HIDE_DISTANCE_UPSELL = "Fitur Premium. Aktifkan Premium untuk 
 private const val HIDE_DISTANCE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
 private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
+private const val INVITE_FRIENDS = "Undang teman"
+private const val PAYWALL_CTA = "Aktifkan Premium" // cta_activate_premium — must NOT appear (no paywall divert)
 
 /** A configurable [HideDistanceRepository] fake: seeds the toggle state and records write calls. */
 private class FakeHideDistanceRepository(
@@ -58,6 +64,15 @@ private const val LOGOUT_DIALOG_TITLE = "Keluar dari akun?"
 private const val LOGOUT_CONFIRM = "Ya, keluar"
 private const val LOGOUT_CANCEL = "Batal"
 
+// mobile-data-export-entry — canonical Bahasa copy (byte-identical to shared/resources strings.xml).
+private const val DATA_EXPORT = "Unduh Data Saya"
+private const val DATA_EXPORT_DIALOG_TITLE = "Unduh data kamu?"
+private const val DATA_EXPORT_CONFIRM = "Ya, minta export"
+private const val DATA_EXPORT_CANCEL = "Batal"
+private const val DATA_EXPORT_IN_PROGRESS = "Sedang diproses"
+private const val DATA_EXPORT_READY_OPEN = "Buka unduhan"
+private const val DATA_EXPORT_EXPIRED = "Tautan kedaluwarsa. Minta ulang."
+
 /**
  * Render coverage of `SettingsScreen` (mockup frame 16). Verifies the grouped section headers + app bar,
  * the backed rows navigate, a deferred row shows a non-trapping "Segera hadir" (no write/navigation), the
@@ -70,10 +85,15 @@ private const val LOGOUT_CANCEL = "Batal"
 @OptIn(ExperimentalTestApi::class)
 class SettingsScreenTest {
     private lateinit var tokenStore: InMemoryTokenStore
+    private lateinit var dataExportFlow: FakeDataExportFlow
 
-    private fun installKoin(hideDistance: HideDistanceRepository = FakeHideDistanceRepository()) {
+    private fun installKoin(
+        hideDistance: HideDistanceRepository = FakeHideDistanceRepository(),
+        dataExport: FakeDataExportFlow = FakeDataExportFlow(),
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
+        dataExportFlow = dataExport
         startKoin {
             modules(
                 module {
@@ -81,6 +101,9 @@ class SettingsScreenTest {
                     // account-deletion-tombstone: SettingsScreen now resolves the deletion flow.
                     // Default fake → NotPending status (no banner), so the existing assertions hold.
                     single<AccountDeletionFlow> { FakeAccountDeletionFlow() }
+                    // mobile-data-export-entry: SettingsScreen now resolves the data-export flow.
+                    // Default fake → None status (no banner, requestable), so the existing assertions hold.
+                    single<DataExportFlow> { dataExportFlow }
                     single<HideDistanceRepository> { hideDistance }
                 },
             )
@@ -124,6 +147,35 @@ class SettingsScreenTest {
             onNodeWithText(PRIVACY_DATA).performScrollTo().performClick()
             assertEquals(1, blocked)
             assertEquals(1, consent)
+        }
+    }
+
+    @Test
+    fun undangTemanRow_pushesReferralRoute_forAFreeUser_withNoPaywallDivert() {
+        // mobile-referral 4.3 / design D3 — the "Undang teman" row is open to ALL tiers. The default fake
+        // (premium=false) represents a Free user; tapping the row fires onOpenReferral (a ReferralRoute
+        // push), shows NO "Segera hadir" (it is a backed navigation, not a deferred stub), and surfaces
+        // NO paywall CTA (the Settings-layer no-paywall-divert path).
+        installKoin()
+        var referral = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SettingsScreen(
+                            onBack = {},
+                            onOpenBlocked = {},
+                            onOpenConsent = {},
+                            onOpenReferral = { referral++ },
+                            onLoggedOut = {},
+                        )
+                    }
+                }
+            }
+            onNodeWithText(INVITE_FRIENDS).performScrollTo().performClick()
+            assertEquals(1, referral, "the Undang teman row pushes ReferralRoute")
+            onNodeWithText(COMING_SOON).assertDoesNotExist()
+            onNodeWithText(PAYWALL_CTA).assertDoesNotExist()
         }
     }
 
@@ -189,10 +241,10 @@ class SettingsScreenTest {
             setContent {
                 KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
             }
-            // account-deletion-tombstone: "Hapus akun" is now IN scope (renders a real row); data
-            // export + suspension stay out of scope (no dead controls).
+            // account-deletion-tombstone + mobile-data-export-entry: "Hapus akun" AND "Unduh Data Saya"
+            // are now IN scope (each renders a real row); suspension stays out of scope (no dead control).
             onAllNodesWithText("Hapus akun", substring = true).fetchSemanticsNodes().let { assertEquals(1, it.size) }
-            onAllNodesWithText("Unduh Data", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
+            onAllNodesWithText("Unduh Data", substring = true).fetchSemanticsNodes().let { assertEquals(1, it.size) }
             onAllNodesWithText("suspensi", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
         }
     }
@@ -297,6 +349,165 @@ class SettingsScreenTest {
             waitUntil { onAllNodesWithText(HIDE_DISTANCE_ERROR).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(HIDE_DISTANCE_ERROR).assertExists() // the toggle reverts; the error is the observable signal
             assertEquals(listOf(true), fake.setCalls)
+        }
+    }
+
+    @Test
+    fun dataExport_rowOpensDialog_confirmRecordsPost() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.None))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the seed GET (fetchStatus → None) settle so the row is requestable
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
+            onNodeWithText(DATA_EXPORT_CONFIRM).performClick()
+            waitUntil { dataExportFlow.requestCount == 1 }
+            assertEquals(1, dataExportFlow.requestCount, "confirming the dialog issues exactly one POST")
+        }
+    }
+
+    @Test
+    fun dataExport_none_offersRequestAffordanceAndNoBanner() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.None))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            // The request affordance (the row) is offered AND no ready banner is shown for `none`.
+            onNodeWithText(DATA_EXPORT).performScrollTo().assertExists()
+            onNodeWithText(DATA_EXPORT_READY_OPEN).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun dataExport_cancel_recordsNoPost() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.None))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the seed GET (fetchStatus → None) settle so the row is requestable
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
+            onNodeWithText(DATA_EXPORT_CANCEL).performClick()
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertDoesNotExist()
+            assertEquals(0, dataExportFlow.requestCount, "cancelling the dialog issues no POST")
+        }
+    }
+
+    @Test
+    fun dataExport_expired_allowsFreshRequest() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.Expired))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the seed GET (fetchStatus → Expired) settle
+            // The expired note is shown AND the export is no longer single-active-locked: the row re-requests.
+            onNodeWithText(DATA_EXPORT_EXPIRED).performScrollTo().assertExists()
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
+        }
+    }
+
+    @Test
+    fun dataExport_inProgress_showsSedangDiproses_andIsNotReIssuable() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.InProgress))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the init GET (fetchStatus → InProgress) settle
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            // The single-active row does NOT open the dialog and issues NO second POST.
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertDoesNotExist()
+            onNodeWithText(DATA_EXPORT_IN_PROGRESS).assertExists()
+            assertEquals(0, dataExportFlow.requestCount)
+        }
+    }
+
+    @Test
+    fun dataExport_ready_showsBannerWithDeadlineAndDownloadAffordance() {
+        installKoin(
+            dataExport =
+                FakeDataExportFlow(
+                    statusOutcome = DataExportStatusOutcome.Ready("2026-07-01T00:00:00Z", "https://r2.example/signed"),
+                ),
+        )
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitUntil { onAllNodesWithText("2026-07-01", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            // The banner references the download deadline (date portion of downloadExpiresAt) ...
+            onNodeWithText("2026-07-01", substring = true).assertExists()
+            // ... and offers an in-app affordance to open the signed download.
+            onNodeWithText(DATA_EXPORT_READY_OPEN).assertExists()
+        }
+    }
+
+    @Test
+    fun dataExport_failed_reRequestIssuesNewPost() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.Failed))
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the init GET (fetchStatus → Failed) settle
+            // A failed export is not single-active-locked: the row re-opens the dialog and re-requests.
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            onNodeWithText(DATA_EXPORT_DIALOG_TITLE).assertExists()
+            onNodeWithText(DATA_EXPORT_CONFIRM).performClick()
+            waitUntil { dataExportFlow.requestCount == 1 }
+            assertEquals(1, dataExportFlow.requestCount)
+        }
+    }
+
+    @Test
+    fun dataExport_statusRead401_routesToSignIn() {
+        installKoin(dataExport = FakeDataExportFlow(statusOutcome = DataExportStatusOutcome.Terminal401))
+        var loggedOut = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = { loggedOut++ })
+                    }
+                }
+            }
+            // A 401 on the seed GET routes to sign-in; no status banner is rendered.
+            waitUntil { loggedOut == 1 }
+            assertEquals(1, loggedOut)
+            onNodeWithText(DATA_EXPORT_READY_OPEN).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun dataExport_requestPost401_routesToSignIn() {
+        installKoin(
+            dataExport =
+                FakeDataExportFlow(
+                    statusOutcome = DataExportStatusOutcome.None,
+                    requestOutcome = DataExportRequestOutcome.Terminal401,
+                ),
+        )
+        var loggedOut = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = { loggedOut++ })
+                    }
+                }
+            }
+            waitForIdle() // let the seed GET (fetchStatus → None) settle so the row is requestable
+            onNodeWithText(DATA_EXPORT).performScrollTo().performClick()
+            onNodeWithText(DATA_EXPORT_CONFIRM).performClick()
+            waitUntil { loggedOut == 1 }
+            assertEquals(1, loggedOut)
         }
     }
 }

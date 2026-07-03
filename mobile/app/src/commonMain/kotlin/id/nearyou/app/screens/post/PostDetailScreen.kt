@@ -73,6 +73,7 @@ import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.chat_share_to_chat_action
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_edit_post
 import id.nearyou.resources.generated.resources.cta_reply
@@ -149,6 +150,9 @@ const val POST_DETAIL_IMAGE_TAG: String = "postDetailImage"
 /** Test tag on the post-header report affordance (shown only for a non-authored post). */
 const val POST_DETAIL_REPORT_POST_TAG: String = "postDetailReportPost"
 
+/** Test tag on the "Bagikan ke chat" overflow item (chat-embedded-posts). */
+const val POST_DETAIL_SHARE_TO_CHAT_TAG: String = "postDetailShareToChat"
+
 /** Test tag on a reply row's report affordance (present on every reply, ungated by authorship). */
 const val POST_DETAIL_REPORT_REPLY_TAG: String = "postDetailReportReply"
 
@@ -195,6 +199,8 @@ fun PostDetailScreen(
     route: PostDetailRoute,
     onBack: () -> Unit,
     onEditPost: (postId: String, content: String) -> Unit = { _, _ -> },
+    // chat-embedded-posts: the "Bagikan ke chat" action opens the conversation picker for this post.
+    onShareToChat: (postId: String) -> Unit = {},
 ) {
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
@@ -402,14 +408,18 @@ fun PostDetailScreen(
                     // non-authored post (server-authoritative `isAuthor`, the same gate as Edit).
                     reportEligible = !isAuthor,
                     onReportPost = viewModel::onReportPostClicked,
-                    // mobile-block-from-content: the post-header block item needs the freshness-read
-                    // authorUserId (the block target) AND a payload username (the canonical copy);
-                    // either missing → the item is simply absent (graceful degradation, design D1).
+                    // mobile-block-from-content: the post-header block item needs a NON-authored post
+                    // (the kebab itself now shows on own posts too, for share) + the freshness-read
+                    // authorUserId (the block target) + a payload username (the canonical copy);
+                    // any missing → the item is simply absent (graceful degradation, design D1).
                     onBlockPost =
                         authorUserId
-                            ?.takeIf { route.authorUsername.isNotEmpty() }
+                            ?.takeIf { !isAuthor && route.authorUsername.isNotEmpty() }
                             ?.let { target -> { viewModel.onBlockPostClicked(target, route.authorUsername) } },
                     blockUsername = route.authorUsername,
+                    // chat-embedded-posts: "Bagikan ke chat" is available for ANY visible post (own or
+                    // other's) — sharing relays the snapshot the sender can see.
+                    onShareToChat = { onShareToChat(route.postId) },
                 )
             },
             bottomBar = {
@@ -571,6 +581,7 @@ private fun BackBar(
     onReportPost: () -> Unit,
     onBlockPost: (() -> Unit)?,
     blockUsername: String,
+    onShareToChat: () -> Unit,
 ) {
     // This screen owns its Scaffold (root-stack overlay), so its custom bars must
     // apply their own system-bar insets — a bare Row in the topBar slot rendered
@@ -587,29 +598,39 @@ private fun BackBar(
         TextButton(onClick = onBack, modifier = Modifier.testTag(POST_DETAIL_BACK_TAG)) {
             Text(text = stringResource(Res.string.cta_close))
         }
-        // mobile-post-editing: the Edit affordance — own post within the 30-min window. Reactively gated:
-        // tapping opens the editor; a Free user hits the 403 → "Aktifkan Premium" upsell there (design D2).
-        if (editEligible) {
-            TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {
-                Text(text = stringResource(Res.string.cta_edit_post))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // mobile-post-editing: the Edit affordance — own post within the 30-min window. Reactively
+            // gated: tapping opens the editor; a Free user hits the 403 → "Aktifkan Premium" upsell there.
+            if (editEligible) {
+                TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {
+                    Text(text = stringResource(Res.string.cta_edit_post))
+                }
             }
-        } else if (reportEligible) {
-            // mobile-content-report + mobile-block-from-content: the post-header overflow kebab for a
-            // non-authored post — "Blokir @{username}" (when the block target resolved) + "Laporkan",
-            // mirroring the profile ProfileActionsMenu treatment.
-            PostActionsMenu(onReportPost = onReportPost, onBlockPost = onBlockPost, blockUsername = blockUsername)
+            // The post-header overflow kebab: "Bagikan ke chat" (any visible post — chat-embedded-posts)
+            // plus "Blokir @{username}" (non-authored post with a resolved block target —
+            // mobile-block-from-content) plus "Laporkan" for a non-authored post (mobile-content-report).
+            // Always present so the share entry point is reachable for own posts too.
+            PostActionsMenu(
+                onShareToChat = onShareToChat,
+                reportEligible = reportEligible,
+                onReportPost = onReportPost,
+                onBlockPost = onBlockPost,
+                blockUsername = blockUsername,
+            )
         }
     }
 }
 
-/** The post-header overflow (a non-authored post): an optional "Blokir @{username}" item
- *  (mobile-block-from-content — present iff [onBlockPost] is non-null, i.e. the freshness read resolved
- *  an `authorUserId` and the payload carries a username) above the "Laporkan" item — the same
- *  block-above-report order as the profile `ProfileActionsMenu`, so the kebab reads the same across
- *  surfaces. [blockUsername] is the author's public handle for the item label (display identity only —
- *  never the UUID). */
+/** The post-header overflow kebab — "Bagikan ke chat" (always — chat-embedded-posts) + an optional
+ *  "Blokir @{username}" item (mobile-block-from-content — present iff [onBlockPost] is non-null, i.e. a
+ *  non-authored post whose freshness read resolved an `authorUserId` and whose payload carries a
+ *  username; the block-above-report order mirrors the profile `ProfileActionsMenu`) + "Laporkan"
+ *  (non-authored post — mobile-content-report). [blockUsername] is the author's public handle for the
+ *  block item label (display identity only — never the UUID). */
 @Composable
 private fun PostActionsMenu(
+    onShareToChat: () -> Unit,
+    reportEligible: Boolean,
     onReportPost: () -> Unit,
     onBlockPost: (() -> Unit)?,
     blockUsername: String,
@@ -637,12 +658,22 @@ private fun PostActionsMenu(
                 )
             }
             DropdownMenuItem(
-                text = { Text(stringResource(Res.string.profile_report_action)) },
+                text = { Text(stringResource(Res.string.chat_share_to_chat_action)) },
                 onClick = {
                     expanded = false
-                    onReportPost()
+                    onShareToChat()
                 },
+                modifier = Modifier.testTag(POST_DETAIL_SHARE_TO_CHAT_TAG),
             )
+            if (reportEligible) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_report_action)) },
+                    onClick = {
+                        expanded = false
+                        onReportPost()
+                    },
+                )
+            }
         }
     }
 }

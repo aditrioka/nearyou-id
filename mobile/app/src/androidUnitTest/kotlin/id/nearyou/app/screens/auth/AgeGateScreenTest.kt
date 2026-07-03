@@ -3,6 +3,7 @@ package id.nearyou.app.screens.auth
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
@@ -37,6 +38,7 @@ import kotlin.test.assertNull
 private const val TITLE = "Verifikasi usia kamu"
 private const val DOB_LABEL = "Tanggal lahir"
 private const val CREATE_CTA = "Buat akun"
+private const val INVITE_CODE_LABEL = "Kode undangan (opsional)" // mobile-referral optional field
 private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_name)
 private const val SIGNIN_CTA = "Masuk dengan Google" // SignInScreen CTA — proves the absent-identity re-route landed
 private const val BLOCKED_COPY = "Platform ini hanya tersedia untuk pengguna usia 18 tahun ke atas."
@@ -93,7 +95,8 @@ class AgeGateScreenTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
     }
 
-    // 7.1 — initial render shows title + DOB label + create-account CTA + brand logo.
+    // 7.1 + mobile-referral 5.5 — initial render shows title + DOB label + create-account CTA + brand
+    // logo + the OPTIONAL invite-code field (age_gate_invite_code_label).
     @Test
     fun initialRender_showsTitleDobLabelCreateCtaAndLogo() {
         installKoin()
@@ -103,6 +106,23 @@ class AgeGateScreenTest {
             onNodeWithText(DOB_LABEL).assertExists()
             onNodeWithText(CREATE_CTA).assertExists()
             onNodeWithContentDescription(LOGO_DESC).assertExists()
+            onNodeWithText(INVITE_CODE_LABEL).assertExists()
+        }
+    }
+
+    // mobile-referral 5.5 — the optional invite-code field is non-blocking: it renders and is editable,
+    // and entering text leaves the create-account CTA present (the CTA is gated solely by the DOB, proven
+    // rigorously at the VM layer by AgeGateViewModelTest.emptyInviteCode_withSubmittableDob_keepsTheCtaEnabled
+    // — the Material DatePicker cannot be driven from this render runner, so the CTA stays DOB-gated here).
+    @Test
+    fun inviteCodeField_isEditableAndDoesNotRemoveTheCta() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { AgeGateScreen(onSignedUp = {}, onExitToSignIn = {}, today = today) } } }
+            onNodeWithText(INVITE_CODE_LABEL).assertExists().performTextInput("a3f7k2mq")
+            waitForIdle()
+            onNodeWithText("a3f7k2mq", substring = true).assertExists() // the typed code is reflected in the field
+            onNodeWithText(CREATE_CTA).assertExists() // the CTA still renders with a filled invite field
         }
     }
 

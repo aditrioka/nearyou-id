@@ -942,7 +942,11 @@ class MigrationV16SmokeTest : StringSpec({
         }
     }
 
-    "chat_messages.embedded_post_edit_id remains deferred (no FK post-V16)" {
+    // V16 left chat_messages.embedded_post_edit_id deferred; V37 (chat-embedded-posts) ships its FK.
+    // This smoke runs the FULL migration chain, so the FK is present post-V37 (the full
+    // confrelid/confdeltype/convalidated assertion lives in MigrationV37SmokeTest). The historical
+    // "deferred post-V16" assertion flipped with V37 — here we confirm the FK now exists.
+    "chat_messages.embedded_post_edit_id FK is present post-V37" {
         DriverManager.getConnection(url, user, password).use { conn ->
             conn.prepareStatement(
                 """
@@ -956,7 +960,7 @@ class MigrationV16SmokeTest : StringSpec({
             ).use { ps ->
                 ps.executeQuery().use { rs ->
                     rs.next()
-                    rs.getInt(1) shouldBe 0
+                    rs.getInt(1) shouldBe 1
                 }
             }
         }

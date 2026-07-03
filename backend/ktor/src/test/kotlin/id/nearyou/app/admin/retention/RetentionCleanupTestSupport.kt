@@ -150,7 +150,7 @@ object RetentionCleanupTestSupport {
         return id
     }
 
-    /** Seed a `login_events` row with an explicit `occurred_at` (V34). */
+    /** Seed a `login_events` row with an explicit `occurred_at` (V35). */
     fun seedLoginEvent(
         dataSource: DataSource,
         userId: UUID,

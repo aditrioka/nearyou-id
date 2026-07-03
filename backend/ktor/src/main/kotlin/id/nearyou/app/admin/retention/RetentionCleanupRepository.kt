@@ -106,7 +106,7 @@ class JdbcRetentionCleanupRepository(
             "DELETE FROM user_fcm_tokens WHERE last_seen_at < NOW() - INTERVAL '30 days'"
 
         // Login-history PII purge — the 90-day "Session trail" window (docs/06 § Retention),
-        // index-served by login_events_user_occurred_idx (V34).
+        // index-served by login_events_user_occurred_idx (V35).
         const val SQL_LOGIN_EVENTS =
             "DELETE FROM login_events WHERE occurred_at < NOW() - INTERVAL '90 days'"
     }
