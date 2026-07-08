@@ -43,5 +43,5 @@
 
 ## 7. Verify + gate
 
-- [ ] 7.1 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (both lint frameworks) + the mobile unit suite `:mobile:app:testDevDebugUnitTest`.
-- [ ] 7.2 Device/emulator verify (per `verify-loop` / `mobile-ui-foundation`): open a post detail authored by another user → "Blokir" in the post kebab + a reply kebab → confirm dialog (canonical copy) → block → toast + pop-back / row-removal; confirm "Blokir" is absent on own post/reply. Capture evidence for the PR (docs/11 §5 DoD).
+- [x] 7.1 Run the pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` (both lint frameworks) + the mobile unit suite `:mobile:app:testDevDebugUnitTest`.
+- [x] 7.2 Device/emulator verify (per `verify-loop` / `mobile-ui-foundation`): open a post detail authored by another user → "Blokir" in the post kebab + a reply kebab → confirm dialog (canonical copy) → block → toast + pop-back / row-removal; confirm "Blokir" is absent on own post/reply. Capture evidence for the PR (docs/11 §5 DoD).
