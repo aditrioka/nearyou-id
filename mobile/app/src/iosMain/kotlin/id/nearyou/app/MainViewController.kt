@@ -1,6 +1,7 @@
 package id.nearyou.app
 
 import androidx.compose.ui.window.ComposeUIViewController
+import id.nearyou.app.push.installPushTapDelegate
 
 /**
  * iOS bridge to the shared Compose UI.
@@ -18,4 +19,9 @@ import androidx.compose.ui.window.ComposeUIViewController
  * the `doInitKoin()` call moves into `application(_:didFinishLaunchingWithOptions:)`.
  */
 @Suppress("ktlint:standard:function-naming")
-fun MainViewController() = ComposeUIViewController { App() }
+fun MainViewController(): platform.UIKit.UIViewController {
+    // mobile-push-message-handling (task 6.1): the notification-tap delegate feeds the shared
+    // resolver's nav signal. Idempotent + inert without operator Firebase/APNs config.
+    installPushTapDelegate()
+    return ComposeUIViewController { App() }
+}

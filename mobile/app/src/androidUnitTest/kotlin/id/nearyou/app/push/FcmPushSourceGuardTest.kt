@@ -42,6 +42,22 @@ class FcmPushSourceGuardTest {
     private val apiClient by lazy { code("$commonBase/FcmTokenApiClient.kt") }
     private val providerInterface by lazy { code("$commonBase/FcmTokenProvider.kt") }
 
+    // mobile-push-message-handling (task 7.1/7.3): the display + tap-routing sources.
+    private val androidPushBase = "mobile/app/src/androidMain/kotlin/id/nearyou/app/push"
+    private val incomingPushHandler by lazy { code("$androidPushBase/IncomingPushHandler.kt") }
+    private val pushBatchTracker by lazy { code("$androidPushBase/PushBatchTracker.kt") }
+    private val commonMainDisplaySources by lazy {
+        mapOf(
+            "NotificationContentPreference" to code("$commonBase/NotificationContentPreference.kt"),
+            "PushDisplayCopy" to code("$commonBase/PushDisplayCopy.kt"),
+            "PushTapNavSignal" to code("$commonBase/PushTapNavSignal.kt"),
+            "NotificationNavigation" to
+                code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/notifications/NotificationNavigation.kt"),
+            "PushTapNavigationEffect" to
+                code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/PushTapNavigationEffect.kt"),
+        )
+    }
+
     // ---- Firebase confinement ----
 
     @Test
@@ -55,6 +71,41 @@ class FcmPushSourceGuardTest {
         )) {
             for (token in forbidden) {
                 assertFalse(src.contains(token), "$name (commonMain) must not reference the platform SDK type '$token'")
+            }
+        }
+    }
+
+    @Test
+    fun commonMainDisplaySources_referenceNoPlatformNotificationSdk() {
+        // mobile-push-message-handling task 7.1: the display / tap-routing commonMain sources must
+        // not leak Firebase, UNUserNotificationCenter/UserNotifications, or NotificationCompat —
+        // those stay in androidMain (IncomingPushHandler) / iosMain / the NSE target.
+        val forbidden =
+            listOf(
+                "com.google.firebase", "FirebaseMessaging", "FIRMessaging", "RemoteMessage",
+                "UNUserNotificationCenter", "UserNotifications", "UNNotification",
+                "NotificationCompat", "NotificationChannel", "NotificationManager",
+            )
+        for ((name, src) in commonMainDisplaySources) {
+            for (token in forbidden) {
+                assertFalse(src.contains(token), "$name (commonMain) must not reference the platform SDK type '$token'")
+            }
+        }
+    }
+
+    @Test
+    fun androidDisplaySources_carryNoHardcodedUserVisibleNotificationCopy() {
+        // mobile-push-message-handling task 7.2: the notification copy lives in :shared:resources
+        // (PushDisplayCopy), never as literals in the Android display source. Scan the
+        // comment-stripped source for the copy catalog's distinctive words inside string literals.
+        val copyWords = listOf("Pesan baru", "menyukai", "membalas", "mengikuti", "mengirim", "Notifikasi baru", "disembunyikan")
+        val stringLiterals = Regex("\"([^\"\\n]*)\"").findAll(incomingPushHandler + pushBatchTracker).map { it.groupValues[1] }
+        for (literal in stringLiterals) {
+            for (word in copyWords) {
+                assertFalse(
+                    literal.contains(word),
+                    "Android display source must not hardcode user-visible copy (found \"$literal\" — use :shared:resources)",
+                )
             }
         }
     }
@@ -88,6 +139,41 @@ class FcmPushSourceGuardTest {
             assertFalse(src.contains("Timber"), "$name must not log via Timber")
             assertFalse(src.contains("LogLevel.BODY"), "$name must not widen logging to BODY (the token rides in the request body)")
             assertFalse(src.contains("LogLevel.ALL"), "$name must not widen logging to ALL")
+        }
+    }
+
+    @Test
+    fun displayAndTapRoutingSources_reachNoLogSink() {
+        // mobile-push-message-handling task 7.3: no actor_user_id / target_id / conversation_id /
+        // message preview / raw FCM token can reach a log sink from the display + tap-routing paths
+        // — enforced the same way the token-log guard above is: the sources contain NO log-sink
+        // call at all (mirrors the mobile-fcm-token-registration idiom; prose alone is insufficient).
+        val logToken = Regex("""\bLog\.""")
+        val printToken = Regex("""\bprint\s*\(""")
+        val sources =
+            commonMainDisplaySources +
+                mapOf(
+                    "IncomingPushHandler" to incomingPushHandler,
+                    "PushBatchTracker" to pushBatchTracker,
+                    "MainActivity(tap-routing)" to code("mobile/app/src/androidMain/kotlin/id/nearyou/app/MainActivity.kt"),
+                    // The spec scenario explicitly scopes "the iOS delegate/NSE" — the Kotlin iOS
+                    // sources AND the Swift NSE target source (same comment syntax, so the
+                    // comment-stripper applies).
+                    "PushNotificationTapDelegate" to
+                        code("mobile/app/src/iosMain/kotlin/id/nearyou/app/push/PushNotificationTapDelegate.kt"),
+                    "NsePayloadProjection" to code("mobile/app/src/iosMain/kotlin/id/nearyou/app/push/NsePayloadProjection.kt"),
+                    "IosNotificationContentPreferenceStore" to
+                        code("mobile/app/src/iosMain/kotlin/id/nearyou/app/push/IosNotificationContentPreferenceStore.kt"),
+                    "NotificationService.swift(NSE)" to code("iosApp/NotificationService/NotificationService.swift"),
+                )
+        for ((name, src) in sources) {
+            assertFalse(src.contains("println"), "$name must not println (ids/preview would reach stdout)")
+            assertFalse(printToken.containsMatchIn(src), "$name must not print(")
+            assertFalse(logToken.containsMatchIn(src), "$name must not use android.util.Log")
+            assertFalse(src.contains("NSLog"), "$name must not NSLog")
+            assertFalse(src.contains("os_log"), "$name must not os_log")
+            assertFalse(src.contains("Napier"), "$name must not log via Napier")
+            assertFalse(src.contains("Timber"), "$name must not log via Timber")
         }
     }
 

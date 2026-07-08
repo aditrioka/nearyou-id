@@ -68,7 +68,7 @@ class PayloadBuildersTest : StringSpec(
         // ---- Android payload tests (task 6.2) ----------------------------
 
         "android payload builder returns a non-null Message for the canonical post_liked input" {
-            val msg = buildAndroidMessage(row(), "tok-android-1")
+            val msg = buildAndroidMessage(row(), actorUsername = "bobby", token = "tok-android-1")
             msg shouldNotBe null
         }
 
@@ -86,9 +86,31 @@ class PayloadBuildersTest : StringSpec(
                         targetIdValue = null,
                         bodyDataJson = "{}",
                     ),
-                    "tok",
+                    actorUsername = null,
+                    token = "tok",
                 )
             msg shouldNotBe null
+        }
+
+        // ---- mobile-push-message-handling MODIFY: actor_username masking ----
+
+        "android actor_username: a resolved name passes through verbatim" {
+            maskActorUsername(actor, "bobby") shouldBe "bobby"
+        }
+
+        "android actor_username: non-null-but-unresolvable actor masks to Seseorang, never empty or the real handle" {
+            // Spec: lookup(...) == null for a NON-NULL actor_user_id (shadow-banned /
+            // deleted / not visible via visible_users) → the generic-fallback token —
+            // the Shadow-ban-safety seam. "" is reserved for the null-actor case below.
+            maskActorUsername(actor, null) shouldBe PushCopy.UNKNOWN_ACTOR
+            maskActorUsername(actor, null) shouldNotBe ""
+            // A blank lookup result (defensive: an impl returning "" instead of null)
+            // collapses to the same masking, mirroring PushCopy.bodyFor.
+            maskActorUsername(actor, "") shouldBe PushCopy.UNKNOWN_ACTOR
+        }
+
+        "android actor_username: null actor (system-emitted) maps to the empty string" {
+            maskActorUsername(null, null) shouldBe ""
         }
 
         // ---- iOS payload tests (tasks 6.3, 6.3.a-d) ----------------------
@@ -164,6 +186,53 @@ class PayloadBuildersTest : StringSpec(
             val keys = (1..25).joinToString(",") { i -> """"k$i":"${"y".repeat(200)}"""" }
             val raw = "{$keys}"
             val result = buildIosMessage(row(bodyDataJson = raw), actorUsername = "bobby", token = "tok")
+            result shouldBe IosPayloadResult.OversizedPayload
+        }
+
+        // ---- mobile-push-message-handling MODIFY: routing fields + clamp ----
+
+        "ios clamp accounts for the routing fields: oversized body_full + routing values still fit the 4 KB budget" {
+            // The clamp budget now subtracts the routing VALUES' bytes
+            // (type + target_type + target_id). Assert the whole assembled
+            // custom-data surface (bodyFull + title + body + routing values +
+            // envelope overhead) stays within the APNs 4 KB hard limit for the
+            // oversized-body_full case.
+            val excerpt = "x".repeat(5000)
+            val raw = """{"reply_excerpt":"$excerpt","reply_id":"abc"}"""
+            val notification = row(type = NotificationType.POST_REPLIED, bodyDataJson = raw)
+            val result = buildIosMessage(notification, actorUsername = "bobby", token = "tok")
+            check(result is IosPayloadResult.Built)
+            val title = PushCopy.titleFor(notification.type.wire)
+            val body = PushCopy.bodyFor(notification.type.wire, "bobby")
+            val routingBytes =
+                (
+                    notification.type.wire + notification.targetType.orEmpty() +
+                        notification.targetId?.toString().orEmpty() +
+                        notification.actorUserId?.toString().orEmpty()
+                ).toByteArray(Charsets.UTF_8).size
+            val assembled =
+                result.bodyFull.toByteArray(Charsets.UTF_8).size +
+                    title.toByteArray(Charsets.UTF_8).size +
+                    body.toByteArray(Charsets.UTF_8).size +
+                    routingBytes +
+                    APNS_NOTIFICATION_OVERHEAD_BYTES
+            (assembled <= APNS_PAYLOAD_BUDGET_BYTES) shouldBe true
+            // Structure survives the tighter clamp: valid JSON, reply_id intact.
+            val parsed = Json.parseToJsonElement(result.bodyFull).jsonObject
+            parsed["reply_id"]?.jsonPrimitive?.content shouldBe "abc"
+        }
+
+        "ios clamp pathology still holds with the added routing fields (multi-field body_data)" {
+            // The 6.3.d pathology shape, re-asserted under the routing-fields
+            // budget: still OversizedPayload — the extra fields must not turn
+            // the pathology into a silently-oversized Built.
+            val keys = (1..25).joinToString(",") { i -> """"k$i":"${"y".repeat(200)}"""" }
+            val result =
+                buildIosMessage(
+                    row(type = NotificationType.POST_REPLIED, bodyDataJson = "{$keys}"),
+                    actorUsername = "bobby",
+                    token = "tok",
+                )
             result shouldBe IosPayloadResult.OversizedPayload
         }
 

@@ -52,7 +52,7 @@ class MessagePayloadStructuralTest : StringSpec(
         // ---- Android structural assertions --------------------------------
 
         "android payload is data-only: no notification block, priority HIGH, data fields present" {
-            val wire = MessageInspector.toWireJson(buildAndroidMessage(row(), "tok-android"))
+            val wire = MessageInspector.toWireJson(buildAndroidMessage(row(), "bobby", "tok-android"))
 
             // Spec: "Android payload has no notification block" (data-only push).
             wire["notification"].shouldBeNull()
@@ -63,6 +63,9 @@ class MessagePayloadStructuralTest : StringSpec(
             val data = wire["data"]!!.jsonObject
             data["type"]!!.jsonPrimitive.content shouldBe NotificationType.POST_LIKED.wire
             data["actor_user_id"]!!.jsonPrimitive.content shouldBe actor.toString()
+            // mobile-push-message-handling MODIFY: the masked username rides
+            // alongside the routing UUID (render-only vs routing-only).
+            data["actor_username"]!!.jsonPrimitive.content shouldBe "bobby"
             data["target_type"]!!.jsonPrimitive.content shouldBe "post"
             data["target_id"]!!.jsonPrimitive.content shouldBe targetId.toString()
             data["body_data"]!!.jsonPrimitive.content shouldBe """{"post_excerpt":"Hi from Jakarta"}"""
@@ -80,7 +83,8 @@ class MessagePayloadStructuralTest : StringSpec(
                             targetIdValue = null,
                             bodyDataJson = null,
                         ),
-                        "tok",
+                        actorUsername = null,
+                        token = "tok",
                     ),
                 )
 
@@ -88,8 +92,20 @@ class MessagePayloadStructuralTest : StringSpec(
             val data = wire["data"]!!.jsonObject
             // Builder maps absent fields to empty strings (never drops the keys).
             data["actor_user_id"]!!.jsonPrimitive.content shouldBe ""
+            data["actor_username"]!!.jsonPrimitive.content shouldBe ""
             data["target_type"]!!.jsonPrimitive.content shouldBe ""
+            data["target_id"]!!.jsonPrimitive.content shouldBe ""
             data["body_data"]!!.jsonPrimitive.content shouldBe ""
+        }
+
+        "android payload masks a shadow-banned non-null actor to Seseorang on the wire" {
+            // Spec scenario: "Android actor_username masks a shadow-banned non-null
+            // actor to Seseorang, never the empty string or the real handle".
+            val wire =
+                MessageInspector.toWireJson(
+                    buildAndroidMessage(row(), actorUsername = null, token = "tok"),
+                )
+            wire["data"]!!.jsonObject["actor_username"]!!.jsonPrimitive.content shouldBe "Seseorang"
         }
 
         "android payload passes a REAL empty-object body_data through as {} (followed shape)" {
@@ -97,7 +113,7 @@ class MessagePayloadStructuralTest : StringSpec(
             // from NULL on the client. Spec: "" is reserved for body_data IS NULL.
             val wire =
                 MessageInspector.toWireJson(
-                    buildAndroidMessage(row(bodyDataJson = "{}"), "tok"),
+                    buildAndroidMessage(row(bodyDataJson = "{}"), "bobby", "tok"),
                 )
             wire["data"]!!.jsonObject["body_data"]!!.jsonPrimitive.content shouldBe "{}"
         }
@@ -114,11 +130,40 @@ class MessagePayloadStructuralTest : StringSpec(
             payload["aps"]!!.jsonObject["mutable-content"]!!.jsonPrimitive.int shouldBe 1
             // Spec: "iOS payload carries body_full as JSON-stringified body_data".
             payload["body_full"]!!.jsonPrimitive.content shouldBe """{"post_excerpt":"Hi from Jakarta"}"""
+            // Spec: "iOS payload carries the tap-routing data fields" — delivered in
+            // userInfo at tap time so the delegate can feed the shared resolver.
+            payload["type"]!!.jsonPrimitive.content shouldBe NotificationType.POST_LIKED.wire
+            payload["target_type"]!!.jsonPrimitive.content shouldBe "post"
+            payload["target_id"]!!.jsonPrimitive.content shouldBe targetId.toString()
+            payload["actor_user_id"]!!.jsonPrimitive.content shouldBe actor.toString()
 
             // iOS is an alert push (unlike Android) — title + body present.
             val notification = wire["notification"]!!.jsonObject
             notification["title"].shouldNotBeNull()
             notification["body"]!!.jsonPrimitive.content shouldBe PushCopy.bodyFor("post_liked", "bobby")
+        }
+
+        "ios routing fields use the same empty-string-when-null semantics as Android" {
+            val result =
+                buildIosMessage(
+                    row(
+                        type = NotificationType.PRIVACY_FLIP_WARNING,
+                        actorUserId = null,
+                        targetType = null,
+                        targetIdValue = null,
+                        bodyDataJson = null,
+                    ),
+                    actorUsername = null,
+                    token = "tok",
+                )
+            check(result is IosPayloadResult.Built)
+            val payload =
+                MessageInspector.toWireJson(result.message)["apns"]!!
+                    .jsonObject["payload"]!!.jsonObject
+            payload["type"]!!.jsonPrimitive.content shouldBe NotificationType.PRIVACY_FLIP_WARNING.wire
+            payload["target_type"]!!.jsonPrimitive.content shouldBe ""
+            payload["target_id"]!!.jsonPrimitive.content shouldBe ""
+            payload["actor_user_id"]!!.jsonPrimitive.content shouldBe ""
         }
 
         "ios chat_message payload: notification.body uses chat copy, body_full carries the data keys" {

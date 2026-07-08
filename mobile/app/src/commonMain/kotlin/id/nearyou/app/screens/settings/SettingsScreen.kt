@@ -33,6 +33,7 @@ import id.nearyou.app.data.accountdeletion.deletionDateLabel
 import id.nearyou.app.data.dataexport.DataExportFlow
 import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
@@ -71,6 +72,8 @@ import id.nearyou.resources.generated.resources.settings_logout_body
 import id.nearyou.resources.generated.resources.settings_logout_cancel
 import id.nearyou.resources.generated.resources.settings_logout_confirm
 import id.nearyou.resources.generated.resources.settings_logout_title
+import id.nearyou.resources.generated.resources.settings_private_profile_error
+import id.nearyou.resources.generated.resources.settings_private_profile_premium_only
 import id.nearyou.resources.generated.resources.settings_row_change_username
 import id.nearyou.resources.generated.resources.settings_row_change_username_sub
 import id.nearyou.resources.generated.resources.settings_row_data_export
@@ -112,11 +115,12 @@ private const val LEGAL_URL: String = "https://nearyou.id/kebijakan-privasi"
  * list. **Backed** rows act: "Privasi & data" → [onOpenConsent], "Pengguna diblokir" → [onOpenBlocked],
  * the legal row opens [LEGAL_URL], "Keluar" → a confirm dialog → client-side token wipe → [onLoggedOut].
  * **Deferred** rows (Premium/DESIGN — no backend yet) render their mockup chrome but on activation show a
- * non-trapping "Segera hadir" snackbar and perform NO backend write and NO navigation — in particular the
- * "Profil privat" toggle issues NO privacy-flag write (off the `@allow-privacy-write` surface). The
- * "Sembunyikan jarak" toggle is now BACKED (the `hide-distance` capability): Premium-gated, wired to
- * `PATCH /api/v1/user/hide-distance` (a `hide_distance_opt_in` write — NOT a privacy flag). All copy via
- * `:shared:resources`, under `NearYouTheme`.
+ * non-trapping "Segera hadir" snackbar and perform NO backend write and NO navigation. The PRIVASI
+ * toggles are now BACKED: "Sembunyikan jarak" (the `hide-distance` capability, `PATCH /api/v1/user/hide-distance`)
+ * and "Profil privat" (the `private-profile` capability, `PATCH /api/v1/user/private-profile` — the
+ * sanctioned `user_settings` privacy-flag write; the interactive write goes through that endpoint ONLY).
+ * Both are Premium-gated (Free callers see the upsell + issue no write) and revert on a failed PATCH. All
+ * copy via `:shared:resources`, under `NearYouTheme`.
  */
 @Composable
 fun SettingsScreen(
@@ -129,10 +133,13 @@ fun SettingsScreen(
 ) {
     val tokenStore = koinInject<TokenStore>()
     val hideDistanceRepository = koinInject<HideDistanceRepository>()
-    val viewModel = viewModel { SettingsViewModel(tokenStore, hideDistanceRepository) }
+    val privateProfileRepository = koinInject<PrivateProfileRepository>()
+    val viewModel = viewModel { SettingsViewModel(tokenStore, hideDistanceRepository, privateProfileRepository) }
     val loggedOut by viewModel.loggedOut.collectAsStateWithLifecycle()
     val hideDistanceChecked by viewModel.hideDistanceChecked.collectAsStateWithLifecycle()
     val hideDistanceEvent by viewModel.hideDistanceEvent.collectAsStateWithLifecycle()
+    val privateProfileChecked by viewModel.privateProfileChecked.collectAsStateWithLifecycle()
+    val privateProfileEvent by viewModel.privateProfileEvent.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -140,6 +147,8 @@ fun SettingsScreen(
     val comingSoonText = stringResource(Res.string.settings_coming_soon)
     val hideDistanceUpsellText = stringResource(Res.string.settings_hide_distance_premium_only)
     val hideDistanceErrorText = stringResource(Res.string.settings_hide_distance_error)
+    val privateProfileUpsellText = stringResource(Res.string.settings_private_profile_premium_only)
+    val privateProfileErrorText = stringResource(Res.string.settings_private_profile_error)
     var showLogoutDialog by remember { mutableStateOf(false) }
 
     // account-deletion-tombstone — the "Hapus Akun" + restore-banner state holder, NavEntry-scoped.
@@ -215,6 +224,21 @@ fun SettingsScreen(
         }
     }
 
+    // private-profile one-shot events → a non-trapping snackbar, then cleared (docs/11 §2.2 event-as-state).
+    LaunchedEffect(privateProfileEvent) {
+        when (privateProfileEvent) {
+            PrivateProfileEvent.Upsell -> {
+                snackbarHostState.showSnackbar(privateProfileUpsellText)
+                viewModel.onPrivateProfileEventShown()
+            }
+            PrivateProfileEvent.WriteFailed -> {
+                snackbarHostState.showSnackbar(privateProfileErrorText)
+                viewModel.onPrivateProfileEventShown()
+            }
+            null -> Unit
+        }
+    }
+
     val onComingSoon: () -> Unit = {
         scope.launch { snackbarHostState.showSnackbar(comingSoonText) }
     }
@@ -280,18 +304,21 @@ fun SettingsScreen(
                 onClick = onComingSoon,
             )
 
-            // PRIVASI — "Profil privat" stays deferred + NON-WRITING; "Sembunyikan jarak" is now a backed
-            // Premium toggle; "Privasi & data" + "Pengguna diblokir" navigate.
+            // PRIVASI — "Profil privat" + "Sembunyikan jarak" are now backed Premium toggles;
+            // "Privasi & data" + "Pengguna diblokir" navigate.
             SettingsSectionHeader(stringResource(Res.string.settings_section_privacy))
-            // "Profil privat": the switch never flips — a deferred toggle issues NO privacy-flag write.
+            // "Profil privat" is BACKED (private-profile capability): a Premium-gated toggle wired to
+            // PATCH /api/v1/user/private-profile (the sanctioned `user_settings` privacy-flag write —
+            // the interactive write goes through this endpoint ONLY). Free callers get the Premium upsell
+            // (no write); the VM gates on the GET's `premium` flag and reverts on a failed PATCH.
             SettingsRow(
                 icon = Res.drawable.ic_lock,
                 title = stringResource(Res.string.settings_row_private_profile),
                 subtitle = stringResource(Res.string.settings_row_private_profile_sub),
-                onClick = onComingSoon,
+                onClick = { viewModel.onPrivateProfileToggle(!privateProfileChecked) },
                 trailing = SettingsRowTrailing.SwitchControl,
-                switchChecked = false,
-                onSwitchChange = { onComingSoon() },
+                switchChecked = privateProfileChecked,
+                onSwitchChange = { newValue -> viewModel.onPrivateProfileToggle(newValue) },
             )
             // "Sembunyikan jarak" is BACKED (hide-distance capability): a Premium-gated toggle wired to
             // PATCH /api/v1/user/hide-distance. Free callers get the Premium upsell (no write); the VM

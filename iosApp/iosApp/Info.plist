@@ -20,6 +20,13 @@
 	     the iosMain `apiBaseUrl` actual via NSBundle.objectForInfoDictionaryKey("ApiBaseUrl"). -->
 	<key>ApiBaseUrl</key>
 	<string>$(APP_API_BASE_URL)</string>
+	<!-- mobile-admob-ads-foundation: the Google Mobile Ads SDK REQUIRES this key at launch or the app
+	     terminates with GADInvalidInitializationException. Google's official iOS TEST application ID —
+	     mirrors the Android posture (infra/admob AndroidManifest.xml ships the Android test app ID
+	     ca-app-pub-3940256099942544~3347511713) until real AdMob app registrations exist; both
+	     platforms migrate to real IDs together. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<!-- ATS: permit cleartext http:// ONLY to the local network (localhost / *.local / link-local),
 	     for the `Dev Debug` config's localhost:8080 backend (mobile-ios-build-config-matrix). This does
 	     NOT permit arbitrary cleartext — staging/production use https://, so they are unaffected. -->

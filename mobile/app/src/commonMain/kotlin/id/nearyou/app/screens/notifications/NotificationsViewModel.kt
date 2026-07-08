@@ -7,9 +7,6 @@ import id.nearyou.app.notifications.MarkReadResult
 import id.nearyou.app.notifications.NotificationDto
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
-import id.nearyou.app.notifications.PartnerResolution
-import id.nearyou.app.notifications.PostTargetResolution
-import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.Job
@@ -20,9 +17,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -125,6 +119,10 @@ class NotificationsViewModel(
     val resolvingRowId: StateFlow<String?> = _resolvingRowId.asStateFlow()
 
     private var resolveJob: Job? = null
+
+    // The ONE shared fetch-following deep-link resolver (mobile-push-message-handling task 4.1 lifted
+    // it out of this VM so the push-tap path reuses it verbatim — no second resolver).
+    private val navResolver = NotificationNavTargetResolver(flow)
 
     init {
         load(initial = true)
@@ -263,88 +261,38 @@ class NotificationsViewModel(
         val token = ++resolveToken
         val current = _outcome.value as? NotificationsOutcome.Loaded ?: return
         val notification = current.items.firstOrNull { it.id == id } ?: return
-        when (val intent = resolveIntent(notification)) {
-            is NavIntent.OpenProfile -> {
+        val intent =
+            resolveNotificationNavIntent(
+                targetType = notification.targetType,
+                targetId = notification.targetId,
+                actorUserId = notification.actorUserId,
+                bodyData = notification.bodyData,
+            )
+        when (intent) {
+            is NotificationNavIntent.OpenProfile -> {
+                // No fetch — set synchronously (no per-row resolving indicator flash).
                 _resolvingRowId.value = null
                 _pendingNavTarget.value = NotificationNavTarget.Profile(intent.userId)
             }
-            is NavIntent.OpenPost ->
+            NotificationNavIntent.None -> _resolvingRowId.value = null
+            is NotificationNavIntent.OpenPost, is NotificationNavIntent.OpenChat ->
                 resolveJob =
                     viewModelScope.launch {
                         _resolvingRowId.value = id
                         try {
-                            when (val res = flow.resolvePostTarget(intent.postId)) {
-                                is PostTargetResolution.Resolved ->
-                                    _pendingNavTarget.value = NotificationNavTarget.Post(res.toPostDetailTarget())
-                                PostTargetResolution.Unavailable -> _postUnavailable.value = true
+                            when (val res = navResolver.resolve(intent)) {
+                                is NotificationNavTargetResolver.Resolution.Target ->
+                                    _pendingNavTarget.value = res.target
+                                NotificationNavTargetResolver.Resolution.PostUnavailable ->
+                                    _postUnavailable.value = true
+                                NotificationNavTargetResolver.Resolution.None -> Unit
                             }
                         } finally {
                             if (token == resolveToken) _resolvingRowId.value = null
                         }
                     }
-            is NavIntent.OpenChat ->
-                resolveJob =
-                    viewModelScope.launch {
-                        _resolvingRowId.value = id
-                        try {
-                            val (username, displayName) =
-                                when (val partner = flow.resolvePartner(intent.actorUserId)) {
-                                    is PartnerResolution.Resolved -> partner.username to partner.displayName
-                                    // A failed partner lookup does NOT block the (valid) conversation — open
-                                    // the thread with blank partner fields (top bar degrades to placeholder).
-                                    PartnerResolution.Unavailable -> "" to ""
-                                }
-                            _pendingNavTarget.value =
-                                NotificationNavTarget.ChatThread(intent.conversationId, username, displayName)
-                        } finally {
-                            if (token == resolveToken) _resolvingRowId.value = null
-                        }
-                    }
-            NavIntent.None -> _resolvingRowId.value = null
         }
     }
-
-    /** Pure mapping of a notification's canonical addressing to a typed nav intent (PII-free; no fetch). */
-    private fun resolveIntent(n: NotificationDto): NavIntent =
-        when (n.targetType) {
-            "post" -> n.targetId?.let { NavIntent.OpenPost(it) } ?: NavIntent.None
-            "message" -> {
-                val conversationId = resolveConversationId(n.bodyData)
-                val actor = n.actorUserId
-                // chat_message has actor (= the 1:1 sender = partner); chat_message_redacted has actor=NULL
-                // → None. A message row missing conversation_id → None.
-                if (conversationId != null && actor != null) {
-                    NavIntent.OpenChat(conversationId, actor)
-                } else {
-                    NavIntent.None
-                }
-            }
-            // null target + actor present = `followed` (the only such type in the V10 catalog) → profile.
-            null -> n.actorUserId?.let { NavIntent.OpenProfile(it) } ?: NavIntent.None
-            // "reply" (post_auto_hidden dynamic case) + any unknown/future target_type → no destination.
-            else -> NavIntent.None
-        }
-
-    private fun resolveConversationId(bodyData: JsonElement): String? {
-        val obj = bodyData as? JsonObject ?: return null
-        val primitive = obj["conversation_id"] as? JsonPrimitive ?: return null
-        if (!primitive.isString) return null
-        return primitive.content.ifBlank { null }
-    }
-
-    private fun PostTargetResolution.Resolved.toPostDetailTarget(): PostDetailTarget =
-        PostDetailTarget(
-            postId = postId,
-            content = content,
-            cityName = cityName,
-            // The by-id single-post-read projection omits coordinates → no distance for a deep-linked post.
-            distanceM = null,
-            createdAtIso = createdAtIso,
-            likedByViewer = likedByViewer,
-            replyCount = replyCount,
-            authorUsername = authorUsername,
-            authorDisplayName = authorDisplayName,
-        )
 
     private fun NotificationsOutcome.Loaded.withRowRead(id: String): NotificationsOutcome.Loaded =
         copy(items = items.map { if (it.id == id) it.asRead() else it })
@@ -353,35 +301,6 @@ class NotificationsViewModel(
         val now = _outcome.value as? NotificationsOutcome.Loaded ?: return
         _outcome.value = now.copy(items = now.items.map { if (it.id == id) it.asUnread() else it })
     }
-}
-
-/**
- * The consumed-once deep-link target the screen reads from [NotificationsViewModel.pendingNavTarget] and
- * forwards to the matching hoisted nav callback (then calls `onNavConsumed()`). Carries display payload
- * only — [Profile.userId] / [ChatThread.conversationId] are route keys (never rendered), and the chat
- * partner fields are display strings (no UUID).
- */
-sealed interface NotificationNavTarget {
-    data class Post(val target: PostDetailTarget) : NotificationNavTarget
-
-    data class Profile(val userId: String) : NotificationNavTarget
-
-    data class ChatThread(
-        val conversationId: String,
-        val partnerUsername: String,
-        val partnerDisplayName: String,
-    ) : NotificationNavTarget
-}
-
-/** Internal, pre-fetch resolution of a tapped row's destination (the pure [resolveIntent] output). */
-private sealed interface NavIntent {
-    data class OpenPost(val postId: String) : NavIntent
-
-    data class OpenProfile(val userId: String) : NavIntent
-
-    data class OpenChat(val conversationId: String, val actorUserId: String) : NavIntent
-
-    data object None : NavIntent
 }
 
 /** A non-null `read_at` sentinel — the projection only checks `read_at != null`, so the value is opaque
