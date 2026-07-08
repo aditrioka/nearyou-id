@@ -117,7 +117,17 @@ jobs:
       #
       # Other flags preserved from prior iterations:
       #   --cpu=2 (PR #90)             — JVM headroom for moderation dispatch
-      #   --min-instances=1 (PR #91)   — eliminate cold-start of Layer 3 path
+      #   --min-instances=0            — scale-to-zero when idle so staging costs
+      #                                  ~nothing while nobody is exercising it;
+      #                                  first request after idle pays a JVM
+      #                                  cold-start (acceptable for staging).
+      #                                  Layer 3 fire-and-forget still works: the
+      #                                  instance stays warm (with --no-cpu-throttling)
+      #                                  during and just after the request that spawned
+      #                                  it. Was --min-instances=1 (PR #91) to kill
+      #                                  cold-starts, but that meant an always-on 2-vCPU
+      #                                  instance billed 24/7 even at zero traffic.
+      #                                  Prod should keep --min-instances=1.
       #   --max-instances=1            — Flyway lock safety (existing constraint)
       #   --concurrency=80             — production-shaped (reverted from PR #89 in PR #90)
       - name: Deploy to Cloud Run
@@ -127,7 +137,7 @@ jobs:
             --region="${{ secrets.GCP_REGION }}" \
             --platform=managed \
             --allow-unauthenticated \
-            --min-instances=1 \
+            --min-instances=0 \
             --max-instances=1 \
             --memory=512Mi \
             --cpu=2 \
