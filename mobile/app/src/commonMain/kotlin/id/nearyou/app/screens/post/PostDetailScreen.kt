@@ -232,8 +232,9 @@ fun PostDetailScreen(
     val blockTarget by viewModel.blockTarget.collectAsStateWithLifecycle()
     val blockMessage by viewModel.blockMessage.collectAsStateWithLifecycle()
     val blockPopBack by viewModel.blockPopBack.collectAsStateWithLifecycle()
-    // The session user id for the reply self-block gate (SelfUserIdProvider decodes the token's sub;
-    // null while resolving / on a malformed token — the block item is simply absent, never a crash).
+    // The session user id for the reply self-block gate (SelfUserIdProvider decodes the token's sub).
+    // The gate FAILS CLOSED on null: while resolving / on a malformed token the block item is absent
+    // (never shown-on-own-reply, never a crash).
     var selfUserId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { selfUserId = selfUserIdProvider.selfUserId() }
 
@@ -485,14 +486,17 @@ fun PostDetailScreen(
                             // mobile-content-report: each reply row carries a report affordance targeting
                             // the reply id ONLY (ungated by authorship). mobile-block-from-content adds the
                             // block item — gated on the SelfUserIdProvider self-comparison (never your own
-                            // reply) AND a non-blank wire username (older-backend graceful absence); the
-                            // backend's 400 cannot_block_self stays the belt-and-suspenders.
+                            // reply; fails CLOSED while selfUserId is unresolved/null) AND a non-blank wire
+                            // username (older-backend graceful absence); the backend's 400
+                            // cannot_block_self stays the belt-and-suspenders.
                             ReplyCard(
                                 reply = reply,
                                 onReport = { viewModel.onReportReplyClicked(reply.id) },
                                 onBlock =
                                     reply.authorUsername
-                                        ?.takeIf { it.isNotBlank() && reply.authorId != selfUserId }
+                                        ?.takeIf {
+                                            it.isNotBlank() && selfUserId != null && reply.authorId != selfUserId
+                                        }
                                         ?.let { username ->
                                             { viewModel.onBlockReplyClicked(reply.id, reply.authorId, username) }
                                         },

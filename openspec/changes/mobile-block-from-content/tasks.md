@@ -15,7 +15,7 @@
 
 ## 3. Mobile UI: shared confirmation dialog + strings
 
-- [x] 3.1 Add `Res.string.*` entries: the block menu item label ("Blokir @{username}" — parameterized), the dialog body ("Blokir @{username}? Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru." — parameterized), confirm "Blokir", dismiss "Batal", success toast "Pengguna telah diblokir", rate-limit message ("Terlalu banyak aksi blokir. Coba lagi nanti."), and the generic action-failed message (reuse the existing one if present). Add the matching per-key imports.
+- [x] 3.1 Add `Res.string.*` entries: the block menu item label ("Blokir @{username}" — parameterized), the dialog body ("Blokir @{username}? Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru." — parameterized), confirm "Blokir", dismiss "Batal", success toast "Pengguna telah diblokir", rate-limit message ("Terlalu banyak aksi blokir. Coba lagi nanti."), and the generic action-failed message (reuse the existing one if present). Add the matching per-key imports. → All seven strings pre-existed from `mobile-profile` (the canonical copy already shipped); this task resolved to REUSE, zero new entries.
 - [x] 3.2 Create `ui/components/BlockConfirmDialog` (M3 `AlertDialog`, mirroring `ui/components/ReportDialog`): canonical copy, destructive/error-colored "Blokir" confirm + secondary "Batal", username interpolated. No hardcoded strings.
 
 ## 4. Mobile post-detail: post-header + reply-row block affordances

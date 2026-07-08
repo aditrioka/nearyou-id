@@ -18,12 +18,13 @@ private fun String.stripComments(): String {
  * file-scan idiom (walk to the repo root, read `.kt`/`.md` text, assert). Runs in every variant (NOT a
  * `*ScreenTest`, needs no Compose runner).
  *
- * Covers: no-hardcoded-UI-strings on the screen; the screen holds no back-stack reference; `PostDetailRoute`
- * declares no coordinate; the never-widen-logging discipline (`HttpClientFactory` stays `LogLevel.HEADERS`;
- * the clients + repository never `println`/log); no BLOCK affordance (report now ships via
- * mobile-content-report — only block stays deferred); the replies cursor drives load-more (a `cursor=`-bearing
- * request IS issued); and deferral bookkeeping (tracked as `follow-up` GitHub issues: block #200 — report
- * half now shipped, inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
+ * Covers: no-hardcoded-UI-strings on the screen + the shared `BlockConfirmDialog`; the screen holds no
+ * back-stack reference; `PostDetailRoute` declares no coordinate; the never-widen-logging discipline
+ * (`HttpClientFactory` stays `LogLevel.HEADERS`; the clients + repository never `println`/log); the
+ * mobile-block-from-content structural guards (the screen HAS the block affordance — #200 un-deferred —
+ * while `PostCard` stays block-free per the timeline-card deferral #456, and exactly ONE block-create
+ * call site exists); the replies cursor drives load-more (a `cursor=`-bearing request IS issued); and
+ * deferral bookkeeping (inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
  */
 class PostDetailSourceGuardTest {
     private val repoRoot: File = findRepoRoot()

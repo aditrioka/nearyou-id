@@ -54,8 +54,10 @@ open class BlockSubmitter(
         return when {
             response.status == HttpStatusCode.NoContent -> BlockOutcome.Blocked
             response.status.value == 429 ->
+                // An absent / HTTP-date / garbage Retry-After degrades to 0; never negative (a future
+                // countdown consumer must not see a below-zero value).
                 BlockOutcome.RateLimited(
-                    response.headers[HttpHeaders.RetryAfter]?.trim()?.toLongOrNull() ?: 0L,
+                    (response.headers[HttpHeaders.RetryAfter]?.trim()?.toLongOrNull() ?: 0L).coerceAtLeast(0L),
                 )
             else -> {
                 // An unreachable-from-UI 404 (the affordance only shows on read content) + 5xx +

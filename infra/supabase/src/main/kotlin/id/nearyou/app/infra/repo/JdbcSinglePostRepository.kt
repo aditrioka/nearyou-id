@@ -20,7 +20,7 @@ class JdbcSinglePostRepository(
         viewerId: UUID,
         postId: UUID,
     ): SinglePostRow? {
-        // Single-post visibility gate + no-PII projection. Two arms (resolveVisiblePost shape,
+        // Single-post visibility gate + no-coordinate projection. Two arms (resolveVisiblePost shape,
         // Global projection), keyed on `p.id = ?` instead of a keyset:
         //  - Visible arm: FROM visible_posts (V24 author shadow-ban / post-soft-delete / auto-hide
         //    filters; V24 surfaces tombstoned authors) with bidirectional user_blocks NOT-IN
@@ -43,9 +43,9 @@ class JdbcSinglePostRepository(
         //    "Diedit" label), keyed on the RESOLVED p.id so an invisible/blocked post yields no
         //    edit-existence signal; post_edits is in neither lint rule's pattern and lives in THIS
         //    same literal so the four block tokens stay co-located (BlockExclusionJoinRule integrity).
-        //  - No display_location / coordinates projected at all (no-PII; design Decision 2).
-        //  - p.author_id is SELECTed only to compute the per-viewer is_author flag in Kotlin (the
-        //    mobile-post-editing edit affordance); it is NEVER projected into the row/response (no-PII).
+        //  - No display_location / coordinates projected at all (the #202 coordinate discipline).
+        //  - p.author_id backs the per-viewer is_author flag AND (mobile-block-from-content D1) the
+        //    row's authorUserId — timeline-wire parity, never rendered client-side, block-action-only.
         val sql =
             """
             SELECT p.id,

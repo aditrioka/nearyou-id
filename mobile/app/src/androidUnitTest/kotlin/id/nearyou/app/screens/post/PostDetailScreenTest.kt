@@ -118,8 +118,10 @@ private val JSON = headersOf("Content-Type", "application/json")
  * + revert + 429 upsell + count + graceful degradation), the reply composer (counter, 280-disable,
  * 201 local-append-without-refetch, 429 upsell, error banner), the mobile-content-report affordances (post
  * report shown for a non-authored post / hidden on own post, per-reply report ungated by authorship,
- * dialog submit → success message, reply target_id = reply id with no author UUID), and the block-deferral
- * negative. In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is debug-only).
+ * dialog submit → success message, reply target_id = reply id with no author UUID), and the
+ * mobile-block-from-content affordances (post/reply block gates, the canonical dialog, pop-back +
+ * row-removal outcomes). In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is
+ * debug-only).
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for the multi-test startKoin cycle.
  *
@@ -353,10 +355,9 @@ class PostDetailScreenTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithText(CONTENT).assertExists()
             onNodeWithText(POSTED_FROM).assertExists()
-            // Deferral negative: NO block affordance on the detail surface (block stays deferred —
-            // mobile-post-detail "Block kebab action is deferred"). The Laporkan-absent assertion was
-            // REMOVED — report ships now (mobile-content-report); its presence is covered by the report
-            // affordance tests below.
+            // mobile-block-from-content: with the default Unavailable refresh (no authorUserId) and all
+            // kebabs closed, no "Blokir" text renders anywhere — the affordance-present cases are the
+            // dedicated block tests below.
             onNodeWithText("Blokir", substring = true).assertDoesNotExist()
         }
     }
@@ -698,6 +699,38 @@ class PostDetailScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPORT_REPLY_TAG).performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()
+        }
+    }
+
+    // 5.2 (fail-closed gate): while SelfUserIdProvider resolves to null (malformed token / still
+    // resolving), authorship is unknowable — the block item must be ABSENT, never shown-on-own-reply
+    // (review finding; the spec's "shown ONLY when the reply is NOT authored by the viewer" MUST).
+    @Test
+    fun replyBlockItem_absentWhileSelfUserIdIsUnresolved() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            fakeReply(
+                                id = "rOther",
+                                authorId = AUTHOR_UUID,
+                                authorUsername = "sinta.mhr",
+                                authorDisplayName = "Sinta Maharani",
+                                content = "OTHER_REPLY",
+                            ),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+            selfUserIdProvider = FakeSelfUserIdProvider(null),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OTHER_REPLY").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_DETAIL_REPORT_REPLY_TAG).performScrollTo().performClick()
             onNodeWithText("Laporkan").assertExists()
             onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()

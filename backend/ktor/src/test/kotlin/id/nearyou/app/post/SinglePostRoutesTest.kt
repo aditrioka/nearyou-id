@@ -397,7 +397,7 @@ class SinglePostRoutesTest : StringSpec({
         }
     }
 
-    "5.2 200 — authorUserId equals the value the timeline post wire projects for the same post" {
+    "5.2b 200 — authorUserId equals the value the timeline post wire projects for the same post" {
         val author = seedUser()
         val viewer = seedUser()
         try {
