@@ -1,5 +1,6 @@
 package id.nearyou.app.infra.repo
 
+import java.sql.Connection
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.UUID
@@ -116,10 +117,17 @@ class JdbcRefreshTokenRepository(
 
     override fun deleteAllForUser(userId: UUID): Int {
         dataSource.connection.use { conn ->
-            conn.prepareStatement("DELETE FROM refresh_tokens WHERE user_id = ?").use { ps ->
-                ps.setObject(1, userId)
-                return ps.executeUpdate()
-            }
+            return deleteAllForUser(conn, userId)
+        }
+    }
+
+    override fun deleteAllForUser(
+        conn: Connection,
+        userId: UUID,
+    ): Int {
+        conn.prepareStatement("DELETE FROM refresh_tokens WHERE user_id = ?").use { ps ->
+            ps.setObject(1, userId)
+            return ps.executeUpdate()
         }
     }
 }

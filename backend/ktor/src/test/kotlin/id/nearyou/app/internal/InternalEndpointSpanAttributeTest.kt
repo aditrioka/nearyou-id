@@ -500,6 +500,11 @@ private class FakeUserRepository(private val row: UserRow) : UserRepository {
 
     override fun incrementTokenVersion(id: UUID): Int = error("unused")
 
+    override fun incrementTokenVersion(
+        conn: java.sql.Connection,
+        id: UUID,
+    ): Int = error("unused")
+
     override fun setAppleRelayEmail(
         appleIdHash: String,
         enabled: Boolean,

@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.deletionDateLabel
@@ -34,6 +35,7 @@ import id.nearyou.app.data.dataexport.DataExportFlow
 import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.privateprofile.PrivateProfileRepository
+import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
@@ -100,6 +102,7 @@ import id.nearyou.resources.generated.resources.settings_section_privacy
 import id.nearyou.resources.generated.resources.settings_title
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /**
@@ -113,7 +116,8 @@ private const val LEGAL_URL: String = "https://nearyou.id/kebijakan-privasi"
  * The Settings surface (`mobile-settings` capability — mockup frame 16 "Pengaturan"). A pushed root-stack
  * overlay owning its own Scaffold + back bar, rendering the grouped AKUN / PREMIUM / PRIVASI / LAINNYA
  * list. **Backed** rows act: "Privasi & data" → [onOpenConsent], "Pengguna diblokir" → [onOpenBlocked],
- * the legal row opens [LEGAL_URL], "Keluar" → a confirm dialog → client-side token wipe → [onLoggedOut].
+ * the legal row opens [LEGAL_URL], "Keluar" → a confirm dialog → best-effort server revoke, then the
+ * client-side token wipe → [onLoggedOut] (logout-revocation: the wipe never waits on a failed call).
  * **Deferred** rows (Premium/DESIGN — no backend yet) render their mockup chrome but on activation show a
  * non-trapping "Segera hadir" snackbar and perform NO backend write and NO navigation. The PRIVASI
  * toggles are now BACKED: "Sembunyikan jarak" (the `hide-distance` capability, `PATCH /api/v1/user/hide-distance`)
@@ -134,7 +138,21 @@ fun SettingsScreen(
     val tokenStore = koinInject<TokenStore>()
     val hideDistanceRepository = koinInject<HideDistanceRepository>()
     val privateProfileRepository = koinInject<PrivateProfileRepository>()
-    val viewModel = viewModel { SettingsViewModel(tokenStore, hideDistanceRepository, privateProfileRepository) }
+    // logout-revocation: fail-safe resolution (the TimelineAds getOrNull idiom) — a screen test not
+    // exercising the server logout binds neither; the VM degrades to the client-side-only wipe.
+    val koin = getKoin()
+    val logoutAuthApi = remember(koin) { koin.getOrNull<AuthApiClient>() }
+    val logoutFcmTokenProvider = remember(koin) { koin.getOrNull<FcmTokenProvider>() }
+    val viewModel =
+        viewModel {
+            SettingsViewModel(
+                tokenStore,
+                hideDistanceRepository,
+                privateProfileRepository,
+                logoutAuthApi,
+                logoutFcmTokenProvider,
+            )
+        }
     val loggedOut by viewModel.loggedOut.collectAsStateWithLifecycle()
     val hideDistanceChecked by viewModel.hideDistanceChecked.collectAsStateWithLifecycle()
     val hideDistanceEvent by viewModel.hideDistanceEvent.collectAsStateWithLifecycle()

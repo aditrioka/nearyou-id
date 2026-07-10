@@ -3,6 +3,7 @@ package id.nearyou.app.user
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.sql.Connection
 import java.util.UUID
 import javax.sql.DataSource
 
@@ -65,6 +66,41 @@ class FcmTokenRepository(
                 UpsertResult(created = created, userTokenCount = userTokenCount)
             }
         }
+
+    /**
+     * Single-device logout delete (`logout-revocation` D2): by `(user_id, token)` across platforms —
+     * the caller can only hit their own rows, and over-deleting one's own row is harmless (the
+     * stateless registrar re-registers on next sign-in). Resolves via the `(user_id, platform,
+     * token)` UNIQUE index.
+     */
+    suspend fun deleteByUserAndToken(
+        userId: UUID,
+        token: String,
+    ): Int =
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("DELETE FROM user_fcm_tokens WHERE user_id = ? AND token = ?").use { ps ->
+                    ps.setObject(1, userId)
+                    ps.setString(2, token)
+                    ps.executeUpdate()
+                }
+            }
+        }
+
+    /**
+     * In-transaction logout-all delete (`logout-revocation` D3): runs on the caller's connection so
+     * it commits atomically with the refresh-token family delete + `token_version` bump. The caller
+     * owns dispatcher + transaction management.
+     */
+    fun deleteAllForUser(
+        conn: Connection,
+        userId: UUID,
+    ): Int {
+        conn.prepareStatement("DELETE FROM user_fcm_tokens WHERE user_id = ?").use { ps ->
+            ps.setObject(1, userId)
+            return ps.executeUpdate()
+        }
+    }
 
     private companion object {
         const val SQL_UPSERT = """

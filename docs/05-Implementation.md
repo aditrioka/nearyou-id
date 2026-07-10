@@ -119,13 +119,13 @@ Instant global revocation: JWT carries `token_version`; every authenticated requ
 
 | Use Case | Action | Latency |
 |----------|--------|---------|
-| Logout single device | Delete refresh token row | ≤15 min |
-| Log out of all devices | Delete all + increment token_version + invalidate cache | Instant (≤5 min cache) |
+| Logout single device | Revoke refresh token row + delete the device's `user_fcm_tokens` row (optional `fcm_token` in the request) | ≤15 min (access token expires naturally — deliberate: no `token_version` bump so other devices stay signed in); pushes to the device stop immediately |
+| Log out of all devices | ONE transaction: delete all refresh tokens + increment token_version + delete ALL `user_fcm_tokens` rows; invalidate cache | Instant (≤5 min cache); all pushes stop immediately |
 | Ban / suspend / delete account | Update flag + increment token_version + delete tokens | Instant |
 | Refresh token reuse detected | Revoke family + increment + force re-auth | Instant |
 | Normal token expire | Rotation | 0 (seamless) |
 
-No conventional logout (WA/Telegram model). Re-auth required on: first registration, new device, idle >30 days, switching accounts, "log out of all devices", reuse detection.
+> **Amendment (`logout-revocation`, 2026-07):** the design-era "no conventional logout (WA/Telegram model)" posture was superseded by the shipped `POST /api/v1/auth/logout` / `logout-all` endpoints (`auth-session` spec) and the mobile Settings "Keluar" row (`mobile-settings` spec), which best-effort calls `logout` (refresh token + device FCM token) before its client-side wipe. Re-auth is still required on: first registration, new device, idle >30 days, switching accounts, "log out of all devices", reuse detection.
 
 ---
 

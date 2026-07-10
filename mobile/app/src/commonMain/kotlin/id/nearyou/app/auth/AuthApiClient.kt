@@ -9,6 +9,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.coroutines.cancellation.CancellationException
@@ -45,6 +46,17 @@ data class SignUpRequest(
 @Serializable
 data class RefreshRequest(
     @SerialName("refresh_token") val refreshToken: String,
+)
+
+/**
+ * `POST /api/v1/auth/logout` request body (logout-revocation). [fcmToken] carries the device's
+ * current FCM token so the backend deletes its `user_fcm_tokens` row (pushes stop on this device);
+ * null omits the key (client Json `explicitNulls = false`) and the backend deletes nothing.
+ */
+@Serializable
+data class LogoutRequest(
+    @SerialName("refresh_token") val refreshToken: String,
+    @SerialName("fcm_token") val fcmToken: String? = null,
 )
 
 /** Shared 200 body for both `/signin` and `/refresh` per the auth-signin + auth-session specs. */
@@ -116,6 +128,31 @@ class AuthApiClient(
     private val client: HttpClient,
     private val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
+    /**
+     * `POST /api/v1/auth/logout` (logout-revocation): server-side revoke of [refreshToken] plus
+     * deletion of the device's `user_fcm_tokens` row when [fcmToken] is present. Bearer is attached
+     * by the shared client's Auth plugin — call BEFORE wiping the token store. Best-effort by
+     * contract (`mobile-settings` spec): returns true on 2xx; any transport failure or non-2xx
+     * returns false and is never thrown (cancellation excepted), so the caller's local wipe always
+     * proceeds.
+     */
+    suspend fun logout(
+        refreshToken: String,
+        fcmToken: String?,
+    ): Boolean =
+        try {
+            val response =
+                client.post("/api/v1/auth/logout") {
+                    contentType(ContentType.Application.Json)
+                    setBody(LogoutRequest(refreshToken = refreshToken, fcmToken = fcmToken))
+                }
+            response.status.isSuccess()
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (_: Throwable) {
+            false
+        }
+
     suspend fun signIn(idToken: String): SignInApiResult {
         val response: HttpResponse =
             try {

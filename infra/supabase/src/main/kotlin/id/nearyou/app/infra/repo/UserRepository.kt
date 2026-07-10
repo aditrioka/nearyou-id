@@ -81,6 +81,12 @@ interface UserRepository {
 
     fun incrementTokenVersion(id: UUID): Int
 
+    /** In-transaction variant (logout-all runs this atomically with the refresh-token + FCM deletes). */
+    fun incrementTokenVersion(
+        conn: Connection,
+        id: UUID,
+    ): Int
+
     fun setAppleRelayEmail(
         appleIdHash: String,
         enabled: Boolean,

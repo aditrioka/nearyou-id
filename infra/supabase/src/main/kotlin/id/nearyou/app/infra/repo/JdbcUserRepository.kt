@@ -33,14 +33,21 @@ class JdbcUserRepository(
 
     override fun incrementTokenVersion(id: UUID): Int {
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "UPDATE users SET token_version = token_version + 1 WHERE id = ? RETURNING token_version",
-            ).use { ps ->
-                ps.setObject(1, id)
-                ps.executeQuery().use { rs ->
-                    if (!rs.next()) error("user $id not found")
-                    return rs.getInt(1)
-                }
+            return incrementTokenVersion(conn, id)
+        }
+    }
+
+    override fun incrementTokenVersion(
+        conn: Connection,
+        id: UUID,
+    ): Int {
+        conn.prepareStatement(
+            "UPDATE users SET token_version = token_version + 1 WHERE id = ? RETURNING token_version",
+        ).use { ps ->
+            ps.setObject(1, id)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) error("user $id not found")
+                return rs.getInt(1)
             }
         }
     }

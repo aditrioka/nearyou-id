@@ -16,6 +16,7 @@ import id.nearyou.app.auth.routes.RefreshRequest
 import id.nearyou.app.auth.routes.TokenPairResponse
 import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
+import id.nearyou.app.auth.session.TransactionalLogoutService
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.repo.IdentifierType
@@ -29,6 +30,7 @@ import id.nearyou.app.referral.ReferralRepository
 import id.nearyou.app.referral.ReferralService
 import id.nearyou.app.referral.ReferralTicketCreator
 import id.nearyou.app.referral.ReferralTicketRateLimiter
+import id.nearyou.app.user.FcmTokenRepository
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.comparables.shouldBeGreaterThanOrEqualTo
@@ -50,6 +52,7 @@ import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.Dispatchers
 import java.security.MessageDigest
 import java.sql.Timestamp
 import java.time.Clock
@@ -321,6 +324,14 @@ class SignupFlowTest : StringSpec({
                     jwtIssuer,
                     LoginEventRecorder(InMemoryLoginEvents()),
                     AuthRateLimiter(NoOpRateLimiter()),
+                    TransactionalLogoutService(
+                        dataSource,
+                        refreshRepo,
+                        users,
+                        refreshService,
+                        FcmTokenRepository(dataSource),
+                        Dispatchers.IO,
+                    ),
                 )
             }
             val client = createClient { install(ClientCN) { json() } }

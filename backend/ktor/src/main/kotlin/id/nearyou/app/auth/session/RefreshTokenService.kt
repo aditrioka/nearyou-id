@@ -90,11 +90,6 @@ class RefreshTokenService(
         tokens.revoke(existing.id, now)
     }
 
-    fun revokeAll(userId: UUID) {
-        tokens.deleteAllForUser(userId)
-        users.incrementTokenVersion(userId)
-    }
-
     private fun newRawToken(): String {
         val bytes = ByteArray(32)
         random.nextBytes(bytes)

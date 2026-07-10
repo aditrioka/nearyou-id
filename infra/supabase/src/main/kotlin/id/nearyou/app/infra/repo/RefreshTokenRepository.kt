@@ -1,5 +1,6 @@
 package id.nearyou.app.infra.repo
 
+import java.sql.Connection
 import java.time.Instant
 import java.util.UUID
 
@@ -37,4 +38,10 @@ interface RefreshTokenRepository {
     )
 
     fun deleteAllForUser(userId: UUID): Int
+
+    /** In-transaction variant (logout-all runs this atomically with the token_version bump + FCM deletes). */
+    fun deleteAllForUser(
+        conn: Connection,
+        userId: UUID,
+    ): Int
 }

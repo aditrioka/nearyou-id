@@ -12,6 +12,7 @@ import id.nearyou.app.auth.loginhistory.LoginEventType
 import id.nearyou.app.auth.provider.InvalidIdTokenException
 import id.nearyou.app.auth.provider.ProviderIdTokenVerifier
 import id.nearyou.app.auth.provider.VerifiedIdToken
+import id.nearyou.app.auth.session.InMemoryLogoutService
 import id.nearyou.app.auth.session.InMemoryRefreshTokens
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.auth.session.RefreshTokenService
@@ -91,6 +92,7 @@ class SignInFlowTest : StringSpec({
                     jwtIssuer,
                     LoginEventRecorder(loginEvents),
                     AuthRateLimiter(NoOpRateLimiter()),
+                    InMemoryLogoutService(service, tokens, users),
                 )
             }
             block(tokens)

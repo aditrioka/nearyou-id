@@ -50,6 +50,40 @@ class InMemoryRefreshTokens : RefreshTokenRepository {
         toDelete.forEach { rows.remove(it) }
         return toDelete.size
     }
+
+    override fun deleteAllForUser(
+        conn: Connection,
+        userId: UUID,
+    ): Int = deleteAllForUser(userId)
+}
+
+/**
+ * In-memory [LogoutService] mirroring [TransactionalLogoutService]'s semantics over the fakes
+ * (no DataSource in the in-memory route harness). [fcmDeletes] / [fcmDeleteAlls] record the FCM
+ * side; the transactional + SQL behavior is covered by the DB-tagged LogoutRoutesTest.
+ */
+class InMemoryLogoutService(
+    private val service: RefreshTokenService,
+    private val tokens: InMemoryRefreshTokens,
+    private val users: InMemoryUsers,
+) : LogoutService {
+    val fcmDeletes = mutableListOf<Pair<UUID, String>>()
+    val fcmDeleteAlls = mutableListOf<UUID>()
+
+    override suspend fun logout(
+        userId: UUID,
+        rawRefreshToken: String,
+        fcmToken: String?,
+    ) {
+        service.revokeSingle(userId, rawRefreshToken)
+        if (fcmToken != null) fcmDeletes += userId to fcmToken
+    }
+
+    override suspend fun logoutAll(userId: UUID) {
+        tokens.deleteAllForUser(userId)
+        users.incrementTokenVersion(userId)
+        fcmDeleteAlls += userId
+    }
 }
 
 class InMemoryUsers(initial: List<UserRow> = emptyList()) : UserRepository {
@@ -67,6 +101,11 @@ class InMemoryUsers(initial: List<UserRow> = emptyList()) : UserRepository {
         rows[id] = row.copy(tokenVersion = next)
         return next
     }
+
+    override fun incrementTokenVersion(
+        conn: Connection,
+        id: UUID,
+    ): Int = incrementTokenVersion(id)
 
     override fun setAppleRelayEmail(
         appleIdHash: String,
