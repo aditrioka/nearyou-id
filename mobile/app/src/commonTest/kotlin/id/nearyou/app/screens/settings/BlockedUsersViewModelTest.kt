@@ -128,7 +128,7 @@ class BlockedUsersViewModelTest {
         )
     }
 
-    // ---- mobile-settings § "Block-list management": nextCursor load-more (issue #265) ----
+    // ---- mobile-settings § "block-list data seam" (nextCursor threading): load-more (issue #265) ----
 
     @Test
     fun `load-more appends the second page with the retained cursor param`() {
@@ -165,6 +165,22 @@ class BlockedUsersViewModelTest {
         assertTrue(vm.loadMoreError.value, "a failed load-more raises the non-destructive error footer")
         val loaded = vm.outcome.value as BlockedUsersOutcome.Loaded
         assertEquals(listOf(rowA), loaded.blocks, "the loaded list is untouched by the failed page")
+    }
+
+    @Test
+    fun `load-more is suppressed while a refresh is in flight`() {
+        // suspendFromCall = 2 → the reload's first-page fetch suspends, so the refresh stays in flight.
+        val flow =
+            FakeBlockedUsersFlow(
+                fetchOutcome = BlockedUsersOutcome.Loaded(listOf(rowA), nextCursor = "c1"),
+                suspendFromCall = 2,
+                loadMorePages = listOf(BlockedUsersOutcome.Loaded(listOf(rowB), nextCursor = "c2")),
+            )
+        val vm = BlockedUsersViewModel(flow)
+        vm.reload()
+        assertTrue(vm.isRefreshing.value, "the reload is in flight")
+        vm.onLoadMore()
+        assertTrue(flow.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
     }
 
     @Test

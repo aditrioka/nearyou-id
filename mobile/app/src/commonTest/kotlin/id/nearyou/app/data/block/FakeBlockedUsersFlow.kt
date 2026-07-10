@@ -1,5 +1,7 @@
 package id.nearyou.app.data.block
 
+import kotlinx.coroutines.awaitCancellation
+
 /**
  * Test double for [BlockedUsersFlow] — returns a fixed [fetchOutcome] / [unblockOutcome] and records the
  * unblock calls (count + the last userId) so the screen / ViewModel tests can drive a specific outcome
@@ -13,6 +15,8 @@ package id.nearyou.app.data.block
 class FakeBlockedUsersFlow(
     private val fetchOutcome: BlockedUsersOutcome = BlockedUsersOutcome.Loaded(emptyList(), nextCursor = null),
     private val unblockOutcome: UnblockOutcome = UnblockOutcome.Success,
+    /** With N: the Nth (1-based) FIRST-PAGE fetch suspends forever — pins the refresh-in-flight gate. */
+    private val suspendFromCall: Int = Int.MAX_VALUE,
     loadMorePages: List<BlockedUsersOutcome> = emptyList(),
 ) : BlockedUsersFlow {
     var fetchInvocationCount = 0
@@ -33,6 +37,7 @@ class FakeBlockedUsersFlow(
             return pages.removeFirstOrNull() ?: BlockedUsersOutcome.RetryableError
         }
         fetchInvocationCount++
+        if (fetchInvocationCount >= suspendFromCall) awaitCancellation()
         return fetchOutcome
     }
 

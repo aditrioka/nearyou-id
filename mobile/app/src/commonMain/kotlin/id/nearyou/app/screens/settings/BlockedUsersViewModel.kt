@@ -38,7 +38,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * the screen routes to sign-in.
  *
  * Cursor load-more (infinite scroll) appends pages into the same retained `Loaded` outcome via the shared
- * [LoadMoreController] (`mobile-settings` § "Block-list management": `nextCursor` threaded on scroll-end),
+ * [LoadMoreController] (`mobile-settings` § "block-list data seam": `nextCursor` threaded on scroll-end),
  * gated so it never runs during the initial load or a refresh.
  */
 class BlockedUsersViewModel(
@@ -64,7 +64,7 @@ class BlockedUsersViewModel(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BlockedUsersUiState.Loading)
 
     // The block-list instance of the ONE shared cursor load-more lifecycle (ui/timeline/LoadMoreController,
-    // mobile-settings § "Block-list management": `nextCursor` threaded for load-more). Appends pages into
+    // mobile-settings § "block-list data seam": `nextCursor` threaded for load-more). Appends pages into
     // the retained Loaded outcome — so unblock's non-optimistic row removal operates over the GROWN list.
     // Eligibility-gated so load-more never runs during the initial load or a refresh; a load-more page
     // that is not Loaded (401 / retryable) maps to Failure → the non-destructive retry footer.
