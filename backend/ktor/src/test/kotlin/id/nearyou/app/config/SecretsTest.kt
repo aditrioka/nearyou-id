@@ -77,4 +77,26 @@ class SecretsTest : StringSpec({
         value shouldBe thirtyTwoByteBase64
         java.util.Base64.getDecoder().decode(value!!).size shouldBe 32
     }
+
+    // Wiring guard for #381: resolve() must take the UN-prefixed logical name
+    // (env var populated by the deploy's --set-secrets mapping). Passing
+    // secretKey() output into resolve() reads a STAGING_-prefixed env var no
+    // deploy sets, so the secret silently resolves null and fail-soft callers
+    // degrade to NoOp in staging AND prod. secretKey() is for diagnostics
+    // (slot names in error messages) only. Unit tests with fake resolvers
+    // cannot catch this, so we scan the source instead.
+    "no source file passes secretKey() output into SecretResolver.resolve()" {
+        val srcRoot = java.nio.file.Paths.get("src/main/kotlin")
+        java.nio.file.Files.exists(srcRoot) shouldBe true
+        val forbidden = Regex("""resolve\(\s*secretKey\(""")
+        val offenders =
+            java.nio.file.Files.walk(srcRoot).use { paths ->
+                paths
+                    .filter { it.toString().endsWith(".kt") }
+                    .filter { forbidden.containsMatchIn(java.nio.file.Files.readString(it)) }
+                    .map { it.toString() }
+                    .toList()
+            }
+        offenders shouldBe emptyList()
+    }
 })

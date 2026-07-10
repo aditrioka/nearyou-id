@@ -947,7 +947,10 @@ fun Application.module() {
     // ONE RC promotional-grant port shared by the automated referral worker AND
     // the admin Referral Manual Grant surface (admin-referral-manual-grant), so
     // both dispatch through the same fail-soft binding off the one secret slot.
-    val referralGranter = referralEntitlementGranter(secrets.resolve(secretKey(ktorEnv, "revenuecat-secret-api-key")))
+    // resolve() takes the UN-prefixed logical name (→ env var REVENUECAT_SECRET_API_KEY,
+    // which the deploy populates from the env-namespaced slot); passing secretKey() output
+    // into resolve() reads a STAGING_-prefixed env var no deploy sets → silent NoOp (#381).
+    val referralGranter = referralEntitlementGranter(secrets.resolve("revenuecat-secret-api-key"))
     val referralActivityCheckWorker =
         ReferralActivityCheckWorker(
             dataSource = dataSource,
@@ -1040,9 +1043,11 @@ fun Application.module() {
     // null URLs (fail-soft, no broken links).
     val cloudflareImagesConfig =
         CloudflareImagesConfig(
-            apiToken = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-api-token")).orEmpty(),
-            accountId = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-id")).orEmpty(),
-            accountHash = secrets.resolve(secretKey(ktorEnv, "cloudflare-images-account-hash")).orEmpty(),
+            // UN-prefixed logical names (env vars CLOUDFLARE_IMAGES_*; the deploy maps them
+            // from the env-namespaced slots once provisioned) — see #381.
+            apiToken = secrets.resolve("cloudflare-images-api-token").orEmpty(),
+            accountId = secrets.resolve("cloudflare-images-account-id").orEmpty(),
+            accountHash = secrets.resolve("cloudflare-images-account-hash").orEmpty(),
             deliveryBaseUrl = if (ktorEnv == "staging") "https://img-staging.nearyou.id" else "https://img.nearyou.id",
         )
     val readImageDeliveryUrls = imageDeliveryUrls(cloudflareImagesConfig)
@@ -1081,7 +1086,7 @@ fun Application.module() {
             repository = imageUploadRepository,
             flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
             rateLimiter = ImageUploadRateLimiter(rateLimiter),
-            moderator = imageModerator(secrets.resolve(secretKey(ktorEnv, "gcp-vision-sa"))),
+            moderator = imageModerator(secrets.resolve("gcp-vision-sa")),
             store = imageStore(cloudflareImagesConfig),
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
