@@ -15,6 +15,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -125,6 +126,75 @@ class BlockedUsersViewModelTest {
             vm.uiState.value is BlockedUsersUiState.Content,
             "a fresh collector still sees the retained Content (not reset to Loading)",
         )
+    }
+
+    // ---- mobile-settings § "block-list data seam" (nextCursor threading): load-more (issue #265) ----
+
+    @Test
+    fun `load-more appends the second page with the retained cursor param`() {
+        val flow =
+            FakeBlockedUsersFlow(
+                fetchOutcome = BlockedUsersOutcome.Loaded(listOf(rowA), nextCursor = "c1"),
+                loadMorePages = listOf(BlockedUsersOutcome.Loaded(listOf(rowB), nextCursor = "c2")),
+            )
+        val vm = BlockedUsersViewModel(flow)
+        vm.onLoadMore()
+        assertEquals(listOf("c1"), flow.loadMoreCalls, "load-more fetches with the retained cursor c1")
+        val loaded = vm.outcome.value as BlockedUsersOutcome.Loaded
+        assertEquals(listOf(rowA, rowB), loaded.blocks, "the second page appends below the first")
+        assertEquals("c2", loaded.nextCursor, "the cursor advances to the new page's cursor")
+    }
+
+    @Test
+    fun `load-more is a no-op when the first page is end-reached`() {
+        val flow = loadedFlow(listOf(rowA)) // nextCursor = null
+        val vm = BlockedUsersViewModel(flow)
+        vm.onLoadMore()
+        assertTrue(flow.loadMoreCalls.isEmpty(), "no load-more request when the cursor is null (end-reached)")
+    }
+
+    @Test
+    fun `failed load-more raises the retry footer and keeps the loaded list`() {
+        val flow =
+            FakeBlockedUsersFlow(
+                fetchOutcome = BlockedUsersOutcome.Loaded(listOf(rowA), nextCursor = "c1"),
+                loadMorePages = listOf(BlockedUsersOutcome.RetryableError),
+            )
+        val vm = BlockedUsersViewModel(flow)
+        vm.onLoadMore()
+        assertTrue(vm.loadMoreError.value, "a failed load-more raises the non-destructive error footer")
+        val loaded = vm.outcome.value as BlockedUsersOutcome.Loaded
+        assertEquals(listOf(rowA), loaded.blocks, "the loaded list is untouched by the failed page")
+    }
+
+    @Test
+    fun `load-more is suppressed while a refresh is in flight`() {
+        // suspendFromCall = 2 → the reload's first-page fetch suspends, so the refresh stays in flight.
+        val flow =
+            FakeBlockedUsersFlow(
+                fetchOutcome = BlockedUsersOutcome.Loaded(listOf(rowA), nextCursor = "c1"),
+                suspendFromCall = 2,
+                loadMorePages = listOf(BlockedUsersOutcome.Loaded(listOf(rowB), nextCursor = "c2")),
+            )
+        val vm = BlockedUsersViewModel(flow)
+        vm.reload()
+        assertTrue(vm.isRefreshing.value, "the reload is in flight")
+        vm.onLoadMore()
+        assertTrue(flow.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
+    }
+
+    @Test
+    fun `reload resets the load-more footer state`() {
+        val flow =
+            FakeBlockedUsersFlow(
+                fetchOutcome = BlockedUsersOutcome.Loaded(listOf(rowA), nextCursor = "c1"),
+                loadMorePages = listOf(BlockedUsersOutcome.RetryableError),
+            )
+        val vm = BlockedUsersViewModel(flow)
+        vm.onLoadMore()
+        assertTrue(vm.loadMoreError.value)
+        vm.reload()
+        assertFalse(vm.loadMoreError.value, "a refresh resets paging — the load-more footer state clears")
     }
 
     // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects
