@@ -2,9 +2,12 @@ package id.nearyou.app.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.data.block.BlockedUser
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersOutcome
 import id.nearyou.app.data.block.UnblockOutcome
+import id.nearyou.app.ui.timeline.LoadMoreController
+import id.nearyou.app.ui.timeline.LoadMorePage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +36,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * [unblockError] (the screen shows a non-trapping snackbar) — the list NEVER optimistically drops a row
  * whose unblock did not succeed. A `401` on either call surfaces [BlockedUsersOutcome.TokenInvalid] so
  * the screen routes to sign-in.
+ *
+ * Cursor load-more (infinite scroll) appends pages into the same retained `Loaded` outcome via the shared
+ * [LoadMoreController] (`mobile-settings` § "Block-list management": `nextCursor` threaded on scroll-end),
+ * gated so it never runs during the initial load or a refresh.
  */
 class BlockedUsersViewModel(
     private val flow: BlockedUsersFlow,
@@ -56,6 +63,36 @@ class BlockedUsersViewModel(
             blockedUsersUiState(outcome, isInitialLoad)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), BlockedUsersUiState.Loading)
 
+    // The block-list instance of the ONE shared cursor load-more lifecycle (ui/timeline/LoadMoreController,
+    // mobile-settings § "Block-list management": `nextCursor` threaded for load-more). Appends pages into
+    // the retained Loaded outcome — so unblock's non-optimistic row removal operates over the GROWN list.
+    // Eligibility-gated so load-more never runs during the initial load or a refresh; a load-more page
+    // that is not Loaded (401 / retryable) maps to Failure → the non-destructive retry footer.
+    private val loadMoreController =
+        LoadMoreController<BlockedUser>(
+            scope = viewModelScope,
+            currentCursor = { (_outcome.value as? BlockedUsersOutcome.Loaded)?.nextCursor },
+            canLoadMore = { !initialLoad.value && !_isRefreshing.value },
+            fetchPage = { cursor ->
+                when (val outcome = flow.fetchBlocks(cursor)) {
+                    is BlockedUsersOutcome.Loaded -> LoadMorePage.Success(outcome.blocks, outcome.nextCursor)
+                    else -> LoadMorePage.Failure
+                }
+            },
+            appendItems = { items, next ->
+                val current = _outcome.value
+                if (current is BlockedUsersOutcome.Loaded) {
+                    _outcome.value = current.copy(blocks = current.blocks + items, nextCursor = next)
+                }
+            },
+        )
+
+    /** True while a load-more page is in flight — drives only the list-end footer spinner. */
+    val isLoadingMore: StateFlow<Boolean> = loadMoreController.isLoadingMore
+
+    /** True after a failed load-more — drives the non-destructive retry footer (loaded list retained). */
+    val loadMoreError: StateFlow<Boolean> = loadMoreController.loadMoreError
+
     /** A one-shot "unblock failed, row kept" signal — the screen renders a snackbar then [consumeUnblockError]. */
     private val _unblockError = MutableStateFlow(false)
     val unblockError: StateFlow<Boolean> = _unblockError.asStateFlow()
@@ -68,9 +105,18 @@ class BlockedUsersViewModel(
         load(initial = true)
     }
 
+    /** Scroll-end trigger from the screen — appends the next page (no-op during initial/refresh or at end). */
+    fun onLoadMore() = loadMoreController.loadMore()
+
+    /** Retry control on the load-more error footer — re-issues for the still-current cursor. */
+    fun onRetryLoadMore() = loadMoreController.retry()
+
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
         if (_isRefreshing.value || initialLoad.value) return
+        // Refresh resets paging: load() swaps in a fresh first page (dropping the appended tail) and the
+        // footer state is cleared here (mobile-design-system § load-more pattern).
+        loadMoreController.reset()
         load(initial = false)
     }
 

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +34,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.data.block.BlockedUser
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersOutcome
+import id.nearyou.app.ui.components.LoadMoreFooter
+import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_empty
 import id.nearyou.resources.generated.resources.blocked_users_title
@@ -69,6 +72,8 @@ fun BlockedUsersScreen(
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
     val unblockError by viewModel.unblockError.collectAsStateWithLifecycle()
     val unblocking by viewModel.unblocking.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
+    val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val unblockErrorText = stringResource(Res.string.signin_error_network)
@@ -102,6 +107,10 @@ fun BlockedUsersScreen(
                         rows = state.rows,
                         unblocking = unblocking,
                         onUnblock = viewModel::unblock,
+                        isLoadingMore = isLoadingMore,
+                        loadMoreError = loadMoreError,
+                        onLoadMore = viewModel::onLoadMore,
+                        onRetryLoadMore = viewModel::onRetryLoadMore,
                     )
             }
         }
@@ -148,8 +157,15 @@ private fun BlockedUsersList(
     rows: List<BlockedUser>,
     unblocking: Set<String>,
     onUnblock: (String) -> Unit,
+    isLoadingMore: Boolean,
+    loadMoreError: Boolean,
+    onLoadMore: () -> Unit,
+    onRetryLoadMore: () -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().testTag(BLOCKED_USERS_LIST_TAG),
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {
@@ -160,6 +176,16 @@ private fun BlockedUsersList(
                 onUnblock = { onUnblock(user.userId) },
             )
             HorizontalDivider()
+        }
+        // Load-more footer: spinner while a page loads, non-destructive retry on error, nothing at end
+        // (mobile-design-system § "Canonical list load-more pattern"). The scroll-end detector above
+        // drives onLoadMore; the LoadMoreController's guards make an eager trigger on a short list a no-op.
+        item(key = "loadMoreFooter", contentType = "footer") {
+            LoadMoreFooter(
+                isLoadingMore = isLoadingMore,
+                loadMoreError = loadMoreError,
+                onRetry = onRetryLoadMore,
+            )
         }
     }
 }
