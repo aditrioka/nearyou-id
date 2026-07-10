@@ -32,13 +32,13 @@ Both affordances SHALL be real interactive controls: click semantics with press 
 
 - **GIVEN** a rendered card with `onReport = null` and recording `onOpen` / `onToggleLike` / `onReplyShortcut` callbacks
 - **WHEN** the semantics tree is inspected, then the like affordance is tapped, then the reply affordance is tapped
-- **THEN** the tree contains exactly three clickable nodes (the card itself, the like affordance, the reply affordance) AND the like tap fires `onToggleLike` exactly once with `onOpen` NOT fired AND the reply tap fires `onReplyShortcut` exactly once with `onOpen` NOT fired
+- **THEN** the tree contains exactly four clickable nodes (the card itself, the identity header — § "Whole-card tap opens the detail; the identity header opens the author's profile" — the like affordance, and the reply affordance; the prior "exactly three" wording predated the tappable identity header and is corrected here to match the shipped contract) AND the like tap fires `onToggleLike` exactly once with `onOpen` NOT fired AND the reply tap fires `onReplyShortcut` exactly once with `onOpen` NOT fired
 
-#### Scenario: A supplied report action adds exactly the kebab as a fourth click target
+#### Scenario: A supplied report action adds exactly the kebab as a fifth click target
 
 - **GIVEN** a rendered card with a non-null `onReport` and recording callbacks
-- **WHEN** the semantics tree is inspected
-- **THEN** the interactive targets are exactly four: the card itself, the like affordance, the reply affordance, and the overflow kebab (§ "Optional overflow kebab per mockup frame 1")
+- **WHEN** the semantics tree is inspected (menu closed)
+- **THEN** the interactive targets are exactly five: the card itself, the identity header, the like affordance, the reply affordance, and the overflow kebab (§ "Optional overflow kebab per mockup frame 1")
 
 #### Scenario: Liked state switches the like affordance treatment
 

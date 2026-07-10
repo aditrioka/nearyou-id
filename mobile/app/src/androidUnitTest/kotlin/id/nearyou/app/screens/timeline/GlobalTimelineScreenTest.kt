@@ -10,8 +10,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportOutcome
+import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
@@ -23,10 +28,12 @@ import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
+import id.nearyou.app.ui.components.POST_CARD_KEBAB_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_OUTLINED_TAG
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
+import id.nearyou.app.ui.components.POST_CARD_REPORT_ITEM_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -48,6 +55,9 @@ private const val LIMIT_SOFT = "Kamu lagi aktif-aktifnya! Premium membuka akses 
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…" // timeline_session_redirect (terminal 401)
 private const val RETRY = "Coba lagi"
+private const val REPORT_TITLE_POST = "Laporkan postingan ini" // report_title_post
+private const val REPORT_SUBMIT = "Kirim laporan" // profile_report_submit
+private const val REPORT_SUCCESS = "Laporan terkirim. Tim moderasi akan meninjau." // profile_report_success_toast
 
 /**
  * Render coverage of `GlobalTimelineScreen` via the Robolectric-backed CMP UI runner
@@ -68,6 +78,7 @@ private const val RETRY = "Coba lagi"
 class GlobalTimelineScreenTest {
     private lateinit var fake: FakeGlobalTimelineFlow
     private lateinit var likeFake: FakeLikeFlow
+    private lateinit var reportFake: FakeReportSubmitter
 
     private fun installKoin(
         outcome: GlobalTimelineOutcome = GlobalTimelineOutcome.Loaded(emptyList(), null, null),
@@ -75,6 +86,7 @@ class GlobalTimelineScreenTest {
         suspendFromCall: Int = Int.MAX_VALUE,
         likeOutcome: LikeOutcome = LikeOutcome.Liked,
         loadMorePages: List<GlobalTimelineOutcome> = emptyList(),
+        reportOutcome: ReportOutcome = ReportOutcome.Submitted,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake =
@@ -85,11 +97,16 @@ class GlobalTimelineScreenTest {
                 loadMorePages = loadMorePages,
             )
         likeFake = FakeLikeFlow(likeOutcome)
+        reportFake = FakeReportSubmitter(reportOutcome)
         startKoin {
             modules(
                 module {
                     single<GlobalTimelineFlow> { fake }
                     single<LikeFlow> { likeFake }
+                    // timeline-card-report-kebab: the report seam + the self id the kebab's
+                    // authorship gate compares against (fakeGlobalPost defaults to another author).
+                    single<ReportSubmitter> { reportFake }
+                    single<SelfUserIdProvider> { FakeSelfUserId("self") }
                 },
             )
         }
@@ -412,6 +429,59 @@ class GlobalTimelineScreenTest {
             onNodeWithTag(LOAD_MORE_RETRY_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("PAGE2_POST").fetchSemanticsNodes().isNotEmpty() }
             onAllNodesWithTag(LOAD_MORE_RETRY_TAG).assertCountEquals(0) // footer clears on success
+        }
+    }
+
+    // ---- timeline-card-report-kebab: the feed-level report wiring (the Global surface as the ----
+    // ---- representative feed — all three share the SAME VM/controller/overlay shape).        ----
+
+    // Spec § "The viewer's own post exposes no report entry point": the kebab renders on another
+    // user's card and NOT on the viewer's own (authorUserId == the injected self id).
+    @Test
+    fun reportKebab_presentOnAnotherUsersPost_absentOnOwnPost() {
+        installKoin(
+            GlobalTimelineOutcome.Loaded(
+                listOf(
+                    fakeGlobalPost(id = "g1", content = "OTHERS_POST"),
+                    fakeGlobalPost(id = "g2", content = "OWN_POST", authorUserId = "self"),
+                ),
+                null,
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_POST").fetchSemanticsNodes().isNotEmpty() }
+            // The self id resolves asynchronously; the eligible card's kebab appears on recomposition.
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_KEBAB_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onAllNodesWithTag(POST_CARD_KEBAB_TAG).assertCountEquals(1)
+        }
+    }
+
+    // Spec § "Another user's post is reportable from the feed" + § "Submitted and duplicate reports
+    // render the same success message": kebab → Laporkan → shared dialog → category + submit →
+    // target_type=post submission through the shared seam + the success snackbar (one-shot).
+    @Test
+    fun reportFlow_kebabDialogSubmit_submitsTargetTypePost_andShowsSuccessSnackbar() {
+        installKoin(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g9")), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_KEBAB_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_REPORT_ITEM_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_REPORT_ITEM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_REPORT_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(REPORT_TITLE_POST).assertExists()
+            onNodeWithText("Spam").performClick()
+            onNodeWithText(REPORT_SUBMIT).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(REPORT_SUCCESS).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, reportFake.submitCount, "exactly one submission through the shared seam")
+            assertEquals(ReportTargetType.POST, reportFake.lastTarget, "the timeline card reports target_type=post")
+            assertEquals("g9", reportFake.lastTargetId, "the tapped post's id is the target_id")
+            // The dialog is gone (closed on submit) — the one-shot target cleared.
+            onAllNodesWithTag(GLOBAL_REPORT_DIALOG_TAG).assertCountEquals(0)
         }
     }
 

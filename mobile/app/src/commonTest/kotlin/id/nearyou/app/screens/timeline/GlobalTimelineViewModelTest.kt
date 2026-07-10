@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.timeline
 
 import id.nearyou.app.data.like.FakeLikeFlow
+import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalPostDto
@@ -47,7 +48,7 @@ class GlobalTimelineViewModelTest {
     @Test
     fun init_loadsFirstPageExactlyOnce_andExposesTheOutcome() {
         val fake = FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "X")), null, null))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is GlobalTimelineOutcome.Loaded, "the loaded outcome is exposed")
         assertFalse(viewModel.isRefreshing.value, "isRefreshing is false after the initial load completes")
@@ -56,7 +57,7 @@ class GlobalTimelineViewModelTest {
     @Test
     fun reload_reFetchesPageOne() {
         val fake = FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(emptyList(), null, null))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         assertEquals(1, fake.loadInvocationCount)
         viewModel.reload()
         assertEquals(2, fake.loadInvocationCount, "reload re-fetches page 1 (pull-to-refresh / error retry)")
@@ -68,7 +69,7 @@ class GlobalTimelineViewModelTest {
         // isRefreshing = true, uiState stays Content (NOT Loading), prior outcome retained (design D3).
         val loaded = GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "RETAINED")), null, null)
         val fake = FakeGlobalTimelineFlow(loaded, suspendFromCall = 2)
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         viewModel.activateUiState()
         assertTrue(viewModel.uiState.value is GlobalTimelineUiState.Content, "after the first load uiState is Content")
         assertFalse(viewModel.isRefreshing.value, "not refreshing before reload")
@@ -87,7 +88,7 @@ class GlobalTimelineViewModelTest {
     @Test
     fun loadFailure_mapsToExistingNetworkError() {
         val fake = FakeGlobalTimelineFlow(failWith = IllegalStateException("fetch threw"))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         viewModel.activateUiState()
         assertEquals(
             GlobalTimelineOutcome.NetworkError,
@@ -100,7 +101,7 @@ class GlobalTimelineViewModelTest {
     @Test
     fun uiState_delegatesToTheProjection() {
         val fake = FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "X")), null, null))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         viewModel.activateUiState()
         // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
         // after the first outcome arrives the initial-load flag is false.
@@ -117,7 +118,7 @@ class GlobalTimelineViewModelTest {
         // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
         // collector (the recomposed screen) still sees Content — not a reset to Loading.
         val fake = FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "X")), null, null))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         viewModel.activateUiState()
         assertTrue(viewModel.uiState.value is GlobalTimelineUiState.Content, "loaded → Content")
         viewModel.activateUiState() // a second, fresh collector (the config-change case)
@@ -141,6 +142,8 @@ class GlobalTimelineViewModelTest {
             GlobalTimelineViewModel(
                 FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false))),
                 likeFlow,
+                FakeReportSubmitter(),
+                FakeSelfUserId("self"),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -160,6 +163,8 @@ class GlobalTimelineViewModelTest {
             GlobalTimelineViewModel(
                 FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false))),
                 likeFlow,
+                FakeReportSubmitter(),
+                FakeSelfUserId("self"),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -173,7 +178,7 @@ class GlobalTimelineViewModelTest {
     @Test
     fun postGoneLike_reverts_andSelfHealsViaReload() {
         val fake = FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false)))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.PostGone))
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.PostGone), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 
@@ -187,7 +192,7 @@ class GlobalTimelineViewModelTest {
     @Test
     fun networkErrorLike_revertsSilently() {
         val fake = FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false)))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError))
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 
@@ -203,6 +208,8 @@ class GlobalTimelineViewModelTest {
             GlobalTimelineViewModel(
                 FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", likedByViewer = false))),
                 likeFlow,
+                FakeReportSubmitter(),
+                FakeSelfUserId("self"),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -225,7 +232,7 @@ class GlobalTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeGlobalPost(id = "p1")),
                 loadMorePages = listOf(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "p2")), "c2", null)),
             )
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.onLoadMore()
 
@@ -243,7 +250,7 @@ class GlobalTimelineViewModelTest {
     fun onLoadMore_whenEndReached_isNoOp() {
         // First page already end-reached (null cursor) → load-more must not fire.
         val fake = FakeGlobalTimelineFlow(outcome = loadedPage1(null, fakeGlobalPost(id = "p1")))
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.onLoadMore()
 
@@ -257,7 +264,7 @@ class GlobalTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeGlobalPost(id = "p1")),
                 loadMorePages = listOf(GlobalTimelineOutcome.NetworkError),
             )
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.onLoadMore()
 
@@ -273,7 +280,7 @@ class GlobalTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeGlobalPost(id = "p1")),
                 loadMorePages = listOf(GlobalTimelineOutcome.NetworkError),
             )
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
         viewModel.onLoadMore()
         assertTrue(viewModel.loadMoreError.value)
 
@@ -291,7 +298,7 @@ class GlobalTimelineViewModelTest {
                 suspendFromCall = 2,
                 loadMorePages = listOf(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "p2")), "c2", null)),
             )
-        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow())
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.reload()
         assertTrue(viewModel.isRefreshing.value, "the reload is in flight")

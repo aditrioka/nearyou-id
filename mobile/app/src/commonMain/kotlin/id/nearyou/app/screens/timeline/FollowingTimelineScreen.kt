@@ -16,10 +16,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
+import id.nearyou.app.ui.timeline.TimelineReportMessage
+import id.nearyou.app.ui.timeline.TimelineReportOverlay
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -46,6 +51,9 @@ const val FOLLOWING_TIMELINE_LIST_TAG: String = "followingTimelineList"
 
 /** Test tag on each post card — lets the screen test target the open-detail tap. */
 const val FOLLOWING_POST_CARD_TAG: String = "followingPostCard"
+
+/** Test tag on the timeline report dialog (timeline-card-report-kebab). */
+const val FOLLOWING_REPORT_DIALOG_TAG: String = "followingReportDialog"
 
 /**
  * The Following feed — posts from users the viewer follows (`docs/02-Product.md` § Following Timeline),
@@ -86,7 +94,11 @@ fun FollowingTimelineScreen(
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
     // PostDetailRepository singleton post-detail / Nearby / Global use.
     val likeFlow = koinInject<LikeFlow>()
-    val viewModel = viewModel { FollowingTimelineViewModel(flow, likeFlow) }
+    // timeline-card-report-kebab: the shared report seam (the SAME ReportSubmitter singleton the
+    // profile/post-detail/chat surfaces use) + the self-id seam for the kebab's authorship gate.
+    val reportSubmitter = koinInject<ReportSubmitter>()
+    val selfUserIdProvider = koinInject<SelfUserIdProvider>()
+    val viewModel = viewModel { FollowingTimelineViewModel(flow, likeFlow, reportSubmitter, selfUserIdProvider) }
     // The single screen state — the followingTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -94,6 +106,11 @@ fun FollowingTimelineScreen(
     val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
+    // timeline-card-report-kebab: the collected self id feeds reportActionFor so the kebabs appear once
+    // the id resolves (compose-state read → the cards recompose); the dialog/message one-shots below.
+    val selfUserId by viewModel.selfUserId.collectAsStateWithLifecycle()
+    val reportingPostId by viewModel.reportingPostId.collectAsStateWithLifecycle()
+    val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
 
     FollowingTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
@@ -120,6 +137,14 @@ fun FollowingTimelineScreen(
         // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
         // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
         onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
+        // timeline-card-report-kebab: the per-item kebab action (null = own post / unresolved self id →
+        // no kebab) + the dialog/message one-shot wiring for the shared overlay.
+        reportActionOf = { post -> viewModel.reportActionFor(post.id, selfUserId) },
+        reportingPostId = reportingPostId,
+        reportMessage = reportMessage,
+        onReportSubmit = viewModel::onReportSubmitted,
+        onReportDismiss = viewModel::onReportDialogDismissed,
+        onReportMessageShown = viewModel::onReportMessageShown,
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby/Global;
@@ -161,6 +186,12 @@ private fun FollowingTimelineContent(
     onToggleLike: (FollowingTimelinePost) -> Unit,
     onReplyShortcut: (FollowingTimelinePost) -> Unit,
     onOpenProfile: (FollowingTimelinePost) -> Unit,
+    reportActionOf: (FollowingTimelinePost) -> (() -> Unit)?,
+    reportingPostId: String?,
+    reportMessage: TimelineReportMessage?,
+    onReportSubmit: (ReportReasonCategory, String?) -> Unit,
+    onReportDismiss: () -> Unit,
+    onReportMessageShown: () -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -210,6 +241,7 @@ private fun FollowingTimelineContent(
                     cardTag = FOLLOWING_POST_CARD_TAG,
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
+                    reportActionOf = reportActionOf,
                 )
             is FollowingTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -229,8 +261,21 @@ private fun FollowingTimelineContent(
                     banner = stringResource(Res.string.timeline_limit_soft),
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
+                    reportActionOf = reportActionOf,
                 )
         }
+        // timeline-card-report-kebab: the shared report dialog + one-shot result snackbar
+        // (ui/timeline/TimelineReportOverlay, design D5) — mounted once inside the PullToRefreshBox
+        // (a BoxScope) so the snackbar bottom-aligns over the feed.
+        TimelineReportOverlay(
+            reportingPostId = reportingPostId,
+            reportMessage = reportMessage,
+            onSubmit = onReportSubmit,
+            onDismiss = onReportDismiss,
+            onMessageShown = onReportMessageShown,
+            dialogTestTag = FOLLOWING_REPORT_DIALOG_TAG,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 

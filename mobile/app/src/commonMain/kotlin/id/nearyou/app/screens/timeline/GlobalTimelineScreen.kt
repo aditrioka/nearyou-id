@@ -5,13 +5,19 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
+import id.nearyou.app.ui.timeline.TimelineReportMessage
+import id.nearyou.app.ui.timeline.TimelineReportOverlay
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -35,6 +41,9 @@ const val GLOBAL_TIMELINE_LIST_TAG: String = "globalTimelineList"
 
 /** Test tag on each post card — lets the screen test target the open-detail tap. */
 const val GLOBAL_POST_CARD_TAG: String = "globalPostCard"
+
+/** Test tag on the timeline report dialog (timeline-card-report-kebab). */
+const val GLOBAL_REPORT_DIALOG_TAG: String = "globalReportDialog"
 
 /**
  * The Global feed — the all-Indonesia chronological feed and the onboarding entry-point surface
@@ -73,7 +82,11 @@ fun GlobalTimelineScreen(
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
     // PostDetailRepository singleton post-detail and Nearby use.
     val likeFlow = koinInject<LikeFlow>()
-    val viewModel = viewModel { GlobalTimelineViewModel(flow, likeFlow) }
+    // timeline-card-report-kebab: the shared report seam (the SAME ReportSubmitter singleton the
+    // profile/post-detail/chat surfaces use) + the self-id seam for the kebab's authorship gate.
+    val reportSubmitter = koinInject<ReportSubmitter>()
+    val selfUserIdProvider = koinInject<SelfUserIdProvider>()
+    val viewModel = viewModel { GlobalTimelineViewModel(flow, likeFlow, reportSubmitter, selfUserIdProvider) }
     // The single screen state — the globalTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -81,6 +94,11 @@ fun GlobalTimelineScreen(
     val likeCapRetryAfterSeconds by viewModel.likeCapRetryAfterSeconds.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val loadMoreError by viewModel.loadMoreError.collectAsStateWithLifecycle()
+    // timeline-card-report-kebab: the collected self id feeds reportActionFor so the kebabs appear once
+    // the id resolves (compose-state read → the cards recompose); the dialog/message one-shots below.
+    val selfUserId by viewModel.selfUserId.collectAsStateWithLifecycle()
+    val reportingPostId by viewModel.reportingPostId.collectAsStateWithLifecycle()
+    val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
 
     GlobalTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
@@ -104,6 +122,14 @@ fun GlobalTimelineScreen(
         // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
         // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
         onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
+        // timeline-card-report-kebab: the per-item kebab action (null = own post / unresolved self id →
+        // no kebab) + the dialog/message one-shot wiring for the shared overlay.
+        reportActionOf = { post -> viewModel.reportActionFor(post.id, selfUserId) },
+        reportingPostId = reportingPostId,
+        reportMessage = reportMessage,
+        onReportSubmit = viewModel::onReportSubmitted,
+        onReportDismiss = viewModel::onReportDialogDismissed,
+        onReportMessageShown = viewModel::onReportMessageShown,
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby;
@@ -144,6 +170,12 @@ private fun GlobalTimelineContent(
     onToggleLike: (GlobalTimelinePost) -> Unit,
     onReplyShortcut: (GlobalTimelinePost) -> Unit,
     onOpenProfile: (GlobalTimelinePost) -> Unit,
+    reportActionOf: (GlobalTimelinePost) -> (() -> Unit)?,
+    reportingPostId: String?,
+    reportMessage: TimelineReportMessage?,
+    onReportSubmit: (ReportReasonCategory, String?) -> Unit,
+    onReportDismiss: () -> Unit,
+    onReportMessageShown: () -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -192,6 +224,7 @@ private fun GlobalTimelineContent(
                     cardTag = GLOBAL_POST_CARD_TAG,
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
+                    reportActionOf = reportActionOf,
                 )
             is GlobalTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -211,8 +244,21 @@ private fun GlobalTimelineContent(
                     banner = stringResource(Res.string.timeline_limit_soft),
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
+                    reportActionOf = reportActionOf,
                 )
         }
+        // timeline-card-report-kebab: the shared report dialog + one-shot result snackbar
+        // (ui/timeline/TimelineReportOverlay, design D5) — mounted once inside the PullToRefreshBox
+        // (a BoxScope) so the snackbar bottom-aligns over the feed.
+        TimelineReportOverlay(
+            reportingPostId = reportingPostId,
+            reportMessage = reportMessage,
+            onSubmit = onReportSubmit,
+            onDismiss = onReportDismiss,
+            onMessageShown = onReportMessageShown,
+            dialogTestTag = GLOBAL_REPORT_DIALOG_TAG,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 

@@ -48,6 +48,9 @@ fun <T> PostFeedList(
     banner: String? = null,
     adFrequency: Int? = null,
     adSlot: (@Composable (slotKey: String) -> Unit)? = null,
+    // timeline-card-report-kebab: the per-item report action — null hides the card kebab (own posts /
+    // hosts without reporting). One parameter carries eligibility AND the callback (design D2).
+    reportActionOf: (T) -> (() -> Unit)? = { null },
 ) {
     val listState = rememberLazyListState()
     LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
@@ -87,6 +90,7 @@ fun <T> PostFeedList(
                         onReplyShortcut = { onReplyShortcut(item.post) },
                         onOpenProfile = { onOpenProfile(item.post) },
                         modifier = Modifier.testTag(cardTag),
+                        onReport = reportActionOf(item.post),
                     )
                 }
                 // mobile-admob-ads-foundation: the interleaved native-ad slot (host-supplied; loads its
