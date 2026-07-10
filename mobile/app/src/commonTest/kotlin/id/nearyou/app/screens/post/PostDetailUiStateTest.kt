@@ -45,15 +45,48 @@ class PostDetailUiStateTest {
     }
 
     @Test
-    fun `projected reply carries no author id - PII-stripped`() {
+    fun `projected reply carries author_id for the self-block gate plus the display identity`() {
+        // mobile-block-from-content (the MODIFIED PII-projection requirement): ReplyUi CARRIES the reply
+        // author_id — solely for the SelfUserIdProvider self-block gate + the block path param — plus the
+        // renderable display identity. The never-RENDERED guarantee is the screen test's assertion
+        // (the UUID never appears in the rendered tree), not a projection-level drop anymore.
         val state =
             repliesUiState(
-                RepliesOutcome.Loaded(listOf(fakeReply(authorId = "SECRET-AUTHOR-UUID-9999", content = "halo")), nextCursor = null),
+                RepliesOutcome.Loaded(
+                    listOf(
+                        fakeReply(
+                            authorId = "33333333-3333-3333-3333-333333333333",
+                            authorUsername = "sinta.mhr",
+                            authorDisplayName = "Sinta Maharani",
+                            content = "halo",
+                        ),
+                    ),
+                    nextCursor = null,
+                ),
                 inFlight = false,
             )
         assertTrue(state is RepliesUiState.Content)
-        val rendered = state.replies.first().toString()
-        assertFalse(rendered.contains("SECRET-AUTHOR-UUID-9999"), "the author id must not reach the projected ReplyUi: $rendered")
+        val reply = state.replies.first()
+        assertEquals("33333333-3333-3333-3333-333333333333", reply.authorId)
+        assertEquals("sinta.mhr", reply.authorUsername)
+        assertEquals("Sinta Maharani", reply.authorDisplayName)
+    }
+
+    @Test
+    fun `an identity-less reply still projects - older-backend guard`() {
+        val state =
+            repliesUiState(
+                RepliesOutcome.Loaded(
+                    listOf(fakeReply(authorUsername = null, authorDisplayName = null, content = "halo")),
+                    nextCursor = null,
+                ),
+                inFlight = false,
+            )
+        assertTrue(state is RepliesUiState.Content)
+        val reply = state.replies.first()
+        assertEquals(null, reply.authorUsername)
+        assertEquals(null, reply.authorDisplayName)
+        assertEquals("halo", reply.content)
     }
 
     // ---- reply composer code-point gate ----

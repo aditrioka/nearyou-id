@@ -18,12 +18,13 @@ private fun String.stripComments(): String {
  * file-scan idiom (walk to the repo root, read `.kt`/`.md` text, assert). Runs in every variant (NOT a
  * `*ScreenTest`, needs no Compose runner).
  *
- * Covers: no-hardcoded-UI-strings on the screen; the screen holds no back-stack reference; `PostDetailRoute`
- * declares no coordinate; the never-widen-logging discipline (`HttpClientFactory` stays `LogLevel.HEADERS`;
- * the clients + repository never `println`/log); no BLOCK affordance (report now ships via
- * mobile-content-report — only block stays deferred); the replies cursor drives load-more (a `cursor=`-bearing
- * request IS issued); and deferral bookkeeping (tracked as `follow-up` GitHub issues: block #200 — report
- * half now shipped, inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
+ * Covers: no-hardcoded-UI-strings on the screen + the shared `BlockConfirmDialog`; the screen holds no
+ * back-stack reference; `PostDetailRoute` declares no coordinate; the never-widen-logging discipline
+ * (`HttpClientFactory` stays `LogLevel.HEADERS`; the clients + repository never `println`/log); the
+ * mobile-block-from-content structural guards (the screen HAS the block affordance — #200 un-deferred —
+ * while `PostCard` stays block-free per the timeline-card deferral #456, and exactly ONE block-create
+ * call site exists); the replies cursor drives load-more (a `cursor=`-bearing request IS issued); and
+ * deferral bookkeeping (inline-card #201, by-id #202; replies infinite-scroll #188 is implemented).
  */
 class PostDetailSourceGuardTest {
     private val repoRoot: File = findRepoRoot()
@@ -51,6 +52,25 @@ class PostDetailSourceGuardTest {
         assertTrue(screen.contains("stringResource(Res.string.post_detail_posted_from"), "the header must use stringResource")
     }
 
+    // mobile-block-from-content spec § "No hardcoded block strings": the shared dialog + the block menu
+    // items resolve every user-facing string via Res.string.* (the canonical docs/03 copy lives in
+    // shared/resources, not in the composables).
+    @Test
+    fun blockConfirmDialog_hasNoHardcodedUiStringLiterals() {
+        val dialog = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/ui/components/BlockConfirmDialog.kt")
+        assertFalse(dialog.contains("Text(\""), "BlockConfirmDialog has a hardcoded Text(\"…\") literal")
+        assertFalse(Regex("""text\s*=\s*"""").containsMatchIn(dialog), "BlockConfirmDialog has a hardcoded text = \"…\" literal")
+        assertTrue(dialog.contains("stringResource(Res.string.profile_block_confirm_title"), "the title must use stringResource")
+        assertTrue(dialog.contains("stringResource(Res.string.profile_block_confirm_body)"), "the body must use stringResource")
+        assertTrue(dialog.contains("stringResource(Res.string.cta_block)"), "the confirm must use stringResource")
+        assertTrue(dialog.contains("stringResource(Res.string.cta_cancel)"), "the dismiss must use stringResource")
+        // The block menu items on the screen interpolate the username via the parameterized resource.
+        assertTrue(
+            screen.contains("stringResource(Res.string.profile_block_action,"),
+            "the block menu label must use the parameterized resource",
+        )
+    }
+
     @Test
     fun postDetailScreen_holdsNoBackStackReference() {
         // Navigation comes only via the hoisted onBack lambda (spec § "PostDetailScreen holds no back-stack reference").
@@ -59,13 +79,39 @@ class PostDetailSourceGuardTest {
         assertTrue(screen.contains("onBack"), "the screen takes navigation via the hoisted onBack lambda")
     }
 
-    // mobile-content-report ships the post/reply report affordance, so "Laporkan" + the report overflow
-    // (DropdownMenu) are now expected in the screen; only the BLOCK affordance stays deferred
-    // (mobile-post-detail "Block kebab action is deferred"). This guard now asserts the block half only.
+    // mobile-block-from-content UN-defers the post/reply block: the screen now hosts the shared
+    // BlockConfirmDialog + the VM-wired block menu items. The deferral guard MOVES to the timeline card:
+    // PostCard stays block-free (footprint-disjoint from in-flight #354 — the spec's
+    // "Timeline-card block entry point is deferred" negative guard).
     @Test
-    fun postDetailScreen_hasNoBlockAffordance() {
-        assertFalse(screen.contains("Blokir"), "PostDetailScreen must have no block affordance (Blokir) — block stays deferred")
-        assertFalse(screen.contains("BlockConfirm"), "no block-confirmation dialog (block stays deferred)")
+    fun postDetailScreen_hasBlockAffordance_andPostCardStaysBlockFree() {
+        assertTrue(screen.contains("BlockConfirmDialog"), "PostDetailScreen hosts the shared block dialog (mobile-block-from-content)")
+        assertTrue(screen.contains("onBlockPostClicked"), "the post-header block wires through the VM")
+        assertTrue(screen.contains("onBlockReplyClicked"), "the reply-row block wires through the VM")
+        val postCard = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/ui/components/PostCard.kt")
+        assertFalse(postCard.contains("BlockConfirmDialog"), "PostCard must carry no block dialog (timeline-card block deferred)")
+        assertFalse(postCard.contains("BlockSubmitter"), "PostCard must issue no block call (timeline-card block deferred)")
+        assertFalse(postCard.contains("profile_block_action"), "PostCard must carry no block menu item (timeline-card block deferred)")
+    }
+
+    // mobile-block-from-content spec § "A single shared block-create seam": exactly ONE source file may
+    // issue POST /api/v1/blocks/{userId} — the data/block/BlockSubmitter. A second call site is the
+    // patchwork failure mode the shared seam exists to prevent.
+    @Test
+    fun exactlyOneBlockCreateCallSite() {
+        val commonMain = File(repoRoot, "mobile/app/src/commonMain")
+        val hits =
+            commonMain
+                .walkTopDown()
+                .filter { it.isFile && it.extension == "kt" }
+                .filter { it.readText().stripComments().contains("post(\"/api/v1/blocks/") }
+                .map { it.name }
+                .sorted()
+                .toList()
+        assertTrue(
+            hits == listOf("BlockSubmitter.kt"),
+            "exactly ONE block-create call site (data/block/BlockSubmitter.kt) may POST /api/v1/blocks/{userId}; found: $hits",
+        )
     }
 
     @Test

@@ -181,6 +181,7 @@ class ProfileApiClientTest {
             assertFailsWith<CancellationException> { api.getProfile("u1") }
             assertFailsWith<CancellationException> { api.follow("u1") }
             assertFailsWith<CancellationException> { api.unfollow("u1") }
-            assertFailsWith<CancellationException> { api.block("u1") }
+            // block moved to the shared data/block/BlockSubmitter seam (mobile-block-from-content D2);
+            // its cancellation-rethrow coverage lives in BlockSubmitterTest.
         }
 }

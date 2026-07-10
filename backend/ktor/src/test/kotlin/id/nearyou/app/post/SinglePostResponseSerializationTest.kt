@@ -26,6 +26,7 @@ class SinglePostResponseSerializationTest : StringSpec({
                 SinglePostResponse.serializer(),
                 SinglePostResponse(
                     id = "11111111-1111-1111-1111-111111111111",
+                    authorUserId = "22222222-2222-2222-2222-222222222222",
                     authorUsername = "raka.jkt",
                     authorDisplayName = "Raka Pratama",
                     content = "halo",
@@ -41,6 +42,9 @@ class SinglePostResponseSerializationTest : StringSpec({
         encoded shouldContain "\"reply_count\""
         // bare camelCase keys
         encoded shouldContain "\"id\""
+        // mobile-block-from-content D1: the author UUID at timeline-wire parity (bare camelCase)
+        encoded shouldContain "\"authorUserId\""
+        encoded shouldNotContain "\"author_user_id\""
         encoded shouldContain "\"authorUsername\""
         encoded shouldContain "\"authorDisplayName\""
         encoded shouldContain "\"content\""
@@ -64,6 +68,7 @@ class SinglePostResponseSerializationTest : StringSpec({
                 SinglePostResponse.serializer(),
                 SinglePostResponse(
                     id = "p1",
+                    authorUserId = "a1",
                     authorUsername = "u",
                     authorDisplayName = "D",
                     content = "c",
@@ -84,7 +89,7 @@ class SinglePostResponseSerializationTest : StringSpec({
         val decoded =
             json.decodeFromString(
                 SinglePostResponse.serializer(),
-                """{"id":"p1","authorUsername":"u","authorDisplayName":"D","content":"c",""" +
+                """{"id":"p1","authorUserId":"a1","authorUsername":"u","authorDisplayName":"D","content":"c",""" +
                     """"city_name":"Jakarta","createdAt":"t","edited_at":"WRONG_SNAKE",""" +
                     """"editedAt":"2026-01-01T00:05:00Z","liked_by_viewer":false,"reply_count":0}""",
             )
@@ -95,7 +100,7 @@ class SinglePostResponseSerializationTest : StringSpec({
         // A decoy camelCase `cityName` alongside the real snake_case `city_name`: the camelCase key
         // is an unknown field (ignored), so `cityName` binds ONLY from `city_name`.
         val body =
-            """{"id":"p1","authorUsername":"u","authorDisplayName":"D","content":"c",""" +
+            """{"id":"p1","authorUserId":"a1","authorUsername":"u","authorDisplayName":"D","content":"c",""" +
                 """"cityName":"WRONG_CAMEL","city_name":"Jakarta","createdAt":"t",""" +
                 """"liked_by_viewer":false,"reply_count":0}"""
         val dto = json.decodeFromString(SinglePostResponse.serializer(), body)

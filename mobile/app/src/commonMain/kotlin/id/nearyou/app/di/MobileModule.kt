@@ -40,6 +40,7 @@ import id.nearyou.app.data.accountdeletion.AccountDeletionRepository
 import id.nearyou.app.data.ads.AdsConfigApiClient
 import id.nearyou.app.data.ads.AdsConfigFlow
 import id.nearyou.app.data.ads.AdsConfigRepository
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.block.BlockedUsersApiClient
 import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersRepository
@@ -466,6 +467,19 @@ val mobileModule =
             )
         }
 
+        // mobile-block-from-content (D2) — the shared block-create seam (data/block/), consumed by the
+        // profile AND post-detail (post-header + reply-row) surfaces. Wraps POST /api/v1/blocks/{userId}
+        // over the shared (bearer-authed) HttpClient (NO new client, NO X-Session-Id — the block endpoint
+        // is not session-soft-capped); holds the single status→BlockOutcome mapping (relocated from
+        // ProfileRepository.block). Same coordinate-free (status, errorCode) sink adapter as the others.
+        single {
+            val sink = get<DiagnosticSink>()
+            BlockSubmitter(
+                get(),
+                diagnosticLog = { status, errorCode -> sink.log("block_error: status=$status code=$errorCode") },
+            )
+        }
+
         // mobile-profile — the profile surface graph (read + follow/block/report). Reuses the shared
         // HttpClient (Bearer via the Auth plugin; NO X-Session-Id — none of these endpoints are
         // session-soft-capped) + the shared ReportSubmitter above (report submission). ProfileRepository
@@ -478,6 +492,7 @@ val mobileModule =
             ProfileRepository(
                 get(),
                 reportSubmitter = get(),
+                blockSubmitter = get(),
                 diagnosticLog = { status, errorCode -> sink.log("profile_error: status=$status code=$errorCode") },
             )
         }

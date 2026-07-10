@@ -4,12 +4,15 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * No-PII single-post projection for `GET /api/v1/posts/{post_id}` (single-post-read capability).
+ * Single-post projection for `GET /api/v1/posts/{post_id}` (single-post-read capability).
  *
- * Deliberately omits the `authorId` / `latitude` / `longitude` that [TimelineRow] carries: this
- * read backs a notification deep-link header and must not leak the author UUID or coordinates
- * (issue #202; the `PostDetailRoute` no-coordinates/no-author-UUID discipline). `cityName` is
- * nullable (legacy rows / polygon-coverage gaps) — the HTTP layer maps `null` to `""`.
+ * Deliberately omits the `latitude` / `longitude` that [TimelineRow] carries: this read backs a
+ * notification deep-link header and must not leak coordinates (issue #202; the `PostDetailRoute`
+ * no-coordinates discipline). As of `mobile-block-from-content` it DOES carry [authorUserId] at
+ * timeline-wire parity — never rendered client-side, it exists solely to drive the post-context
+ * block action (`POST /api/v1/blocks/{authorUserId}`); the #202 relaxation is deliberate and
+ * scoped (design D1). `cityName` is nullable (legacy rows / polygon-coverage gaps) — the HTTP
+ * layer maps `null` to `""`.
  *
  * `editedAt` is the timestamp of the post's most recent `post_edits` row (`MAX(edited_at)`), or
  * `null` when the post has never been edited. It is the only edited-signal the mobile client uses to
@@ -18,6 +21,9 @@ import java.util.UUID
  */
 data class SinglePostRow(
     val id: UUID,
+    // The author's user UUID, exposed at timeline-wire parity (mobile-block-from-content design D1):
+    // never rendered, block-action-only. The same column already backs the isAuthor derivation.
+    val authorUserId: UUID,
     // Author display identity (NOT NULL since V2): visible_users on the visible arm; raw users on
     // the own-content self arm, whose row is always the viewer's own (shadow-ban-feed-self-visibility).
     val authorUsername: String,

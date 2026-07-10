@@ -1,9 +1,9 @@
 package id.nearyou.app.screens.profile
 
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
-import id.nearyou.app.profile.BlockOutcome
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileOutcome

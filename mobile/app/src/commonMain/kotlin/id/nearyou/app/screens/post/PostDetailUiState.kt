@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.post
 
+import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.RepliesOutcome
@@ -13,22 +14,36 @@ import kotlin.math.ceil
 const val MAX_REPLY_CONTENT_CODE_POINTS: Int = 280
 
 /**
- * The display-only projection of a reply — the PII-stripped model the reply cards render. It carries ONLY
- * what a card shows: [content] + the [createdAt] treatment. There is deliberately NO `authorId` (a UUID,
- * PII — never rendered, consistent with the author-free post cards), NO surfaced `isAutoHidden` (the
- * viewer's own auto-hidden reply renders identically to a live one in v1 — design D7 / spec), and NO
- * `deletedAt` (effectively dead on this list path). [id] is the reply's own UUID (not author PII), kept as
- * a stable `LazyColumn` key.
+ * The display projection of a reply — the model the reply cards render. A card shows [content] + the
+ * [createdAt] treatment + (mobile-block-from-content D7, mockup frame 7) the author **display identity**
+ * row from [authorUsername]/[authorDisplayName] (null on an older-backend body → the identity row and the
+ * block item are omitted gracefully). [authorId] (a UUID) is carried SOLELY for the client-side
+ * self-block gate (`SelfUserIdProvider` comparison) and as the block-request path param — it MUST NEVER
+ * be rendered or logged (the MODIFIED "Pure PostDetailUiState projection (PII-free)" carve-out). NO
+ * surfaced `isAutoHidden` (the viewer's own auto-hidden reply renders identically to a live one in v1)
+ * and NO `deletedAt` (effectively dead on this list path). [id] is the reply's own UUID (not author PII),
+ * kept as a stable `LazyColumn` key.
  */
 data class ReplyUi(
     val id: String,
     val content: String,
     val createdAt: String,
+    val authorId: String,
+    val authorUsername: String? = null,
+    val authorDisplayName: String? = null,
 )
 
-/** Strips a [ReplyDto] to its PII-free [ReplyUi] — drops `authorId`, `isAutoHidden`, `deletedAt`,
- *  `updatedAt`, `postId` so the rendered state STRUCTURALLY cannot leak author identity. */
-fun ReplyDto.toUi(): ReplyUi = ReplyUi(id = id, content = content, createdAt = createdAt)
+/** Projects a [ReplyDto] to its [ReplyUi] — drops `isAutoHidden`, `deletedAt`, `updatedAt`, `postId`;
+ *  keeps the display identity (renderable) + `authorId` (gate/path-only, never rendered). */
+fun ReplyDto.toUi(): ReplyUi =
+    ReplyUi(
+        id = id,
+        content = content,
+        createdAt = createdAt,
+        authorId = authorId,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
+    )
 
 /**
  * Pure, Compose-free projection of the replies-list sub-surface, mirroring [NearbyTimelineUiState][id.nearyou.app.screens.timeline.NearbyTimelineUiState].
@@ -161,6 +176,54 @@ sealed interface ReportTarget {
 
     data class Reply(val replyId: String) : ReportTarget
 }
+
+/**
+ * Which target the post-detail block confirmation dialog is aimed at (mobile-block-from-content). A
+ * nullable `BlockTarget?` on the VM drives the shared `BlockConfirmDialog`: null = no dialog. Carries
+ * the target's public [username] (display identity — interpolated into the canonical dialog copy) and
+ * the [targetUserId] UUID, which is NEVER rendered or logged — it exists solely as the
+ * `POST /api/v1/blocks/{userId}` path param (the MODIFIED PII-projection carve-out). [Reply.replyId]
+ * additionally identifies the row to remove locally on a confirmed block.
+ */
+sealed interface BlockTarget {
+    val username: String
+    val targetUserId: String
+
+    data class Post(
+        override val targetUserId: String,
+        override val username: String,
+    ) : BlockTarget
+
+    data class Reply(
+        val replyId: String,
+        override val targetUserId: String,
+        override val username: String,
+    ) : BlockTarget
+}
+
+/**
+ * The user-facing one-shot block-result message keys for the post-detail surface (each maps to a
+ * `:shared:resources` string at the screen), mirroring the profile treatment: [SUCCESS] → the
+ * "Pengguna telah diblokir" toast; [RATE_LIMITED] → the block rate-limit copy; [FAILED] → the generic
+ * action-failed copy. Held as a nullable VM field cleared via `onBlockMessageShown()` (docs/11 § 2.2).
+ */
+enum class PostDetailBlockMessage {
+    SUCCESS,
+    RATE_LIMITED,
+    FAILED,
+}
+
+/**
+ * Maps a [BlockOutcome] to its one-shot post-detail message — identical to the profile mapping
+ * (`Blocked` → success, `RateLimited` → rate-limit, `NetworkError` → action-failed). Pure + exhaustive
+ * (no wildcard) so the mapping is unit-testable without a backend.
+ */
+fun postDetailBlockMessage(outcome: BlockOutcome): PostDetailBlockMessage =
+    when (outcome) {
+        BlockOutcome.Blocked -> PostDetailBlockMessage.SUCCESS
+        is BlockOutcome.RateLimited -> PostDetailBlockMessage.RATE_LIMITED
+        BlockOutcome.NetworkError -> PostDetailBlockMessage.FAILED
+    }
 
 /**
  * The user-facing one-shot report-result message keys for the post-detail surface (each maps to a

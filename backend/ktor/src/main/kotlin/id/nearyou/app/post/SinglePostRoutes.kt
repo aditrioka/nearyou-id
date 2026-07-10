@@ -67,8 +67,12 @@ fun Application.singlePostRoutes(service: PostReadService) {
 /**
  * Wire DTO for the single-post read. Mixed-case keys match the shipped timeline post DTO
  * (`TimelineRoutes.kt`): snake_case `city_name` / `liked_by_viewer` / `reply_count`, bare camelCase
- * otherwise. Deliberately NO author UUID and NO `latitude`/`longitude` — the projection is strictly
- * more restrictive than the timeline wire (no-PII; issue #202 + the `PostDetailRoute` discipline).
+ * otherwise. Deliberately NO `latitude`/`longitude` (issue #202's coordinate discipline + the
+ * `PostDetailRoute` rule). `authorUserId` IS carried as of `mobile-block-from-content` — at parity
+ * with the timeline post wire, never rendered client-side, existing solely to drive the post-context
+ * block action (`POST /api/v1/blocks/{authorUserId}`); a deliberate, scoped relaxation of issue
+ * #202's "no author UUID on the single-post wire" stance (design D1 — the same
+ * wire-carries-but-never-renders role `post-replies`' `author_id` plays).
  * `distanceM` is always `null` in v1 (a by-id read has no viewer-location context) and is omitted from
  * the body under the app-wide ContentNegotiation `explicitNulls = false`.
  *
@@ -83,6 +87,7 @@ fun Application.singlePostRoutes(service: PostReadService) {
 @Serializable
 data class SinglePostResponse(
     val id: String,
+    val authorUserId: String,
     val authorUsername: String,
     val authorDisplayName: String,
     val content: String,

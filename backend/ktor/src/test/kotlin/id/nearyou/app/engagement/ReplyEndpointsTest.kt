@@ -284,6 +284,11 @@ class ReplyEndpointsTest : StringSpec({
                 resp.status shouldBe HttpStatusCode.Created
                 val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
                 body["author_id"]!!.jsonPrimitive.content shouldBe viewer.toString()
+                // mobile-block-from-content D7: the 201 carries the CALLER's own display identity
+                // (seedUser convention: username re_<first8>, display name "Reply Endpoint Tester").
+                body["author_username"]!!.jsonPrimitive.content shouldBe
+                    "re_${viewer.toString().replace("-", "").take(8)}"
+                body["author_display_name"]!!.jsonPrimitive.content shouldBe "Reply Endpoint Tester"
                 body["post_id"]!!.jsonPrimitive.content shouldBe p.toString()
                 body["content"]!!.jsonPrimitive.content shouldBe "great post"
                 body["is_auto_hidden"]!!.jsonPrimitive.booleanOrNull shouldBe false
@@ -494,10 +499,20 @@ class ReplyEndpointsTest : StringSpec({
                             header(HttpHeaders.Authorization, "Bearer $vt")
                         }
                 resp.status shouldBe HttpStatusCode.OK
-                val ids =
+                val replies =
                     Json.parseToJsonElement(resp.bodyAsText()).jsonObject["replies"]!!
-                        .jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
-                ids shouldBe listOf(r3.toString(), r2.toString(), r1.toString())
+                        .jsonArray.map { it as JsonObject }
+                replies.map { it["id"]!!.jsonPrimitive.content } shouldBe
+                    listOf(r3.toString(), r2.toString(), r1.toString())
+                // mobile-block-from-content D7: every listed reply carries the author's display
+                // identity alongside the unchanged pre-existing fields (additive).
+                replies.forEach {
+                    it["author_username"]!!.jsonPrimitive.content shouldBe
+                        "re_${replier.toString().replace("-", "").take(8)}"
+                    it["author_display_name"]!!.jsonPrimitive.content shouldBe "Reply Endpoint Tester"
+                    it["author_id"]!!.jsonPrimitive.content shouldBe replier.toString()
+                    it.containsKey("created_at") shouldBe true
+                }
             }
         } finally {
             cleanup(viewer, author, replier)
@@ -762,10 +777,15 @@ class ReplyEndpointsTest : StringSpec({
                             header(HttpHeaders.Authorization, "Bearer $at")
                         }
                 resp.status shouldBe HttpStatusCode.OK
-                val ids =
+                val replies =
                     Json.parseToJsonElement(resp.bodyAsText()).jsonObject["replies"]!!
-                        .jsonArray.map { (it as JsonObject)["id"]!!.jsonPrimitive.content }
-                ids shouldBe listOf(r.toString())
+                        .jsonArray.map { it as JsonObject }
+                replies.map { it["id"]!!.jsonPrimitive.content } shouldBe listOf(r.toString())
+                // mobile-block-from-content D7: the shadow-banned author's OWN reply still carries
+                // their identity — the raw-`users` arm (a shadow-banned user has no visible_users row).
+                replies.single()["author_username"]!!.jsonPrimitive.content shouldBe
+                    "re_${author.toString().replace("-", "").take(8)}"
+                replies.single()["author_display_name"]!!.jsonPrimitive.content shouldBe "Reply Endpoint Tester"
             }
         } finally {
             cleanup(author)

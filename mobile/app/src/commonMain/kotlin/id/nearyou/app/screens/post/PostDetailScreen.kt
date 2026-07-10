@@ -56,6 +56,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.post.LikeCountOutcome
 import id.nearyou.app.post.LikeOutcome
@@ -64,6 +66,7 @@ import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.post.PostRefreshOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.screens.routing.PostDetailRoute
+import id.nearyou.app.ui.components.BlockConfirmDialog
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
@@ -92,7 +95,11 @@ import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
 import id.nearyou.resources.generated.resources.post_detail_reset_hours
 import id.nearyou.resources.generated.resources.post_edit_edited_label
 import id.nearyou.resources.generated.resources.post_image_alt
+import id.nearyou.resources.generated.resources.profile_action_failed
 import id.nearyou.resources.generated.resources.profile_actions_menu_description
+import id.nearyou.resources.generated.resources.profile_block_action
+import id.nearyou.resources.generated.resources.profile_block_rate_limited
+import id.nearyou.resources.generated.resources.profile_block_success_toast
 import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_success_toast
@@ -152,6 +159,16 @@ const val POST_DETAIL_REPORT_REPLY_TAG: String = "postDetailReportReply"
 /** Test tag on the shared report dialog when opened from the post-detail surface. */
 const val POST_DETAIL_REPORT_DIALOG_TAG: String = "postDetailReportDialog"
 
+/** Test tag on the post-header block menu item (shown only for a non-authored post whose freshness
+ *  read resolved an `authorUserId` — mobile-block-from-content). */
+const val POST_DETAIL_BLOCK_POST_TAG: String = "postDetailBlockPost"
+
+/** Test tag on a reply row's block menu item (another user's reply with a wire identity only). */
+const val POST_DETAIL_BLOCK_REPLY_TAG: String = "postDetailBlockReply"
+
+/** Test tag on the shared block confirmation dialog when opened from the post-detail surface. */
+const val POST_DETAIL_BLOCK_DIALOG_TAG: String = "postDetailBlockDialog"
+
 /**
  * The post-detail surface ([PostDetailRoute]) — "everything you do on a single post" — opened by tapping
  * a feed card and overlaid on the tab bar via the ROOT back stack (design D1). Renders, all under
@@ -188,6 +205,8 @@ fun PostDetailScreen(
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
     val reportSubmitter = koinInject<ReportSubmitter>()
+    val blockSubmitter = koinInject<BlockSubmitter>()
+    val selfUserIdProvider = koinInject<SelfUserIdProvider>()
     val scope = rememberCoroutineScope()
 
     // Like state: initial liked from the nav arg; count + last outcome (for the cap upsell) are live.
@@ -199,7 +218,8 @@ fun PostDetailScreen(
     // Replies list + cursor paging + the header reply count are held in PostDetailViewModel (design D5,
     // mirrors the timeline-VM migration #167) so the loaded replies + load-more state survive
     // recomposition + config change. The like + composer state stay composition-local (noted follow-up).
-    val viewModel = viewModel { PostDetailViewModel(flow, route.postId, route.replyCount, reportSubmitter) }
+    val viewModel =
+        viewModel { PostDetailViewModel(flow, route.postId, route.replyCount, reportSubmitter, blockSubmitter) }
     val repliesOutcome by viewModel.repliesOutcome.collectAsStateWithLifecycle()
     val repliesInFlight by viewModel.repliesInFlight.collectAsStateWithLifecycle()
     val replyCount by viewModel.replyCount.collectAsStateWithLifecycle()
@@ -208,6 +228,15 @@ fun PostDetailScreen(
     // mobile-content-report: the report dialog target + the one-shot result message.
     val reportTarget by viewModel.reportTarget.collectAsStateWithLifecycle()
     val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
+    // mobile-block-from-content: the block dialog target, the one-shot result, and the post-block pop.
+    val blockTarget by viewModel.blockTarget.collectAsStateWithLifecycle()
+    val blockMessage by viewModel.blockMessage.collectAsStateWithLifecycle()
+    val blockPopBack by viewModel.blockPopBack.collectAsStateWithLifecycle()
+    // The session user id for the reply self-block gate (SelfUserIdProvider decodes the token's sub).
+    // The gate FAILS CLOSED on null: while resolving / on a malformed token the block item is absent
+    // (never shown-on-own-reply, never a crash).
+    var selfUserId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { selfUserId = selfUserIdProvider.selfUserId() }
 
     // Composer state.
     var replyContent by remember { mutableStateOf("") }
@@ -221,6 +250,10 @@ fun PostDetailScreen(
     var displayedContent by remember { mutableStateOf(route.content) }
     var editedAtIso by remember { mutableStateOf<String?>(null) }
     var isAuthor by remember { mutableStateOf(false) }
+    // mobile-block-from-content: the post author's UUID from the SAME freshness read (design D1) —
+    // never rendered/logged; solely the post-header block target. Null (read failed / older backend)
+    // simply hides the block affordance, the same graceful dependence as the Edit affordance.
+    var authorUserId by remember { mutableStateOf<String?>(null) }
     var historyOpen by remember { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         scope.launch {
@@ -229,6 +262,7 @@ fun PostDetailScreen(
                     displayedContent = refresh.content
                     editedAtIso = refresh.editedAt
                     isAuthor = refresh.isAuthor
+                    authorUserId = refresh.authorUserId
                 }
                 PostRefreshOutcome.Unavailable -> Unit
             }
@@ -346,6 +380,23 @@ fun PostDetailScreen(
             viewModel.onReportMessageShown()
         }
     }
+    // mobile-block-from-content: the one-shot block-result message → the same snackbar host.
+    val blockMessageText = blockMessage?.let { stringResource(it.resource()) }
+    LaunchedEffect(blockMessage) {
+        if (blockMessageText != null) {
+            snackbarHostState.showSnackbar(blockMessageText)
+            viewModel.onBlockMessageShown()
+        }
+    }
+    // mobile-block-from-content: a confirmed POST block pops this screen off the root back stack (the
+    // just-blocked post 404s on any re-read — the profile navigate-back rationale). One-shot, cleared
+    // after the pop so a restored composition never re-pops.
+    LaunchedEffect(blockPopBack) {
+        if (blockPopBack) {
+            viewModel.onBlockPoppedBack()
+            onBack()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -358,6 +409,15 @@ fun PostDetailScreen(
                     // non-authored post (server-authoritative `isAuthor`, the same gate as Edit).
                     reportEligible = !isAuthor,
                     onReportPost = viewModel::onReportPostClicked,
+                    // mobile-block-from-content: the post-header block item needs a NON-authored post
+                    // (the kebab itself now shows on own posts too, for share) + the freshness-read
+                    // authorUserId (the block target) + a payload username (the canonical copy);
+                    // any missing → the item is simply absent (graceful degradation, design D1).
+                    onBlockPost =
+                        authorUserId
+                            ?.takeIf { !isAuthor && route.authorUsername.isNotEmpty() }
+                            ?.let { target -> { viewModel.onBlockPostClicked(target, route.authorUsername) } },
+                    blockUsername = route.authorUsername,
                     // chat-embedded-posts: "Bagikan ke chat" is available for ANY visible post (own or
                     // other's) — sharing relays the snapshot the sender can see.
                     onShareToChat = { onShareToChat(route.postId) },
@@ -424,8 +484,23 @@ fun PostDetailScreen(
                             contentType = { "reply" },
                         ) { reply ->
                             // mobile-content-report: each reply row carries a report affordance targeting
-                            // the reply id ONLY (ungated by authorship — author_id is dropped).
-                            ReplyCard(reply = reply, onReport = { viewModel.onReportReplyClicked(reply.id) })
+                            // the reply id ONLY (ungated by authorship). mobile-block-from-content adds the
+                            // block item — gated on the SelfUserIdProvider self-comparison (never your own
+                            // reply; fails CLOSED while selfUserId is unresolved/null) AND a non-blank wire
+                            // username (older-backend graceful absence); the backend's 400
+                            // cannot_block_self stays the belt-and-suspenders.
+                            ReplyCard(
+                                reply = reply,
+                                onReport = { viewModel.onReportReplyClicked(reply.id) },
+                                onBlock =
+                                    reply.authorUsername
+                                        ?.takeIf {
+                                            it.isNotBlank() && selfUserId != null && reply.authorId != selfUserId
+                                        }
+                                        ?.let { username ->
+                                            { viewModel.onBlockReplyClicked(reply.id, reply.authorId, username) }
+                                        },
+                            )
                         }
                 }
                 // Replies load-more footer: spinner while a page loads, non-destructive retry on error,
@@ -449,6 +524,18 @@ fun PostDetailScreen(
                     testTag = POST_DETAIL_REPORT_DIALOG_TAG,
                     onSubmit = viewModel::onReportSubmitted,
                     onDismiss = viewModel::onReportDialogDismissed,
+                )
+            }
+            // mobile-block-from-content: the shared block confirmation dialog (canonical docs/03 copy)
+            // over the detail — one dialog serves the post-header AND reply-row targets; the target
+            // UUID stays in the VM (only the public @username is rendered). Hosted inside the Scaffold
+            // content for the same measure-loop reason as the report dialog above.
+            blockTarget?.let { target ->
+                BlockConfirmDialog(
+                    username = target.username,
+                    onConfirm = viewModel::onBlockConfirmed,
+                    onDismiss = viewModel::onBlockDialogDismissed,
+                    testTag = POST_DETAIL_BLOCK_DIALOG_TAG,
                 )
             }
         }
@@ -475,6 +562,15 @@ private fun PostDetailReportMessage.resource(): StringResource =
         PostDetailReportMessage.FAILED -> Res.string.signin_error_network
     }
 
+/** Maps the one-shot [PostDetailBlockMessage] to its `:shared:resources` string — the SAME copy the
+ *  profile block surfaces (mobile-block-from-content D4: success toast / rate-limit / action-failed). */
+private fun PostDetailBlockMessage.resource(): StringResource =
+    when (this) {
+        PostDetailBlockMessage.SUCCESS -> Res.string.profile_block_success_toast
+        PostDetailBlockMessage.RATE_LIMITED -> Res.string.profile_block_rate_limited
+        PostDetailBlockMessage.FAILED -> Res.string.profile_action_failed
+    }
+
 /** The back/close affordance (the detail overlays the feed via the root stack, so "Tutup" = close it).
  *  Invokes the hoisted [onBack] — the screen holds no back-stack reference. The trailing slot carries the
  *  mobile-post-editing Edit affordance (own post within the window) OR the mobile-content-report report
@@ -487,6 +583,8 @@ private fun BackBar(
     onEdit: () -> Unit,
     reportEligible: Boolean,
     onReportPost: () -> Unit,
+    onBlockPost: (() -> Unit)?,
+    blockUsername: String,
     onShareToChat: () -> Unit,
 ) {
     // This screen owns its Scaffold (root-stack overlay), so its custom bars must
@@ -513,24 +611,33 @@ private fun BackBar(
                 }
             }
             // The post-header overflow kebab: "Bagikan ke chat" (any visible post — chat-embedded-posts)
-            // plus "Laporkan" for a non-authored post (mobile-content-report). Always present so the
-            // share entry point is reachable for own posts too.
+            // plus "Blokir @{username}" (non-authored post with a resolved block target —
+            // mobile-block-from-content) plus "Laporkan" for a non-authored post (mobile-content-report).
+            // Always present so the share entry point is reachable for own posts too.
             PostActionsMenu(
                 onShareToChat = onShareToChat,
                 reportEligible = reportEligible,
                 onReportPost = onReportPost,
+                onBlockPost = onBlockPost,
+                blockUsername = blockUsername,
             )
         }
     }
 }
 
-/** The post-header overflow kebab — "Bagikan ke chat" (always) + "Laporkan" (non-authored post). Mirrors
- *  the profile `ProfileActionsMenu` treatment so the entry points read the same across surfaces. */
+/** The post-header overflow kebab — "Bagikan ke chat" (always — chat-embedded-posts) + an optional
+ *  "Blokir @{username}" item (mobile-block-from-content — present iff [onBlockPost] is non-null, i.e. a
+ *  non-authored post whose freshness read resolved an `authorUserId` and whose payload carries a
+ *  username; the block-above-report order mirrors the profile `ProfileActionsMenu`) + "Laporkan"
+ *  (non-authored post — mobile-content-report). [blockUsername] is the author's public handle for the
+ *  block item label (display identity only — never the UUID). */
 @Composable
 private fun PostActionsMenu(
     onShareToChat: () -> Unit,
     reportEligible: Boolean,
     onReportPost: () -> Unit,
+    onBlockPost: (() -> Unit)?,
+    blockUsername: String,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -544,6 +651,16 @@ private fun PostActionsMenu(
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onBlockPost != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_block_action, blockUsername)) },
+                    onClick = {
+                        expanded = false
+                        onBlockPost()
+                    },
+                    modifier = Modifier.testTag(POST_DETAIL_BLOCK_POST_TAG),
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(Res.string.chat_share_to_chat_action)) },
                 onClick = {
@@ -747,15 +864,18 @@ private fun LikeRow(
     }
 }
 
-/** A single reply card — `content` + the `created_at` date treatment + a trailing report affordance. NO
- *  author identity (the PII-free [ReplyUi] carries no `authorId`); a viewer's-own auto-hidden reply renders
- *  identically (the flag is parsed but not surfaced in v1). [onReport] opens the shared report dialog for
- *  THIS reply (the VM targets the reply id only — mobile-content-report); the affordance is ungated by
- *  authorship (author_id is dropped, so own-vs-other is unknowable client-side). */
+/** A single reply card — the author **display identity** row (mobile-block-from-content D7, mockup
+ *  frame 7: the shared [LetterAvatar] + display name, the same treatments as the post header; omitted
+ *  gracefully when the wire identity is absent — an older-backend body) + `content` + the `created_at`
+ *  date treatment + a trailing overflow. The `author_id` UUID is NEVER rendered. A viewer's-own
+ *  auto-hidden reply renders identically (the flag is parsed but not surfaced in v1). [onReport] opens
+ *  the shared report dialog for THIS reply (reply id only); [onBlock] (nullable — absent on the viewer's
+ *  own reply or without a wire identity) opens the shared block dialog targeting the reply author. */
 @Composable
 private fun ReplyCard(
     reply: ReplyUi,
     onReport: () -> Unit,
+    onBlock: (() -> Unit)?,
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -763,6 +883,27 @@ private fun ReplyCard(
             verticalAlignment = Alignment.Top,
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                val displayName = reply.authorDisplayName.orEmpty()
+                val username = reply.authorUsername.orEmpty()
+                if (displayName.isNotEmpty() || username.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    ) {
+                        LetterAvatar(displayName = displayName, username = username)
+                        Text(
+                            // The mockup-frame-7 reply identity shows the display name; fall back to the
+                            // @handle when a display name is absent (the header's graceful treatment).
+                            text = displayName.ifEmpty { stringResource(Res.string.post_card_handle, username) },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Text(
                     text = reply.content,
                     style = MaterialTheme.typography.bodyMedium,
@@ -775,15 +916,24 @@ private fun ReplyCard(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            ReplyReportMenu(onReport = onReport)
+            ReplyActionsMenu(
+                onReport = onReport,
+                onBlock = onBlock,
+                blockUsername = reply.authorUsername.orEmpty(),
+            )
         }
     }
 }
 
-/** A reply row's report overflow — a kebab opening a single "Laporkan" item (mirrors the post report
- *  overflow). The affordance is present on EVERY reply (ungated by authorship). */
+/** A reply row's overflow — a kebab opening an optional "Blokir @{username}" item
+ *  (mobile-block-from-content; present iff [onBlock] is non-null) above the "Laporkan" item (present on
+ *  EVERY reply, ungated by authorship — mobile-content-report). Mirrors the post-header kebab order. */
 @Composable
-private fun ReplyReportMenu(onReport: () -> Unit) {
+private fun ReplyActionsMenu(
+    onReport: () -> Unit,
+    onBlock: (() -> Unit)?,
+    blockUsername: String,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(
@@ -796,6 +946,16 @@ private fun ReplyReportMenu(onReport: () -> Unit) {
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onBlock != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_block_action, blockUsername)) },
+                    onClick = {
+                        expanded = false
+                        onBlock()
+                    },
+                    modifier = Modifier.testTag(POST_DETAIL_BLOCK_REPLY_TAG),
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(Res.string.profile_report_action)) },
                 onClick = {

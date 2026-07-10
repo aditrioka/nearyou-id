@@ -16,13 +16,17 @@ import kotlin.coroutines.cancellation.CancellationException
  * `SinglePostResponse` mixed-case convention — `editedAt` like `createdAt`); `editedAt` is omitted when
  * the post has never been edited (`explicitNulls = false` on the server), so it decodes to `null` here.
  * The remaining `SinglePostResponse` fields are tolerated via the shared `Json`'s `ignoreUnknownKeys`.
- * No author UUID / coordinate is declared (the projection carries none — no-PII).
+ * No coordinate is declared. [authorUserId] (mobile-block-from-content D1) is the post author's UUID —
+ * nullable-with-default so an older-backend body still decodes; it MUST NEVER be rendered or logged and
+ * exists solely as the post-context block target (`POST /api/v1/blocks/{authorUserId}`); the affordance
+ * is absent when it is null (graceful degradation, the same dependence as the Edit affordance).
  */
 @Serializable
 data class SinglePostDto(
     val content: String,
     val editedAt: String? = null,
     val isAuthor: Boolean = false,
+    val authorUserId: String? = null,
 )
 
 /**

@@ -2,6 +2,8 @@ package id.nearyou.app.screens.post
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.data.block.BlockOutcome
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.data.report.ReportTargetType
@@ -34,12 +36,22 @@ import kotlin.coroutines.cancellation.CancellationException
  * change): [reportTarget] (which content the dialog targets, null = closed) + [reportMessage] (the one-shot
  * result), both nullable VM fields cleared via callbacks ([onReportDialogDismissed] / [onReportMessageShown])
  * — not a `Channel`/`SharedFlow` bus (docs/11 § 2.2). Submission goes through the shared [ReportSubmitter].
+ *
+ * mobile-block-from-content adds the block dialog/result state the same way: [blockTarget] (which
+ * author the shared `BlockConfirmDialog` targets — post header or a reply row; null = closed),
+ * [blockMessage] (the one-shot result), and [blockPopBack] (the post-block navigate-back one-shot),
+ * cleared via [onBlockDialogDismissed] / [onBlockMessageShown] / [onBlockPoppedBack]. Submission goes
+ * through the shared [BlockSubmitter]; a confirmed reply block removes the row locally (the reply hides
+ * bidirectionally server-side) WITHOUT touching [replyCount] — the header counter is the public,
+ * viewer-independent aggregate (the documented post-replies-v8 counter tradeoff), so a viewer-local
+ * block must not decrement it.
  */
 class PostDetailViewModel(
     private val flow: PostDetailFlow,
     private val postId: String,
     initialReplyCount: Int,
     private val reportSubmitter: ReportSubmitter,
+    private val blockSubmitter: BlockSubmitter,
 ) : ViewModel() {
     private val _repliesOutcome = MutableStateFlow<RepliesOutcome?>(null)
     val repliesOutcome: StateFlow<RepliesOutcome?> = _repliesOutcome.asStateFlow()
@@ -53,6 +65,19 @@ class PostDetailViewModel(
 
     private val _reportMessage = MutableStateFlow<PostDetailReportMessage?>(null)
     val reportMessage: StateFlow<PostDetailReportMessage?> = _reportMessage.asStateFlow()
+
+    // mobile-block-from-content: which author the block dialog targets (null = no dialog), the one-shot
+    // block-result message, and the post-block navigate-back one-shot. All nullable/false VM state
+    // cleared via callbacks — NOT a Channel/SharedFlow bus (docs/11 § 2.2). The target UUID is held
+    // only as the block path param (never rendered/logged).
+    private val _blockTarget = MutableStateFlow<BlockTarget?>(null)
+    val blockTarget: StateFlow<BlockTarget?> = _blockTarget.asStateFlow()
+
+    private val _blockMessage = MutableStateFlow<PostDetailBlockMessage?>(null)
+    val blockMessage: StateFlow<PostDetailBlockMessage?> = _blockMessage.asStateFlow()
+
+    private val _blockPopBack = MutableStateFlow(false)
+    val blockPopBack: StateFlow<Boolean> = _blockPopBack.asStateFlow()
 
     private val _repliesInFlight = MutableStateFlow(true)
     val repliesInFlight: StateFlow<Boolean> = _repliesInFlight.asStateFlow()
@@ -179,5 +204,74 @@ class PostDetailViewModel(
      *  recomposition / config change). */
     fun onReportMessageShown() {
         _reportMessage.value = null
+    }
+
+    /** mobile-block-from-content: open the block dialog targeting the POST author (the post-header
+     *  affordance; the screen gates it on `!isAuthor` + a resolved freshness-read [authorUserId]). */
+    fun onBlockPostClicked(
+        authorUserId: String,
+        username: String,
+    ) {
+        _blockTarget.value = BlockTarget.Post(targetUserId = authorUserId, username = username)
+    }
+
+    /** mobile-block-from-content: open the block dialog targeting a REPLY author (the per-reply
+     *  affordance; the screen gates it on the `SelfUserIdProvider` self-block comparison + a non-blank
+     *  wire `author_username`). [authorId] is used only as the block path param (never rendered). */
+    fun onBlockReplyClicked(
+        replyId: String,
+        authorId: String,
+        username: String,
+    ) {
+        _blockTarget.value = BlockTarget.Reply(replyId = replyId, targetUserId = authorId, username = username)
+    }
+
+    /** Dismiss the block dialog without blocking (clears the target one-shot). */
+    fun onBlockDialogDismissed() {
+        _blockTarget.value = null
+    }
+
+    /**
+     * Confirm the block for the currently-targeted author via the shared [blockSubmitter]. Closes the
+     * dialog, then maps the [BlockOutcome]: `Blocked` on a POST target → success toast + the pop-back
+     * one-shot (the just-blocked post 404s on any re-read — the profile navigate-back rationale);
+     * `Blocked` on a REPLY target → success toast + local row removal (the open post stays visible, and
+     * [replyCount] is NOT decremented — the public viewer-independent counter tradeoff);
+     * `RateLimited`/`NetworkError` → message only, no nav, no removal. A no-op if no target is set.
+     */
+    fun onBlockConfirmed() {
+        val target = _blockTarget.value ?: return
+        // Close the dialog immediately (the submission result surfaces as the one-shot message).
+        _blockTarget.value = null
+        viewModelScope.launch {
+            val outcome = blockSubmitter.submit(target.targetUserId)
+            if (outcome == BlockOutcome.Blocked) {
+                when (target) {
+                    is BlockTarget.Post -> _blockPopBack.value = true
+                    is BlockTarget.Reply -> removeReplyRow(target.replyId)
+                }
+            }
+            _blockMessage.value = postDetailBlockMessage(outcome)
+        }
+    }
+
+    /** Clears the one-shot [blockMessage] after the screen has shown it. */
+    fun onBlockMessageShown() {
+        _blockMessage.value = null
+    }
+
+    /** Clears the one-shot [blockPopBack] after the screen has popped. */
+    fun onBlockPoppedBack() {
+        _blockPopBack.value = false
+    }
+
+    /** Local removal of a just-block-confirmed reply row (the server already hides it bidirectionally;
+     *  the next replies (re)fetch reconciles from the `visible_*` views). Paging cursor is untouched. */
+    private fun removeReplyRow(replyId: String) {
+        val current = _repliesOutcome.value
+        if (current is RepliesOutcome.Loaded) {
+            _repliesOutcome.value =
+                RepliesOutcome.Loaded(current.replies.filterNot { it.id == replyId }, current.nextCursor)
+        }
     }
 }

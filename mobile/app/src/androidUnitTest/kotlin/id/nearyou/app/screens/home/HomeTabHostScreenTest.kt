@@ -15,6 +15,8 @@ import androidx.compose.ui.test.swipeRight
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -161,6 +163,8 @@ class HomeTabHostScreenTest {
                     single<PostDetailFlow> { FakePostDetailFlow() }
                     single<PostEditFlow> { FakePostEditFlow() }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    // + (mobile-block-from-content) the BlockSubmitter seam for the block kebabs.
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                 },
             )
         }

@@ -1,5 +1,7 @@
 package id.nearyou.app.profile
 
+import id.nearyou.app.data.block.BlockOutcome
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
@@ -15,7 +17,9 @@ import id.nearyou.app.data.report.ReportTargetType
  *
  * Report submission delegates to the shared [reportSubmitter] (`data/report/` — mobile-content-report),
  * so the user/post/reply report-submission mapping lives in exactly ONE place; the profile surface fixes
- * the target to [ReportTargetType.USER].
+ * the target to [ReportTargetType.USER]. Block-create likewise delegates to the shared [blockSubmitter]
+ * (`data/block/` — mobile-block-from-content D2): the block mapping previously inlined here now lives in
+ * exactly ONE place, consumed by profile AND post-detail.
  *
  * PII discipline: the [diagnosticLog] sink carries only the HTTP `status` + `errorCode` primitives —
  * never a body, the `userId`, or a coordinate (these endpoints carry no coordinate at all); the
@@ -24,6 +28,7 @@ import id.nearyou.app.data.report.ReportTargetType
 class ProfileRepository(
     private val profileApiClient: ProfileApiClient,
     private val reportSubmitter: ReportSubmitter,
+    private val blockSubmitter: BlockSubmitter,
     // Diagnostic sink for non-user-facing error detail (status + error code only). MUST NOT carry
     // tokens, bodies, the userId, or coordinates.
     private val diagnosticLog: (status: Int, errorCode: String?) -> Unit = { _, _ -> },
@@ -50,21 +55,7 @@ class ProfileRepository(
             is ActionApiResult.HttpError -> mapUnfollowHttpError(result)
         }
 
-    override suspend fun block(userId: String): BlockOutcome =
-        when (val result = profileApiClient.block(userId)) {
-            ActionApiResult.NoContent -> BlockOutcome.Blocked
-            is ActionApiResult.NetworkError -> BlockOutcome.NetworkError
-            is ActionApiResult.HttpError ->
-                when {
-                    result.status == 429 -> BlockOutcome.RateLimited(result.retryAfterSeconds ?: 0L)
-                    // An unreachable-from-UI 404 (kebab only on a read profile) + 5xx + any other →
-                    // the retryable NetworkError (a non-actionable failure).
-                    else -> {
-                        diagnosticLog(result.status, result.errorCode)
-                        BlockOutcome.NetworkError
-                    }
-                }
-        }
+    override suspend fun block(userId: String): BlockOutcome = blockSubmitter.submit(userId)
 
     override suspend fun report(
         userId: String,

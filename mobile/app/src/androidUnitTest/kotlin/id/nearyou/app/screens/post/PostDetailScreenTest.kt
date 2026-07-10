@@ -30,7 +30,11 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.data.block.BlockOutcome
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.network.HttpClientFactory
@@ -53,6 +57,7 @@ import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.post.fakeReply
 import id.nearyou.app.screens.routing.PostDetailRoute
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
@@ -77,6 +82,9 @@ import kotlin.time.Clock
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val CONTENT = "halo"
 private const val CITY = "Jakarta Selatan"
+
+/** The session user for the reply self-block gate — matches NO fixture reply author by default. */
+private const val SELF_USER_ID = "99999999-9999-9999-9999-999999999999"
 private const val CREATED_AT = "2026-06-06T10:00:00Z"
 private const val POSTED_FROM = "Diposting dari Jakarta Selatan, 2026-06-06" // post_detail_posted_from
 private const val POSTED_FROM_NO_CITY = "Diposting 2026-06-06" // post_detail_posted_from_no_city
@@ -96,6 +104,9 @@ private const val REPLY_CAP_1H =
 private const val POST_GONE = "Postingan ini sudah tidak tersedia." // post_detail_post_gone
 
 private const val AUTHOR_UUID = "11111111-1111-1111-1111-111111111111"
+
+/** The canonical block dialog body (profile_block_confirm_body — docs/03 §Block User UX, verbatim). */
+private const val BLOCK_DIALOG_BODY = "Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru."
 private val JSON = headersOf("Content-Type", "application/json")
 
 /**
@@ -107,8 +118,10 @@ private val JSON = headersOf("Content-Type", "application/json")
  * + revert + 429 upsell + count + graceful degradation), the reply composer (counter, 280-disable,
  * 201 local-append-without-refetch, 429 upsell, error banner), the mobile-content-report affordances (post
  * report shown for a non-authored post / hidden on own post, per-reply report ungated by authorship,
- * dialog submit → success message, reply target_id = reply id with no author UUID), and the block-deferral
- * negative. In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is debug-only).
+ * dialog submit → success message, reply target_id = reply id with no author UUID), and the
+ * mobile-block-from-content affordances (post/reply block gates, the canonical dialog, pop-back +
+ * row-removal outcomes). In the Release-variant `*ScreenTest` exclude (the ui-test-manifest host is
+ * debug-only).
  *
  * `@Suppress("DEPRECATION")` + `KoinContext`: see `SignInScreenTest` for the multi-test startKoin cycle.
  *
@@ -127,6 +140,10 @@ class PostDetailScreenTest {
         flow: PostDetailFlow,
         editFlow: PostEditFlow = FakePostEditFlow(),
         reportSubmitter: ReportSubmitter = FakeReportSubmitter(),
+        blockSubmitter: BlockSubmitter = FakeBlockSubmitter(),
+        // The session user for the reply self-block gate; SELF_USER_ID owns none of the fixture replies,
+        // so the block item defaults to visible on another user's reply.
+        selfUserIdProvider: SelfUserIdProvider = FakeSelfUserIdProvider(SELF_USER_ID),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         startKoin {
@@ -135,6 +152,8 @@ class PostDetailScreenTest {
                     single { flow }
                     single { editFlow }
                     single { reportSubmitter }
+                    single { blockSubmitter }
+                    single { selfUserIdProvider }
                 },
             )
         }
@@ -336,10 +355,9 @@ class PostDetailScreenTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithText(CONTENT).assertExists()
             onNodeWithText(POSTED_FROM).assertExists()
-            // Deferral negative: NO block affordance on the detail surface (block stays deferred —
-            // mobile-post-detail "Block kebab action is deferred"). The Laporkan-absent assertion was
-            // REMOVED — report ships now (mobile-content-report); its presence is covered by the report
-            // affordance tests below.
+            // mobile-block-from-content: with the default Unavailable refresh (no authorUserId) and all
+            // kebabs closed, no "Blokir" text renders anywhere — the affordance-present cases are the
+            // dedicated block tests below.
             onNodeWithText("Blokir", substring = true).assertDoesNotExist()
         }
     }
@@ -492,6 +510,9 @@ class PostDetailScreenTest {
             onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick()
             onNodeWithText("Bagikan ke chat").assertExists()
             onNodeWithText("Laporkan").assertDoesNotExist() // own post → no report entry
+            // mobile-block-from-content: no block item on your own post either (spec § hidden on the
+            // viewer's own post) — the !isAuthor gate holds even with a resolved refresh.
+            onNodeWithTag(POST_DETAIL_BLOCK_POST_TAG).assertDoesNotExist()
         }
     }
 
@@ -527,6 +548,223 @@ class PostDetailScreenTest {
             // Robolectric here — see the NOTE above; the submit path is covered at the VM level).
             onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[0].performScrollTo().performClick()
             onNodeWithText("Laporkan").assertExists()
+        }
+    }
+
+    // ---- mobile-block-from-content: block affordances + the shared dialog + outcomes ----
+    //
+    // The BlockConfirmDialog is a plain-text AlertDialog (no OutlinedTextField), so it opens cleanly
+    // under Robolectric even over the LazyColumn host — unlike the report dialog (see the NOTE above).
+    // The outcome→message/pop/removal mapping is additionally covered (via a capturing
+    // FakeBlockSubmitter) in PostDetailViewModelTest.
+
+    // 5.1: non-authored post + a resolved freshness authorUserId → the kebab hosts "Blokir @{username}";
+    // confirming the canonical dialog submits the author UUID and pops the screen; the UUID never renders.
+    @Test
+    fun postBlock_item_dialog_confirm_popsBack_neverRenderingTheUuid() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.Blocked)
+        var backCalls = 0
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(
+                refreshOutcome =
+                    PostRefreshOutcome.Loaded(content = CONTENT, editedAt = null, isAuthor = false, authorUserId = AUTHOR_UUID),
+            ),
+            blockSubmitter = submitter,
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = { backCalls++ }) } } }
+            // The block item depends on the resume-refresh authorUserId (async) — poll the kebab open.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_REPORT_POST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_BLOCK_POST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Blokir @raka.jkt").assertExists() // the canonical menu label
+            onNodeWithTag(POST_DETAIL_BLOCK_POST_TAG).performClick()
+            // The shared dialog renders the canonical docs/03 copy for @raka.jkt.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_BLOCK_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Blokir @raka.jkt?").assertExists()
+            onNodeWithText(BLOCK_DIALOG_BODY).assertExists()
+            onNodeWithText("Blokir").performClick() // the destructive confirm (exact match ≠ the title)
+            waitUntil(timeoutMillis = 5_000) { backCalls == 1 }
+            assertEquals(AUTHOR_UUID, submitter.lastUserId, "the post block targets the freshness-read author UUID")
+            // PII negative-guard: the author UUID never appears in the rendered tree.
+            onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
+        }
+    }
+
+    // 5.1: the freshness read degraded (Unavailable → no authorUserId) → the kebab still offers report,
+    // but NO block item (graceful degradation, the same dependence as the Edit affordance).
+    @Test
+    fun postBlockItem_absent_whenNoAuthorUserIdResolved() {
+        installKoin(FakePostDetailFlow()) // default FakePostEditFlow refresh = Unavailable
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_BLOCK_POST_TAG).assertDoesNotExist()
+        }
+    }
+
+    // 5.3: "Batal" dismisses the dialog with ZERO block submissions and an unchanged surface.
+    @Test
+    fun blockDialog_batal_issuesZeroSubmissions() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.Blocked)
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(
+                refreshOutcome =
+                    PostRefreshOutcome.Loaded(content = CONTENT, editedAt = null, isAuthor = false, authorUserId = AUTHOR_UUID),
+            ),
+            blockSubmitter = submitter,
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_REPORT_POST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPORT_POST_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_BLOCK_POST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_BLOCK_POST_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_BLOCK_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Batal").performClick()
+            onNodeWithTag(POST_DETAIL_BLOCK_DIALOG_TAG).assertDoesNotExist()
+            assertEquals(0, submitter.submitCount, "Batal issues no POST /api/v1/blocks/{userId}")
+            onNodeWithText(CONTENT).assertExists() // the surface is unchanged
+        }
+    }
+
+    // 5.2 + 5.6: another user's reply renders the identity row (display name — mockup frame 7) and its
+    // kebab hosts "Blokir @{username}"; confirming removes the row locally (no pop) targeting the reply
+    // author_id; the reply author UUID never renders.
+    @Test
+    fun replyBlock_identityRow_dialog_confirm_removesTheRow() {
+        val submitter = FakeBlockSubmitter(BlockOutcome.Blocked)
+        var backCalls = 0
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            fakeReply(
+                                id = "rOther",
+                                authorId = AUTHOR_UUID,
+                                authorUsername = "sinta.mhr",
+                                authorDisplayName = "Sinta Maharani",
+                                content = "OTHER_REPLY",
+                            ),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+            blockSubmitter = submitter,
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = { backCalls++ }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OTHER_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            // 5.6: the identity row renders the display name; the author UUID never renders.
+            onNodeWithText("Sinta Maharani").assertExists()
+            onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
+            onNodeWithTag(POST_DETAIL_REPORT_REPLY_TAG).performScrollTo().performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_BLOCK_REPLY_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Blokir @sinta.mhr").assertExists()
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_BLOCK_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Blokir @sinta.mhr?").assertExists()
+            onNodeWithText("Blokir").performClick()
+            // The confirmed reply block removes the row locally — and never pops the screen.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OTHER_REPLY").fetchSemanticsNodes().isEmpty() }
+            assertEquals(AUTHOR_UUID, submitter.lastUserId, "the reply block targets the reply author_id")
+            assertEquals(0, backCalls, "a reply block never pops the screen")
+        }
+    }
+
+    // 5.2: the viewer's OWN reply (author_id == SelfUserIdProvider id) exposes report but NO block item.
+    @Test
+    fun replyBlockItem_absentOnTheViewersOwnReply() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            fakeReply(
+                                id = "rOwn",
+                                authorId = SELF_USER_ID,
+                                authorUsername = "self.user",
+                                authorDisplayName = "Self User",
+                                content = "OWN_REPLY",
+                            ),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPORT_REPLY_TAG).performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()
+        }
+    }
+
+    // 5.2 (fail-closed gate): while SelfUserIdProvider resolves to null (malformed token / still
+    // resolving), authorship is unknowable — the block item must be ABSENT, never shown-on-own-reply
+    // (review finding; the spec's "shown ONLY when the reply is NOT authored by the viewer" MUST).
+    @Test
+    fun replyBlockItem_absentWhileSelfUserIdIsUnresolved() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            fakeReply(
+                                id = "rOther",
+                                authorId = AUTHOR_UUID,
+                                authorUsername = "sinta.mhr",
+                                authorDisplayName = "Sinta Maharani",
+                                content = "OTHER_REPLY",
+                            ),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+            selfUserIdProvider = FakeSelfUserIdProvider(null),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OTHER_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPORT_REPLY_TAG).performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()
+        }
+    }
+
+    // 5.2 + 5.6 (older-backend guard): an identity-less reply renders content + timestamp with NO
+    // identity row AND no block item (the canonical copy is unrenderable without a username).
+    @Test
+    fun identityLessReply_rendersWithoutIdentityRow_andWithoutBlockItem() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            fakeReply(
+                                id = "rLegacy",
+                                authorId = AUTHOR_UUID,
+                                authorUsername = null,
+                                authorDisplayName = null,
+                                content = "LEGACY_REPLY",
+                            ),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("LEGACY_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("LEGACY_REPLY").assertExists() // no crash, content renders
+            onNodeWithTag(POST_DETAIL_REPORT_REPLY_TAG).performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()
         }
     }
 
@@ -852,6 +1090,8 @@ class PostDetailScreenTest {
                     single<PostDetailFlow> { detailRepo }
                     single<PostEditFlow> { editRepo }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider(SELF_USER_ID) }
                 },
             )
         }
