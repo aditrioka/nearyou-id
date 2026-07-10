@@ -10,7 +10,8 @@ import org.slf4j.LoggerFactory
  * Reuses the existing [AesGcmCipher] (the `admin-login-argon2-totp` TOTP-secret
  * precedent) — JCA `AES/GCM/NoPadding`, ciphertext = nonce(12) || ct || tag(16).
  * The 32-byte key is sourced by [keyProvider], which wraps
- * `secrets.resolve(secretKey(env, "csam-archive-aes-key"))` + Base64 decode and
+ * `secrets.resolve("csam-archive-aes-key")` (the UN-prefixed logical name — the deploy
+ * maps the env var from the env-namespaced slot; see #381) + Base64 decode and
  * returns `null` when the slot is unprovisioned.
  *
  * **Fail-soft contract (design D4):** when the key is unset — the pre-launch /

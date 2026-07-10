@@ -130,6 +130,14 @@ jobs:
       #                                  Prod should keep --min-instances=1.
       #   --max-instances=1            — Flyway lock safety (existing constraint)
       #   --concurrency=80             — production-shaped (reverted from PR #89 in PR #90)
+      #
+      # Pending --set-secrets mappings (add ONLY after the operator provisions the slots —
+      # mapping a nonexistent slot fails the deploy; #381):
+      #   CLOUDFLARE_IMAGES_API_TOKEN=staging-cloudflare-images-api-token:latest
+      #   CLOUDFLARE_IMAGES_ACCOUNT_ID=staging-cloudflare-images-account-id:latest
+      #   CLOUDFLARE_IMAGES_ACCOUNT_HASH=staging-cloudflare-images-account-hash:latest
+      #   GCP_VISION_SA=staging-gcp-vision-sa:latest
+      #   REVENUECAT_SECRET_API_KEY=staging-revenuecat-test-api-key:latest  (slot already exists)
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
