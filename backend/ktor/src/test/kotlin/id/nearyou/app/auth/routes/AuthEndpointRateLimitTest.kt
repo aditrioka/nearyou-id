@@ -9,6 +9,7 @@ import id.nearyou.app.auth.loginhistory.InMemoryLoginEvents
 import id.nearyou.app.auth.loginhistory.LoginEventRecorder
 import id.nearyou.app.auth.provider.ProviderIdTokenVerifier
 import id.nearyou.app.auth.provider.VerifiedIdToken
+import id.nearyou.app.auth.session.InMemoryLogoutService
 import id.nearyou.app.auth.session.InMemoryRefreshTokens
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.auth.session.RefreshTokenService
@@ -69,7 +70,8 @@ class AuthEndpointRateLimitTest : StringSpec({
         limiter: AuthRateLimiter,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
-        val service = RefreshTokenService(InMemoryRefreshTokens(), users, nowProvider = { now })
+        val tokens = InMemoryRefreshTokens()
+        val service = RefreshTokenService(tokens, users, nowProvider = { now })
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
@@ -81,6 +83,7 @@ class AuthEndpointRateLimitTest : StringSpec({
                     jwtIssuer,
                     LoginEventRecorder(InMemoryLoginEvents()),
                     limiter,
+                    InMemoryLogoutService(service, tokens, users),
                 )
             }
             block()

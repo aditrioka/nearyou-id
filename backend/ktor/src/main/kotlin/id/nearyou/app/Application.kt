@@ -53,6 +53,7 @@ import id.nearyou.app.auth.routes.appleS2SRoutes
 import id.nearyou.app.auth.routes.authRoutes
 import id.nearyou.app.auth.routes.realtimeRoutes
 import id.nearyou.app.auth.session.RefreshTokenService
+import id.nearyou.app.auth.session.TransactionalLogoutService
 import id.nearyou.app.auth.signup.InviteCodePrefixDeriver
 import id.nearyou.app.auth.signup.SignupService
 import id.nearyou.app.auth.signup.UsernameGenerator
@@ -1264,6 +1265,14 @@ fun Application.module() {
         jwtIssuer,
         loginEventRecorder,
         authRateLimiter,
+        TransactionalLogoutService(
+            dataSource,
+            refreshTokenRepository,
+            userRepository,
+            refreshTokenService,
+            fcmTokenRepository,
+            dbDispatchers.db,
+        ),
     )
     signupRoutes(signupService, authRateLimiter)
     realtimeRoutes(realtimeIssuer)

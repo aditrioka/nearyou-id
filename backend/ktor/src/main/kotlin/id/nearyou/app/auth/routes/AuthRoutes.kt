@@ -9,6 +9,7 @@ import id.nearyou.app.auth.loginhistory.LoginEventRecorder
 import id.nearyou.app.auth.loginhistory.LoginEventType
 import id.nearyou.app.auth.provider.InvalidIdTokenException
 import id.nearyou.app.auth.provider.ProviderIdTokenVerifier
+import id.nearyou.app.auth.session.LogoutService
 import id.nearyou.app.auth.session.RefreshTokenInvalidException
 import id.nearyou.app.auth.session.RefreshTokenService
 import id.nearyou.app.auth.session.TokenReuseException
@@ -60,6 +61,9 @@ data class RefreshRequest(
 @Serializable
 data class LogoutRequest(
     @SerialName("refresh_token") val refreshToken: String,
+    // logout-revocation: when present, the caller's user_fcm_tokens row(s) for this token are
+    // deleted so pushes stop on the signed-out device. Optional — older clients omit it.
+    @SerialName("fcm_token") val fcmToken: String? = null,
 )
 
 @Serializable
@@ -106,6 +110,7 @@ fun Application.authRoutes(
     jwtIssuer: JwtIssuer,
     loginEventRecorder: LoginEventRecorder,
     authRateLimiter: AuthRateLimiter,
+    logoutService: LogoutService,
 ) {
     routing {
         post("/api/v1/auth/signin") {
@@ -278,13 +283,13 @@ fun Application.authRoutes(
                         call.respond(HttpStatusCode.BadRequest, errorBody("invalid_request", "Malformed logout payload."))
                         return@post
                     }
-                tokens.revokeSingle(principal.userId, req.refreshToken)
+                logoutService.logout(principal.userId, req.refreshToken, req.fcmToken)
                 call.respond(HttpStatusCode.NoContent)
             }
 
             post("/api/v1/auth/logout-all") {
                 val principal = call.principal<UserPrincipal>()!!
-                tokens.revokeAll(principal.userId)
+                logoutService.logoutAll(principal.userId)
                 call.respond(HttpStatusCode.NoContent)
             }
         }

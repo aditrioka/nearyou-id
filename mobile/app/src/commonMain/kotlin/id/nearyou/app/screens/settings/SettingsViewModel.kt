@@ -2,13 +2,17 @@ package id.nearyou.app.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.privateprofile.PrivateProfileRepository
+import id.nearyou.app.push.FcmTokenProvider
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /** One-shot Settings events surfaced as a snackbar then cleared via [SettingsViewModel.onHideDistanceEventShown]. */
@@ -30,10 +34,13 @@ enum class PrivateProfileEvent {
 }
 
 /**
- * `SettingsRoute`-scoped ViewModel. Owns logout (a CLIENT-side token wipe — clears [TokenStore] and
- * raises [loggedOut] so the screen routes to sign-in; server-side bearer revoke is a pre-launch follow-up)
- * AND the Premium privacy toggles: hide-distance (the `hide-distance` capability) and private-profile
- * (the `private-profile` capability).
+ * `SettingsRoute`-scoped ViewModel. Owns logout — a best-effort server-side revoke
+ * (`POST /api/v1/auth/logout` with the stored refresh token + the device's current FCM token,
+ * issued BEFORE the wipe while the Bearer still exists, per the `mobile-settings` logout
+ * requirement) followed by an UNCONDITIONAL client wipe (clears [TokenStore] and raises
+ * [loggedOut] so the screen routes to sign-in; a failed/offline server call never blocks the
+ * wipe). Also owns the Premium privacy toggles: hide-distance (the `hide-distance` capability)
+ * and private-profile (the `private-profile` capability).
  *
  * On init it seeds each toggle from its repository's `loadState` (`GET /api/v1/user/{hide-distance|private-profile}`):
  * the `*Checked` flow reflects the stored flag ONLY when the caller is effectively Premium, and the
@@ -45,6 +52,10 @@ class SettingsViewModel(
     private val tokenStore: TokenStore,
     private val hideDistance: HideDistanceRepository? = null,
     private val privateProfile: PrivateProfileRepository? = null,
+    // logout-revocation: both nullable so tests (and a DI gap) degrade to the previous
+    // client-side-only wipe rather than failing resolution.
+    private val authApi: AuthApiClient? = null,
+    private val fcmTokenProvider: FcmTokenProvider? = null,
 ) : ViewModel() {
     private val _loggedOut = MutableStateFlow(false)
     val loggedOut: StateFlow<Boolean> = _loggedOut.asStateFlow()
@@ -96,8 +107,25 @@ class SettingsViewModel(
 
     fun confirmLogout() {
         viewModelScope.launch {
-            tokenStore.clear()
-            _loggedOut.value = true
+            // Best-effort server-side revoke BEFORE the wipe (the call needs the still-stored
+            // Bearer). AuthApiClient.logout never throws; the extra guard covers the token reads.
+            try {
+                val refreshToken = tokenStore.read()?.refreshToken
+                if (authApi != null && refreshToken != null) {
+                    authApi.logout(refreshToken, fcmTokenProvider?.currentToken())
+                }
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (_: Throwable) {
+                // Swallowed by contract: logout must complete locally even fully offline.
+            } finally {
+                // NonCancellable: a VM cleared mid-POST (user backs out of Settings) must still
+                // wipe — the server may already have revoked the refresh token.
+                withContext(NonCancellable) {
+                    tokenStore.clear()
+                    _loggedOut.value = true
+                }
+            }
         }
     }
 
