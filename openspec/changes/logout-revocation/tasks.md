@@ -16,6 +16,6 @@
 
 ## 3. Specs / docs / lifecycle
 
-- [ ] 3.1 `docs/05-Implementation.md` § Session Management: add the FCM-row column/note to the revocation-latency table
+- [x] 3.1 `docs/05-Implementation.md` § Session Management: add the FCM-row column/note to the revocation-latency table
 - [ ] 3.2 `openspec validate logout-revocation --strict` green; full pre-push gate (`ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + mobile unit tests)
 - [ ] 3.3 PR body: evidence + `Closes #225` and `Closes #268` (repeat the keyword per issue); keep title/body current at each phase boundary

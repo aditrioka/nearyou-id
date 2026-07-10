@@ -58,31 +58,26 @@ class InMemoryRefreshTokens : RefreshTokenRepository {
 }
 
 /**
- * In-memory [LogoutService] mirroring [TransactionalLogoutService]'s semantics over the fakes
- * (no DataSource in the in-memory route harness). [fcmDeletes] / [fcmDeleteAlls] record the FCM
- * side; the transactional + SQL behavior is covered by the DB-tagged LogoutRoutesTest.
+ * In-memory [LogoutService] mirroring [TransactionalLogoutService]'s refresh-token semantics over
+ * the fakes (no DataSource in the in-memory route harness; FCM deletes have no in-memory analog).
+ * The transactional + FCM + SQL behavior is covered by the DB-tagged LogoutRoutesTest.
  */
 class InMemoryLogoutService(
     private val service: RefreshTokenService,
     private val tokens: InMemoryRefreshTokens,
     private val users: InMemoryUsers,
 ) : LogoutService {
-    val fcmDeletes = mutableListOf<Pair<UUID, String>>()
-    val fcmDeleteAlls = mutableListOf<UUID>()
-
     override suspend fun logout(
         userId: UUID,
         rawRefreshToken: String,
         fcmToken: String?,
     ) {
         service.revokeSingle(userId, rawRefreshToken)
-        if (fcmToken != null) fcmDeletes += userId to fcmToken
     }
 
     override suspend fun logoutAll(userId: UUID) {
         tokens.deleteAllForUser(userId)
         users.incrementTokenVersion(userId)
-        fcmDeleteAlls += userId
     }
 }
 

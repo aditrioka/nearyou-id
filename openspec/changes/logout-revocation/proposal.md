@@ -16,7 +16,7 @@ Fixing (2) gives the mobile app a real logout call; fixing (1) makes that call a
 - **Mobile — Settings logout**: `confirmLogout()` stops being a pure client-side wipe. Before clearing `SecureTokenStore`, it best-effort calls `POST /api/v1/auth/logout` with the stored refresh token + the device's current FCM token (from `FcmTokenProvider`). The local wipe + `replaceAll` re-route ALWAYS proceed regardless of the server call's outcome (offline logout must never trap the user).
 - **Deliberate deferral (defer-as-requirement)**: single-device logout does NOT bump `users.token_version` — the ≤15-minute access token lives until natural expiry (bumping would kill the user's other devices' sessions). `logout-all` already bumps and remains the "kick everything now" path.
 
-No schema migration: `user_fcm_tokens` and its `(user_id, platform, token)` UNIQUE index already support the logout DELETE as an index seek.
+No schema migration: `user_fcm_tokens` and its `(user_id, platform, token)` UNIQUE index already support the logout DELETE via the `user_id` index prefix (the D2 predicate is `(user_id, token)`).
 
 ## Capabilities
 

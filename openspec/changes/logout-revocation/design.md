@@ -38,6 +38,7 @@ Mobile logout today (`SettingsViewModel.confirmLogout()`): `tokenStore.clear()` 
 ## Risks / Trade-offs
 
 - **[Exfiltrated *access* token survives single logout ≤15 min]** → accepted + spec-pinned (defer-as-requirement); `logout-all` is the immediate-kill path (token_version bump).
+- **[Logout during an expired-access window can orphan one rotated refresh token]** → if the Bearer is expired at logout time, the shared client's Auth plugin first refreshes (rotating the refresh token), then retries the logout with the ORIGINAL body — the server revokes the pre-rotation token while the freshly-rotated one lives to its 30-day TTL. Nobody holds it post-wipe (it was written to the store and immediately wiped), so exploitability is ~nil; accepted under the best-effort posture. Escalation path if ever needed: revoke by family server-side instead of by token.
 - **[Best-effort mobile call means a failed revoke is silent]** → degrades exactly to today's shipped behavior; refresh token also dies naturally in ≤30 days; diagnostic log line for observability.
 - **[Longer logout tap-to-signin latency (one network call)]** → call runs in the existing `viewModelScope.launch`; failure path is bounded by the client's existing timeout config. UX shows the existing confirm-dialog flow; no spinner work needed for MVP.
 - **[Older mobile builds send no `fcm_token`]** → field optional; their rows keep flowing to the existing GC paths — no regression.

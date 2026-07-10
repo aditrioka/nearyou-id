@@ -7,10 +7,12 @@ import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /** One-shot Settings events surfaced as a snackbar then cleared via [SettingsViewModel.onHideDistanceEventShown]. */
@@ -116,9 +118,14 @@ class SettingsViewModel(
                 throw cause
             } catch (_: Throwable) {
                 // Swallowed by contract: logout must complete locally even fully offline.
+            } finally {
+                // NonCancellable: a VM cleared mid-POST (user backs out of Settings) must still
+                // wipe — the server may already have revoked the refresh token.
+                withContext(NonCancellable) {
+                    tokenStore.clear()
+                    _loggedOut.value = true
+                }
             }
-            tokenStore.clear()
-            _loggedOut.value = true
         }
     }
 

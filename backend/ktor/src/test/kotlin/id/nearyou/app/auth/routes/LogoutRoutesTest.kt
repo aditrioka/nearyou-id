@@ -17,6 +17,8 @@ import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.repo.JdbcRefreshTokenRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.user.FcmTokenRepository
+import id.nearyou.app.user.JdbcUserFcmTokenReader
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -195,11 +197,15 @@ class LogoutRoutesTest : StringSpec({
 
     "logout with fcm_token deletes that row, keeps the other, and does not bump token_version" {
         val (userId, access) = seedUser()
+        val (otherUserId, _) = seedUser()
         try {
             fcmRepo.upsert(userId, "android", "fcm-tok-A", null)
             fcmRepo.upsert(userId, "android", "fcm-tok-B", null)
+            // Same token STRING owned by a different user — the delete is scoped to the caller
+            // (WHERE user_id = principal AND token = ?), so this row must survive.
+            fcmRepo.upsert(otherUserId, "android", "fcm-tok-A", null)
             val thisDevice = refreshService.issue(userId, null)
-            val otherDevice = refreshService.issue(userId, null)
+            refreshService.issue(userId, null)
 
             withApp {
                 val client = createClient { install(ClientCN) { json() } }
@@ -214,13 +220,13 @@ class LogoutRoutesTest : StringSpec({
 
             fcmRowExists(userId, "fcm-tok-A") shouldBe false
             fcmRowExists(userId, "fcm-tok-B") shouldBe true
+            fcmRowExists(otherUserId, "fcm-tok-A") shouldBe true
             // The supplied token is revoked; the other device's token remains active.
             refreshCounts(userId) shouldBe (2 to 1)
             // Spec'd deferral: single-device logout does NOT bump token_version.
             tokenVersion(userId) shouldBe 0
-            otherDevice.row.revokedAt shouldBe null
         } finally {
-            cleanup(userId)
+            cleanup(userId, otherUserId)
         }
     }
 
@@ -265,6 +271,8 @@ class LogoutRoutesTest : StringSpec({
 
             fcmTokenCount(userId) shouldBe 1
             refreshCounts(userId) shouldBe (1 to 1)
+            // The no-bump deferral holds on the without-fcm_token path too.
+            tokenVersion(userId) shouldBe 0
         } finally {
             cleanup(userId)
         }
@@ -290,6 +298,37 @@ class LogoutRoutesTest : StringSpec({
             refreshCounts(userId) shouldBe (0 to 0)
             tokenVersion(userId) shouldBe 1
             fcmTokenCount(userId) shouldBe 0
+            // The fcm-token-registration delta's "no further pushes" scenario, driven through the
+            // ACTUAL dispatch read-path: fcm-push-dispatch's token lookup finds nothing to send to.
+            JdbcUserFcmTokenReader(dataSource).activeTokens(userId).tokens shouldBe emptyList()
+        } finally {
+            cleanup(userId)
+        }
+    }
+
+    "logout-all is atomic — a mid-transaction failure leaves refresh tokens and fcm rows intact" {
+        val (userId, _) = seedUser()
+        try {
+            fcmRepo.upsert(userId, "android", "fcm-atomic", null)
+            refreshService.issue(userId, null)
+
+            // Delegation stub: the token_version bump (statement 2 of 3) blows up mid-transaction.
+            val failingUsers =
+                object : id.nearyou.app.infra.repo.UserRepository by users {
+                    override fun incrementTokenVersion(
+                        conn: java.sql.Connection,
+                        id: UUID,
+                    ): Int = error("forced mid-transaction failure")
+                }
+            val service =
+                TransactionalLogoutService(dataSource, refreshRepo, failingUsers, refreshService, fcmRepo, Dispatchers.IO)
+
+            shouldThrow<IllegalStateException> { service.logoutAll(userId) }
+
+            // Statement 1 (refresh delete) ran before the failure — the rollback must restore it.
+            refreshCounts(userId) shouldBe (1 to 0)
+            tokenVersion(userId) shouldBe 0
+            fcmTokenCount(userId) shouldBe 1
         } finally {
             cleanup(userId)
         }
