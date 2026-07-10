@@ -26,5 +26,5 @@
 ## 5. Gates + delivery
 
 - [x] 5.1 Full pre-push gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`
-- [ ] 5.2 Manual verification (verify-loop §B) with screenshot evidence in the PR body: kebab on another user's card, absent on own card, dialog + success snackbar (docs/11 §5 DoD)
-- [ ] 5.3 PR carries `Closes #363`; title/body current at each phase boundary
+- [x] 5.2 Manual verification (verify-loop §B) with screenshot evidence in the PR body: kebab on another user's card, absent on own card, dialog + success snackbar (docs/11 §5 DoD)
+- [x] 5.3 PR carries `Closes #363`; title/body current at each phase boundary
