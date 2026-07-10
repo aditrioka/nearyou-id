@@ -1,7 +1,7 @@
 # mobile-settings Specification
 
 ## Purpose
-The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with three backed actions: **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), and **logout** (token wipe → sign-in). The Premium/DESIGN rows render mockup chrome with no backend write. It owns the `SettingsRoute` root-stack contract + push semantics; the profile-screen entry gear that triggers the push is deferred to [#288](https://github.com/aditrioka/nearyou-id/issues/288). Mobile-only — no Flyway migration, no backend code.
+The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with three backed actions: **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), and **logout** (best-effort server revoke → token wipe → sign-in, per `logout-revocation`). The Premium/DESIGN rows render mockup chrome with no backend write. It owns the `SettingsRoute` root-stack contract + push semantics; the profile-screen entry gear that triggers the push is deferred to [#288](https://github.com/aditrioka/nearyou-id/issues/288). No Flyway migration; the backend logout endpoint it calls is owned by `auth-session`.
 ## Requirements
 ### Requirement: SettingsRoute and its sub-routes are serializable parameterless NavKeys pushed onto the root back stack
 
@@ -220,19 +220,27 @@ Because there is NO server consent-read endpoint (the `analytics-consent-update`
 
 ### Requirement: Logout clears the token store and routes to sign-in
 
-The LAINNYA > "Keluar" row SHALL, after a confirmation dialog (`stringResource` copy: title + body + confirm/cancel), clear the persisted session by wiping `SecureTokenStore` and emit a navigation event routing to the sign-in surface via `replaceAll` (so the authenticated back stack is cleared and a system back gesture cannot return to the authenticated surface). Logout SHALL require no server call (the client-side token wipe is sufficient for the MVP; server-side token-version rotation is a separate concern). The confirm and cancel affordances SHALL be sourced via `:shared:resources`.
+The LAINNYA > "Keluar" row SHALL, after a confirmation dialog (`stringResource` copy: title + body + confirm/cancel), first best-effort revoke the session server-side and then clear the persisted session by wiping `SecureTokenStore` and emit a navigation event routing to the sign-in surface via `replaceAll` (so the authenticated back stack is cleared and a system back gesture cannot return to the authenticated surface). The confirm and cancel affordances SHALL be sourced via `:shared:resources`.
 
-#### Scenario: Confirming logout wipes the token store and routes to sign-in
+The server-side revoke SHALL be a single `POST /api/v1/auth/logout` call carrying the stored refresh token and, when `FcmTokenProvider` yields one, the device's current FCM token as `fcm_token` — issued BEFORE the token wipe (the call needs the still-stored Bearer). The call is best-effort: any transport failure, timeout, or non-2xx response SHALL be swallowed (a token-free diagnostic line MAY be logged) and SHALL NOT block, delay indefinitely, or abort the local wipe and re-route — logout MUST complete locally even when fully offline. No retry is attempted; a missed revoke degrades to client-side-only logout (the refresh token expires naturally).
+
+#### Scenario: Confirming logout revokes server-side then wipes the token store and routes to sign-in
 
 - **GIVEN** `SettingsScreen` with a populated `SecureTokenStore` and the logout confirmation dialog shown
 - **WHEN** the confirm affordance is activated
-- **THEN** `SecureTokenStore` is cleared AND a navigation event routing to the sign-in surface via `replaceAll` is emitted
+- **THEN** `POST /api/v1/auth/logout` is issued with the stored refresh token (and the current FCM token when available) BEFORE the wipe, AND `SecureTokenStore` is cleared AND a navigation event routing to the sign-in surface via `replaceAll` is emitted
+
+#### Scenario: Server-call failure still signs the user out locally
+
+- **GIVEN** the logout confirmation dialog shown over a populated `SecureTokenStore` and a failing network (the logout call throws or returns non-2xx)
+- **WHEN** the confirm affordance is activated
+- **THEN** `SecureTokenStore` is cleared AND the `replaceAll` navigation event is emitted regardless of the failure
 
 #### Scenario: Cancelling logout leaves the session intact
 
 - **GIVEN** the logout confirmation dialog shown over a populated `SecureTokenStore`
 - **WHEN** the cancel affordance is activated
-- **THEN** `SecureTokenStore` is unchanged AND no navigation event is emitted (the dialog dismisses)
+- **THEN** `SecureTokenStore` is unchanged AND no logout request is issued AND no navigation event is emitted (the dialog dismisses)
 
 ### Requirement: The legal/privacy row opens the static policy URL
 
