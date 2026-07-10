@@ -220,8 +220,11 @@ class CreatePostServiceTest : StringSpec({
                         ps.executeQuery().use { rs ->
                             rs.next() shouldBe true
                             val meters = rs.getDouble(1)
-                            meters shouldBeGreaterThanOrEqual 50.0
-                            meters shouldBeLessThanOrEqual 500.0
+                            // JitterEngine guarantees [50, 500] m on its spherical model; ST_Distance
+                            // measures on the WGS84 spheroid, which disagrees by < 0.3% (JitterEngine.kt).
+                            // Widen the bounds by that documented margin so boundary draws don't flake (#454).
+                            meters shouldBeGreaterThanOrEqual 50.0 * 0.997
+                            meters shouldBeLessThanOrEqual 500.0 * 1.003
                         }
                     }
                     conn.prepareStatement(
