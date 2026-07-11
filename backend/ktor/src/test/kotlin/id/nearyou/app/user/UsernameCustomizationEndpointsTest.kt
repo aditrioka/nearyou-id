@@ -57,9 +57,10 @@ import java.util.UUID
  * in-memory limiter, a stub RemoteConfig per test for the feature flag, a
  * `FixedListLoader` to inject a moderation hit. Tagged `database`.
  *
- * Coverage (tasks.md § 6): 6.1 6.2 6.3 6.4 6.5 6.6 6.7 6.9 6.10 6.11 6.13 6.16
- * 6.17. Deferred (need concurrent execution / a probe-then-take interleave):
- * 6.12 (concurrency race) + 6.14 (probe TOCTOU) — tracked unchecked.
+ * Coverage (tasks.md § 6): 6.1–6.14, 6.16, 6.17 (6.15 is the pool-size
+ * invariant, held by `hikari()` below). The once-deferred 6.8 (downgrade /
+ * re-subscribe), 6.12 (concurrency race) and 6.14 (probe TOCTOU) landed via
+ * issue #310.
  */
 @Tags("database")
 class UsernameCustomizationEndpointsTest : StringSpec({
@@ -367,6 +368,42 @@ class UsernameCustomizationEndpointsTest : StringSpec({
         }
     }
 
+    // 6.8 — downgrade keeps the username + blocks changes; re-subscribe re-enables
+    // but the cooldown is still measured from the last actual change.
+    "6.8 downgrade keeps username, blocks changes (403); re-subscribe re-enables but cooldown persists" {
+        val (id, tok, _) = seedUser()
+
+        fun setTier(status: String) {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement("UPDATE users SET subscription_status = ? WHERE id = ?").use { ps ->
+                    ps.setString(1, status)
+                    ps.setObject(2, id)
+                    ps.executeUpdate()
+                }
+            }
+        }
+        try {
+            withApp { _ ->
+                patchUsername(tok, "keptcustom").status shouldBe HttpStatusCode.OK
+                setTier("free")
+                // no revert path exists — the custom handle survives the downgrade
+                currentUsername(id) shouldBe "keptcustom"
+                val r = patchUsername(tok, "freeattempt")
+                r.status shouldBe HttpStatusCode.Forbidden
+                parse(r.bodyAsText()).error() shouldBe "premium_required"
+                setTier("premium_active")
+                // re-enabled, but the 30-day cooldown still runs from the change above
+                val r2 = patchUsername(tok, "resubattempt")
+                r2.status shouldBe HttpStatusCode.TooManyRequests
+                parse(r2.bodyAsText()).error() shouldBe "cooldown_active"
+                r2.headers[HttpHeaders.RetryAfter]!!.toLong() shouldBeGreaterThan 0
+            }
+            currentUsername(id) shouldBe "keptcustom"
+        } finally {
+            cleanup(id)
+        }
+    }
+
     // 6.4 — collision (reserved + taken)
     "6.4 reserved candidate + currently-taken candidate → 409 username_unavailable" {
         val (id, tok, _) = seedUser()
@@ -386,6 +423,42 @@ class UsernameCustomizationEndpointsTest : StringSpec({
                     "DELETE FROM reserved_usernames WHERE username = 'reservedword'",
                 )
             }
+        }
+    }
+
+    // 6.12 — concurrency race: two DIFFERENT users PATCH the same free handle at
+    // once. Unlike 8.4's same-user race (serialized by the per-user FOR UPDATE
+    // lock), these transactions only collide at the final write — the `username`
+    // unique index is the backstop that yields exactly one winner.
+    "6.12 two users concurrently PATCH the same handle → exactly one 200, the other 409" {
+        val (id1, tok1, _) = seedUser()
+        val (id2, tok2, _) = seedUser()
+        try {
+            withApp { _ ->
+                val results =
+                    coroutineScope {
+                        val client = createClient { }
+                        listOf(tok1, tok2).map { t ->
+                            async(Dispatchers.IO) {
+                                val r =
+                                    client.patch("/api/v1/user/username") {
+                                        header(HttpHeaders.Authorization, "Bearer $t")
+                                        header(HttpHeaders.ContentType, "application/json")
+                                        setBody("""{"new_username":"duelhandle"}""")
+                                    }
+                                r.status to r.bodyAsText()
+                            }
+                        }.awaitAll()
+                    }
+                results.count { it.first == HttpStatusCode.OK } shouldBe 1
+                val loser = results.first { it.first != HttpStatusCode.OK }
+                loser.first shouldBe HttpStatusCode.Conflict
+                parse(loser.second).error() shouldBe "username_unavailable"
+            }
+            // exactly one row holds the handle
+            count("SELECT COUNT(*) FROM users WHERE username = 'duelhandle'") shouldBe 1
+        } finally {
+            cleanup(id1, id2)
         }
     }
 
@@ -437,6 +510,28 @@ class UsernameCustomizationEndpointsTest : StringSpec({
         } finally {
             cleanup(id)
             dataSource.connection.use { it.createStatement().executeUpdate("DELETE FROM reserved_usernames WHERE username = 'probetaken'") }
+        }
+    }
+
+    // 6.14 — probe TOCTOU: availability at probe time carries no reservation. A
+    // candidate probed available, then taken before the prober's PATCH, fails the
+    // authoritative under-lock recheck with 409.
+    "6.14 probe says available, another user takes it first → prober's PATCH 409" {
+        val (idA, tokA, _) = seedUser()
+        val (idB, tokB, _) = seedUser()
+        try {
+            withApp { _ ->
+                parse(checkUsername(tokA, "poachable").bodyAsText())["available"]!!.jsonPrimitive.content shouldBe "true"
+                // B claims it between A's probe and A's PATCH
+                patchUsername(tokB, "poachable").status shouldBe HttpStatusCode.OK
+                val r = patchUsername(tokA, "poachable")
+                r.status shouldBe HttpStatusCode.Conflict
+                parse(r.bodyAsText()).error() shouldBe "username_unavailable"
+            }
+            currentUsername(idB) shouldBe "poachable"
+            currentUsername(idA).startsWith("user_") shouldBe true // A unchanged
+        } finally {
+            cleanup(idA, idB)
         }
     }
 

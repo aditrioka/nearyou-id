@@ -39,13 +39,13 @@
 - [x] 6.5 Release-hold candidate (`released_at > NOW()`) → `409`; after 30 days elapse → claimable.
 - [x] 6.6 Profanity / UU ITE candidate → `422 username_rejected` + an idempotent `moderation_queue` row (`target_type='user'`, `target_id=<user id>`, `trigger='username_flagged'`, `ON CONFLICT DO NOTHING` → a 2nd flagged candidate adds NO 2nd row); the >3-flagged/24h case is governed by the failed-attempt throttle, NOT an `anomaly_score` write (deferred — assert no such column/path is added).
 - [x] 6.7 Feature flag OFF → `503` (PATCH and GET check).
-- [ ] 6.8 Downgrade-to-Free keeps the custom username (no revert) but blocks further changes (`403`); re-subscribe re-enables but the cooldown is still measured from the last change.
+- [x] 6.8 Downgrade-to-Free keeps the custom username (no revert) but blocks further changes (`403`); re-subscribe re-enables but the cooldown is still measured from the last change.
 - [x] 6.9 Username regex matrix: valid (`abc`, `a_b.c`, `user1.test_2`) accept; invalid (`.abc`, `abc.`, `a..b`, `_abc`, `ab`, 31-char, uppercase) reject (`422`); consecutive-dot `a..b` caught by the application-layer guard, not the regex.
 - [x] 6.10 Username-history release-hold lifecycle: Alice `oldname`→`newname` writes history with `released_at = changed_at + 30d`; Bob's claim of `oldname` during the window → `409`; after 30 days → claimable.
 - [x] 6.11 Successful change writes the `username_release_scheduled` notification (`{old_username, released_at}`) in the same transaction; a mid-transaction failure leaves no partial write (atomicity / rollback).
-- [ ] 6.12 Concurrency: two concurrent PATCHes for the same handle → exactly one `200`, the other `409` (unique-index backstop).
+- [x] 6.12 Concurrency: two concurrent PATCHes for the same handle → exactly one `200`, the other `409` (unique-index backstop).
 - [x] 6.13 Rate limits: 11th failed change attempt/hour → `429`; 4th probe/day → `429`. Assert BOTH reset windows (hourly failed-attempt + daily probe) derive their TTL from `computeTTLToNextReset` (no hardcoded midnight math).
-- [ ] 6.14 Availability probe is non-authoritative: a candidate available at probe time but taken before PATCH → PATCH `409` under the lock.
+- [x] 6.14 Availability probe is non-authoritative: a candidate available at probe time but taken before PATCH → PATCH `409` under the lock.
 - [x] 6.15 New DB-tagged `*RoutesTest` pools `autoClose(hikari())` at size ≤2 (CI connection-budget invariant) — verify the spec doesn't leak a HikariPool.
 - [x] 6.16 Auth boundary: unauthenticated `PATCH /api/v1/user/username` and `GET /api/v1/username/check` → `401` before the flag/premium/cooldown gates run (backs the spec "Unauthenticated request is rejected" scenario).
 - [x] 6.17 Availability-probe happy paths: probe a well-formed free candidate → `200` available; probe a reserved / release-held / currently-taken candidate → `200` unavailable (backs the two probe-outcome spec scenarios).
