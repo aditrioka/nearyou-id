@@ -2,7 +2,7 @@
 
 ## 1. Strings
 
-- [x] 1.1 Add `settings_row_chat_preview` = "Tampilkan preview pesan chat di notifikasi" to `:shared:resources` (values + values-in, matching the existing settings-row key convention)
+- [x] 1.1 Add `settings_row_chat_preview` = "Tampilkan preview pesan chat di notifikasi" to `:shared:resources` (the base `values/` locale is Indonesian — no `values-in/` exists; matches the existing settings-row key convention)
 
 ## 2. ViewModel
 
@@ -17,4 +17,4 @@
 ## 4. Spec sync + verification
 
 - [x] 4.1 Update the `SettingsScreen`/`NotificationContentPreference` KDoc blocks that still describe the row as deferred (#431)
-- [ ] 4.2 Run the pre-push gate (`ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`) + `:mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`; UI-affecting → manual verify (verify-loop §B) with screenshot evidence in the PR body
+- [x] 4.2 Run the pre-push gate (`ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`) + `:mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`; UI-affecting → manual verify (verify-loop §B) with screenshot evidence in the PR body

@@ -332,8 +332,9 @@ fun SettingsScreen(
                 onClick = onComingSoon,
             )
 
-            // PRIVASI — "Profil privat" + "Sembunyikan jarak" are now backed Premium toggles;
-            // "Privasi & data" + "Pengguna diblokir" navigate.
+            // PRIVASI — "Profil privat" + "Sembunyikan jarak" are backed Premium toggles, the
+            // chat-preview row is a backed device-local toggle; "Privasi & data" + "Pengguna
+            // diblokir" navigate.
             SettingsSectionHeader(stringResource(Res.string.settings_section_privacy))
             // "Profil privat" is BACKED (private-profile capability): a Premium-gated toggle wired to
             // PATCH /api/v1/user/private-profile (the sanctioned `user_settings` privacy-flag write —
