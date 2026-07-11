@@ -10,6 +10,7 @@ import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.post.ContentModeratedProfanityException
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
@@ -298,9 +299,6 @@ class ReplyService(
          * user posting >1000 replies/day; 10x headroom above that for ops dial.
          */
         private const val MAX_OVERRIDE_CAP: Long = 10_000L
-
-        /** Subscription statuses that skip the daily limiter entirely. */
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         private val log = LoggerFactory.getLogger(ReplyService::class.java)
 

@@ -7,6 +7,7 @@ import id.nearyou.app.common.decodeCursor
 import id.nearyou.app.common.encodeCursor
 import id.nearyou.app.image.ImageDeliveryUrls
 import id.nearyou.app.post.LocationOutOfBoundsException
+import id.nearyou.app.subscription.isPremiumStatus
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
@@ -401,13 +402,3 @@ private suspend fun io.ktor.server.application.ApplicationCall.respondError(
         mapOf("error" to mapOf("code" to code, "message" to message)),
     )
 }
-
-/**
- * Premium-tier predicate shared (within this file) by the Nearby radius gate and the hide-distance
- * projection. Matches the canonical premium states — `premium_active` plus the 7-day `premium_billing_retry`
- * billing-retry grace — used by `SearchService.PREMIUM_STATES` and the timeline read limiter. Kept local
- * to avoid a cross-module refactor of the three existing copies; the tier is always read from the auth
- * principal, never a `users` SELECT (timeline-read-rate-limit invariant).
- */
-private fun isPremiumStatus(subscriptionStatus: String?): Boolean =
-    subscriptionStatus == "premium_active" || subscriptionStatus == "premium_billing_retry"

@@ -1,6 +1,7 @@
 package id.nearyou.app.search
 
 import id.nearyou.app.config.RemoteConfig
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.SearchHit
 import id.nearyou.data.repository.SearchRepository
 import kotlinx.coroutines.CoroutineDispatcher
@@ -161,9 +162,6 @@ class SearchService(
         const val MAX_QUERY_LENGTH: Int = 100
         const val MAX_OFFSET: Int = 10_000
         const val SEARCH_ENABLED_KEY: String = "search_enabled"
-
-        /** Subscription statuses that are allowed Premium access. */
-        internal val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         private val log = LoggerFactory.getLogger(SearchService::class.java)
     }

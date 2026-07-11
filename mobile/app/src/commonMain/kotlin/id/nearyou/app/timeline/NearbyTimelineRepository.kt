@@ -51,44 +51,12 @@ class NearbyTimelineRepository(
                 sessionId = sessionIdProvider.sessionId,
                 cursor = null,
             )
-        return when (result) {
-            is NearbyApiResult.Success ->
-                NearbyTimelineOutcome.Loaded(
-                    posts = result.body.posts,
-                    nextCursor = result.body.nextCursor,
-                    upsell = result.body.upsell,
-                    // Retain the page-1 anchor so load-more reuses it (design D4); VM-held, never rendered/logged.
-                    anchor = location,
-                )
-            is NearbyApiResult.NetworkError -> {
-                // Log the exception TYPE, not cause.message: a timeout exception's message can embed the
-                // request URL — which for Nearby carries ?lat=&lng= — and the diagnostic sink does NOT go
-                // through the HTTP-path CoordinateMaskingLogger. The class name is coordinate-free by
-                // construction (mobile-session-expiry-and-proactive-refresh D6 + the coordinate-masking invariant).
-                diagnosticLog("nearby_network_error: ${result.cause::class.simpleName}")
-                NearbyTimelineOutcome.NetworkError
-            }
-            is NearbyApiResult.HttpError ->
-                when {
-                    // Terminal 401 (survived the shipped Auth refresh) → SessionExpired, NOT NetworkError
-                    // (mobile-session-expiry-and-proactive-refresh D4). Branched explicitly AHEAD of the
-                    // fallback; the Auth plugin + SessionInvalidator still own the re-route to SignInScreen.
-                    result.status == 401 -> NearbyTimelineOutcome.SessionExpired
-                    // 400 invalid_request / location_out_of_bounds / radius_out_of_bounds /
-                    // invalid_cursor — not expected from the stub's always-valid params; surface as
-                    // retryable WITH a logged diagnostic (NOT a silent no-op, NOT a crash).
-                    result.status == 400 -> {
-                        diagnosticLog("nearby_invalid_request: status=400")
-                        NearbyTimelineOutcome.Error
-                    }
-                    result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
-                    // Any other unenumerated non-2xx status maps to the DEFINED retryable NetworkError
-                    // fallback rather than a generic "load failed" fallthrough (the match is over an Int,
-                    // so a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic
-                    // copy, not a `when` else). Mirrors AuthRepository.
-                    else -> NearbyTimelineOutcome.NetworkError
-                }
-        }
+        // Retain the page-1 anchor so load-more reuses it (design D4); VM-held, never rendered/logged.
+        return result.toOutcome(
+            anchor = location,
+            networkErrorTag = "nearby_network_error",
+            invalidRequestTag = "nearby_invalid_request",
+        )
     }
 
     override suspend fun loadMore(
@@ -107,31 +75,11 @@ class NearbyTimelineRepository(
                 sessionId = sessionIdProvider.sessionId,
                 cursor = cursor,
             )
-        return when (result) {
-            is NearbyApiResult.Success ->
-                NearbyTimelineOutcome.Loaded(
-                    posts = result.body.posts,
-                    nextCursor = result.body.nextCursor,
-                    upsell = result.body.upsell,
-                    anchor = anchor,
-                )
-            is NearbyApiResult.NetworkError -> {
-                // Type-only diagnostic: a load-more timeout's message can embed the ?lat=&lng= URL
-                // (design D4 / security review) — log the exception class, NEVER cause.message or a coordinate.
-                diagnosticLog("nearby_loadmore_error: ${result.cause::class.simpleName}")
-                NearbyTimelineOutcome.NetworkError
-            }
-            is NearbyApiResult.HttpError ->
-                when {
-                    result.status == 401 -> NearbyTimelineOutcome.SessionExpired
-                    result.status == 400 -> {
-                        diagnosticLog("nearby_loadmore_invalid_request: status=400")
-                        NearbyTimelineOutcome.Error
-                    }
-                    result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
-                    else -> NearbyTimelineOutcome.NetworkError
-                }
-        }
+        return result.toOutcome(
+            anchor = anchor,
+            networkErrorTag = "nearby_loadmore_error",
+            invalidRequestTag = "nearby_loadmore_invalid_request",
+        )
     }
 
     override suspend fun changeRadius(radiusM: Int): RadiusChangeResult {
@@ -164,32 +112,61 @@ class NearbyTimelineRepository(
             return RadiusChangeResult.PremiumGated
         }
         // Any other result reuses the frozen mapping (200 → Loaded, 401 → SessionExpired, else retryable).
-        return when (result) {
+        return RadiusChangeResult.Loaded(
+            result.toOutcome(
+                anchor = location,
+                networkErrorTag = "nearby_radius_error",
+                invalidRequestTag = "nearby_radius_invalid_request",
+            ),
+        )
+    }
+
+    /**
+     * The frozen status→outcome mapping shared by [loadFirstPage], [loadMore], and [changeRadius]
+     * (rule-of-three extraction, follow-up #386). The two diagnostic tags are the only per-site
+     * variation; each call site passes its exact literal so the per-surface diagnostic strings
+     * (asserted by `DiagnosticSinkWiringTest`) are unchanged.
+     */
+    private fun NearbyApiResult.toOutcome(
+        anchor: LatLng,
+        networkErrorTag: String,
+        invalidRequestTag: String,
+    ): NearbyTimelineOutcome =
+        when (this) {
             is NearbyApiResult.Success ->
-                RadiusChangeResult.Loaded(
-                    NearbyTimelineOutcome.Loaded(
-                        posts = result.body.posts,
-                        nextCursor = result.body.nextCursor,
-                        upsell = result.body.upsell,
-                        anchor = location,
-                    ),
+                NearbyTimelineOutcome.Loaded(
+                    posts = body.posts,
+                    nextCursor = body.nextCursor,
+                    upsell = body.upsell,
+                    anchor = anchor,
                 )
             is NearbyApiResult.NetworkError -> {
-                diagnosticLog("nearby_radius_error: ${result.cause::class.simpleName}")
-                RadiusChangeResult.Loaded(NearbyTimelineOutcome.NetworkError)
+                // Log the exception TYPE, not cause.message: a timeout exception's message can embed the
+                // request URL — which for Nearby carries the query coordinates — and the diagnostic sink
+                // does NOT go through the HTTP-path CoordinateMaskingLogger. The class name is
+                // coordinate-free by construction (mobile-session-expiry-and-proactive-refresh D6).
+                diagnosticLog("$networkErrorTag: ${cause::class.simpleName}")
+                NearbyTimelineOutcome.NetworkError
             }
             is NearbyApiResult.HttpError ->
-                RadiusChangeResult.Loaded(
-                    when {
-                        result.status == 401 -> NearbyTimelineOutcome.SessionExpired
-                        result.status == 400 -> {
-                            diagnosticLog("nearby_radius_invalid_request: status=400")
-                            NearbyTimelineOutcome.Error
-                        }
-                        result.status in 500..599 -> NearbyTimelineOutcome.NetworkError
-                        else -> NearbyTimelineOutcome.NetworkError
-                    },
-                )
+                when {
+                    // Terminal 401 (survived the shipped Auth refresh) → SessionExpired, NOT NetworkError
+                    // (mobile-session-expiry-and-proactive-refresh D4). Branched explicitly AHEAD of the
+                    // fallback; the Auth plugin + SessionInvalidator still own the re-route to SignInScreen.
+                    status == 401 -> NearbyTimelineOutcome.SessionExpired
+                    // 400 invalid_request / location_out_of_bounds / radius_out_of_bounds /
+                    // invalid_cursor — not expected from always-valid params; surface as retryable
+                    // WITH a logged diagnostic (NOT a silent no-op, NOT a crash).
+                    status == 400 -> {
+                        diagnosticLog("$invalidRequestTag: status=400")
+                        NearbyTimelineOutcome.Error
+                    }
+                    status in 500..599 -> NearbyTimelineOutcome.NetworkError
+                    // Any other unenumerated non-2xx status maps to the DEFINED retryable NetworkError
+                    // fallback rather than a generic "load failed" fallthrough (the match is over an Int,
+                    // so a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic
+                    // copy, not a `when` else). Mirrors AuthRepository.
+                    else -> NearbyTimelineOutcome.NetworkError
+                }
         }
-    }
 }

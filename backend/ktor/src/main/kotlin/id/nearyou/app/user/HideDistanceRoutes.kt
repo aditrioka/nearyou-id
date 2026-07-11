@@ -2,6 +2,7 @@ package id.nearyou.app.user
 
 import id.nearyou.app.auth.AUTH_PROVIDER_USER
 import id.nearyou.app.auth.UserPrincipal
+import id.nearyou.app.subscription.PREMIUM_STATES
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
@@ -21,9 +22,6 @@ import org.slf4j.LoggerFactory
 private val log = LoggerFactory.getLogger("id.nearyou.app.user.HideDistanceRoutes")
 
 private const val MAX_BODY_BYTES = 4096L
-
-/** Effective-Premium statuses (mirrors the user-profile-read / timeline gate). */
-private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
 /**
  * `PATCH /api/v1/user/hide-distance` — JWT-required Premium hide-distance toggle

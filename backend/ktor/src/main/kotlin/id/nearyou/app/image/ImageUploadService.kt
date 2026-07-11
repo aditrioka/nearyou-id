@@ -4,6 +4,7 @@ import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.infra.cloudflareimages.ImageStore
 import id.nearyou.app.infra.cloudvision.ImageModerator
+import id.nearyou.app.subscription.PREMIUM_STATES
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -136,9 +137,5 @@ class ImageUploadService(
     companion object {
         const val CAP_OVERRIDE_KEY: String = "premium_image_upload_cap_override"
         const val MAX_CAP: Long = 10_000L
-
-        // Mirrors CreatePostService.PREMIUM_STATES — image upload is a write capability,
-        // so grace-period (premium_billing_retry) callers retain access (design D4).
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
     }
 }

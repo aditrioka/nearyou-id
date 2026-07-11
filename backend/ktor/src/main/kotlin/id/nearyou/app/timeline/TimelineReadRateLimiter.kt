@@ -2,6 +2,7 @@ package id.nearyou.app.timeline
 
 import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.subscription.PREMIUM_STATES
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -186,9 +187,6 @@ class TimelineReadRateLimiter(
         // RateLimitTtlRule Detekt rule fires only on keys whose literal contains
         // the substring `_day}`, so the rule does NOT fire on these hourly keys.
         val WINDOW_TTL: Duration = Duration.ofHours(1)
-
-        /** Subscription statuses that skip both buckets entirely. */
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         // Validation regex for the `X-Session-Id` header value:
         //   - Length 1..64 (UUID is 36; modest headroom for client-side variants).

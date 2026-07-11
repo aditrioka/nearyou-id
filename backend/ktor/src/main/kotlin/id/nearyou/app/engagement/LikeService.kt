@@ -4,6 +4,7 @@ import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.core.domain.ratelimit.computeTTLToNextReset
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostLikeRepository
@@ -271,9 +272,6 @@ class LikeService(
         const val DEFAULT_DAILY_CAP: Int = 10
         const val BURST_CAPACITY: Int = 500
         const val PREMIUM_LIKE_CAP_OVERRIDE_KEY: String = "premium_like_cap_override"
-
-        /** Subscription statuses that skip the daily limiter entirely. */
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         private val log = LoggerFactory.getLogger(LikeService::class.java)
 

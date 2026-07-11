@@ -8,6 +8,7 @@ import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.ReportTargetType
@@ -322,9 +323,6 @@ class UsernameChangeService(
         const val MAX_LENGTH: Int = 30
         val COOLDOWN: Duration = Duration.ofDays(30)
         private const val UNIQUE_VIOLATION_SQLSTATE = "23505"
-
-        /** Premium states allowed to customize — mirrors `SearchService.PREMIUM_STATES`. */
-        internal val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         /** Lowercase alphanumerics; dots and underscores middle-only. No-consecutive-dots is a separate guard. */
         val USERNAME_REGEX = Regex("^[a-z0-9][a-z0-9_.]*[a-z0-9_]$")

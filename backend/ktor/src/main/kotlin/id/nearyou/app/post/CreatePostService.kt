@@ -10,6 +10,7 @@ import id.nearyou.app.moderation.Layer3Moderator
 import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.ReportTargetType
 import id.nearyou.distance.JitterEngine
@@ -244,10 +245,6 @@ class CreatePostService(
         const val LAT_MAX: Double = 6.5
         const val LNG_MIN: Double = 94.0
         const val LNG_MAX: Double = 142.0
-
-        // Mirrors LikeService.PREMIUM_STATES — the daily-cap skip applies through a
-        // billing retry, matching the like/reply limiter precedent.
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
     }
 }
 

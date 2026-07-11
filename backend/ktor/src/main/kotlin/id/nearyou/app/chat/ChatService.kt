@@ -9,6 +9,7 @@ import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.post.ContentModeratedProfanityException
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
@@ -420,9 +421,6 @@ class ChatService(
          * sending >10,000 chat messages/day.
          */
         private const val MAX_OVERRIDE_CAP: Long = 10_000L
-
-        /** Subscription statuses that skip the daily limiter entirely. */
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         private val log = LoggerFactory.getLogger(ChatService::class.java)
 
