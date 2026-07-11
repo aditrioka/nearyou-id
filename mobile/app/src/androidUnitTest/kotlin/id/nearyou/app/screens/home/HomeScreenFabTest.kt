@@ -11,6 +11,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -81,6 +83,7 @@ class HomeScreenFabTest {
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
                     single<ProfileFlow> { FakeProfileFlow() }
                     single<SelfUserIdProvider> { FakeSelfUserId() }

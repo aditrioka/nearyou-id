@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** The one-shot timeline report-result message (rendered as a snackbar by `TimelineReportOverlay`).
+/** The one-shot timeline report-result message (rendered as a snackbar by `TimelineActionsOverlay`).
  *  Deliberately parallel to the post-detail `PostDetailReportMessage` (that enum is post-detail-scoped;
  *  see design D3): SUCCESS covers Submitted AND Duplicate — anti-enumeration, `docs/03`:234. */
 enum class TimelineReportMessage {

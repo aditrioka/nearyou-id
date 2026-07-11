@@ -18,6 +18,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -160,6 +162,7 @@ class AppShellScreenTest {
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     single<NotificationsFlow> { notifFake }
                     // mobile-profile: the Profil section renders the live self ProfileScreen, which
                     // injects ProfileFlow + SelfUserIdProvider. Faked here so the section renders the
@@ -476,6 +479,7 @@ class AppShellScreenTest {
                     single<GlobalTimelineFlow> { globalFake }
                     single<LikeFlow> { FakeLikeFlow() }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     // The shell's real notifications graph over the recording MockEngine (the badge's
                     // unread-count request is captured here). The deep-link resolution clients reuse the
                     // recording client; they are not exercised by these shell tests.

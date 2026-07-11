@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
@@ -48,8 +49,10 @@ import id.nearyou.app.ui.components.ListScrollableState
 import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.app.ui.components.PostFeedList
 import id.nearyou.app.ui.components.RadiusPremiumUpsellDialog
+import id.nearyou.app.ui.timeline.TimelineActionsOverlay
+import id.nearyou.app.ui.timeline.TimelineBlockMessage
+import id.nearyou.app.ui.timeline.TimelineBlockTarget
 import id.nearyou.app.ui.timeline.TimelineReportMessage
-import id.nearyou.app.ui.timeline.TimelineReportOverlay
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.location_open_settings
@@ -82,6 +85,9 @@ const val NEARBY_RADIUS_SLIDER_TAG: String = "nearbyRadiusSlider"
 
 /** Test tag on the timeline report dialog (timeline-card-report-kebab). */
 const val NEARBY_REPORT_DIALOG_TAG: String = "nearbyReportDialog"
+
+/** Test tag on the timeline block confirmation dialog (timeline-card-block-kebab). */
+const val NEARBY_BLOCK_DIALOG_TAG: String = "nearbyBlockDialog"
 
 /**
  * The first product surface — the authenticated Nearby feed, gated on a granted location permission
@@ -197,8 +203,13 @@ private fun NearbyFeed(
     // timeline-card-report-kebab: the shared report seam (the SAME ReportSubmitter singleton the
     // profile/post-detail/chat surfaces use).
     val reportSubmitter = koinInject<ReportSubmitter>()
+    // timeline-card-block-kebab: the shared block seam (the SAME BlockSubmitter singleton the
+    // profile/post-detail surfaces use).
+    val blockSubmitter = koinInject<BlockSubmitter>()
     val viewModel =
-        viewModel { NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider, reportSubmitter) }
+        viewModel {
+            NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider, reportSubmitter, blockSubmitter)
+        }
     // The single screen state — the nearbyTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -215,6 +226,8 @@ private fun NearbyFeed(
     val selfUserId by viewModel.selfUserId.collectAsStateWithLifecycle()
     val reportingPostId by viewModel.reportingPostId.collectAsStateWithLifecycle()
     val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
+    val blockTarget by viewModel.blockTarget.collectAsStateWithLifecycle()
+    val blockMessage by viewModel.blockMessage.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize()) {
         // The 4-position radius control above the feed (Premium-gated). Free sliding bounces back to 20 km
@@ -260,6 +273,12 @@ private fun NearbyFeed(
                 onReportSubmit = viewModel::onReportSubmitted,
                 onReportDismiss = viewModel::onReportDialogDismissed,
                 onReportMessageShown = viewModel::onReportMessageShown,
+                blockActionOf = { post -> viewModel.blockActionFor(post.id, selfUserId) },
+                blockTarget = blockTarget,
+                blockMessage = blockMessage,
+                onBlockConfirm = viewModel::onBlockConfirmed,
+                onBlockDismiss = viewModel::onBlockDialogDismissed,
+                onBlockMessageShown = viewModel::onBlockMessageShown,
             )
         }
     }
@@ -414,6 +433,12 @@ private fun NearbyTimelineContent(
     onReportSubmit: (ReportReasonCategory, String?) -> Unit,
     onReportDismiss: () -> Unit,
     onReportMessageShown: () -> Unit,
+    blockActionOf: (NearbyTimelinePost) -> (() -> Unit)?,
+    blockTarget: TimelineBlockTarget?,
+    blockMessage: TimelineBlockMessage?,
+    onBlockConfirm: () -> Unit,
+    onBlockDismiss: () -> Unit,
+    onBlockMessageShown: () -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -462,6 +487,7 @@ private fun NearbyTimelineContent(
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,
+                    blockActionOf = blockActionOf,
                 )
             is NearbyTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -482,18 +508,25 @@ private fun NearbyTimelineContent(
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,
+                    blockActionOf = blockActionOf,
                 )
         }
         // timeline-card-report-kebab: the shared report dialog + one-shot result snackbar
-        // (ui/timeline/TimelineReportOverlay, design D5) — mounted once inside the PullToRefreshBox
+        // (ui/timeline/TimelineActionsOverlay, design D5/D6) — mounted once inside the PullToRefreshBox
         // (a BoxScope) so the snackbar bottom-aligns over the feed.
-        TimelineReportOverlay(
+        TimelineActionsOverlay(
             reportingPostId = reportingPostId,
             reportMessage = reportMessage,
             onSubmit = onReportSubmit,
             onDismiss = onReportDismiss,
             onMessageShown = onReportMessageShown,
             dialogTestTag = NEARBY_REPORT_DIALOG_TAG,
+            blockTarget = blockTarget,
+            blockMessage = blockMessage,
+            onBlockConfirm = onBlockConfirm,
+            onBlockDismiss = onBlockDismiss,
+            onBlockMessageShown = onBlockMessageShown,
+            blockDialogTestTag = NEARBY_BLOCK_DIALOG_TAG,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }

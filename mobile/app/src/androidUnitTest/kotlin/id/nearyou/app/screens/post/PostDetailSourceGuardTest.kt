@@ -79,19 +79,23 @@ class PostDetailSourceGuardTest {
         assertTrue(screen.contains("onBack"), "the screen takes navigation via the hoisted onBack lambda")
     }
 
-    // mobile-block-from-content UN-defers the post/reply block: the screen now hosts the shared
-    // BlockConfirmDialog + the VM-wired block menu items. The deferral guard MOVES to the timeline card:
-    // PostCard stays block-free (footprint-disjoint from in-flight #354 — the spec's
-    // "Timeline-card block entry point is deferred" negative guard).
+    // mobile-block-from-content UN-defers the post/reply block: the screen hosts the shared
+    // BlockConfirmDialog + the VM-wired block menu items. timeline-card-block-kebab (#456) then
+    // UN-deferred the timeline card too: PostCard carries the "Blokir @{username}" kebab item — but
+    // stays presentation-only (the hoisted onBlock callback; the dialog + submission live in the feed
+    // hosts via TimelineActionsOverlay/TimelineBlockController, never in the card).
     @Test
-    fun postDetailScreen_hasBlockAffordance_andPostCardStaysBlockFree() {
+    fun postDetailScreen_hasBlockAffordance_andPostCardExposesTheBlockItemPresentationOnly() {
         assertTrue(screen.contains("BlockConfirmDialog"), "PostDetailScreen hosts the shared block dialog (mobile-block-from-content)")
         assertTrue(screen.contains("onBlockPostClicked"), "the post-header block wires through the VM")
         assertTrue(screen.contains("onBlockReplyClicked"), "the reply-row block wires through the VM")
         val postCard = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/ui/components/PostCard.kt")
-        assertFalse(postCard.contains("BlockConfirmDialog"), "PostCard must carry no block dialog (timeline-card block deferred)")
-        assertFalse(postCard.contains("BlockSubmitter"), "PostCard must issue no block call (timeline-card block deferred)")
-        assertFalse(postCard.contains("profile_block_action"), "PostCard must carry no block menu item (timeline-card block deferred)")
+        assertTrue(
+            postCard.contains("profile_block_action"),
+            "PostCard carries the Blokir kebab item (timeline-card-block-kebab un-deferred #456)",
+        )
+        assertFalse(postCard.contains("BlockConfirmDialog"), "PostCard must not host the block dialog (presentation-only card)")
+        assertFalse(postCard.contains("BlockSubmitter"), "PostCard must issue no block call (the shared-seam rule)")
     }
 
     // mobile-block-from-content spec § "A single shared block-create seam": exactly ONE source file may

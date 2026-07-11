@@ -11,6 +11,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -93,6 +95,7 @@ class NearbyLocationGateScreenTest {
                     single<LikeFlow> { FakeLikeFlow() }
                     // timeline-card-report-kebab: the report seam (self id already registered above/below).
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
                     single<ProfileFlow> { FakeProfileFlow() }
                     single<SelfUserIdProvider> { FakeSelfUserId() }
