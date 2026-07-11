@@ -1,11 +1,10 @@
 package id.nearyou.app.admin.reportqueue
 
 import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.moderation.BanPrimitives
 import id.nearyou.app.admin.moderation.SuspendEnforcement
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -226,8 +225,8 @@ class ReportResolutionRepository(
                                         conn.rollback()
                                         return QueueResolutionOutcome.ForbiddenBanTier
                                     }
-                                    applyPermanentBan(conn, authorId)
-                                    insertBanNotification(conn, authorId)
+                                    BanPrimitives.applyPermanentBan(conn, authorId)
+                                    BanPrimitives.insertBanNotification(conn, authorId)
                                     buildJsonObject {
                                         put("is_banned", JsonPrimitive(true))
                                         put("suspended_until", JsonNull)
@@ -238,7 +237,7 @@ class ReportResolutionRepository(
                                     // Stealth invariant (design D2 matrix + D9): NO
                                     // notification — a shadow ban is invisible to the
                                     // affected user.
-                                    applyShadowBan(conn, authorId)
+                                    BanPrimitives.applyShadowBan(conn, authorId)
                                     buildJsonObject { put("is_shadow_banned", JsonPrimitive(true)) }
                                 }
 
@@ -364,54 +363,6 @@ class ReportResolutionRepository(
         }
     }
 
-    /** Permanent ban: `is_banned = TRUE`, `suspended_until = NULL` (mirrors the
-     *  permanent-ban shape the unban path lifts). */
-    private fun applyPermanentBan(
-        conn: Connection,
-        authorId: UUID,
-    ) {
-        conn.prepareStatement("UPDATE users SET is_banned = TRUE, suspended_until = NULL WHERE id = ?").use { ps ->
-            ps.setObject(1, authorId)
-            ps.executeUpdate()
-        }
-    }
-
-    /** Shadow ban: `is_shadow_banned = TRUE`. No other column, no notification. */
-    private fun applyShadowBan(
-        conn: Connection,
-        authorId: UUID,
-    ) {
-        conn.prepareStatement("UPDATE users SET is_shadow_banned = TRUE WHERE id = ?").use { ps ->
-            ps.setObject(1, authorId)
-            ps.executeUpdate()
-        }
-    }
-
-    /**
-     * Insert the permanent-ban-side `account_action_applied` notification on
-     * [conn] (joins the resolution transaction, design D4). `body_data.reason`
-     * is the SANITIZED fixed code [BAN_REASON_CODE] — never a moderator note;
-     * `actor_user_id` is left NULL (the actor is an admin, not a `public.users`
-     * row), mirroring the suspend notification.
-     */
-    private fun insertBanNotification(
-        conn: Connection,
-        authorId: UUID,
-    ) {
-        val bodyData =
-            buildJsonObject {
-                put("action_type", JsonPrimitive("user_banned"))
-                put("reason", JsonPrimitive(BAN_REASON_CODE))
-            }
-        conn.prepareStatement(
-            "INSERT INTO notifications (user_id, type, body_data) VALUES (?, 'account_action_applied', ?::jsonb)",
-        ).use { ps ->
-            ps.setObject(1, authorId)
-            ps.setString(2, json.encodeToString(bodyData))
-            ps.executeUpdate()
-        }
-    }
-
     /** `{"status": "<value>"}` for the report-resolution audit before/after. */
     private fun statusJson(status: String): JsonObject = buildJsonObject { put("status", JsonPrimitive(status)) }
 
@@ -442,16 +393,6 @@ class ReportResolutionRepository(
                 QueueResolution.BAN_AUTHOR,
                 QueueResolution.SHADOW_BAN_AUTHOR,
             )
-
-        /**
-         * Sanitized, non-free-text code written to the ban notification's
-         * `body_data.reason` — deliberately NOT a moderator note (mirrors
-         * [UserModerationRepository.SANITIZED_REASON_CODE] for suspend). The
-         * free-text reason, if any, lives ONLY in `admin_actions_log`.
-         */
-        private const val BAN_REASON_CODE = "ban"
-
-        private val json = Json { encodeDefaults = false }
     }
 }
 
