@@ -76,4 +76,27 @@ class ImageStoreTest : StringSpec({
             store.upload(byteArrayOf(1), "image/png", "x.png")
         }
     }
+
+    "delete succeeds on 200" {
+        val store = imageStore(config, jsonEngine(HttpStatusCode.OK, """{"success":true}"""))
+        store.delete("img-1") // no throw
+    }
+
+    "delete treats 404 as success (already gone — the retry converges)" {
+        val store = imageStore(config, jsonEngine(HttpStatusCode.NotFound, """{"success":false}"""))
+        store.delete("img-gone") // no throw
+    }
+
+    "delete throws on a non-404 HTTP error" {
+        val store = imageStore(config, jsonEngine(HttpStatusCode.InternalServerError, """{"success":false}"""))
+        shouldThrow<CloudflareImageStoreException> {
+            store.delete("img-1")
+        }
+    }
+
+    "NoOp delete throws the gate-on-isConfigured contract" {
+        shouldThrow<IllegalStateException> {
+            imageStore(null).delete("img-1")
+        }
+    }
 })

@@ -3,12 +3,14 @@ package id.nearyou.app.infra.cloudflareimages
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.apache5.Apache5
+import io.ktor.client.request.delete
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -71,6 +73,23 @@ class CloudflareImageStore(
         // we never serve from imagedelivery.net except the documented emergency fallback) via the
         // single shared builder so the read-path surfacing emits the identical shape.
         return StoredImage(imageId = imageId, deliveryUrl = config.deliveryUrl(imageId))
+    }
+
+    override suspend fun delete(imageId: String) {
+        val response =
+            client.delete(
+                "https://api.cloudflare.com/client/v4/accounts/${config.accountId}/images/v1/$imageId",
+            ) {
+                header(HttpHeaders.Authorization, "Bearer ${config.apiToken}")
+            }
+
+        // 404 = already gone (a prior run crashed after the CF delete but before its ledger
+        // commit) — success, so the orphan-cleanup retry converges instead of wedging.
+        if (response.status == HttpStatusCode.NotFound) return
+        if (!response.status.isSuccess()) {
+            log.warn("event=cloudflare_images_delete_http_error status={}", response.status.value)
+            throw CloudflareImageStoreException("Cloudflare Images delete failed: HTTP ${response.status.value}")
+        }
     }
 }
 

@@ -18,6 +18,9 @@ import id.nearyou.app.auth.routes.appleS2SRoutes
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.core.domain.oidc.VerifiedClaims
+import id.nearyou.app.image.JdbcOrphanImageCleanupRepository
+import id.nearyou.app.image.OrphanImageCleanupWorker
+import id.nearyou.app.image.orphanImageCleanupRoutes
 import id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter
 import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
@@ -102,6 +105,13 @@ class InternalRoutingIsolationTest : StringSpec({
                         RetentionCleanupWorker(JdbcRetentionCleanupRepository(UnusedDataSource)),
                         NeverCalledVerifier,
                     )
+                    orphanImageCleanupRoutes(
+                        OrphanImageCleanupWorker(
+                            JdbcOrphanImageCleanupRepository(UnusedDataSource),
+                            id.nearyou.app.infra.cloudflareimages.NoOpImageStore,
+                        ),
+                        NeverCalledVerifier,
+                    )
                     loginAnomalyCheckRoutes(
                         LoginAnomalyDetectionService(JdbcLoginAnomalyRepository(UnusedDataSource)),
                         NeverCalledVerifier,
@@ -154,6 +164,14 @@ class InternalRoutingIsolationTest : StringSpec({
         testApplication {
             mountProductionShape()
             val response = client.post("/internal/cleanup")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    "orphan-image-cleanup worker without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/cleanup-orphan-images")
             response.status shouldBe HttpStatusCode.Unauthorized
         }
     }

@@ -53,6 +53,13 @@ interface ImageStore {
         contentType: String,
         fileName: String,
     ): StoredImage
+
+    /**
+     * Delete a stored image (the `orphan-image-cleanup` sweep). Gate on [isConfigured] first.
+     * A Cloudflare 404 is treated as success — the image is already gone (e.g. a prior run
+     * crashed after the delete but before its ledger commit), so the retry converges.
+     */
+    suspend fun delete(imageId: String)
 }
 
 /** Fail-soft binding when Cloudflare Images is unconfigured. */
@@ -64,6 +71,9 @@ object NoOpImageStore : ImageStore {
         contentType: String,
         fileName: String,
     ): StoredImage = throw IllegalStateException("ImageStore is not configured — gate on isConfigured()")
+
+    override suspend fun delete(imageId: String): Unit =
+        throw IllegalStateException("ImageStore is not configured — gate on isConfigured()")
 }
 
 /**
