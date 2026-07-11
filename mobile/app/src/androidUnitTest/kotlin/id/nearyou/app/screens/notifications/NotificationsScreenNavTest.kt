@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
 private const val COPY_POST_LIKED = "Seseorang menyukai postingan kamu" // notif_post_liked
 private const val COPY_FOLLOWED = "Seseorang mulai mengikuti kamu" // notif_followed
 private const val COPY_CHAT = "Pesan baru" // notif_chat_message
-private const val COPY_SUB_EXPIRED = "Notifikasi baru" // notif_generic (subscription_expired → generic)
+private const val COPY_SUB_EXPIRED = "Langganan Premium kamu telah berakhir" // notif_subscription_expired (#343)
 private const val POST_UNAVAILABLE = "Postingan tidak tersedia" // notifications_post_unavailable
 
 /**

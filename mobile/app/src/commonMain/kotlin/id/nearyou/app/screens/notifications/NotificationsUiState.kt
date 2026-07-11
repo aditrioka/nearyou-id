@@ -12,13 +12,16 @@ import kotlinx.serialization.json.JsonPrimitive
  * `LazyColumn` key + the mark-read target), the raw [type] wire string (the row composable maps it to
  * type-keyed `stringResource` copy), a [read] flag derived from `read_at`, and an optional non-PII
  * [excerpt] pulled from `body_data`. There is deliberately NO `actorUserId` and NO `targetId`, so the
- * rendered state STRUCTURALLY cannot leak either UUID (design D4).
+ * rendered state STRUCTURALLY cannot leak either UUID (design D4). [flipDeadlineDate] is set ONLY for
+ * `privacy_flip_warning` rows (follow-up #343): the date portion of `body_data.privacy_flip_scheduled_at`,
+ * rendered into the type copy so the 72h privacy-downgrade deadline is explicit.
  */
 data class NotificationRow(
     val id: String,
     val type: String,
     val read: Boolean,
     val excerpt: String?,
+    val flipDeadlineDate: String? = null,
 )
 
 /** The `body_data` keys that carry a human-readable excerpt (content, never PII). The first present
@@ -36,6 +39,20 @@ private fun extractExcerpt(bodyData: JsonElement): String? {
     return null
 }
 
+/** `privacy_flip_warning` only: the DATE portion of `body_data.privacy_flip_scheduled_at` (the bare
+ *  `substringBefore('T')` shape `postDateLabel` / `deletionDateLabel` use — no kotlinx-datetime parse on
+ *  the render path). Null for every other type and for an absent/non-string/blank value, in which case
+ *  the row falls back to the dateless `notif_privacy_flip_warning_soon` copy (no crash). */
+private fun extractFlipDeadlineDate(
+    type: String,
+    bodyData: JsonElement,
+): String? {
+    if (type != "privacy_flip_warning") return null
+    val primitive = (bodyData as? JsonObject)?.get("privacy_flip_scheduled_at") as? JsonPrimitive ?: return null
+    if (!primitive.isString) return null
+    return primitive.content.substringBefore('T').takeIf { it.isNotBlank() }
+}
+
 private fun NotificationDto.toRow(): NotificationRow =
     NotificationRow(
         id = id,
@@ -43,6 +60,7 @@ private fun NotificationDto.toRow(): NotificationRow =
         read = readAt != null,
         // body_data excerpt only (post/reply text or chat preview) — NEVER actor_user_id / target_id.
         excerpt = extractExcerpt(bodyData),
+        flipDeadlineDate = extractFlipDeadlineDate(type, bodyData),
     )
 
 /**

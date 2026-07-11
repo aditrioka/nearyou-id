@@ -39,12 +39,19 @@ import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.notif_account_action_applied
 import id.nearyou.resources.generated.resources.notif_chat_message
+import id.nearyou.resources.generated.resources.notif_chat_message_redacted
+import id.nearyou.resources.generated.resources.notif_data_export_ready
 import id.nearyou.resources.generated.resources.notif_followed
 import id.nearyou.resources.generated.resources.notif_generic
 import id.nearyou.resources.generated.resources.notif_post_auto_hidden
 import id.nearyou.resources.generated.resources.notif_post_liked
 import id.nearyou.resources.generated.resources.notif_post_replied
+import id.nearyou.resources.generated.resources.notif_privacy_flip_warning
+import id.nearyou.resources.generated.resources.notif_privacy_flip_warning_soon
+import id.nearyou.resources.generated.resources.notif_subscription_billing_issue
+import id.nearyou.resources.generated.resources.notif_subscription_expired
 import id.nearyou.resources.generated.resources.notifications_empty
 import id.nearyou.resources.generated.resources.notifications_loading
 import id.nearyou.resources.generated.resources.notifications_mark_all_read
@@ -330,7 +337,7 @@ private fun NotificationRowItem(
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = notificationCopy(row.type),
+                text = notificationCopy(row),
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (row.read) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             )
@@ -354,19 +361,31 @@ private fun NotificationRowItem(
 }
 
 /**
- * Maps a notification [type] wire string to its Bahasa Indonesia copy. The five distinct types
- * (`post_liked` / `post_replied` / `followed` / `post_auto_hidden` / `chat_message`) get specific copy;
- * every other reserved `NotificationType` value AND any unknown/future `type` falls back to the generic
- * copy (no crash). These are wire-protocol keys matched against `row.type`, NOT rendered UI literals —
- * the rendered text is always a `stringResource`.
+ * Maps a notification row's `type` wire string to its Bahasa Indonesia copy. The five original types
+ * (`post_liked` / `post_replied` / `followed` / `post_auto_hidden` / `chat_message`) plus the six
+ * now-emitted types (follow-up #343: `privacy_flip_warning` / `subscription_billing_issue` /
+ * `subscription_expired` / `chat_message_redacted` / `account_action_applied` / `data_export_ready`)
+ * get specific copy; the still-unemitted reserved `NotificationType` values AND any unknown/future
+ * `type` fall back to the generic copy (no crash). `privacy_flip_warning` renders the flip deadline
+ * date ([NotificationRow.flipDeadlineDate]) into its copy, degrading to the dateless `_soon` variant
+ * when `body_data` carries no parseable deadline. These are wire-protocol keys matched against
+ * `row.type`, NOT rendered UI literals — the rendered text is always a `stringResource`.
  */
 @Composable
-private fun notificationCopy(type: String): String =
-    when (type) {
+private fun notificationCopy(row: NotificationRow): String =
+    when (row.type) {
         "post_liked" -> stringResource(Res.string.notif_post_liked)
         "post_replied" -> stringResource(Res.string.notif_post_replied)
         "followed" -> stringResource(Res.string.notif_followed)
         "post_auto_hidden" -> stringResource(Res.string.notif_post_auto_hidden)
         "chat_message" -> stringResource(Res.string.notif_chat_message)
+        "privacy_flip_warning" ->
+            row.flipDeadlineDate?.let { stringResource(Res.string.notif_privacy_flip_warning, it) }
+                ?: stringResource(Res.string.notif_privacy_flip_warning_soon)
+        "subscription_billing_issue" -> stringResource(Res.string.notif_subscription_billing_issue)
+        "subscription_expired" -> stringResource(Res.string.notif_subscription_expired)
+        "chat_message_redacted" -> stringResource(Res.string.notif_chat_message_redacted)
+        "account_action_applied" -> stringResource(Res.string.notif_account_action_applied)
+        "data_export_ready" -> stringResource(Res.string.notif_data_export_ready)
         else -> stringResource(Res.string.notif_generic)
     }

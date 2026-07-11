@@ -62,13 +62,20 @@ import id.nearyou.resources.generated.resources.location_consent_body
 import id.nearyou.resources.generated.resources.location_consent_title
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
+import id.nearyou.resources.generated.resources.notif_account_action_applied
 import id.nearyou.resources.generated.resources.notif_chat_message
+import id.nearyou.resources.generated.resources.notif_chat_message_redacted
+import id.nearyou.resources.generated.resources.notif_data_export_ready
 import id.nearyou.resources.generated.resources.notif_followed
 import id.nearyou.resources.generated.resources.notif_generic
 import id.nearyou.resources.generated.resources.notif_permission_rationale
 import id.nearyou.resources.generated.resources.notif_post_auto_hidden
 import id.nearyou.resources.generated.resources.notif_post_liked
 import id.nearyou.resources.generated.resources.notif_post_replied
+import id.nearyou.resources.generated.resources.notif_privacy_flip_warning
+import id.nearyou.resources.generated.resources.notif_privacy_flip_warning_soon
+import id.nearyou.resources.generated.resources.notif_subscription_billing_issue
+import id.nearyou.resources.generated.resources.notif_subscription_expired
 import id.nearyou.resources.generated.resources.notifications_badge
 import id.nearyou.resources.generated.resources.notifications_empty
 import id.nearyou.resources.generated.resources.notifications_loading
@@ -344,6 +351,16 @@ class SharedStringsCatalogTest {
             Res.string.notif_post_auto_hidden,
             Res.string.notif_chat_message,
             Res.string.notif_generic,
+            // Follow-up #343: specific copy for the now-emitted types that previously fell to
+            // notif_generic (notif_privacy_flip_warning carries the flip deadline date as %1$s;
+            // the _soon variant is the absent-deadline fallback).
+            Res.string.notif_privacy_flip_warning,
+            Res.string.notif_privacy_flip_warning_soon,
+            Res.string.notif_subscription_billing_issue,
+            Res.string.notif_subscription_expired,
+            Res.string.notif_chat_message_redacted,
+            Res.string.notif_account_action_applied,
+            Res.string.notif_data_export_ready,
             // mobile-post-detail-screen (post header + like control + replies list + reply composer).
             // 11 net-new keys (the empty-`city_name` header gets its own `post_detail_posted_from_no_city`
             // variant; `post_detail_post_gone` is the terminal-404 banner). The replies-loading +
@@ -542,7 +559,10 @@ class SharedStringsCatalogTest {
         // + 11 (mobile-referral: age_gate_invite_code_label + 2 Settings-row strings + 8 referral-surface
         // strings — title, explainer, code heading, copy action, copy confirmation, progress heading,
         // formatted progress, reward-unlocked; loading/error reuse loading / error_generic / cta_retry) = 229.
-        assertEquals(229, allDeclaredStrings.size)
+        // + 7 (follow-up #343: specific in-app copy for the now-emitted notification types — dated +
+        // dateless privacy_flip_warning, billing issue, expired, chat redacted, account action,
+        // data export ready) = 236.
+        assertEquals(236, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

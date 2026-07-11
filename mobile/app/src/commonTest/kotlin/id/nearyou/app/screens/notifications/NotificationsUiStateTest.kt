@@ -86,6 +86,33 @@ class NotificationsUiStateTest {
     }
 
     @Test
+    fun `flip deadline date is projected only for privacy_flip_warning and tolerates a missing key`() {
+        val withDeadline =
+            fakeNotification(
+                id = "a",
+                type = "privacy_flip_warning",
+                bodyData = buildJsonObject { put("privacy_flip_scheduled_at", "2026-07-14T10:31:00Z") },
+            )
+        val noDeadline = fakeNotification(id = "b", type = "privacy_flip_warning", bodyData = buildJsonObject {})
+        val otherType =
+            fakeNotification(
+                id = "c",
+                type = "post_liked",
+                bodyData = buildJsonObject { put("privacy_flip_scheduled_at", "2026-07-14T10:31:00Z") },
+            )
+        val rows =
+            assertIs<NotificationsUiState.Content>(
+                notificationsUiState(
+                    NotificationsOutcome.Loaded(listOf(withDeadline, noDeadline, otherType), null),
+                    isInitialLoad = false,
+                ),
+            ).rows
+        assertEquals("2026-07-14", rows.first { it.id == "a" }.flipDeadlineDate)
+        assertNull(rows.first { it.id == "b" }.flipDeadlineDate, "a missing deadline yields the dateless fallback")
+        assertNull(rows.first { it.id == "c" }.flipDeadlineDate, "the deadline projects for privacy_flip_warning only")
+    }
+
+    @Test
     fun `projected content carries no actor or target UUID`() {
         val piiRow =
             fakeNotification(

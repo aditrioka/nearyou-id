@@ -185,7 +185,8 @@
          `notif_chat_message` likewise drops docs/03's "{username}" pending the deferred actor-username
          enrichment (GitHub issue #194 `mobile-notifications-actor-username-enrichment`, label `follow-up`). The 5 distinct type keys map
          post_liked / post_replied / followed / post_auto_hidden / chat_message; the remaining 8 reserved
-         NotificationType wire values + any unknown/future type fall back to `notif_generic`. The
+         NotificationType wire values + any unknown/future type fall back to `notif_generic` (six of the
+         reserved values gained specific copy later — the follow-up #343 block below). The
          notifications error/retry states reuse signin_error_network / cta_retry (declared above) — no new
          keys. All non-canonical copy is derived BI consistent with the Mobile #3/#4/#5 register, FLAGGED FOR
          UX REVIEW. -->
@@ -207,6 +208,22 @@
     <string name="notif_post_auto_hidden">Postingan kamu disembunyikan otomatis</string>
     <string name="notif_chat_message">Pesan baru</string>
     <string name="notif_generic">Notifikasi baru</string>
+    <!-- Follow-up #343: specific copy for the now-emitted notification types that previously fell to
+         `notif_generic` — privacy_flip_warning (privacy-flip-worker #321), subscription_billing_issue +
+         subscription_expired (premium billing #291), chat_message_redacted (admin chat redaction #290),
+         account_action_applied (admin moderation) and data_export_ready (data-export worker).
+         `notif_privacy_flip_warning` takes the flip deadline DATE as %1$s (the date portion of
+         `body_data.privacy_flip_scheduled_at`); the `_soon` variant covers an absent/malformed deadline.
+         The still-unemitted reserved values (username_release_scheduled, apple_relay_email_changed) stay
+         on `notif_generic` until their emit sites land. Derived BI copy consistent with the register
+         above, FLAGGED FOR UX REVIEW. -->
+    <string name="notif_privacy_flip_warning" formatted="true">Profilmu akan jadi publik pada %1$s — perpanjang Premium untuk tetap privat</string>
+    <string name="notif_privacy_flip_warning_soon">Profilmu akan segera jadi publik — perpanjang Premium untuk tetap privat</string>
+    <string name="notif_subscription_billing_issue">Ada masalah penagihan langganan Premium kamu — periksa metode pembayaranmu</string>
+    <string name="notif_subscription_expired">Langganan Premium kamu telah berakhir</string>
+    <string name="notif_chat_message_redacted">Sebuah pesan di percakapanmu dihapus oleh moderator</string>
+    <string name="notif_account_action_applied">Ada tindakan moderasi pada akunmu</string>
+    <string name="notif_data_export_ready">Ekspor datamu siap diunduh</string>
     <!-- mobile-notifications-deep-link-targets: the non-blocking affordance shown when a tapped post
          notification's target no longer resolves (deleted / blocked / shadow-banned / auto-hidden — the
          single-post-read endpoint collapses all to one 404). No navigation occurs; the row is still read. -->
