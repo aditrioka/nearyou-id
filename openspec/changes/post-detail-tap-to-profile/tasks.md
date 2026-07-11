@@ -11,7 +11,7 @@
 
 - [ ] 2.1 `PostDetailScreenTest`: header identity tap fires `onOpenProfile` with the freshness-read `authorUserId`
 - [ ] 2.2 `PostDetailScreenTest`: degraded freshness read (`Unavailable`) → header identity not tappable (no fire)
-- [ ] 2.3 `PostDetailScreenTest`: reply identity tap fires `onOpenProfile` with the reply's `authorId`; no-UUID-in-tree assertion still holds
+- [ ] 2.3 `PostDetailScreenTest`: reply identity tap fires `onOpenProfile` with the reply's `authorId`; no identity → no reply tap target (tag absent); no-UUID-in-tree assertion still holds
 
 ## 3. Verification & lifecycle
 

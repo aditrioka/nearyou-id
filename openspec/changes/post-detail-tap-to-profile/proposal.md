@@ -6,7 +6,7 @@ The post-detail header renders the author identity row (avatar + display name + 
 
 ## What Changes
 
-- The post-detail **header identity row** becomes a tap target that pushes `ProfileRoute(authorUserId)` onto the root back stack — the same profile-entry mechanism the feed-card identity tap uses (docs/03 profile-entry convention, mockup board frame 7).
+- The post-detail **header identity row** becomes a tap target that pushes `ProfileRoute(authorUserId)` onto the root back stack — the same profile-entry mechanism the feed-card identity tap uses (the `mobile-profile` spec's established entry convention; mockup board frame 7).
 - `authorUserId` is sourced from the **single-post freshness read** (`SinglePostResponse.authorUserId`) — NOT from the route payload; `PostDetailRoute` stays UUID-free (the existing serialization discipline is untouched).
 - **Graceful absence**: when the freshness read degraded (`Unavailable` → no `authorUserId`), the identity row is not tappable — mirroring the Edit/Block affordances' dependence on the same read. Same for an empty payload identity (no row at all, unchanged).
 - The same affordance on **reply-row identity rows**: tapping a reply's identity pushes `ProfileRoute(reply.authorId)` (the reply wire already carries `author_id` + identity per `mobile-block-from-content` D7); absent when the wire identity is absent (older-backend body → no identity row, unchanged).
