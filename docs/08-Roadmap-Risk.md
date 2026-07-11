@@ -206,8 +206,8 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 9. Refresh token cleanup worker (expired daily + stale 90-day) — **SHIPPED** (`scheduled-retention-cleanup`, `/internal/cleanup`; merged into one daily idempotent `OR` sweep, reaps revoked rows too)
 10. FCM token cleanup worker: stale 30-day (**SHIPPED**, `scheduled-retention-cleanup`, daily via `/internal/cleanup`) + **on-send 404/410 immediate delete path** wired into the FCM send helper (shipped in `fcm-push-dispatch`)
 11. Notifications purge worker (>90 days) — **SHIPPED** (`scheduled-retention-cleanup`, daily via `/internal/cleanup`)
-12. Moderation queue + reports archival worker (resolved rows >1 year, weekly) — _deferred follow-up of `scheduled-retention-cleanup` (distinct archival concern; bounded as an out-of-scope requirement)_
-13. **WebAuthn challenge cleanup worker** (weekly, deletes `admin_webauthn_challenges` rows where `expires_at < NOW() - INTERVAL '1 day' AND consumed_at IS NULL`)
+12. Moderation queue + reports archival worker (resolved rows >1 year) — **shipped** by `retention-cleanup-deferred-sweeps` as retention-enforcing DELETE sweeps in the `/internal/cleanup` worker (no archive table — the audit trail is `admin_actions_log`; runs each daily invocation, a superset of the weekly cadence)
+13. **WebAuthn challenge cleanup worker** (deletes `admin_webauthn_challenges` rows where `expires_at < NOW() - INTERVAL '1 day' AND consumed_at IS NULL`) — **shipped** by `retention-cleanup-deferred-sweeps` in the `/internal/cleanup` worker (runs each daily invocation)
 13. **Backup via Cloud Run Jobs**:
     - Container image build (`postgres:alpine` + `age` CLI + `aws-cli` + `jq`)
     - Cloud Scheduler triggers
