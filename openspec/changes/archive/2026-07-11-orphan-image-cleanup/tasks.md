@@ -26,4 +26,4 @@
 ## 5. Gate + PR
 
 - [x] 5.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` green locally
-- [ ] 5.2 PR body current (proposal summary, verification evidence, `Closes #340`)
+- [x] 5.2 PR body current (proposal summary, verification evidence, `Closes #340`)
