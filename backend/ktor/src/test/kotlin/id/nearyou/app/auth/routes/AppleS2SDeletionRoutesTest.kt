@@ -132,7 +132,9 @@ private fun hikari(): HikariDataSource {
 
 /**
  * DB-backed (`@Tags("database")`) end-to-end coverage of the two Apple S2S deletion
- * events at `POST /internal/apple/s2s-notifications` (`apple-s2s-deletion-flows`).
+ * events at `POST /internal/apple/s2s-notifications` (`apple-s2s-deletion-flows`),
+ * plus the email-relay happy paths (follow-up #433: flag write + the
+ * `apple_relay_email_changed` notification in one transaction).
  * The route is wired with the REAL `JdbcUserRepository` + `AccountDeletionRepository`
  * + `AccountHardDeleteWorker` against Postgres, so the FK, the synchronous tombstone,
  * the 30-day grace, the session-kick, and the immediate-index backstop are exercised
@@ -285,6 +287,7 @@ class AppleS2SDeletionRoutesTest : StringSpec({
         deletionRepo: AccountDeletionRepository = realDeletionRepo,
         worker: AccountHardDeleteWorker = realWorker,
         dispatcher: NotificationDispatcher = NotificationDispatcher { },
+        txSource: DataSource = dataSource,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
         testApplication {
@@ -296,7 +299,7 @@ class AppleS2SDeletionRoutesTest : StringSpec({
                     users,
                     deletionRepo,
                     worker,
-                    dataSource,
+                    txSource,
                     DbNotificationEmitter(JdbcNotificationRepository(dataSource)),
                     dispatcher,
                 )
@@ -623,6 +626,26 @@ class AppleS2SDeletionRoutesTest : StringSpec({
             row.second shouldBe null // system-originated: actor is Apple, not a users row
             row.third shouldBe "true"
             dispatched.size shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "email persist failure → 500, dedup NOT recorded, Apple's retry is processed" {
+        val sub = "email-sub-433-retry"
+        val uid = seedUser(sub)
+        try {
+            // First tx connection throws (transient DB blip) → 500 without consuming the
+            // dedup key; Apple's retry of the SAME transaction_id must then be processed
+            // (not short-circuited to `duplicate`) — the account-delete retry contract.
+            runApp(txSource = FlakyOnceDataSource(dataSource)) {
+                postEvent("email-enabled", sub, "tx-433-retry").status shouldBe HttpStatusCode.InternalServerError
+                val retry = postEvent("email-enabled", sub, "tx-433-retry")
+                retry.status shouldBe HttpStatusCode.OK
+                retry.bodyAsText() shouldBe """{"status":"ok"}"""
+            }
+            intQuery("SELECT COUNT(*) FROM users WHERE id = ? AND apple_relay_email = TRUE", uid) shouldBe 1
+            relayNotification(uid)!!.third shouldBe "true"
         } finally {
             cleanup(uid)
         }

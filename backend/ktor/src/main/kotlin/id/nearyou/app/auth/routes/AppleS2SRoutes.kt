@@ -18,6 +18,9 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -85,6 +88,8 @@ fun Application.appleS2SRoutes(
     notificationEmitter: NotificationEmitter,
     notificationDispatcher: NotificationDispatcher,
     dedup: InMemoryDedup = InMemoryDedup(),
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     routing {
         post("/internal/apple/s2s-notifications") {
@@ -203,32 +208,34 @@ fun Application.appleS2SRoutes(
                     }
                     val notificationId =
                         try {
-                            dataSource.connection.use { conn ->
-                                conn.autoCommit = false
-                                try {
-                                    users.setAppleRelayEmail(conn, appleIdHash, enabled)
-                                    // docs/06 §140: flag write + notifications row, one transaction.
-                                    // Actor NULL = system-originated (Apple, not a users row).
-                                    val id =
-                                        notificationEmitter.emit(
-                                            conn = conn,
-                                            recipientId = user.id,
-                                            actorUserId = null,
-                                            type = NotificationType.APPLE_RELAY_EMAIL_CHANGED,
-                                            targetType = null,
-                                            targetId = null,
-                                            bodyData =
-                                                buildJsonObject {
-                                                    put("relay_enabled", JsonPrimitive(enabled))
-                                                },
-                                        )
-                                    conn.commit()
-                                    id
-                                } catch (t: Throwable) {
-                                    conn.rollback()
-                                    throw t
-                                } finally {
-                                    conn.autoCommit = true
+                            withContext(dbDispatcher) {
+                                dataSource.connection.use { conn ->
+                                    conn.autoCommit = false
+                                    try {
+                                        users.setAppleRelayEmail(conn, appleIdHash, enabled)
+                                        // docs/06 §140: flag write + notifications row, one transaction.
+                                        // Actor NULL = system-originated (Apple, not a users row).
+                                        val id =
+                                            notificationEmitter.emit(
+                                                conn = conn,
+                                                recipientId = user.id,
+                                                actorUserId = null,
+                                                type = NotificationType.APPLE_RELAY_EMAIL_CHANGED,
+                                                targetType = null,
+                                                targetId = null,
+                                                bodyData =
+                                                    buildJsonObject {
+                                                        put("relay_enabled", JsonPrimitive(enabled))
+                                                    },
+                                            )
+                                        conn.commit()
+                                        id
+                                    } catch (t: Throwable) {
+                                        conn.rollback()
+                                        throw t
+                                    } finally {
+                                        conn.autoCommit = true
+                                    }
                                 }
                             }
                         } catch (ce: CancellationException) {
