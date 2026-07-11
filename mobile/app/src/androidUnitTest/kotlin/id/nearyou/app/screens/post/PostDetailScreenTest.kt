@@ -480,6 +480,8 @@ class PostDetailScreenTest {
             }
             onNodeWithTag(POST_DETAIL_HEADER_PROFILE_TAG).performClick()
             assertEquals(AUTHOR_UUID, openedProfile)
+            // § "No author UUID appears in the rendered tree": the resolved UUID stays a nav argument.
+            onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
         }
     }
 

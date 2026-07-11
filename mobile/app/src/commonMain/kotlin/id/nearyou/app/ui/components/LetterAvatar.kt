@@ -69,8 +69,9 @@ fun avatarTone(username: String): AvatarTone {
 
 /**
  * The circular letter avatar: [avatarInitials] of [displayName] centered on the [avatarTone]
- * container of [username]. Non-interactive (identity is not a tap target — no profile screen
- * exists yet, issue #196); the whole card owns the single tap.
+ * container of [username]. Carries no tap handling of its own — hosts that make the identity a
+ * profile entry (feed cards, the post-detail header/reply rows) put the clickable on the
+ * enclosing identity row, not on the avatar.
  */
 @Composable
 fun LetterAvatar(
