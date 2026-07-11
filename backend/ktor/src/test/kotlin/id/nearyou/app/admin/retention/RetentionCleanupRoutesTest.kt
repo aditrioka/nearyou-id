@@ -19,6 +19,7 @@ import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.notificationEx
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.refreshTokenExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.reportExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedFcmToken
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedLoginEvent
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedModerationQueueRow
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedNotification
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedRefreshToken
@@ -191,6 +192,7 @@ class RetentionCleanupRoutesTest : StringSpec({
             )
         val n = seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
         val fcm = seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
+        seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(91, ChronoUnit.DAYS))
         val challenge = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(2, ChronoUnit.DAYS))
         val mod = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
         val rep = seedReport(dataSource, u, status = "actioned", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
@@ -205,6 +207,7 @@ class RetentionCleanupRoutesTest : StringSpec({
                 body shouldContain "\"refresh_tokens_deleted\":1"
                 body shouldContain "\"notifications_deleted\":1"
                 body shouldContain "\"fcm_tokens_deleted\":1"
+                body shouldContain "\"login_events_deleted\":1"
                 body shouldContain "\"webauthn_challenges_deleted\":1"
                 body shouldContain "\"moderation_queue_deleted\":1"
                 body shouldContain "\"reports_deleted\":1"

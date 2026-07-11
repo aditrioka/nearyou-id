@@ -63,6 +63,11 @@ The retention clock SHALL start at resolution (`resolved_at` / `reviewed_at`), n
 - **WHEN** the worker runs AND a `reports` row has `status = 'dismissed'` AND `reviewed_at` more than one year in the past
 - **THEN** that row is deleted AND it is counted in `reports_deleted`
 
+#### Scenario: A recently-resolved report survives
+
+- **WHEN** the worker runs AND a `reports` row has `status = 'actioned'` (or `'dismissed'`) AND `reviewed_at` within the last year
+- **THEN** that row is NOT deleted AND it is NOT counted in `reports_deleted`
+
 #### Scenario: A pending report survives regardless of age
 
 - **WHEN** the worker runs AND a `reports` row has `status = 'pending'` AND `created_at` more than one year in the past

@@ -313,6 +313,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
         )
         seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
         seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
+        seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(91, ChronoUnit.DAYS))
         val challenge = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(2, ChronoUnit.DAYS))
         val mod = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
         seedReport(dataSource, u, status = "dismissed", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
@@ -322,6 +323,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
             first.refreshTokensDeleted shouldBe 1
             first.notificationsDeleted shouldBe 1
             first.fcmTokensDeleted shouldBe 1
+            first.loginEventsDeleted shouldBe 1
             first.webauthnChallengesDeleted shouldBe 1
             first.moderationQueueDeleted shouldBe 1
             first.reportsDeleted shouldBe 1
@@ -331,6 +333,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
             second.refreshTokensDeleted shouldBe 0
             second.notificationsDeleted shouldBe 0
             second.fcmTokensDeleted shouldBe 0
+            second.loginEventsDeleted shouldBe 0
             second.webauthnChallengesDeleted shouldBe 0
             second.moderationQueueDeleted shouldBe 0
             second.reportsDeleted shouldBe 0
@@ -451,11 +454,12 @@ class RetentionCleanupRepositoryTest : StringSpec({
         }
     }
 
-    "actioned and dismissed reports older than one year are deleted; a pending one survives" {
+    "actioned and dismissed reports older than one year are deleted; recent and pending ones survive" {
         val t = tag()
         val u = seedUser(dataSource, t)
         val actioned = seedReport(dataSource, u, status = "actioned", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
         val dismissed = seedReport(dataSource, u, status = "dismissed", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        val recent = seedReport(dataSource, u, status = "actioned", reviewedAt = Instant.now().minus(300, ChronoUnit.DAYS))
         val pending =
             seedReport(
                 dataSource,
@@ -468,6 +472,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
             repository.deleteOldResolvedReports() shouldBeGreaterThanOrEqual 2
             reportExists(dataSource, actioned) shouldBe false
             reportExists(dataSource, dismissed) shouldBe false
+            reportExists(dataSource, recent) shouldBe true
             reportExists(dataSource, pending) shouldBe true
         } finally {
             cleanup(dataSource, listOf(u)) // reports cascade with the reporter user
@@ -498,7 +503,9 @@ class RetentionCleanupRepositoryTest : StringSpec({
             repository.deleteOldResolvedModerationQueueRows() shouldBeGreaterThanOrEqual 1
             moderationQueueRowExists(dataSource, old) shouldBe false
             // Spec "No archive copy is made": the delete is not a move — the schema has
-            // no archive table to move to (audit trail is admin_actions_log).
+            // no archive table to move to (audit trail is admin_actions_log). Deliberate
+            // tripwire: a future *archive* table for these rows must revisit the spec's
+            // no-archive requirement (extend the exclusion list only if it's unrelated).
             val archiveTables =
                 dataSource.connection.use { conn ->
                     conn.prepareStatement(
