@@ -3,6 +3,7 @@ package id.nearyou.app.screens.timeline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
@@ -12,6 +13,9 @@ import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.ui.timeline.InlineLikeController
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
+import id.nearyou.app.ui.timeline.TimelineBlockController
+import id.nearyou.app.ui.timeline.TimelineBlockMessage
+import id.nearyou.app.ui.timeline.TimelineBlockTarget
 import id.nearyou.app.ui.timeline.TimelineReportController
 import id.nearyou.app.ui.timeline.TimelineReportMessage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +55,7 @@ class GlobalTimelineViewModel(
     likeFlow: LikeFlow,
     reportSubmitter: ReportSubmitter,
     private val selfUserIdProvider: SelfUserIdProvider,
+    blockSubmitter: BlockSubmitter,
 ) : ViewModel() {
     private val _outcome = MutableStateFlow<GlobalTimelineOutcome?>(null)
     val outcome: StateFlow<GlobalTimelineOutcome?> = _outcome.asStateFlow()
@@ -132,8 +137,30 @@ class GlobalTimelineViewModel(
     /** The one-shot report-result message (anti-enumeration mapping in the shared controller). */
     val reportMessage: StateFlow<TimelineReportMessage?> = reportController.reportMessage
 
-    // The viewer's own user id, resolved once on entry — the report kebab's authorship gate. Null until
-    // resolved (or unresolvable) → NO kebab (fail-closed: never offer reporting we can't gate).
+    // timeline-card-block-kebab: the per-surface instance of the ONE shared block lifecycle
+    // (ui/timeline/TimelineBlockController) over the shared BlockSubmitter seam. A Blocked outcome
+    // filters the blocked author's posts out of the retained Loaded outcome (design D4 — mutual
+    // invisibility made immediate; cursor/anchor untouched, later pages are server-side excluded).
+    private val blockController =
+        TimelineBlockController(
+            blockSubmitter = blockSubmitter,
+            scope = viewModelScope,
+            removeAuthorPosts = { authorUserId ->
+                val current = _outcome.value
+                if (current is GlobalTimelineOutcome.Loaded) {
+                    _outcome.value = current.copy(posts = current.posts.filterNot { it.authorUserId == authorUserId })
+                }
+            },
+        )
+
+    /** Non-null while the block confirmation dialog should be shown (one-shot, docs/11 § 2.2). */
+    val blockTarget: StateFlow<TimelineBlockTarget?> = blockController.blockTarget
+
+    /** The one-shot block-result message (Blocked/RateLimited/NetworkError mapping in the controller). */
+    val blockMessage: StateFlow<TimelineBlockMessage?> = blockController.blockMessage
+
+    // The viewer's own user id, resolved once on entry — the report + block kebabs' authorship gate.
+    // Null until resolved (or unresolvable) → NO kebab (fail-closed: never offer an action we can't gate).
     private val _selfUserId = MutableStateFlow<String?>(null)
     val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
 
@@ -155,6 +182,30 @@ class GlobalTimelineViewModel(
         if (authorUserId == selfUserId) return null
         return { reportController.onReportClicked(postId) }
     }
+
+    /** The card kebab's block action for [postId], or null when ineligible — the same fail-closed gate
+     *  as [reportActionFor] (unresolved self id / post left the loaded set / viewer-authored). The
+     *  closure carries the RAW DTO's `authorUserId` + `authorUsername`; the card model stays UUID-free. */
+    fun blockActionFor(
+        postId: String,
+        selfUserId: String?,
+    ): (() -> Unit)? {
+        if (selfUserId == null) return null
+        val post =
+            (_outcome.value as? GlobalTimelineOutcome.Loaded)?.posts?.firstOrNull { it.id == postId }
+                ?: return null
+        if (post.authorUserId == selfUserId) return null
+        return { blockController.onBlockClicked(post.authorUserId, post.authorUsername) }
+    }
+
+    /** Dismiss the block dialog without submitting. */
+    fun onBlockDialogDismissed() = blockController.onDialogDismissed()
+
+    /** Confirm the block for the currently-targeted author (dialog closes immediately). */
+    fun onBlockConfirmed() = blockController.onConfirmed()
+
+    /** Clears the one-shot block message after the screen has shown it. */
+    fun onBlockMessageShown() = blockController.onMessageShown()
 
     /** Dismiss the report dialog without submitting. */
     fun onReportDialogDismissed() = reportController.onDialogDismissed()

@@ -76,6 +76,7 @@ class PostCardTest {
         onOpenProfile: () -> Unit = {},
         darkTheme: Boolean = false,
         onReport: (() -> Unit)? = null,
+        onBlock: (() -> Unit)? = null,
     ) {
         NearYouTheme(darkTheme = darkTheme) {
             PostCard(
@@ -85,6 +86,7 @@ class PostCardTest {
                 onReplyShortcut = onReplyShortcut,
                 onOpenProfile = onOpenProfile,
                 onReport = onReport,
+                onBlock = onBlock,
             )
         }
     }
@@ -144,10 +146,54 @@ class PostCardTest {
     @Test
     fun noKebabRendersWhenTheReportActionIsAbsent() =
         runComposeUiTest {
-            // timeline-card-report-kebab: onReport = null (the default) → no kebab icon node, no
-            // overflow menu — byte-identical affordance surface to the pre-kebab card.
+            // timeline-card-report-kebab + timeline-card-block-kebab: onReport = onBlock = null (the
+            // defaults) → no kebab icon node, no overflow menu — byte-identical affordance surface to
+            // the pre-kebab card.
             setContent { Card(model = model()) }
             onNodeWithTag(POST_CARD_KEBAB_TAG).assertDoesNotExist()
+        }
+
+    @Test
+    fun kebabBlokirFiresOnBlock_withoutFiringOpenOrOpenProfile() =
+        runComposeUiTest {
+            var blocked = 0
+            var opened = 0
+            var profile = 0
+            setContent {
+                Card(
+                    model = model(),
+                    onOpen = { opened++ },
+                    onOpenProfile = { profile++ },
+                    onBlock = { blocked++ },
+                )
+            }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
+            // The item copy is the docs/03 kebab contract: "Blokir @{username}".
+            onNodeWithText("Blokir @raka.jkt").assertIsDisplayed()
+            onNodeWithTag(POST_CARD_BLOCK_ITEM_TAG).performClick()
+            assertEquals(1, blocked, "the Blokir item fires onBlock exactly once")
+            assertEquals(0, opened, "the kebab flow does NOT fire the whole-card onOpen")
+            assertEquals(0, profile, "the kebab flow does NOT fire the identity onOpenProfile")
+        }
+
+    @Test
+    fun eitherActionAloneShowsTheKebab_withOnlyItsOwnItem() =
+        runComposeUiTest {
+            // timeline-card-block-kebab: each menu item is gated on its own action.
+            setContent { Card(model = model(), onBlock = {}) }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).assertIsDisplayed()
+            onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
+            onNodeWithTag(POST_CARD_BLOCK_ITEM_TAG).assertIsDisplayed()
+            onNodeWithTag(POST_CARD_REPORT_ITEM_TAG).assertDoesNotExist()
+        }
+
+    @Test
+    fun reportActionAloneOffersNoBlockItem() =
+        runComposeUiTest {
+            setContent { Card(model = model(), onReport = {}) }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
+            onNodeWithTag(POST_CARD_REPORT_ITEM_TAG).assertIsDisplayed()
+            onNodeWithTag(POST_CARD_BLOCK_ITEM_TAG).assertDoesNotExist()
         }
 
     @Test

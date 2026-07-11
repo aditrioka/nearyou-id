@@ -13,6 +13,8 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -119,6 +121,7 @@ class NearbyTimelineScreenTest {
                     single<LikeFlow> { likeFake }
                     // timeline-card-report-kebab: the report seam (self id already registered above/below).
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }

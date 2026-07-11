@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.timeline
 
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.post.LikeOutcome
@@ -32,6 +33,12 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class FollowingTimelineViewModelTest {
+    /** Ctor helper (timeline-card-block-kebab): the report/self/block seams default to shared fakes. */
+    private fun viewModelWith(
+        flow: FakeFollowingTimelineFlow,
+        likeFlow: FakeLikeFlow = FakeLikeFlow(),
+    ) = FollowingTimelineViewModel(flow, likeFlow, FakeReportSubmitter(), FakeSelfUserId("self"), FakeBlockSubmitter())
+
     @BeforeTest
     fun setMainDispatcher() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -45,7 +52,7 @@ class FollowingTimelineViewModelTest {
     @Test
     fun init_loadsFirstPageExactlyOnce_andExposesTheOutcome() {
         val fake = FakeFollowingTimelineFlow(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "X")), null, null))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is FollowingTimelineOutcome.Loaded, "the loaded outcome is exposed")
         assertFalse(viewModel.isRefreshing.value, "isRefreshing is false after the initial load completes")
@@ -54,7 +61,7 @@ class FollowingTimelineViewModelTest {
     @Test
     fun reload_reFetchesPageOne() {
         val fake = FakeFollowingTimelineFlow(FollowingTimelineOutcome.Loaded(emptyList(), null, null))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         assertEquals(1, fake.loadInvocationCount)
         viewModel.reload()
         assertEquals(2, fake.loadInvocationCount, "reload re-fetches page 1 (pull-to-refresh / error retry)")
@@ -66,7 +73,7 @@ class FollowingTimelineViewModelTest {
         // isRefreshing = true, uiState stays Content (NOT Loading), prior outcome retained (design D3).
         val loaded = FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "RETAINED")), null, null)
         val fake = FakeFollowingTimelineFlow(loaded, suspendFromCall = 2)
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         assertTrue(viewModel.uiState.value is FollowingTimelineUiState.Content, "after the first load uiState is Content")
         assertFalse(viewModel.isRefreshing.value, "not refreshing before reload")
@@ -85,7 +92,7 @@ class FollowingTimelineViewModelTest {
     @Test
     fun loadFailure_mapsToExistingNetworkError() {
         val fake = FakeFollowingTimelineFlow(failWith = IllegalStateException("fetch threw"))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         assertEquals(
             FollowingTimelineOutcome.NetworkError,
@@ -98,7 +105,7 @@ class FollowingTimelineViewModelTest {
     @Test
     fun uiState_delegatesToTheProjection() {
         val fake = FakeFollowingTimelineFlow(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "X")), null, null))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
         // after the first outcome arrives the initial-load flag is false.
@@ -115,7 +122,7 @@ class FollowingTimelineViewModelTest {
         // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
         // collector (the recomposed screen) still sees Content — not a reset to Loading.
         val fake = FakeFollowingTimelineFlow(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "X")), null, null))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         assertTrue(viewModel.uiState.value is FollowingTimelineUiState.Content, "loaded → Content")
         viewModel.activateUiState() // a second, fresh collector (the config-change case)
@@ -141,6 +148,7 @@ class FollowingTimelineViewModelTest {
                 likeFlow,
                 FakeReportSubmitter(),
                 FakeSelfUserId("self"),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -162,6 +170,7 @@ class FollowingTimelineViewModelTest {
                 likeFlow,
                 FakeReportSubmitter(),
                 FakeSelfUserId("self"),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -175,7 +184,7 @@ class FollowingTimelineViewModelTest {
     @Test
     fun postGoneLike_reverts_andSelfHealsViaReload() {
         val fake = FakeFollowingTimelineFlow(loadedWith(fakeFollowingPost(id = "p1", likedByViewer = false)))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.PostGone), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake, FakeLikeFlow(LikeOutcome.PostGone))
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 
@@ -190,7 +199,7 @@ class FollowingTimelineViewModelTest {
     fun networkErrorLike_revertsSilently() {
         val fake = FakeFollowingTimelineFlow(loadedWith(fakeFollowingPost(id = "p1", likedByViewer = false)))
         val viewModel =
-            FollowingTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError), FakeReportSubmitter(), FakeSelfUserId("self"))
+            viewModelWith(fake, FakeLikeFlow(LikeOutcome.NetworkError))
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 
@@ -208,6 +217,7 @@ class FollowingTimelineViewModelTest {
                 likeFlow,
                 FakeReportSubmitter(),
                 FakeSelfUserId("self"),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -230,7 +240,7 @@ class FollowingTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
                 loadMorePages = listOf(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(id = "p2")), "c2", null)),
             )
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
 
         viewModel.onLoadMore()
 
@@ -248,7 +258,7 @@ class FollowingTimelineViewModelTest {
     fun onLoadMore_whenEndReached_isNoOp() {
         // First page already end-reached (null cursor) → load-more must not fire.
         val fake = FakeFollowingTimelineFlow(outcome = loadedPage1(null, fakeFollowingPost(id = "p1")))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
 
         viewModel.onLoadMore()
 
@@ -262,7 +272,7 @@ class FollowingTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
                 loadMorePages = listOf(FollowingTimelineOutcome.NetworkError),
             )
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
 
         viewModel.onLoadMore()
 
@@ -278,7 +288,7 @@ class FollowingTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeFollowingPost(id = "p1")),
                 loadMorePages = listOf(FollowingTimelineOutcome.NetworkError),
             )
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
         viewModel.onLoadMore()
         assertTrue(viewModel.loadMoreError.value)
 
@@ -296,7 +306,7 @@ class FollowingTimelineViewModelTest {
                 suspendFromCall = 2,
                 loadMorePages = listOf(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(id = "p2")), "c2", null)),
             )
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel = viewModelWith(fake)
 
         viewModel.reload()
         assertTrue(viewModel.isRefreshing.value, "the reload is in flight")

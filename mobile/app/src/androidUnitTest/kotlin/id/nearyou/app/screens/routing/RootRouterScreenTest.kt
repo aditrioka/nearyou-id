@@ -12,6 +12,8 @@ import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.FakeConsentFlow
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.consent.ConsentSnapshot
 import id.nearyou.app.data.consent.ConsentSnapshotStore
 import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
@@ -100,6 +102,7 @@ class RootRouterScreenTest {
                     single<LikeFlow> { FakeLikeFlow() }
                     // timeline-card-report-kebab: the feed screens koinInject the report seam.
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
                     single<ProfileFlow> { FakeProfileFlow() }
                     single<SelfUserIdProvider> { FakeSelfUserId() }

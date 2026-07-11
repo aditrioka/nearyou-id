@@ -48,6 +48,7 @@ import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
 import id.nearyou.resources.generated.resources.post_card_meta_separator
 import id.nearyou.resources.generated.resources.post_image_alt
 import id.nearyou.resources.generated.resources.profile_actions_menu_description
+import id.nearyou.resources.generated.resources.profile_block_action
 import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
@@ -84,6 +85,9 @@ const val POST_CARD_KEBAB_TAG: String = "postCardKebab"
 
 /** Test tag on the kebab menu's "Laporkan" item (`timeline-card-report-kebab`). */
 const val POST_CARD_REPORT_ITEM_TAG: String = "postCardReportItem"
+
+/** Test tag on the kebab menu's "Blokir @{username}" item (`timeline-card-block-kebab`). */
+const val POST_CARD_BLOCK_ITEM_TAG: String = "postCardBlockItem"
 
 /**
  * The display-only model the shared post card renders (`mobile-post-card` capability). Carries
@@ -131,10 +135,11 @@ data class PostCardModel(
  *
  * The whole card opens the detail ([onOpen]); the identity header (avatar + name + handle) opens the
  * author's profile ([onOpenProfile], `mobile-profile`); the two action-row affordances — plus the
- * optional overflow kebab (timeline-card-report-kebab: rendered iff [onReport] is non-null, a
- * `DropdownMenu` with the single "Laporkan" item; hosts supply the action only for non-authored feed
- * posts) — are the other tap targets; activating any of these does NOT fire [onOpen]. The card stays
- * presentation-only: all
+ * optional overflow kebab (rendered iff at least one kebab action is supplied, a `DropdownMenu`
+ * carrying "Laporkan" iff [onReport] is non-null — timeline-card-report-kebab — then
+ * "Blokir @{username}" iff [onBlock] is non-null — timeline-card-block-kebab; hosts supply the
+ * actions only for non-authored feed posts) — are the other tap targets; activating any of these
+ * does NOT fire [onOpen]. The card stays presentation-only: all
  * callbacks are hoisted; it holds no like state machine, no navigation reference, and no author UUID (the
  * host binds the profile target id by closure). Hosts pass their `testTag` via [modifier]. Built from
  * `NearYouTheme` tokens only; renders identically under light/dark.
@@ -148,6 +153,7 @@ fun PostCard(
     onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
     onReport: (() -> Unit)? = null,
+    onBlock: (() -> Unit)? = null,
 ) {
     OutlinedCard(
         onClick = onOpen,
@@ -183,10 +189,11 @@ fun PostCard(
                     )
                     IdentityText(model)
                 }
-                // Rendered ONLY when the host supplies a report action (non-authored feed posts) — a
-                // kebab with zero eligible items would be a dead control (no icon node, no placeholder).
-                if (onReport != null) {
-                    PostCardKebab(onReport = onReport)
+                // Rendered ONLY when the host supplies at least one kebab action (non-authored feed
+                // posts) — a kebab with zero eligible items would be a dead control (no icon node, no
+                // placeholder). Each menu item is gated on its own action.
+                if (onReport != null || onBlock != null) {
+                    PostCardKebab(onReport = onReport, onBlock = onBlock, username = model.authorUsername)
                 }
             }
             Text(
@@ -386,13 +393,18 @@ private fun IdentityText(model: PostCardModel) {
     }
 }
 
-/** The overflow kebab trailing the identity header (timeline-card-report-kebab — mockup frame 1
- *  `.post .head .more`: 20dp `more_vert` glyph, muted `onSurfaceVariant`; the M3 [IconButton] owns the
- *  ≥48dp touch target). Its menu carries the single "Laporkan" item invoking [onReport]; the mockup's
- *  always-present kebab renders here only when a report action applies (see the spec's null-gated
- *  divergence note). */
+/** The overflow kebab trailing the identity header (timeline-card-report-kebab +
+ *  timeline-card-block-kebab — mockup frame 1 `.post .head .more`: 20dp `more_vert` glyph, muted
+ *  `onSurfaceVariant`; the M3 [IconButton] owns the ≥48dp touch target). Its menu carries, in the
+ *  post-detail kebab's item order: "Laporkan" invoking [onReport] (iff non-null) and
+ *  "Blokir @[username]" invoking [onBlock] (iff non-null); the mockup's always-present kebab renders
+ *  here only when at least one action applies (see the spec's null-gated divergence note). */
 @Composable
-private fun PostCardKebab(onReport: () -> Unit) {
+private fun PostCardKebab(
+    onReport: (() -> Unit)?,
+    onBlock: (() -> Unit)?,
+    username: String,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(
@@ -407,14 +419,26 @@ private fun PostCardKebab(onReport: () -> Unit) {
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(Res.string.profile_report_action)) },
-                onClick = {
-                    expanded = false
-                    onReport()
-                },
-                modifier = Modifier.testTag(POST_CARD_REPORT_ITEM_TAG),
-            )
+            if (onReport != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_report_action)) },
+                    onClick = {
+                        expanded = false
+                        onReport()
+                    },
+                    modifier = Modifier.testTag(POST_CARD_REPORT_ITEM_TAG),
+                )
+            }
+            if (onBlock != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.profile_block_action, username)) },
+                    onClick = {
+                        expanded = false
+                        onBlock()
+                    },
+                    modifier = Modifier.testTag(POST_CARD_BLOCK_ITEM_TAG),
+                )
+            }
         }
     }
 }

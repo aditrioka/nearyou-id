@@ -11,6 +11,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockOutcome
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -27,6 +30,7 @@ import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
+import id.nearyou.app.ui.components.POST_CARD_BLOCK_ITEM_TAG
 import id.nearyou.app.ui.components.POST_CARD_KEBAB_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
@@ -75,6 +79,7 @@ class GlobalTimelineScreenTest {
     private lateinit var fake: FakeGlobalTimelineFlow
     private lateinit var likeFake: FakeLikeFlow
     private lateinit var reportFake: FakeReportSubmitter
+    private lateinit var blockFake: FakeBlockSubmitter
 
     private fun installKoin(
         outcome: GlobalTimelineOutcome = GlobalTimelineOutcome.Loaded(emptyList(), null, null),
@@ -83,6 +88,7 @@ class GlobalTimelineScreenTest {
         likeOutcome: LikeOutcome = LikeOutcome.Liked,
         loadMorePages: List<GlobalTimelineOutcome> = emptyList(),
         reportOutcome: ReportOutcome = ReportOutcome.Submitted,
+        blockOutcome: BlockOutcome = BlockOutcome.Blocked,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake =
@@ -94,6 +100,7 @@ class GlobalTimelineScreenTest {
             )
         likeFake = FakeLikeFlow(likeOutcome)
         reportFake = FakeReportSubmitter(reportOutcome)
+        blockFake = FakeBlockSubmitter(blockOutcome)
         startKoin {
             modules(
                 module {
@@ -102,6 +109,9 @@ class GlobalTimelineScreenTest {
                     // timeline-card-report-kebab: the report seam + the self id the kebab's
                     // authorship gate compares against (fakeGlobalPost defaults to another author).
                     single<ReportSubmitter> { reportFake }
+                    // timeline-card-block-kebab: the block seam (recording fake — the tests assert
+                    // the submitted author UUID and the Batal-submits-nothing rule).
+                    single<BlockSubmitter> { blockFake }
                     single<SelfUserIdProvider> { FakeSelfUserId("self") }
                 },
             )
@@ -474,6 +484,80 @@ class GlobalTimelineScreenTest {
             onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_REPORT_ITEM_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_CARD_REPORT_ITEM_TAG).assertExists()
+        }
+    }
+
+    // ---- timeline-card-block-kebab: the feed-level block wiring (the Global surface as the ----
+    // ---- representative feed — all three share the SAME VM/controller/overlay shape). Unlike ----
+    // ---- the report flow, the shared BlockConfirmDialog has NO text field, so opening it over ----
+    // ---- the LazyColumn does not trip the documented Robolectric never-settling measure pass  ----
+    // ---- (the post-detail block tests set that precedent) — the full confirm path runs here.  ----
+
+    // Spec § "Another user's post is blockable from the feed" + § "A confirmed block removes the
+    // author's loaded posts and shows the success toast": kebab → "Blokir @{username}" → the shared
+    // dialog → confirm → exactly one BlockSubmitter.submit against the author UUID AND every loaded
+    // card by that author leaves the list (the other author's cards stay).
+    @Test
+    fun blockConfirm_submitsTheAuthorUuid_andRemovesOnlyThatAuthorsCards() {
+        installKoin(
+            GlobalTimelineOutcome.Loaded(
+                listOf(
+                    fakeGlobalPost(id = "g1", content = "AUTHOR_A_POST_1", authorUserId = "author-a", authorUsername = "a.jkt"),
+                    fakeGlobalPost(id = "g2", content = "AUTHOR_A_POST_2", authorUserId = "author-a", authorUsername = "a.jkt"),
+                    fakeGlobalPost(id = "g3", content = "AUTHOR_B_POST", authorUserId = "author-b", authorUsername = "b.jkt"),
+                ),
+                null,
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_KEBAB_TAG).fetchSemanticsNodes().size == 3
+            }
+            onAllNodesWithTag(POST_CARD_KEBAB_TAG)[0].performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_BLOCK_ITEM_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText("Blokir @a.jkt").assertExists() // the docs/03 item copy, username interpolated
+            onNodeWithTag(POST_CARD_BLOCK_ITEM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(GLOBAL_BLOCK_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText("Blokir").performClick() // the destructive confirm (exact match ≠ the title)
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText("AUTHOR_A_POST_1").fetchSemanticsNodes().isEmpty()
+            }
+            assertEquals(1, blockFake.submitCount, "exactly one block submission")
+            assertEquals("author-a", blockFake.lastUserId, "the block targets the tapped card's author UUID")
+            onAllNodesWithText("AUTHOR_A_POST_2").assertCountEquals(0) // ALL of A's cards leave
+            onNodeWithText("AUTHOR_B_POST").assertExists() // the other author's card stays
+        }
+    }
+
+    // Spec § "Dismissing the dialog issues no block": Batal → zero submissions, feed unchanged.
+    @Test
+    fun blockDialogBatal_submitsNothing_andKeepsTheFeed() {
+        installKoin(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(id = "g1", content = "KEPT_POST")), null, null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { GlobalTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_KEBAB_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(POST_CARD_BLOCK_ITEM_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithTag(POST_CARD_BLOCK_ITEM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(GLOBAL_BLOCK_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText("Batal").performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithTag(GLOBAL_BLOCK_DIALOG_TAG).fetchSemanticsNodes().isEmpty()
+            }
+            assertEquals(0, blockFake.submitCount, "Batal submits nothing")
+            onNodeWithText("KEPT_POST").assertExists()
         }
     }
 

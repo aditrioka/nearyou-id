@@ -9,6 +9,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.ads.AdFeedController
 import id.nearyou.app.ads.fakeAdFeedController
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -66,6 +68,7 @@ class TimelineAdsScreenTest {
                     single<LikeFlow> { FakeLikeFlow() }
                     // timeline-card-report-kebab: the report seam (self id already registered above/below).
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     single<LocationPermissionController> {
                         FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
                     }

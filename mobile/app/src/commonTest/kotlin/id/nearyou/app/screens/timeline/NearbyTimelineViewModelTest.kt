@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.timeline
 
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.post.LikeOutcome
@@ -40,6 +41,13 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class NearbyTimelineViewModelTest {
+    /** Ctor helper (timeline-card-block-kebab): the self/report/block seams default to shared fakes. */
+    private fun viewModelWith(
+        flow: FakeNearbyTimelineFlow,
+        likeFlow: FakeLikeFlow = FakeLikeFlow(),
+        profileFlow: FakeProfileFlow = FakeProfileFlow(),
+    ) = NearbyTimelineViewModel(flow, likeFlow, profileFlow, FakeSelfUserId("self"), FakeReportSubmitter(), FakeBlockSubmitter())
+
     @BeforeTest
     fun setMainDispatcher() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -53,7 +61,7 @@ class NearbyTimelineViewModelTest {
     @Test
     fun init_loadsFirstPageExactlyOnce_andExposesTheOutcome() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         assertEquals(1, fake.loadInvocationCount, "the first page loads exactly once on construction")
         assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded, "the loaded outcome is exposed")
         assertFalse(viewModel.isRefreshing.value, "isRefreshing is false after the initial load completes")
@@ -62,7 +70,7 @@ class NearbyTimelineViewModelTest {
     @Test
     fun reload_reFetchesPageOne() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         assertEquals(1, fake.loadInvocationCount)
         viewModel.reload()
         assertEquals(2, fake.loadInvocationCount, "reload re-fetches page 1 (pull-to-refresh / error retry)")
@@ -75,7 +83,7 @@ class NearbyTimelineViewModelTest {
         // the prior outcome is retained (not nulled) so the screen keeps rendering Content (design D3).
         val loaded = NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "RETAINED")), null, null)
         val fake = FakeNearbyTimelineFlow(loaded, suspendFromCall = 2)
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         assertTrue(viewModel.uiState.value is NearbyTimelineUiState.Content, "after the first load uiState is Content")
         assertFalse(viewModel.isRefreshing.value, "not refreshing before reload")
@@ -94,7 +102,7 @@ class NearbyTimelineViewModelTest {
     @Test
     fun loadFailure_mapsToExistingNetworkError() {
         val fake = FakeNearbyTimelineFlow(failWith = IllegalStateException("granted but no fix"))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         assertEquals(
             NearbyTimelineOutcome.NetworkError,
@@ -107,7 +115,7 @@ class NearbyTimelineViewModelTest {
     @Test
     fun uiState_delegatesToTheProjection() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         // The single uiState equals the pure projection for the held outcome (reused, not reimplemented);
         // after the first outcome arrives the initial-load flag is false.
@@ -124,7 +132,7 @@ class NearbyTimelineViewModelTest {
         // The config-change proxy: the entry-scoped VM retains the resolved outcome, so a FRESH uiState
         // collector (the recomposed screen) still sees Content — not a reset to Loading.
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         viewModel.activateUiState()
         assertTrue(viewModel.uiState.value is NearbyTimelineUiState.Content, "loaded → Content")
         viewModel.activateUiState() // a second, fresh collector (the config-change case)
@@ -151,6 +159,7 @@ class NearbyTimelineViewModelTest {
                 FakeProfileFlow(),
                 FakeSelfUserId("self"),
                 FakeReportSubmitter(),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -173,6 +182,7 @@ class NearbyTimelineViewModelTest {
                 FakeProfileFlow(),
                 FakeSelfUserId("self"),
                 FakeReportSubmitter(),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -193,6 +203,7 @@ class NearbyTimelineViewModelTest {
                 FakeProfileFlow(),
                 FakeSelfUserId("self"),
                 FakeReportSubmitter(),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -211,6 +222,7 @@ class NearbyTimelineViewModelTest {
                 FakeProfileFlow(),
                 FakeSelfUserId("self"),
                 FakeReportSubmitter(),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -230,6 +242,7 @@ class NearbyTimelineViewModelTest {
                 FakeProfileFlow(),
                 FakeSelfUserId("self"),
                 FakeReportSubmitter(),
+                FakeBlockSubmitter(),
             )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
@@ -254,7 +267,7 @@ class NearbyTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
                 loadMorePages = listOf(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p2")), "c2", null)),
             )
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
 
         viewModel.onLoadMore()
 
@@ -272,7 +285,7 @@ class NearbyTimelineViewModelTest {
     fun onLoadMore_whenEndReached_isNoOp() {
         // First page already end-reached (null cursor) → load-more must not fire.
         val fake = FakeNearbyTimelineFlow(outcome = loadedPage1(null, fakeNearbyPost(id = "p1")))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
 
         viewModel.onLoadMore()
 
@@ -286,7 +299,7 @@ class NearbyTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
                 loadMorePages = listOf(NearbyTimelineOutcome.NetworkError),
             )
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
 
         viewModel.onLoadMore()
 
@@ -302,7 +315,7 @@ class NearbyTimelineViewModelTest {
                 outcome = loadedPage1("c1", fakeNearbyPost(id = "p1")),
                 loadMorePages = listOf(NearbyTimelineOutcome.NetworkError),
             )
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         viewModel.onLoadMore()
         assertTrue(viewModel.loadMoreError.value)
 
@@ -320,7 +333,7 @@ class NearbyTimelineViewModelTest {
                 suspendFromCall = 2,
                 loadMorePages = listOf(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(id = "p2")), "c2", null)),
             )
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
 
         viewModel.reload()
         assertTrue(viewModel.isRefreshing.value, "the reload is in flight")
@@ -337,14 +350,14 @@ class NearbyTimelineViewModelTest {
     @Test
     fun init_loadFirstPage_carriesThe20kmDefaultRadius() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        viewModelWith(fake)
         assertEquals(listOf(20_000), fake.loadFirstPageRadii, "the initial load uses the 20 km default radius")
     }
 
     @Test
     fun selectRadius_premiumViewer_adoptsRadius_andFetchesViaChangeRadius() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
         assertEquals(true, viewModel.isPremiumKnown.value, "the Premium self-read resolves the gate")
         viewModel.selectRadius(50_000)
         assertEquals(50_000, viewModel.selectedRadiusM.value, "a Premium selection adopts the new radius")
@@ -358,7 +371,7 @@ class NearbyTimelineViewModelTest {
     @Test
     fun selectRadius_freeViewer_snapsBackTo20km_andRaisesUpsell_noFetch() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake)
         assertEquals(false, viewModel.isPremiumKnown.value, "the Free self-read resolves the gate to Free")
         viewModel.selectRadius(50_000)
         assertEquals(20_000, viewModel.selectedRadiusM.value, "a Free non-20km selection snaps back to 20 km")
@@ -373,7 +386,7 @@ class NearbyTimelineViewModelTest {
         // Decision 6: a premium_billing_retry viewer reads as is_premium=false → client-conservative.
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         val viewModel =
-            NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(isPremium = false), FakeSelfUserId("self"), FakeReportSubmitter())
+            viewModelWith(fake, profileFlow = premiumProfile(isPremium = false))
         viewModel.selectRadius(50_000)
         assertEquals(20_000, viewModel.selectedRadiusM.value, "a grace-period (is_premium=false) viewer is snapped back")
         assertTrue(viewModel.radiusUpsell.value, "and shown the upsell, despite the server permitting a wider radius")
@@ -384,7 +397,7 @@ class NearbyTimelineViewModelTest {
         // The stale-tier backstop: a Premium-believed viewer whose changeRadius 403s (radius_premium_only).
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         fake.changeRadiusResult = RadiusChangeResult.PremiumGated
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
         viewModel.selectRadius(50_000)
         assertEquals(20_000, viewModel.selectedRadiusM.value, "a radius_premium_only 403 reverts to 20 km")
         assertTrue(viewModel.radiusUpsell.value, "and raises the same upsell as the client snap-back")
@@ -405,7 +418,7 @@ class NearbyTimelineViewModelTest {
                     anchor = LatLng(-6.2, 106.8),
                 ),
             )
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
         viewModel.selectRadius(50_000)
         assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium 50 km selection is adopted")
         viewModel.onLoadMore()

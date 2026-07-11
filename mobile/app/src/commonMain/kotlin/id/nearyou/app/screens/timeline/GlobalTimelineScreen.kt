@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
@@ -22,8 +23,10 @@ import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.app.ui.components.PostFeedList
+import id.nearyou.app.ui.timeline.TimelineActionsOverlay
+import id.nearyou.app.ui.timeline.TimelineBlockMessage
+import id.nearyou.app.ui.timeline.TimelineBlockTarget
 import id.nearyou.app.ui.timeline.TimelineReportMessage
-import id.nearyou.app.ui.timeline.TimelineReportOverlay
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
 import id.nearyou.resources.generated.resources.timeline_limit_hard
@@ -44,6 +47,9 @@ const val GLOBAL_POST_CARD_TAG: String = "globalPostCard"
 
 /** Test tag on the timeline report dialog (timeline-card-report-kebab). */
 const val GLOBAL_REPORT_DIALOG_TAG: String = "globalReportDialog"
+
+/** Test tag on the timeline block confirmation dialog (timeline-card-block-kebab). */
+const val GLOBAL_BLOCK_DIALOG_TAG: String = "globalBlockDialog"
 
 /**
  * The Global feed — the all-Indonesia chronological feed and the onboarding entry-point surface
@@ -82,11 +88,14 @@ fun GlobalTimelineScreen(
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
     // PostDetailRepository singleton post-detail and Nearby use.
     val likeFlow = koinInject<LikeFlow>()
-    // timeline-card-report-kebab: the shared report seam (the SAME ReportSubmitter singleton the
-    // profile/post-detail/chat surfaces use) + the self-id seam for the kebab's authorship gate.
+    // timeline-card-report-kebab / timeline-card-block-kebab: the shared report + block seams (the
+    // SAME singletons the profile/post-detail/chat surfaces use) + the self-id seam for the kebabs'
+    // authorship gate.
     val reportSubmitter = koinInject<ReportSubmitter>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
-    val viewModel = viewModel { GlobalTimelineViewModel(flow, likeFlow, reportSubmitter, selfUserIdProvider) }
+    val blockSubmitter = koinInject<BlockSubmitter>()
+    val viewModel =
+        viewModel { GlobalTimelineViewModel(flow, likeFlow, reportSubmitter, selfUserIdProvider, blockSubmitter) }
     // The single screen state — the globalTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -99,6 +108,8 @@ fun GlobalTimelineScreen(
     val selfUserId by viewModel.selfUserId.collectAsStateWithLifecycle()
     val reportingPostId by viewModel.reportingPostId.collectAsStateWithLifecycle()
     val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
+    val blockTarget by viewModel.blockTarget.collectAsStateWithLifecycle()
+    val blockMessage by viewModel.blockMessage.collectAsStateWithLifecycle()
 
     GlobalTimelineContent(
         // Initial load → Loading skeleton; a retained Loaded outcome during a refresh → Content (the
@@ -122,14 +133,21 @@ fun GlobalTimelineScreen(
         // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
         // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
         onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
-        // timeline-card-report-kebab: the per-item kebab action (null = own post / unresolved self id →
-        // no kebab) + the dialog/message one-shot wiring for the shared overlay.
+        // timeline-card-report-kebab / timeline-card-block-kebab: the per-item kebab actions (null =
+        // own post / unresolved self id → no item) + the dialog/message one-shot wiring for the shared
+        // overlay.
         reportActionOf = { post -> viewModel.reportActionFor(post.id, selfUserId) },
         reportingPostId = reportingPostId,
         reportMessage = reportMessage,
         onReportSubmit = viewModel::onReportSubmitted,
         onReportDismiss = viewModel::onReportDialogDismissed,
         onReportMessageShown = viewModel::onReportMessageShown,
+        blockActionOf = { post -> viewModel.blockActionFor(post.id, selfUserId) },
+        blockTarget = blockTarget,
+        blockMessage = blockMessage,
+        onBlockConfirm = viewModel::onBlockConfirmed,
+        onBlockDismiss = viewModel::onBlockDialogDismissed,
+        onBlockMessageShown = viewModel::onBlockMessageShown,
     )
 
     // The Free like-cap dialog (mobile-cap-upsell-dialog, frame 18) — same one-shot wiring as Nearby;
@@ -176,6 +194,12 @@ private fun GlobalTimelineContent(
     onReportSubmit: (ReportReasonCategory, String?) -> Unit,
     onReportDismiss: () -> Unit,
     onReportMessageShown: () -> Unit,
+    blockActionOf: (GlobalTimelinePost) -> (() -> Unit)?,
+    blockTarget: TimelineBlockTarget?,
+    blockMessage: TimelineBlockMessage?,
+    onBlockConfirm: () -> Unit,
+    onBlockDismiss: () -> Unit,
+    onBlockMessageShown: () -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -225,6 +249,7 @@ private fun GlobalTimelineContent(
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,
+                    blockActionOf = blockActionOf,
                 )
             is GlobalTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -245,18 +270,25 @@ private fun GlobalTimelineContent(
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,
+                    blockActionOf = blockActionOf,
                 )
         }
-        // timeline-card-report-kebab: the shared report dialog + one-shot result snackbar
-        // (ui/timeline/TimelineReportOverlay, design D5) — mounted once inside the PullToRefreshBox
-        // (a BoxScope) so the snackbar bottom-aligns over the feed.
-        TimelineReportOverlay(
+        // timeline-card-report-kebab + timeline-card-block-kebab: the shared kebab-action dialogs +
+        // ONE one-shot result snackbar (ui/timeline/TimelineActionsOverlay, design D5/D6) — mounted
+        // once inside the PullToRefreshBox (a BoxScope) so the snackbar bottom-aligns over the feed.
+        TimelineActionsOverlay(
             reportingPostId = reportingPostId,
             reportMessage = reportMessage,
             onSubmit = onReportSubmit,
             onDismiss = onReportDismiss,
             onMessageShown = onReportMessageShown,
             dialogTestTag = GLOBAL_REPORT_DIALOG_TAG,
+            blockTarget = blockTarget,
+            blockMessage = blockMessage,
+            onBlockConfirm = onBlockConfirm,
+            onBlockDismiss = onBlockDismiss,
+            onBlockMessageShown = onBlockMessageShown,
+            blockDialogTestTag = GLOBAL_BLOCK_DIALOG_TAG,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
