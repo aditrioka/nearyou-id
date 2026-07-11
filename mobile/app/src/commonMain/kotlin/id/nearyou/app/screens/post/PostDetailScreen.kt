@@ -169,6 +169,13 @@ const val POST_DETAIL_BLOCK_REPLY_TAG: String = "postDetailBlockReply"
 /** Test tag on the shared block confirmation dialog when opened from the post-detail surface. */
 const val POST_DETAIL_BLOCK_DIALOG_TAG: String = "postDetailBlockDialog"
 
+/** Test tag on the post-header identity tap target — present iff the freshness read resolved an
+ *  `authorUserId` (post-detail-tap-to-profile; absent = display-only identity, graceful degradation). */
+const val POST_DETAIL_HEADER_PROFILE_TAG: String = "postDetailHeaderProfile"
+
+/** Test tag on a reply row's identity tap target (present iff the reply carries a wire identity). */
+const val POST_DETAIL_REPLY_PROFILE_TAG: String = "postDetailReplyProfile"
+
 /**
  * The post-detail surface ([PostDetailRoute]) — "everything you do on a single post" — opened by tapping
  * a feed card and overlaid on the tab bar via the ROOT back stack (design D1). Renders, all under
@@ -201,6 +208,8 @@ fun PostDetailScreen(
     onEditPost: (postId: String, content: String) -> Unit = { _, _ -> },
     // chat-embedded-posts: the "Bagikan ke chat" action opens the conversation picker for this post.
     onShareToChat: (postId: String) -> Unit = {},
+    // post-detail-tap-to-profile: identity taps (header + reply rows) push ProfileRoute(userId) via the host.
+    onOpenProfile: (userId: String) -> Unit = {},
 ) {
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
@@ -459,6 +468,9 @@ fun PostDetailScreen(
                         authorUsername = route.authorUsername,
                         authorDisplayName = route.authorDisplayName,
                         imageUrl = route.imageUrl,
+                        // post-detail-tap-to-profile: tappable iff the freshness read resolved the author
+                        // UUID (design D2) — null keeps the row display-only, the Edit/Block dependence.
+                        onOpenProfile = authorUserId?.let { id -> { onOpenProfile(id) } },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -492,6 +504,9 @@ fun PostDetailScreen(
                             ReplyCard(
                                 reply = reply,
                                 onReport = { viewModel.onReportReplyClicked(reply.id) },
+                                // post-detail-tap-to-profile: the identity row (rendered only with a wire
+                                // identity) navigates to the reply author's profile (design D3).
+                                onOpenProfile = { onOpenProfile(reply.authorId) },
                                 onBlock =
                                     reply.authorUsername
                                         ?.takeIf {
@@ -687,7 +702,9 @@ private fun PostActionsMenu(
  *  cannot drift; omitted gracefully when the payload identity is empty, e.g. a back stack serialized
  *  before the fields existed) + content + a "Diposting dari {city}, {date}" line (empty `cityName` →
  *  the no-city variant, no dangling comma). Built solely from the route payload — no `author_id`
- *  (UUID), no coordinate. The identity is NOT a tap target (no profile screen yet — issue #196). */
+ *  (UUID), no coordinate. The identity row is a tap target iff [onOpenProfile] is non-null (the caller
+ *  resolves the author UUID from the single-post freshness read — post-detail-tap-to-profile); null
+ *  (read unresolved/degraded) keeps it display-only. */
 @Composable
 private fun PostHeader(
     content: String,
@@ -698,12 +715,25 @@ private fun PostHeader(
     authorUsername: String,
     authorDisplayName: String,
     imageUrl: String?,
+    onOpenProfile: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
         if (authorUsername.isNotEmpty() || authorDisplayName.isNotEmpty()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (onOpenProfile != null) {
+                                Modifier
+                                    .clickable(onClick = onOpenProfile)
+                                    .testTag(POST_DETAIL_HEADER_PROFILE_TAG)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -870,12 +900,15 @@ private fun LikeRow(
  *  date treatment + a trailing overflow. The `author_id` UUID is NEVER rendered. A viewer's-own
  *  auto-hidden reply renders identically (the flag is parsed but not surfaced in v1). [onReport] opens
  *  the shared report dialog for THIS reply (reply id only); [onBlock] (nullable — absent on the viewer's
- *  own reply or without a wire identity) opens the shared block dialog targeting the reply author. */
+ *  own reply or without a wire identity) opens the shared block dialog targeting the reply author.
+ *  [onOpenProfile] navigates to the reply author's profile — wired to the identity row, which only
+ *  renders with a wire identity, so no extra gate is needed (post-detail-tap-to-profile, design D3). */
 @Composable
 private fun ReplyCard(
     reply: ReplyUi,
     onReport: () -> Unit,
     onBlock: (() -> Unit)?,
+    onOpenProfile: () -> Unit,
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -889,7 +922,11 @@ private fun ReplyCard(
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(bottom = 6.dp),
+                        modifier =
+                            Modifier
+                                .clickable(onClick = onOpenProfile)
+                                .testTag(POST_DETAIL_REPLY_PROFILE_TAG)
+                                .padding(bottom = 6.dp),
                     ) {
                         LetterAvatar(displayName = displayName, username = username)
                         Text(
