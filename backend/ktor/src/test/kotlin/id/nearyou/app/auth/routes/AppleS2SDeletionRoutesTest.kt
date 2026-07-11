@@ -10,7 +10,10 @@ import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.account.AccountDeletionRepository
 import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.auth.provider.JwksCache
+import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.notifications.DbNotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -281,12 +284,22 @@ class AppleS2SDeletionRoutesTest : StringSpec({
     suspend fun runApp(
         deletionRepo: AccountDeletionRepository = realDeletionRepo,
         worker: AccountHardDeleteWorker = realWorker,
+        dispatcher: NotificationDispatcher = NotificationDispatcher { },
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
         testApplication {
             application {
                 install(ContentNegotiation) { json() }
-                appleS2SRoutes(DeletionStubJwksCache(kid, pub), setOf(bundleId), users, deletionRepo, worker)
+                appleS2SRoutes(
+                    DeletionStubJwksCache(kid, pub),
+                    setOf(bundleId),
+                    users,
+                    deletionRepo,
+                    worker,
+                    dataSource,
+                    DbNotificationEmitter(JdbcNotificationRepository(dataSource)),
+                    dispatcher,
+                )
             }
             block()
         }
@@ -568,6 +581,68 @@ class AppleS2SDeletionRoutesTest : StringSpec({
                 failureLine.contains(uid.toString()) shouldBe false
                 failureLine.contains(hash) shouldBe false
             }
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    // --- email-relay events (follow-up #433): flag write + apple_relay_email_changed
+    // notification in ONE transaction, dispatched post-commit. Moved here from the
+    // in-memory spec — the notification insert needs the real DB (V10 CHECK included).
+
+    // body_data is compared via `->>` (extracted value), not `::text` — PG's jsonb
+    // text rendering inserts a space after the colon, which is not the contract.
+    fun relayNotification(userId: UUID): Triple<String, UUID?, String?>? =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT type, actor_user_id, body_data->>'relay_enabled' AS relay FROM notifications WHERE user_id = ?",
+            ).use { ps ->
+                ps.setObject(1, userId)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) {
+                        null
+                    } else {
+                        Triple(rs.getString("type"), rs.getObject("actor_user_id", UUID::class.java), rs.getString("relay"))
+                    }
+                }
+            }
+        }
+
+    "email-enabled flips the flag AND inserts apple_relay_email_changed, dispatched post-commit" {
+        val sub = "email-sub-433-on"
+        val uid = seedUser(sub)
+        val dispatched = mutableListOf<UUID>()
+        try {
+            runApp(dispatcher = NotificationDispatcher { dispatched.add(it) }) {
+                postEvent("email-enabled", sub, "tx-433-on").status shouldBe HttpStatusCode.OK
+            }
+            intQuery("SELECT COUNT(*) FROM users WHERE id = ? AND apple_relay_email = TRUE", uid) shouldBe 1
+            val row = relayNotification(uid)
+            (row != null) shouldBe true
+            row!!.first shouldBe "apple_relay_email_changed"
+            row.second shouldBe null // system-originated: actor is Apple, not a users row
+            row.third shouldBe "true"
+            dispatched.size shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "email-disabled flips the flag back AND records relay_enabled=false" {
+        val sub = "email-sub-433-off"
+        val uid = seedUser(sub)
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("UPDATE users SET apple_relay_email = TRUE WHERE id = ?").use { ps ->
+                ps.setObject(1, uid)
+                ps.executeUpdate()
+            }
+        }
+        try {
+            runApp {
+                postEvent("email-disabled", sub, "tx-433-off").status shouldBe HttpStatusCode.OK
+            }
+            intQuery("SELECT COUNT(*) FROM users WHERE id = ? AND apple_relay_email = FALSE", uid) shouldBe 1
+            relayNotification(uid)!!.third shouldBe "false"
         } finally {
             cleanup(uid)
         }

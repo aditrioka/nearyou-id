@@ -87,7 +87,14 @@ interface UserRepository {
         id: UUID,
     ): Int
 
+    /**
+     * In-transaction relay-email flag write: the Apple S2S `email-enabled` /
+     * `email-disabled` handler runs this atomically with the
+     * `apple_relay_email_changed` notification insert (docs/06 § Apple S2S
+     * Notification Handling). Caller owns the transaction boundary.
+     */
     fun setAppleRelayEmail(
+        conn: Connection,
         appleIdHash: String,
         enabled: Boolean,
     ): Int

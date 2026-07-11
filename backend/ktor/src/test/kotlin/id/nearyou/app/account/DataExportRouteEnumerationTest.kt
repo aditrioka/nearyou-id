@@ -113,6 +113,7 @@ private object EmptyUserRepository : UserRepository {
     ): Int = error("unused")
 
     override fun setAppleRelayEmail(
+        conn: java.sql.Connection,
         appleIdHash: String,
         enabled: Boolean,
     ): Int = error("unused")

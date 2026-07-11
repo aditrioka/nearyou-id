@@ -506,6 +506,7 @@ private class FakeUserRepository(private val row: UserRow) : UserRepository {
     ): Int = error("unused")
 
     override fun setAppleRelayEmail(
+        conn: java.sql.Connection,
         appleIdHash: String,
         enabled: Boolean,
     ): Int = error("unused")

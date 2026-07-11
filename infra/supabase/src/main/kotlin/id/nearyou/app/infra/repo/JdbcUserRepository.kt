@@ -53,17 +53,16 @@ class JdbcUserRepository(
     }
 
     override fun setAppleRelayEmail(
+        conn: Connection,
         appleIdHash: String,
         enabled: Boolean,
     ): Int {
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "UPDATE users SET apple_relay_email = ? WHERE apple_id_hash = ?",
-            ).use { ps ->
-                ps.setBoolean(1, enabled)
-                ps.setString(2, appleIdHash)
-                return ps.executeUpdate()
-            }
+        conn.prepareStatement(
+            "UPDATE users SET apple_relay_email = ? WHERE apple_id_hash = ?",
+        ).use { ps ->
+            ps.setBoolean(1, enabled)
+            ps.setString(2, appleIdHash)
+            return ps.executeUpdate()
         }
     }
 

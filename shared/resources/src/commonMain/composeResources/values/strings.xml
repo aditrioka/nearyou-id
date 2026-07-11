@@ -214,8 +214,9 @@
          account_action_applied (admin moderation) and data_export_ready (data-export worker).
          `notif_privacy_flip_warning` takes the flip deadline DATE as %1$s (the date portion of
          `body_data.privacy_flip_scheduled_at`); the `_soon` variant covers an absent/malformed deadline.
-         The still-unemitted reserved values (username_release_scheduled, apple_relay_email_changed) stay
-         on `notif_generic` until their emit sites land. Derived BI copy consistent with the register
+         The still-unemitted reserved value (username_release_scheduled) stays on `notif_generic` until
+         its emit site lands. `notif_apple_relay_email_changed` (follow-up #433, Apple S2S email-relay
+         writer; copy verbatim from docs/03 §178). Derived BI copy consistent with the register
          above, FLAGGED FOR UX REVIEW. -->
     <string name="notif_privacy_flip_warning" formatted="true">Profilmu akan jadi publik pada %1$s — perpanjang Premium untuk tetap privat</string>
     <string name="notif_privacy_flip_warning_soon">Profilmu akan segera jadi publik — perpanjang Premium untuk tetap privat</string>
@@ -224,6 +225,7 @@
     <string name="notif_chat_message_redacted">Sebuah pesan di percakapanmu dihapus oleh moderator</string>
     <string name="notif_account_action_applied">Ada tindakan moderasi pada akunmu</string>
     <string name="notif_data_export_ready">Ekspor datamu siap diunduh</string>
+    <string name="notif_apple_relay_email_changed">Email bayangan Apple kamu sudah diperbarui.</string>
     <!-- mobile-notifications-deep-link-targets: the non-blocking affordance shown when a tapped post
          notification's target no longer resolves (deleted / blocked / shadow-banned / auto-hidden — the
          single-post-read endpoint collapses all to one 404). No navigation occurs; the row is still read. -->

@@ -7,6 +7,9 @@ import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.auth.session.InMemoryUsers
 import id.nearyou.app.auth.session.userRow
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
+import id.nearyou.data.repository.NotificationType
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.post
@@ -19,12 +22,15 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.JsonObject
 import java.io.PrintWriter
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
+import java.time.Instant
 import java.util.Date
+import java.util.UUID
 import javax.sql.DataSource
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
@@ -66,6 +72,26 @@ private object NoDbDataSource : DataSource {
 private fun noDbDeletionRepo() = AccountDeletionRepository(NoDbDataSource)
 
 private fun noDbHardDeleteWorker() = AccountHardDeleteWorker(NoDbDataSource)
+
+/**
+ * Every scenario here returns BEFORE the email branch's transactional flag+notification
+ * write (aud failure, unresolvable/tombstoned sub, dedup) — a throwing emitter/dispatcher
+ * makes that an assertion, like [NoDbDataSource] does for the deletion substrate. The
+ * DB-touching email scenarios live in `AppleS2SDeletionRoutesTest` (`@Tags("database")`).
+ */
+private object NoEmitEmitter : NotificationEmitter {
+    override fun emit(
+        conn: java.sql.Connection,
+        recipientId: UUID,
+        actorUserId: UUID?,
+        type: NotificationType,
+        targetType: String?,
+        targetId: UUID?,
+        bodyData: JsonObject,
+    ): UUID? = error("notification emitter must not be reached in this spec")
+}
+
+private val noDispatch = NotificationDispatcher { error("dispatcher must not be reached in this spec") }
 
 private class StubJwksCache(
     private val kid: String,
@@ -116,6 +142,9 @@ class AppleS2SRoutesTest : StringSpec({
                     users,
                     noDbDeletionRepo(),
                     noDbHardDeleteWorker(),
+                    NoDbDataSource,
+                    NoEmitEmitter,
+                    noDispatch,
                 )
             }
             block()
@@ -135,6 +164,9 @@ class AppleS2SRoutesTest : StringSpec({
                     users,
                     noDbDeletionRepo(),
                     noDbHardDeleteWorker(),
+                    NoDbDataSource,
+                    NoEmitEmitter,
+                    noDispatch,
                 )
             }
             val signed =
@@ -150,13 +182,33 @@ class AppleS2SRoutesTest : StringSpec({
         }
     }
 
-    "email-enabled flips users.apple_relay_email to true" {
-        val sub = "apple-sub-1"
-        val user = userRow(appleIdHash = sha256Hex(sub), appleRelayEmail = false)
+    // The email happy-path scenarios (flag flip + apple_relay_email_changed notification
+    // in one transaction) moved to `AppleS2SDeletionRoutesTest` (`@Tags("database")`,
+    // follow-up #433) — the notification insert needs the real DB. Here we pin the two
+    // pre-DB email exits: an unresolvable and a tombstoned sub are graceful 200 no-ops
+    // that never reach the DataSource/emitter (which throw if touched).
+
+    "email event for an unresolvable sub → 200 no-op, DB + emitter untouched" {
+        setup(InMemoryUsers(emptyList())) {
+            val signed =
+                makeAppleSignedPayload(priv, pub, kid, "email-enabled", "apple-sub-unknown-email", "tx-1", bundleId)
+            val client = createClient { install(ClientCN) { json() } }
+            val response =
+                client.post("/internal/apple/s2s-notifications") {
+                    contentType(ContentType.Application.Json)
+                    setBody(AppleS2SEnvelope(signedPayload = signed))
+                }
+            response.status shouldBe HttpStatusCode.OK
+        }
+    }
+
+    "email event for a tombstoned user → 200 no-op, flag + emitter untouched" {
+        val sub = "apple-sub-2"
+        val user = userRow(appleIdHash = sha256Hex(sub), appleRelayEmail = true, deletedAt = Instant.now())
         val users = InMemoryUsers(listOf(user))
         setup(users) {
             val signed =
-                makeAppleSignedPayload(priv, pub, kid, "email-enabled", sub, "tx-1", bundleId)
+                makeAppleSignedPayload(priv, pub, kid, "email-disabled", sub, "tx-2", bundleId)
             val client = createClient { install(ClientCN) { json() } }
             val response =
                 client.post("/internal/apple/s2s-notifications") {
@@ -165,22 +217,6 @@ class AppleS2SRoutesTest : StringSpec({
                 }
             response.status shouldBe HttpStatusCode.OK
             users.rows[user.id]!!.appleRelayEmail shouldBe true
-        }
-    }
-
-    "email-disabled flips it back to false" {
-        val sub = "apple-sub-2"
-        val user = userRow(appleIdHash = sha256Hex(sub), appleRelayEmail = true)
-        val users = InMemoryUsers(listOf(user))
-        setup(users) {
-            val signed =
-                makeAppleSignedPayload(priv, pub, kid, "email-disabled", sub, "tx-2", bundleId)
-            val client = createClient { install(ClientCN) { json() } }
-            client.post("/internal/apple/s2s-notifications") {
-                contentType(ContentType.Application.Json)
-                setBody(AppleS2SEnvelope(signedPayload = signed))
-            }
-            users.rows[user.id]!!.appleRelayEmail shouldBe false
         }
     }
 

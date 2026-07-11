@@ -85,6 +85,9 @@ class InternalRoutingIsolationTest : StringSpec({
                 InMemoryUsers(),
                 AccountDeletionRepository(UnusedDataSource),
                 AccountHardDeleteWorker(UnusedDataSource),
+                UnusedDataSource,
+                StubEmitter,
+                NoopNotificationDispatcher(),
                 InMemoryDedup(),
             )
             // Production shape: the RevenueCat vendor webhook in its OWN routing
@@ -210,23 +213,26 @@ private val StubRevenueCatSecrets =
         override fun resolve(name: String): String? = if (name == "revenuecat-webhook-secret") "rc-test-bearer" else null
     }
 
+/** Never invoked — every scenario here 4xxes before an emit could happen. */
+private val StubEmitter =
+    object : NotificationEmitter {
+        override fun emit(
+            conn: java.sql.Connection,
+            recipientId: java.util.UUID,
+            actorUserId: java.util.UUID?,
+            type: id.nearyou.data.repository.NotificationType,
+            targetType: String?,
+            targetId: java.util.UUID?,
+            bodyData: kotlinx.serialization.json.JsonObject,
+        ): java.util.UUID? = error("not used")
+    }
+
 /** Never invoked — the malformed `{}` body 400s in the route before the service runs. */
 private val StubRevenueCatService =
     SubscriptionService(
         dataSource = UnusedDataSource,
         repository = SubscriptionEventRepository(),
-        notifications =
-            object : NotificationEmitter {
-                override fun emit(
-                    conn: java.sql.Connection,
-                    recipientId: java.util.UUID,
-                    actorUserId: java.util.UUID?,
-                    type: id.nearyou.data.repository.NotificationType,
-                    targetType: String?,
-                    targetId: java.util.UUID?,
-                    bodyData: kotlinx.serialization.json.JsonObject,
-                ): java.util.UUID? = error("not used")
-            },
+        notifications = StubEmitter,
         dispatcher = NoopNotificationDispatcher(),
     )
 

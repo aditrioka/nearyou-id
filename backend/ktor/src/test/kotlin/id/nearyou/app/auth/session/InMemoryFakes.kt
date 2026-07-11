@@ -103,6 +103,7 @@ class InMemoryUsers(initial: List<UserRow> = emptyList()) : UserRepository {
     ): Int = incrementTokenVersion(id)
 
     override fun setAppleRelayEmail(
+        conn: Connection,
         appleIdHash: String,
         enabled: Boolean,
     ): Int {

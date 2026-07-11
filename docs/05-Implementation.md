@@ -603,7 +603,9 @@ CREATE INDEX notifications_user_all_idx
 | `chat_message_redacted` | Admin redacted a message the user participates in | NULL | `message` | `{conversation_id}` |
 | `privacy_flip_warning` | Downgrade-to-Free with private profile, flip scheduled | NULL | NULL | `{privacy_flip_scheduled_at}` |
 | `username_release_scheduled` | Custom username change confirmed; old handle releases at `released_at` | NULL | NULL | `{old_username, released_at}` |
-| `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | NULL | `{new_email_masked}` |
+| `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | NULL | `{relay_enabled}` |
+
+Amended 2026-07-11 (follow-up [#433](https://github.com/aditrioka/nearyou-id/issues/433)): `apple_relay_email_changed` body_data was specced as `{new_email_masked}`, but the S2S `email-disabled`/`email-enabled` events carry no email — the shipped writer (`AppleS2SRoutes`) records the new flag state as `{relay_enabled}`. A masked email belongs to the separate sign-in-time relay-change detection path (§ Apple Sign-In Specifics above), which may extend this shape when it ships.
 
 ---
 
