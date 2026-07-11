@@ -41,6 +41,20 @@ private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi interne
 private const val RETRY = "Coba lagi" // cta_retry
 private const val COPY_POST_LIKED = "Seseorang menyukai postingan kamu" // notif_post_liked
 private const val COPY_GENERIC = "Notifikasi baru" // notif_generic
+
+// Follow-up #343: the now-emitted types' specific copy (byte-identical to strings.xml).
+// COPY_PRIVACY_FLIP_DATED is notif_privacy_flip_warning with %1$s already substituted with the
+// date portion of the fake row's body_data.privacy_flip_scheduled_at.
+private const val COPY_PRIVACY_FLIP_DATED =
+    "Profilmu akan jadi publik pada 2026-07-14 — perpanjang Premium untuk tetap privat"
+private const val COPY_PRIVACY_FLIP_SOON =
+    "Profilmu akan segera jadi publik — perpanjang Premium untuk tetap privat" // notif_privacy_flip_warning_soon
+private const val COPY_BILLING_ISSUE =
+    "Ada masalah penagihan langganan Premium kamu — periksa metode pembayaranmu" // notif_subscription_billing_issue
+private const val COPY_SUBSCRIPTION_EXPIRED = "Langganan Premium kamu telah berakhir" // notif_subscription_expired
+private const val COPY_CHAT_REDACTED = "Sebuah pesan di percakapanmu dihapus oleh moderator" // notif_chat_message_redacted
+private const val COPY_ACCOUNT_ACTION = "Ada tindakan moderasi pada akunmu" // notif_account_action_applied
+private const val COPY_DATA_EXPORT = "Ekspor datamu siap diunduh" // notif_data_export_ready
 private const val ACTOR_UUID = "11111111-1111-1111-1111-111111111111"
 private const val TARGET_UUID = "22222222-2222-2222-2222-222222222222"
 
@@ -176,6 +190,74 @@ class NotificationsScreenTest {
             setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(COPY_GENERIC, substring = true).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(COPY_GENERIC, substring = true).assertExists()
+        }
+    }
+
+    @Test
+    fun privacyFlipWarning_rendersDeadlineDateCopy() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(
+                    fakeNotification(
+                        type = "privacy_flip_warning",
+                        bodyData = buildJsonObject { put("privacy_flip_scheduled_at", "2026-07-14T10:31:00Z") },
+                    ),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText(COPY_PRIVACY_FLIP_DATED, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText(COPY_PRIVACY_FLIP_DATED, substring = true).assertExists()
+        }
+    }
+
+    @Test
+    fun privacyFlipWarning_missingDeadline_rendersDatelessFallback() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(fakeNotification(type = "privacy_flip_warning", bodyData = buildJsonObject {})),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText(COPY_PRIVACY_FLIP_SOON, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText(COPY_PRIVACY_FLIP_SOON, substring = true).assertExists()
+        }
+    }
+
+    @Test
+    fun siblingEmittedTypes_renderSpecificCopy() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(
+                    fakeNotification(id = "n1", type = "subscription_billing_issue", bodyData = buildJsonObject {}),
+                    fakeNotification(id = "n2", type = "subscription_expired", bodyData = buildJsonObject {}),
+                    fakeNotification(id = "n3", type = "chat_message_redacted", bodyData = buildJsonObject {}),
+                    fakeNotification(id = "n4", type = "account_action_applied", bodyData = buildJsonObject {}),
+                    fakeNotification(id = "n5", type = "data_export_ready", bodyData = buildJsonObject {}),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText(COPY_BILLING_ISSUE, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText(COPY_BILLING_ISSUE, substring = true).assertExists()
+            onNodeWithText(COPY_SUBSCRIPTION_EXPIRED, substring = true).assertExists()
+            onNodeWithText(COPY_CHAT_REDACTED, substring = true).assertExists()
+            onNodeWithText(COPY_ACCOUNT_ACTION, substring = true).assertExists()
+            onNodeWithText(COPY_DATA_EXPORT, substring = true).assertExists()
+            // None of the five fell through to the generic fallback.
+            assertEquals(0, onAllNodesWithText(COPY_GENERIC, substring = true).fetchSemanticsNodes().size)
         }
     }
 
