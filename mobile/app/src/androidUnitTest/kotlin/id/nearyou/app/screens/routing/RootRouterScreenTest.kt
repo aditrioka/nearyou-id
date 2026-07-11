@@ -10,6 +10,11 @@ import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
+import id.nearyou.app.consent.ConsentFlow
+import id.nearyou.app.consent.FakeConsentFlow
+import id.nearyou.app.data.consent.ConsentSnapshot
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
@@ -45,14 +50,16 @@ import kotlin.test.Test
 // — robust across the feed's gate/loading/empty states (the redundant Nearby header is removed).
 private const val HOME_MARKER = "Beranda"
 private const val SIGNIN_MARKER = "Masuk dengan Google" // SignInScreen CTA — unique to SignIn
+private const val CONSENT_MARKER = "Simpan & lanjutkan" // ConsentScreen CTA (consent_cta_continue)
 private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_name)
 
 /**
  * Routing coverage of `RootRouterScreen` via the Robolectric CMP UI runner (§6.8 a/b/c/f), migrated
  * from the Voyager `Navigator(Screen())` harness to the Nav3 [TestNavHost] (the real
  * [appEntryProvider] over a `rememberNavBackStack` seeded with `RootRoute`): the router replaces
- * itself at launch via `backStack.replaceAll(HomeRoute/SignInRoute)`, and the visible destination
- * post-route is asserted (`mobile-auth-signin` § "RootRouterScreen routes based on token presence").
+ * itself at launch via `backStack.replaceAll(HomeRoute/SignInRoute/ConsentRoute)`, and the visible
+ * destination post-route is asserted (`mobile-auth-signin` § "RootRouterScreen routes based on token
+ * presence" + `mobile-analytics-consent` § the consent re-gate).
  * Uses `waitUntil` (not `waitForIdle`) because the splash `NearYouLoader` is an infinite
  * animation that never reaches global idle.
  *
@@ -64,12 +71,24 @@ private const val LOGO_DESC = "NearYouID" // brand-logo contentDescription (app_
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)
 class RootRouterScreenTest {
-    private fun installKoin(authFlow: AuthFlow) {
+    private fun installKoin(
+        authFlow: AuthFlow,
+        // consent-rootrouter-regate (#199): the router consent-gates the authenticated branch on
+        // snapshot presence. Default = snapshot present (a completed consent), so the pre-existing
+        // authenticated→Home coverage keeps its meaning; pass an empty store for the re-gate case.
+        consentSnapshotStore: ConsentSnapshotStore =
+            InMemoryConsentSnapshotStore().apply {
+                write(ConsentSnapshot(analytics = false, crash = true, adsPersonalization = false))
+            },
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         startKoin {
             modules(
                 module {
                     single { authFlow }
+                    single { consentSnapshotStore }
+                    // The re-gated route lands on ConsentScreen, which koinInjects a ConsentFlow.
+                    single<ConsentFlow> { FakeConsentFlow() }
                     // The unauthenticated route lands on SignInScreen, which koinInjects a
                     // PendingSignupIdentity (the in-memory id_token holder) + a PendingReturnDestination
                     // (the involuntary-entry flag / return-destination holder, D5).
@@ -105,7 +124,9 @@ class RootRouterScreenTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
     }
 
-    // 6.8a (+ d/e) — authenticated state routes to HomeScreen.
+    // 6.8a (+ d/e) — authenticated state (with a completed-consent snapshot, the installKoin
+    // default) routes to HomeScreen (`mobile-analytics-consent` § "A token-bearing user with a
+    // consent snapshot routes to Home unchanged").
     @Test
     fun authenticated_routesToHome() {
         installKoin(FakeAuthFlow(authenticated = true))
@@ -115,6 +136,28 @@ class RootRouterScreenTest {
                 onAllNodesWithText(HOME_MARKER).fetchSemanticsNodes().isNotEmpty()
             }
             onNodeWithText(HOME_MARKER).assertExists()
+            onNodeWithText(SIGNIN_MARKER).assertDoesNotExist()
+        }
+    }
+
+    // consent-rootrouter-regate (#199) — authenticated but no consent snapshot (force-quit at
+    // ConsentScreen / post-failure skip / reinstall) is re-gated to ConsentRoute, not Home
+    // (`mobile-analytics-consent` § "A token-bearing user without a consent snapshot is re-gated
+    // to ConsentRoute").
+    @Test
+    fun authenticated_withoutConsentSnapshot_reGatesToConsent() {
+        installKoin(
+            FakeAuthFlow(authenticated = true),
+            // Empty store — read() == null, the never-completed-consent state.
+            consentSnapshotStore = InMemoryConsentSnapshotStore(),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(RootRoute) } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText(CONSENT_MARKER).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText(CONSENT_MARKER).assertExists()
+            onNodeWithText(HOME_MARKER).assertDoesNotExist()
             onNodeWithText(SIGNIN_MARKER).assertDoesNotExist()
         }
     }

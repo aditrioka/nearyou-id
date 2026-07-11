@@ -32,7 +32,9 @@ import org.koin.compose.koinInject
  * [replaceAll] (clear-and-set — no back-navigation across the boundary); in-auth transitions use
  * `add()` (push) / `removeLastOrNull()` (pop):
  *
- *  - [RootRoute] → [RootRouterScreen] — token-presence routing → `replaceAll(HomeRoute/SignInRoute)`.
+ *  - [RootRoute] → [RootRouterScreen] — token-presence routing → `replaceAll(HomeRoute/SignInRoute)`;
+ *    an authenticated user with no consent snapshot is re-gated → `replaceAll(ConsentRoute)`
+ *    (`consent-rootrouter-regate`, #199).
  *  - [SignInRoute] → [SignInScreen] — success → `replaceAll(HomeRoute)`; 404 no-account → `add(AgeGateRoute)`.
  *  - [HomeRoute] → [AppShellScreen] — the bottom-nav section shell (Home / Notifikasi / Profil); the Home
  *    section hosts the feed tab host + composer FAB → `add(PostCreationRoute)`, and a feed card tap →
@@ -52,6 +54,7 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             RootRouterScreen(
                 onAuthenticated = { backStack.replaceAll(HomeRoute) },
                 onUnauthenticated = { backStack.replaceAll(SignInRoute) },
+                onConsentPending = { backStack.replaceAll(ConsentRoute) },
             )
         }
         entry<SignInRoute> {
@@ -166,8 +169,9 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         entry<ConsentRoute> {
             // ConsentRoute REPLACES AgeGateRoute (the signup-success transition uses `replaceAll`,
             // not `add`), so the back stack holds [ConsentRoute] with no AgeGateRoute beneath —
-            // back-press cannot re-enter the age gate. onDone (Success or the post-failure skip) →
-            // HomeRoute (`mobile-analytics-consent` capability).
+            // back-press cannot re-enter the age gate. Also reached from the RootRoute consent
+            // re-gate above (same sole-entry stack shape, so the gate cannot be back-pressed away).
+            // onDone (Success or the post-failure skip) → HomeRoute (`mobile-analytics-consent`).
             ConsentScreen(onDone = { backStack.replaceAll(HomeRoute) })
         }
         entry<PostCreationRoute> {
