@@ -84,44 +84,48 @@ class JdbcOrphanImageCleanupRepository(
         cfImageId: String,
         deleteFromStore: suspend () -> Unit,
     ): OrphanSweepOutcome =
-        dataSource.connection.use { conn ->
-            val previousAutoCommit = conn.autoCommit
-            conn.autoCommit = false
-            try {
-                val rows =
-                    withContext(dbDispatcher) {
+        // The whole connection scope runs on the pool-bounded dispatcher (docs/11
+        // §3.2) — acquire, statements, rollback/restore, close. The suspend
+        // deleteFromStore() HTTP call releases the dispatcher thread at its
+        // suspension point, so no DB thread is held during the vendor call.
+        withContext(dbDispatcher) {
+            dataSource.connection.use { conn ->
+                val previousAutoCommit = conn.autoCommit
+                conn.autoCommit = false
+                try {
+                    val rows =
                         conn.prepareStatement(DELETE_ORPHAN_SQL).use { ps ->
                             ps.setString(1, cfImageId)
                             ps.executeUpdate()
                         }
+                    if (rows == 0) {
+                        conn.commit()
+                        return@use OrphanSweepOutcome.RACED
                     }
-                if (rows == 0) {
-                    withContext(dbDispatcher) { conn.commit() }
-                    return@use OrphanSweepOutcome.RACED
-                }
-                try {
-                    deleteFromStore()
+                    try {
+                        deleteFromStore()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        conn.rollback()
+                        log.warn(
+                            "event=orphan_image_store_delete_failed cf_image_id={} error_class={}",
+                            cfImageId,
+                            e::class.simpleName,
+                        )
+                        return@use OrphanSweepOutcome.STORE_FAILED
+                    }
+                    conn.commit()
+                    OrphanSweepOutcome.DELETED
                 } catch (e: CancellationException) {
+                    runCatching { conn.rollback() }
                     throw e
                 } catch (e: Exception) {
-                    withContext(dbDispatcher) { conn.rollback() }
-                    log.warn(
-                        "event=orphan_image_store_delete_failed cf_image_id={} error_class={}",
-                        cfImageId,
-                        e::class.simpleName,
-                    )
-                    return@use OrphanSweepOutcome.STORE_FAILED
+                    runCatching { conn.rollback() }
+                    throw e
+                } finally {
+                    runCatching { conn.autoCommit = previousAutoCommit }
                 }
-                withContext(dbDispatcher) { conn.commit() }
-                OrphanSweepOutcome.DELETED
-            } catch (e: CancellationException) {
-                runCatching { conn.rollback() }
-                throw e
-            } catch (e: Exception) {
-                runCatching { conn.rollback() }
-                throw e
-            } finally {
-                runCatching { conn.autoCommit = previousAutoCommit }
             }
         }
 

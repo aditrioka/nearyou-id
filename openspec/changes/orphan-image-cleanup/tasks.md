@@ -15,7 +15,7 @@
 
 ## 3. Tests — backend
 
-- [x] 3.1 Worker DB tests (`!network`-tagged, per docs/13): aged orphan swept; fresh (<24h) row untouched; `attached` row untouched; CF failure → rollback + row survives + `cf_failures` count; CF 404 → row deleted; concurrent-attach flip → zero-row DELETE skips CF call; idempotent all-zero re-run; unconfigured store → no-op all-zero
+- [x] 3.1 Worker DB tests (`!network`-tagged, per docs/13): aged orphan swept; fresh (<24h) row untouched; `attached` row untouched; CF failure → rollback + row survives + `cf_failures` count; CF 404-as-success covered at the infra layer (worker sees it as a normal success); concurrent-attach flip → zero-row DELETE skips CF call; idempotent all-zero re-run; unconfigured store → no-op all-zero
 - [x] 3.2 Route tests: 401 without OIDC bearer; 200 counts body with verified token; 500 sanitized error body on worker throw; `InternalRoutingIsolationTest` still green (sibling webhook subtrees untouched)
 
 ## 4. Spec sync + docs
