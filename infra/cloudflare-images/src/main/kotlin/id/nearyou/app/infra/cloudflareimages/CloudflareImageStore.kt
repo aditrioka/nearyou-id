@@ -3,6 +3,7 @@ package id.nearyou.app.infra.cloudflareimages
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.apache5.Apache5
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
@@ -30,7 +31,14 @@ class CloudflareImageStore(
 ) : ImageStore {
     private val log = LoggerFactory.getLogger(CloudflareImageStore::class.java)
     private val json = Json { ignoreUnknownKeys = true }
-    private val client: HttpClient = if (engine != null) HttpClient(engine) else HttpClient(Apache5)
+
+    // Explicit request timeout: the orphan-cleanup sweep holds a DB row lock across
+    // delete(), so the call's upper bound must be declared, not inherited from
+    // engine defaults (design D2 — "bounded by the HTTP client timeout").
+    private val client: HttpClient =
+        (if (engine != null) HttpClient(engine) else HttpClient(Apache5)).config {
+            install(HttpTimeout) { requestTimeoutMillis = REQUEST_TIMEOUT_MS }
+        }
 
     override fun isConfigured(): Boolean = true
 
@@ -90,6 +98,10 @@ class CloudflareImageStore(
             log.warn("event=cloudflare_images_delete_http_error status={}", response.status.value)
             throw CloudflareImageStoreException("Cloudflare Images delete failed: HTTP ${response.status.value}")
         }
+    }
+
+    private companion object {
+        const val REQUEST_TIMEOUT_MS = 30_000L
     }
 }
 
