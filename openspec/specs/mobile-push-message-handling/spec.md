@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The `:mobile:app` device-side receipt, rendering, batching, content-privacy gating, and deep-link tap-through of incoming FCM pushes — the display half of the push loop whose dispatch (`fcm-push-dispatch`) and token registration (`mobile-fcm-token-registration`) already shipped. Android renders the data-only payload as a local notification (`onMessageReceived` on the shared `NearYouFirebaseMessagingService`) with type-keyed Bahasa Indonesia copy and per-conversation batching; iOS handles the alert-push tap via a `UNUserNotificationCenterDelegate` and optionally rewrites the body in a Notification Service Extension per the App-Group content-privacy preference. Both platforms route the tap through the `mobile-notifications-list` resolver via the consumed-once nav signal (no second navigation pattern). The content-privacy preference store ships here defaulting OFF (content-private); the Settings control row is deferred (#431), and live end-to-end delivery is gated on operator Firebase/APNs + NSE Xcode setup (#258 / #430) — the code builds, unit-tests, and assembles without that config.
+The `:mobile:app` device-side receipt, rendering, batching, content-privacy gating, and deep-link tap-through of incoming FCM pushes — the display half of the push loop whose dispatch (`fcm-push-dispatch`) and token registration (`mobile-fcm-token-registration`) already shipped. Android renders the data-only payload as a local notification (`onMessageReceived` on the shared `NearYouFirebaseMessagingService`) with type-keyed Bahasa Indonesia copy and per-conversation batching; iOS handles the alert-push tap via a `UNUserNotificationCenterDelegate` and optionally rewrites the body in a Notification Service Extension per the App-Group content-privacy preference. Both platforms route the tap through the `mobile-notifications-list` resolver via the consumed-once nav signal (no second navigation pattern). The content-privacy preference store ships here defaulting OFF (content-private); the Settings control row ships in `mobile-settings` (via `mobile-notification-preview-toggle`, closing #431), and live end-to-end delivery is gated on operator Firebase/APNs + NSE Xcode setup (#258 / #430) — the code builds, unit-tests, and assembles without that config.
 
 ## Requirements
 ### Requirement: Android renders an incoming data-only FCM push as a local notification
@@ -124,14 +124,14 @@ The change SHALL ship a Compose-free commonMain seam `NotificationContentPrefere
 - **WHEN** `setPreviewEnabled(true)` is called and then `previewEnabled()` is read
 - **THEN** it returns `true`
 
-### Requirement: The Settings preview-toggle control row is deferred as an explicit requirement
+### Requirement: The Settings preview-toggle control row ships in mobile-settings
 
-The user-facing Settings control row "Tampilkan preview pesan chat di notifikasi" (`docs/03` §178) that flips the content-privacy preference SHALL NOT be added to `mobile-settings` by this change — it is deferred (docs/12 §3 explicit requirement) to avoid a `SettingsScreen` merge conflict with the in-flight `mobile-data-export-entry` change (PR #424). This change ships only the preference STORE and the render/NSE gate (functional at the private default); the deferred row SHALL be tracked by a `follow-up` GitHub issue (labels `follow-up` + `mobile`) — [#431](https://github.com/aditrioka/nearyou-id/issues/431). The deferral leaves no unsafe gap because the default behavior is the content-private form.
+The user-facing Settings control row "Tampilkan preview pesan chat di notifikasi" (`docs/03` §178) that flips the content-privacy preference SHALL exist in `mobile-settings` — shipped by the `mobile-notification-preview-toggle` change (executing follow-up [#431](https://github.com/aditrioka/nearyou-id/issues/431)) once its sequencing blocker (`mobile-data-export-entry`, PR #424) merged. The original `mobile-push-message-handling` change shipped only the preference STORE and the render/NSE gate, functional at the private default (a docs/12 §3 explicit deferral that left no unsafe gap because the default behavior is the content-private form). The row SHALL write via `NotificationContentPreference.setPreviewEnabled(...)` ONLY — no parallel store — so on iOS the value lands in the `group.id.nearyou.shared` App-Group `UserDefaults` suite the NSE reads.
 
-#### Scenario: No Settings row ships in this change
+#### Scenario: The Settings row flips the preference the render and NSE gates read
 
-- **WHEN** inspecting this change's diff
-- **THEN** no row toggling the notification-content-preview preference is added to `SettingsScreen` / `mobile-settings` AND the deferral is tracked by the `follow-up` GitHub issue [#431](https://github.com/aditrioka/nearyou-id/issues/431)
+- **WHEN** the "Tampilkan preview pesan chat di notifikasi" Settings row is toggled on
+- **THEN** the value is persisted through `NotificationContentPreference` (on iOS, the App-Group store) AND a subsequent `previewEnabled()` read by the Android render path or the iOS NSE returns `true`
 
 ### Requirement: Push-display code builds, unit-tests, and assembles without the operator Firebase / App-Group config
 
