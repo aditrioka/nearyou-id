@@ -100,8 +100,11 @@ import id.nearyou.app.image.ImageUploadFlagGate
 import id.nearyou.app.image.ImageUploadRateLimiter
 import id.nearyou.app.image.ImageUploadService
 import id.nearyou.app.image.JdbcImageUploadRepository
+import id.nearyou.app.image.JdbcOrphanImageCleanupRepository
+import id.nearyou.app.image.OrphanImageCleanupWorker
 import id.nearyou.app.image.imageDeliveryUrls
 import id.nearyou.app.image.imageRoutes
+import id.nearyou.app.image.orphanImageCleanupRoutes
 import id.nearyou.app.infra.cloudflareimages.CloudflareImagesConfig
 import id.nearyou.app.infra.cloudflareimages.imageStore
 import id.nearyou.app.infra.cloudvision.imageModerator
@@ -1082,15 +1085,24 @@ fun Application.module() {
     // premium-image-upload-pipeline — fail-soft infra (Vision + Cloudflare Images return
     // NoOp when their secret slots are unset; the endpoint then 503s and the feature stays
     // dark behind the default-FALSE image_upload_enabled flag). Delivery base is env-derived.
+    // Shared store instance: the upload service and the orphan-cleanup worker
+    // must agree on isConfigured() (fail-soft NoOp when credentials are absent).
+    val cloudflareImageStore = imageStore(cloudflareImagesConfig)
     val imageUploadService =
         ImageUploadService(
             repository = imageUploadRepository,
             flagGate = ImageUploadFlagGate(redisStringCache, remoteConfig),
             rateLimiter = ImageUploadRateLimiter(rateLimiter),
             moderator = imageModerator(secrets.resolve("gcp-vision-sa")),
-            store = imageStore(cloudflareImagesConfig),
+            store = cloudflareImageStore,
             remoteConfig = remoteConfig,
             dbDispatcher = dbDispatchers.db,
+        )
+    // orphan-image-cleanup — daily Cloud-Scheduler sweep of uploaded-but-never-attached images.
+    val orphanImageCleanupWorker =
+        OrphanImageCleanupWorker(
+            repository = JdbcOrphanImageCleanupRepository(dataSource, dbDispatchers.db),
+            imageStore = cloudflareImageStore,
         )
     val usernameChangeService =
         UsernameChangeService(
@@ -1350,6 +1362,7 @@ fun Application.module() {
             csamArchivePurgeRoute(csamDetectionService, oidcTokenVerifier)
             dataExportWorkerRoute(dataExportWorker, oidcTokenVerifier)
             retentionCleanupRoutes(retentionCleanupWorker, oidcTokenVerifier)
+            orphanImageCleanupRoutes(orphanImageCleanupWorker, oidcTokenVerifier)
             loginAnomalyCheckRoutes(loginAnomalyDetectionService, oidcTokenVerifier)
         }
     }

@@ -86,6 +86,8 @@ private class FakeStore(val configured: Boolean = true, val throws: Boolean = fa
         fileName: String,
     ): StoredImage =
         if (throws) throw RuntimeException("cf boom") else StoredImage("img-1", "https://img-staging.nearyou.id/hash/img-1/public")
+
+    override suspend fun delete(imageId: String) = Unit
 }
 
 private class FakeRepo : ImageUploadRepository {
