@@ -15,5 +15,5 @@
 
 - [x] 3.1 `openspec validate consent-rootrouter-regate --strict` passes.
 - [x] 3.2 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`.
-- [ ] 3.3 Manual verify (UI-affecting, docs/11 §5 DoD): on the emulator, sign in → force-quit at `ConsentScreen` → relaunch → assert the consent screen re-appears; complete it → relaunch → assert Home. Screenshot evidence in the PR body.
-- [ ] 3.4 PR body carries `Closes #199`; title/body current at each phase boundary.
+- [x] 3.3 Manual verify (UI-affecting, docs/11 §5 DoD): on the emulator, sign in → force-quit at `ConsentScreen` → relaunch → assert the consent screen re-appears; complete it → relaunch → assert Home. Screenshot evidence in the PR body.
+- [x] 3.4 PR body carries `Closes #199`; title/body current at each phase boundary.
