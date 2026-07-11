@@ -26,7 +26,8 @@ private val JSON_HEADERS = headersOf("Content-Type", "application/json")
 // and @SerialName snake_case city_name / liked_by_viewer / reply_count (verified vs SinglePostRoutes.kt).
 private const val MIXED_CASE_BODY =
     """{"id":"p1","authorUsername":"budi","authorDisplayName":"Budi","content":"halo dunia",""" +
-        """"createdAt":"2026-05-31T10:00:00Z","city_name":"Jakarta","liked_by_viewer":true,"reply_count":5}"""
+        """"createdAt":"2026-05-31T10:00:00Z","city_name":"Jakarta","liked_by_viewer":true,"reply_count":5,""" +
+        """"imageUrl":"https://img.example.test/p1.jpg"}"""
 
 // The WRONG shape: the three snake fields written as bare camelCase keys. With @SerialName snake the
 // camelCase keys are ignored (ignoreUnknownKeys) and the required snake keys are absent → the parse fails.
@@ -82,6 +83,8 @@ class SinglePostApiClientTest {
             assertEquals("Jakarta", post.cityName)
             assertTrue(post.likedByViewer)
             assertEquals(5, post.replyCount)
+            // #388: the bare-camelCase imageUrl binds (omitted for text-only → the null default).
+            assertEquals("https://img.example.test/p1.jpg", post.imageUrl)
         }
 
     @Test

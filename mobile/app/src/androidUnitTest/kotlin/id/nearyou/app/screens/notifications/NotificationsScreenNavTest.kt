@@ -63,6 +63,7 @@ class NotificationsScreenNavTest {
                 createdAtIso = "2026-05-31T10:00:00Z",
                 likedByViewer = true,
                 replyCount = 5,
+                imageUrl = null,
             ),
         partnerResolution: PartnerResolution = PartnerResolution.Resolved("budi", "Budi"),
     ) {

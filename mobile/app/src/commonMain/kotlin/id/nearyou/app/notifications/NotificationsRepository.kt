@@ -124,6 +124,7 @@ class NotificationsRepository(
                     createdAtIso = result.post.createdAt,
                     likedByViewer = result.post.likedByViewer,
                     replyCount = result.post.replyCount,
+                    imageUrl = result.post.imageUrl,
                 )
             SinglePostFullResult.Unavailable -> {
                 // Type only — never the post id / body / any PII.
