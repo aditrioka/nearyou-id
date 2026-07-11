@@ -398,6 +398,11 @@ tasks.named("check") {
 // (e.g. PostCreationSourceGuardTest, CreatePostFlowKoinResolutionTest, GlobalTimelineKoinResolutionTest,
 // FollowingTimelineKoinResolutionTest, NotificationsScreenNavFreeScanTest) still run in every variant.
 tasks.withType<Test>().configureEach {
+    // The Robolectric+Compose screen-test suite outgrew Gradle's 512m default test heap: late-suite
+    // tests OOM intermittently (whichever test is running when the heap fills — observed on
+    // NearYouLoaderTest and GlobalTimelineScreenTest), with the worker sometimes wedging instead of
+    // failing. One shared JVM per variant run needs headroom for the whole suite.
+    maxHeapSize = "2g"
     if (name.contains("Release")) {
         exclude(
             "**/AppealScreenTest*",

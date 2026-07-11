@@ -189,7 +189,8 @@ class FollowingTimelineViewModelTest {
     @Test
     fun networkErrorLike_revertsSilently() {
         val fake = FakeFollowingTimelineFlow(loadedWith(fakeFollowingPost(id = "p1", likedByViewer = false)))
-        val viewModel = FollowingTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError), FakeReportSubmitter(), FakeSelfUserId("self"))
+        val viewModel =
+            FollowingTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError), FakeReportSubmitter(), FakeSelfUserId("self"))
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 

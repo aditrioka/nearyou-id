@@ -43,12 +43,12 @@ import id.nearyou.resources.generated.resources.ic_post_reply
 import id.nearyou.resources.generated.resources.post_card_action_like
 import id.nearyou.resources.generated.resources.post_card_action_reply
 import id.nearyou.resources.generated.resources.post_card_handle
-import id.nearyou.resources.generated.resources.profile_actions_menu_description
-import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.generated.resources.post_card_like_state_liked
 import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
 import id.nearyou.resources.generated.resources.post_card_meta_separator
 import id.nearyou.resources.generated.resources.post_image_alt
+import id.nearyou.resources.generated.resources.profile_actions_menu_description
+import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource

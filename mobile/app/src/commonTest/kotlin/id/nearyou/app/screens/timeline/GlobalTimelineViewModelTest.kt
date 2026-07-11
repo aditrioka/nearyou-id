@@ -307,6 +307,24 @@ class GlobalTimelineViewModelTest {
         assertTrue(fake.loadMoreCalls.isEmpty(), "load-more is suppressed while a refresh is in flight (canLoadMore gate)")
     }
 
+    // timeline-card-report-kebab: the authorship gate is FAIL-CLOSED — no kebab action while the self
+    // id is unresolved, for a post gone from the loaded set, or for the viewer's own post; only a
+    // resolved-self + other-author post yields an action (spec § "The viewer's own post exposes no
+    // report entry point").
+    @Test
+    fun reportActionFor_isFailClosed_andYieldsAnActionOnlyForAnotherAuthorsLoadedPost() {
+        val fake = FakeGlobalTimelineFlow(loadedWith(fakeGlobalPost(id = "p1", authorUserId = "other")))
+        val viewModel = GlobalTimelineViewModel(fake, FakeLikeFlow(), FakeReportSubmitter(), FakeSelfUserId("self"))
+
+        assertNull(viewModel.reportActionFor("p1", selfUserId = null), "unresolved self id → no action (fail-closed)")
+        assertNull(viewModel.reportActionFor("gone", selfUserId = "self"), "post not in the loaded set → no action")
+        assertNull(viewModel.reportActionFor("p1", selfUserId = "other"), "own post → no action")
+        val action = viewModel.reportActionFor("p1", selfUserId = "self")
+        assertTrue(action != null, "another author's loaded post → an action")
+        action.invoke()
+        assertEquals("p1", viewModel.reportingPostId.value, "the action opens the dialog targeting the tapped post")
+    }
+
     // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects
     // the projected state in these synchronous tests; the collector is abandoned at test end (no runTest).
     private fun GlobalTimelineViewModel.activateUiState() {

@@ -186,7 +186,14 @@ class NearbyTimelineViewModelTest {
     @Test
     fun postGoneLike_reverts_andSelfHealsViaReload() {
         val fake = FakeNearbyTimelineFlow(loadedWith(fakeNearbyPost(id = "p1", likedByViewer = false)))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.PostGone), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel =
+            NearbyTimelineViewModel(
+                fake,
+                FakeLikeFlow(LikeOutcome.PostGone),
+                FakeProfileFlow(),
+                FakeSelfUserId("self"),
+                FakeReportSubmitter(),
+            )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 
@@ -197,7 +204,14 @@ class NearbyTimelineViewModelTest {
     @Test
     fun networkErrorLike_revertsSilently() {
         val fake = FakeNearbyTimelineFlow(loadedWith(fakeNearbyPost(id = "p1", likedByViewer = false)))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(LikeOutcome.NetworkError), FakeProfileFlow(), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel =
+            NearbyTimelineViewModel(
+                fake,
+                FakeLikeFlow(LikeOutcome.NetworkError),
+                FakeProfileFlow(),
+                FakeSelfUserId("self"),
+                FakeReportSubmitter(),
+            )
 
         viewModel.toggleLike("p1", currentlyLiked = false)
 
@@ -358,7 +372,8 @@ class NearbyTimelineViewModelTest {
     fun selectRadius_gracePeriodViewer_isTreatedAsFree_snapsBack() {
         // Decision 6: a premium_billing_retry viewer reads as is_premium=false → client-conservative.
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        val viewModel = NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(isPremium = false), FakeSelfUserId("self"), FakeReportSubmitter())
+        val viewModel =
+            NearbyTimelineViewModel(fake, FakeLikeFlow(), premiumProfile(isPremium = false), FakeSelfUserId("self"), FakeReportSubmitter())
         viewModel.selectRadius(50_000)
         assertEquals(20_000, viewModel.selectedRadiusM.value, "a grace-period (is_premium=false) viewer is snapped back")
         assertTrue(viewModel.radiusUpsell.value, "and shown the upsell, despite the server permitting a wider radius")

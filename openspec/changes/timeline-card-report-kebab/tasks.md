@@ -13,14 +13,14 @@
 
 ## 3. Feed wiring (×3)
 
-- [x] 3.1 `NearbyTimelineViewModel` / `GlobalTimelineViewModel` / `FollowingTimelineViewModel`: inject `ReportSubmitter` (+ `SelfUserIdProvider` where missing), hold a `TimelineReportController`, resolve `selfUserId` once on init, expose `reportActionFor(post): (() -> Unit)?` gated on `authorUserIdForPost(post.id) != selfUserId` with null/unresolved self id → null (fail-closed) (D4)
+- [x] 3.1 `NearbyTimelineViewModel` / `GlobalTimelineViewModel` / `FollowingTimelineViewModel`: inject `ReportSubmitter` (+ `SelfUserIdProvider` where missing), hold a `TimelineReportController`, resolve `selfUserId` once on init, expose `reportActionFor(postId, selfUserId): (() -> Unit)?` (the screen passes the collected self-id state back so kebabs recompose when it resolves) gated on `authorUserIdForPost(post.id) != selfUserId` with null/unresolved self id → null (fail-closed) (D4)
 - [x] 3.2 The three feed screens: `koinInject` the new seams into the `viewModel { }` ctors, pass `reportActionOf` into `PostFeedList`, mount `TimelineReportOverlay` in the root `Box`
 
 ## 4. Tests
 
 - [x] 4.1 Controller unit test: open/dismiss one-shot, Submitted and Duplicate → the same SUCCESS, RateLimited, NetworkError, message clear
-- [x] 4.2 `PostCard` Robolectric test: kebab + "Laporkan" fire `onReport` only (not `onOpen`/`onOpenProfile`); `onReport = null` → no kebab node; four-vs-three clickable-node counts per the modified action-row scenario
-- [x] 4.3 Feed-level wiring test (one feed as representative): non-authored post shows the kebab → dialog → submit → success snackbar; own post shows no kebab
+- [x] 4.2 `PostCard` Robolectric test: kebab + "Laporkan" fire `onReport` only (not `onOpen`/`onOpenProfile`); `onReport = null` → no kebab node; five-vs-four clickable-node counts per the modified action-row scenario
+- [x] 4.3 Feed-level wiring test (one feed as representative): non-authored post shows the kebab → the "Laporkan" menu entry; own post shows no kebab. (Amended mid-gate: the dialog body is NOT opened over the LazyColumn feed — the documented Robolectric never-settling measure pass, PostDetailScreenTest precedent, manifested as a 60s hang/OOM; dialog-open + submit + outcome mapping are locked in TimelineReportControllerTest, the dialog body in ReportDialogTest)
 - [x] 4.4 Add any new `*ScreenTest`-shaped tests to the Release-variant exclude list; `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` green
 
 ## 5. Gates + delivery
