@@ -1298,6 +1298,7 @@ fun Application.module() {
         notificationEmitter,
         notificationDispatcher,
         InMemoryDedup(),
+        dbDispatchers.db,
     )
     revenueCatWebhookRoutes(subscriptionService, secrets, ktorEnv)
 

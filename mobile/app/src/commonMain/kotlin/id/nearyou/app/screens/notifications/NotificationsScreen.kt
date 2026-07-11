@@ -367,7 +367,7 @@ private fun NotificationRowItem(
  * now-emitted types (follow-up #343: `privacy_flip_warning` / `subscription_billing_issue` /
  * `subscription_expired` / `chat_message_redacted` / `account_action_applied` / `data_export_ready`)
  * and `apple_relay_email_changed` (follow-up #433, the Apple S2S email-relay writer)
- * get specific copy; the still-unemitted reserved `NotificationType` values AND any unknown/future
+ * get specific copy; the still-unemitted reserved value (`username_release_scheduled`) AND any unknown/future
  * `type` fall back to the generic copy (no crash). `privacy_flip_warning` renders the flip deadline
  * date ([NotificationRow.flipDeadlineDate]) into its copy, degrading to the dateless `_soon` variant
  * when `body_data` carries no parseable deadline. These are wire-protocol keys matched against
