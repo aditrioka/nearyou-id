@@ -10,22 +10,23 @@ import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.post.ContentModeratedProfanityException
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationDispatcher
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.PostReplyRepository
 import id.nearyou.data.repository.PostReplyRow
 import id.nearyou.data.repository.ReportTargetType
+import java.time.Instant
+import java.util.UUID
+import javax.sql.DataSource
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
-import java.time.Instant
-import java.util.UUID
-import javax.sql.DataSource
-import kotlin.coroutines.coroutineContext
 
 /**
  * Reply lifecycle: rate-limit gate / create / list / soft-delete.
@@ -298,9 +299,6 @@ class ReplyService(
          * user posting >1000 replies/day; 10x headroom above that for ops dial.
          */
         private const val MAX_OVERRIDE_CAP: Long = 10_000L
-
-        /** Subscription statuses that skip the daily limiter entirely. */
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         private val log = LoggerFactory.getLogger(ReplyService::class.java)
 

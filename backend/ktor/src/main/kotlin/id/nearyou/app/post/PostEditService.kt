@@ -8,17 +8,18 @@ import id.nearyou.app.moderation.Layer3Moderator
 import id.nearyou.app.moderation.TargetType
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.ReportTargetType
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.slf4j.LoggerFactory
 import java.sql.SQLException
 import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 
 /**
  * Premium post-editing orchestration (the `premium-post-editing` capability;
@@ -278,11 +279,6 @@ class PostEditService(
 
         /** Anti-typo upper-bound clamp for the override flag (mirrors ReplyService). */
         private const val MAX_OVERRIDE_CAP: Long = 10_000L
-
-        // Mirrors CreatePostService.PREMIUM_STATES — the premium-gate value set is
-        // duplicated per service (there is NO shared constant today; design D2). A
-        // DRY refactor is deliberately out of scope.
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         private val log = LoggerFactory.getLogger(PostEditService::class.java)
     }

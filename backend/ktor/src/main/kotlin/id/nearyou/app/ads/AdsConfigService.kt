@@ -1,6 +1,7 @@
 package id.nearyou.app.ads
 
 import id.nearyou.app.config.RemoteConfig
+import id.nearyou.app.subscription.PREMIUM_STATES
 
 /**
  * The resolved, per-viewer ad-serving configuration the `GET /api/v1/config/ads` route returns.
@@ -57,9 +58,6 @@ class AdsConfigService(
     }
 
     companion object {
-        /** Effective-Premium ACCESS statuses (grace retains access — mirrors PostEditService/CreatePostService). */
-        private val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
-
         const val TIMELINE_FREQUENCY_FLAG_KEY: String = "ads_timeline_frequency"
         const val DEFAULT_TIMELINE_FREQUENCY: Int = 6
         const val MIN_TIMELINE_FREQUENCY: Int = 5

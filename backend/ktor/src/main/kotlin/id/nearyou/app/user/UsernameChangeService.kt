@@ -8,21 +8,22 @@ import id.nearyou.app.infra.repo.UserRepository
 import id.nearyou.app.moderation.TextModerator
 import id.nearyou.app.moderation.Verdict
 import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.ModerationQueueRepository
 import id.nearyou.data.repository.NotificationType
 import id.nearyou.data.repository.ReportTargetType
 import id.nearyou.data.repository.UsernameFlagOverrideRepository
+import java.sql.SQLException
+import java.time.Duration
+import java.time.Instant
+import java.util.UUID
+import javax.sql.DataSource
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
-import java.sql.SQLException
-import java.time.Duration
-import java.time.Instant
-import java.util.UUID
-import javax.sql.DataSource
 
 /**
  * Premium username customization (docs/02 § Premium Username Customization;
@@ -322,9 +323,6 @@ class UsernameChangeService(
         const val MAX_LENGTH: Int = 30
         val COOLDOWN: Duration = Duration.ofDays(30)
         private const val UNIQUE_VIOLATION_SQLSTATE = "23505"
-
-        /** Premium states allowed to customize — mirrors `SearchService.PREMIUM_STATES`. */
-        internal val PREMIUM_STATES = setOf("premium_active", "premium_billing_retry")
 
         /** Lowercase alphanumerics; dots and underscores middle-only. No-consecutive-dots is a separate guard. */
         val USERNAME_REGEX = Regex("^[a-z0-9][a-z0-9_.]*[a-z0-9_]$")
