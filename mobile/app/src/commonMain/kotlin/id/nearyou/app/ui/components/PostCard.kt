@@ -8,12 +8,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import id.nearyou.distance.DistanceRenderer
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.ic_more_vert
 import id.nearyou.resources.generated.resources.ic_post_like
 import id.nearyou.resources.generated.resources.ic_post_like_filled
 import id.nearyou.resources.generated.resources.ic_post_location
@@ -39,6 +47,8 @@ import id.nearyou.resources.generated.resources.post_card_like_state_liked
 import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
 import id.nearyou.resources.generated.resources.post_card_meta_separator
 import id.nearyou.resources.generated.resources.post_image_alt
+import id.nearyou.resources.generated.resources.profile_actions_menu_description
+import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -67,6 +77,13 @@ const val POST_CARD_REPLY_ACTION_TAG: String = "postCardReplyAction"
 /** Test tag on the attached-image node (`image-attached-posts`) — present only when `imageUrl != null`,
  *  so a test can assert the image renders when supplied and is absent when null. */
 const val POST_CARD_IMAGE_TAG: String = "postCardImage"
+
+/** Test tag on the overflow kebab (`timeline-card-report-kebab`) — present only when `onReport != null`,
+ *  so a test can assert the kebab renders with a report action and is absent without one. */
+const val POST_CARD_KEBAB_TAG: String = "postCardKebab"
+
+/** Test tag on the kebab menu's "Laporkan" item (`timeline-card-report-kebab`). */
+const val POST_CARD_REPORT_ITEM_TAG: String = "postCardReportItem"
 
 /**
  * The display-only model the shared post card renders (`mobile-post-card` capability). Carries
@@ -113,8 +130,11 @@ data class PostCardModel(
  *   hook — `mobile-post-card` § "Send-message card action is deferred", issue #238).
  *
  * The whole card opens the detail ([onOpen]); the identity header (avatar + name + handle) opens the
- * author's profile ([onOpenProfile], `mobile-profile`); the two action-row affordances are the other tap
- * targets — activating any of these does NOT fire [onOpen]. The card stays presentation-only: all
+ * author's profile ([onOpenProfile], `mobile-profile`); the two action-row affordances — plus the
+ * optional overflow kebab (timeline-card-report-kebab: rendered iff [onReport] is non-null, a
+ * `DropdownMenu` with the single "Laporkan" item; hosts supply the action only for non-authored feed
+ * posts) — are the other tap targets; activating any of these does NOT fire [onOpen]. The card stays
+ * presentation-only: all
  * callbacks are hoisted; it holds no like state machine, no navigation reference, and no author UUID (the
  * host binds the profile target id by closure). Hosts pass their `testTag` via [modifier]. Built from
  * `NearYouTheme` tokens only; renders identically under light/dark.
@@ -127,71 +147,46 @@ fun PostCard(
     onReplyShortcut: () -> Unit,
     onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
+    onReport: (() -> Unit)? = null,
 ) {
     OutlinedCard(
         onClick = onOpen,
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            // The identity header (avatar + name + handle) is a separate tap target → the author's
-            // profile (mobile-profile). The inner clickable consumes the tap, so onOpenProfile fires
-            // and the whole-card onOpen does NOT. The card still holds no author UUID — the host binds
-            // the target id by closure.
+            // The header row: the identity tap target (weight 1f) + the optional trailing overflow kebab
+            // (timeline-card-report-kebab — mockup frame 1 `.post .head .more`). The kebab sits OUTSIDE
+            // the identity clickable so activating it fires neither onOpenProfile nor the card onOpen.
             Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.small)
-                        .clickable(onClick = onOpenProfile)
-                        .testTag(POST_CARD_IDENTITY_TAG)
-                        .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LetterAvatar(
-                    displayName = model.authorDisplayName,
-                    username = model.authorUsername,
-                    modifier = Modifier.testTag(POST_CARD_AVATAR_TAG),
-                )
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = model.authorDisplayName,
-                        // Mockup frames 1/19: the display name is BOLD (700) — titleSmall's M3
-                        // default weight (500) reads too light next to the handle line.
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                // The identity header (avatar + name + handle) is a separate tap target → the author's
+                // profile (mobile-profile). The inner clickable consumes the tap, so onOpenProfile fires
+                // and the whole-card onOpen does NOT. The card still holds no author UUID — the host binds
+                // the target id by closure.
+                Row(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable(onClick = onOpenProfile)
+                            .testTag(POST_CARD_IDENTITY_TAG)
+                            .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    LetterAvatar(
+                        displayName = model.authorDisplayName,
+                        username = model.authorUsername,
+                        modifier = Modifier.testTag(POST_CARD_AVATAR_TAG),
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(Res.string.post_card_handle, model.authorUsername),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            // fill = false: a long handle ellipsizes instead of pushing the
-                            // separator + time label out of the header (maximal-length scenario).
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        Text(
-                            text = stringResource(Res.string.post_card_meta_separator),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            // The post date (ISO date portion); relative formatting is the
-                            // deferred mobile-timeline-relative-timestamp change.
-                            text = postDateLabel(model.createdAt),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
+                    IdentityText(model)
+                }
+                // Rendered ONLY when the host supplies a report action (non-authored feed posts) — a
+                // kebab with zero eligible items would be a dead control (no icon node, no placeholder).
+                if (onReport != null) {
+                    PostCardKebab(onReport = onReport)
                 }
             }
             Text(
@@ -342,6 +337,84 @@ fun PostCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/** The identity header's text block: bold display name over the @handle · date meta line. */
+@Composable
+private fun IdentityText(model: PostCardModel) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = model.authorDisplayName,
+            // Mockup frames 1/19: the display name is BOLD (700) — titleSmall's M3
+            // default weight (500) reads too light next to the handle line.
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.post_card_handle, model.authorUsername),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // fill = false: a long handle ellipsizes instead of pushing the
+                // separator + time label out of the header (maximal-length scenario).
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(
+                text = stringResource(Res.string.post_card_meta_separator),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                // The post date (ISO date portion); relative formatting is the
+                // deferred mobile-timeline-relative-timestamp change.
+                text = postDateLabel(model.createdAt),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** The overflow kebab trailing the identity header (timeline-card-report-kebab — mockup frame 1
+ *  `.post .head .more`: 20dp `more_vert` glyph, muted `onSurfaceVariant`; the M3 [IconButton] owns the
+ *  ≥48dp touch target). Its menu carries the single "Laporkan" item invoking [onReport]; the mockup's
+ *  always-present kebab renders here only when a report action applies (see the spec's null-gated
+ *  divergence note). */
+@Composable
+private fun PostCardKebab(onReport: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.testTag(POST_CARD_KEBAB_TAG),
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_more_vert),
+                contentDescription = stringResource(Res.string.profile_actions_menu_description),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.profile_report_action)) },
+                onClick = {
+                    expanded = false
+                    onReport()
+                },
+                modifier = Modifier.testTag(POST_CARD_REPORT_ITEM_TAG),
+            )
         }
     }
 }

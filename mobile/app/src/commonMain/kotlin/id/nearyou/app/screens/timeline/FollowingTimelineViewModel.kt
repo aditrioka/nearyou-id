@@ -2,13 +2,18 @@ package id.nearyou.app.screens.timeline
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.timeline.FollowingPostDto
 import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.ui.timeline.InlineLikeController
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
+import id.nearyou.app.ui.timeline.TimelineReportController
+import id.nearyou.app.ui.timeline.TimelineReportMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +46,8 @@ import kotlin.coroutines.cancellation.CancellationException
 class FollowingTimelineViewModel(
     private val flow: FollowingTimelineFlow,
     likeFlow: LikeFlow,
+    reportSubmitter: ReportSubmitter,
+    private val selfUserIdProvider: SelfUserIdProvider,
 ) : ViewModel() {
     private val _outcome = MutableStateFlow<FollowingTimelineOutcome?>(null)
     val outcome: StateFlow<FollowingTimelineOutcome?> = _outcome.asStateFlow()
@@ -111,9 +118,53 @@ class FollowingTimelineViewModel(
     /** True after a failed load-more — drives the non-destructive retry footer (loaded list retained). */
     val loadMoreError: StateFlow<Boolean> = loadMoreController.loadMoreError
 
+    // timeline-card-report-kebab: the per-surface instance of the ONE shared report lifecycle
+    // (ui/timeline/TimelineReportController) over the shared ReportSubmitter seam (target_type=post).
+    private val reportController = TimelineReportController(reportSubmitter, viewModelScope)
+
+    /** Non-null while the report dialog should be shown (one-shot, docs/11 § 2.2). */
+    val reportingPostId: StateFlow<String?> = reportController.reportingPostId
+
+    /** The one-shot report-result message (anti-enumeration mapping in the shared controller). */
+    val reportMessage: StateFlow<TimelineReportMessage?> = reportController.reportMessage
+
+    // The viewer's own user id, resolved once on entry — the report kebab's authorship gate. Null until
+    // resolved (or unresolvable) → NO kebab (fail-closed: never offer reporting we can't gate). A
+    // Following feed can't contain the viewer's own posts (no self-follow), but the uniform gate keeps
+    // the three feeds one shape.
+    private val _selfUserId = MutableStateFlow<String?>(null)
+    val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
+
     init {
         load(initial = true)
+        viewModelScope.launch { _selfUserId.value = selfUserIdProvider.selfUserId() }
     }
+
+    /** The card kebab's report action for [postId], or null when ineligible: the self id is unresolved
+     *  (fail-closed), the post left the loaded set, or the viewer authored it. [selfUserId] is passed
+     *  back by the screen (collected compose state) so resolving it recomposes the cards. The authorship
+     *  comparison runs on the RAW DTO's `authorUserId` — the PII-free card model stays UUID-free. */
+    fun reportActionFor(
+        postId: String,
+        selfUserId: String?,
+    ): (() -> Unit)? {
+        if (selfUserId == null) return null
+        val authorUserId = authorUserIdForPost(postId) ?: return null
+        if (authorUserId == selfUserId) return null
+        return { reportController.onReportClicked(postId) }
+    }
+
+    /** Dismiss the report dialog without submitting. */
+    fun onReportDialogDismissed() = reportController.onDialogDismissed()
+
+    /** Submit the report for the currently-targeted post (dialog closes immediately). */
+    fun onReportSubmitted(
+        category: ReportReasonCategory,
+        note: String?,
+    ) = reportController.onSubmitted(category, note)
+
+    /** Clears the one-shot report message after the screen has shown it. */
+    fun onReportMessageShown() = reportController.onMessageShown()
 
     /** Scroll-end trigger from the screen — appends the next page (no-op during initial/refresh or at end). */
     fun onLoadMore() = loadMoreController.loadMore()

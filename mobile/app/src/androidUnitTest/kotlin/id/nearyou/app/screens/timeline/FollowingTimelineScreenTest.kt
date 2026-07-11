@@ -10,8 +10,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeFollowingTimelineFlow
@@ -89,6 +92,9 @@ class FollowingTimelineScreenTest {
                 module {
                     single<FollowingTimelineFlow> { fake }
                     single<LikeFlow> { likeFake }
+                    // timeline-card-report-kebab: the report seam + the self id for the kebab gate.
+                    single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<SelfUserIdProvider> { FakeSelfUserId("self") }
                 },
             )
         }

@@ -12,6 +12,8 @@ import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.auth.SignUpOutcome
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -77,6 +79,8 @@ class RootRouterScreenTest {
                     // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes.
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }
                     single<LikeFlow> { FakeLikeFlow() }
+                    // timeline-card-report-kebab: the feed screens koinInject the report seam.
+                    single<ReportSubmitter> { FakeReportSubmitter() }
                     // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
                     single<ProfileFlow> { FakeProfileFlow() }
                     single<SelfUserIdProvider> { FakeSelfUserId() }

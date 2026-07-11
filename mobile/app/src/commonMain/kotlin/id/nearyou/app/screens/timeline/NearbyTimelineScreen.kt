@@ -31,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.ReportReasonCategory
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGateUiState
 import id.nearyou.app.location.LocationPermissionController
@@ -46,6 +48,8 @@ import id.nearyou.app.ui.components.ListScrollableState
 import id.nearyou.app.ui.components.PostCardModel
 import id.nearyou.app.ui.components.PostFeedList
 import id.nearyou.app.ui.components.RadiusPremiumUpsellDialog
+import id.nearyou.app.ui.timeline.TimelineReportMessage
+import id.nearyou.app.ui.timeline.TimelineReportOverlay
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.location_open_settings
@@ -75,6 +79,9 @@ const val NEARBY_POST_CARD_TAG: String = "nearbyPostCard"
 
 /** Test tag on the radius slider (mobile-nearby-radius-slider) — lets the screen test drag/assert it. */
 const val NEARBY_RADIUS_SLIDER_TAG: String = "nearbyRadiusSlider"
+
+/** Test tag on the timeline report dialog (timeline-card-report-kebab). */
+const val NEARBY_REPORT_DIALOG_TAG: String = "nearbyReportDialog"
 
 /**
  * The first product surface — the authenticated Nearby feed, gated on a granted location permission
@@ -187,7 +194,11 @@ private fun NearbyFeed(
     // ProfileFlow + SelfUserIdProvider UsernameCustomizationViewModel uses for its isPremium resolution).
     val profileFlow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
-    val viewModel = viewModel { NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider) }
+    // timeline-card-report-kebab: the shared report seam (the SAME ReportSubmitter singleton the
+    // profile/post-detail/chat surfaces use).
+    val reportSubmitter = koinInject<ReportSubmitter>()
+    val viewModel =
+        viewModel { NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider, reportSubmitter) }
     // The single screen state — the nearbyTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -199,6 +210,11 @@ private fun NearbyFeed(
     // both the snap-back re-sync (in the selector) and the Premium upsell dialog (below).
     val selectedRadiusM by viewModel.selectedRadiusM.collectAsStateWithLifecycle()
     val radiusUpsell by viewModel.radiusUpsell.collectAsStateWithLifecycle()
+    // timeline-card-report-kebab: the collected self id feeds reportActionFor so the kebabs appear once
+    // the id resolves (compose-state read → the cards recompose); the dialog/message one-shots below.
+    val selfUserId by viewModel.selfUserId.collectAsStateWithLifecycle()
+    val reportingPostId by viewModel.reportingPostId.collectAsStateWithLifecycle()
+    val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize()) {
         // The 4-position radius control above the feed (Premium-gated). Free sliding bounces back to 20 km
@@ -236,6 +252,14 @@ private fun NearbyFeed(
                 // Identity tap → author profile: resolve the author UUID from the VM's raw DTO outcome (never on
                 // the PII-free card model) and hand it to the hoisted onOpenProfile (mobile-profile).
                 onOpenProfile = { post -> viewModel.authorUserIdForPost(post.id)?.let(onOpenProfile) },
+                // timeline-card-report-kebab: the per-item kebab action (null = own post / unresolved self
+                // id → no kebab) + the dialog/message one-shot wiring for the shared overlay.
+                reportActionOf = { post -> viewModel.reportActionFor(post.id, selfUserId) },
+                reportingPostId = reportingPostId,
+                reportMessage = reportMessage,
+                onReportSubmit = viewModel::onReportSubmitted,
+                onReportDismiss = viewModel::onReportDialogDismissed,
+                onReportMessageShown = viewModel::onReportMessageShown,
             )
         }
     }
@@ -384,6 +408,12 @@ private fun NearbyTimelineContent(
     onToggleLike: (NearbyTimelinePost) -> Unit,
     onReplyShortcut: (NearbyTimelinePost) -> Unit,
     onOpenProfile: (NearbyTimelinePost) -> Unit,
+    reportActionOf: (NearbyTimelinePost) -> (() -> Unit)?,
+    reportingPostId: String?,
+    reportMessage: TimelineReportMessage?,
+    onReportSubmit: (ReportReasonCategory, String?) -> Unit,
+    onReportDismiss: () -> Unit,
+    onReportMessageShown: () -> Unit,
 ) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -431,6 +461,7 @@ private fun NearbyTimelineContent(
                     cardTag = NEARBY_POST_CARD_TAG,
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
+                    reportActionOf = reportActionOf,
                 )
             is NearbyTimelineUiState.SoftLimit ->
                 PostFeedList(
@@ -450,8 +481,21 @@ private fun NearbyTimelineContent(
                     banner = stringResource(Res.string.timeline_limit_soft),
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
+                    reportActionOf = reportActionOf,
                 )
         }
+        // timeline-card-report-kebab: the shared report dialog + one-shot result snackbar
+        // (ui/timeline/TimelineReportOverlay, design D5) — mounted once inside the PullToRefreshBox
+        // (a BoxScope) so the snackbar bottom-aligns over the feed.
+        TimelineReportOverlay(
+            reportingPostId = reportingPostId,
+            reportMessage = reportMessage,
+            onSubmit = onReportSubmit,
+            onDismiss = onReportDismiss,
+            onMessageShown = onReportMessageShown,
+            dialogTestTag = NEARBY_REPORT_DIALOG_TAG,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 

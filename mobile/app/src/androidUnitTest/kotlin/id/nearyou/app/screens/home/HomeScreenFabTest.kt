@@ -13,6 +13,8 @@ import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.data.like.FakeLikeFlow
 import id.nearyou.app.data.like.LikeFlow
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.image.FakeImagePicker
 import id.nearyou.app.image.FakeImageUploadRepository
 import id.nearyou.app.image.ImagePicker
@@ -78,6 +80,7 @@ class HomeScreenFabTest {
                     // HomeScreen hosts NearbyTimelineScreen (needs the Nearby flow + a GRANTED gate)…
                     single<NearbyTimelineFlow> { nearbyFake }
                     single<LikeFlow> { FakeLikeFlow() }
+                    single<ReportSubmitter> { FakeReportSubmitter() }
                     // mobile-nearby-radius-slider: NearbyTimelineScreen now resolves the self-profile read.
                     single<ProfileFlow> { FakeProfileFlow() }
                     single<SelfUserIdProvider> { FakeSelfUserId() }

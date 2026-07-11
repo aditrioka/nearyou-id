@@ -75,6 +75,7 @@ class PostCardTest {
         onReplyShortcut: () -> Unit = {},
         onOpenProfile: () -> Unit = {},
         darkTheme: Boolean = false,
+        onReport: (() -> Unit)? = null,
     ) {
         NearYouTheme(darkTheme = darkTheme) {
             PostCard(
@@ -83,6 +84,7 @@ class PostCardTest {
                 onToggleLike = onToggleLike,
                 onReplyShortcut = onReplyShortcut,
                 onOpenProfile = onOpenProfile,
+                onReport = onReport,
             )
         }
     }
@@ -137,6 +139,46 @@ class PostCardTest {
             onNodeWithTag(POST_CARD_IDENTITY_TAG, useUnmergedTree = true).performClick()
             assertEquals(1, profile, "the identity tap fires onOpenProfile exactly once")
             assertEquals(0, opened, "the identity tap does NOT fire the whole-card onOpen")
+        }
+
+    @Test
+    fun noKebabRendersWhenTheReportActionIsAbsent() =
+        runComposeUiTest {
+            // timeline-card-report-kebab: onReport = null (the default) → no kebab icon node, no
+            // overflow menu — byte-identical affordance surface to the pre-kebab card.
+            setContent { Card(model = model()) }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).assertDoesNotExist()
+        }
+
+    @Test
+    fun suppliedReportAction_addsExactlyTheKebabAsAFifthClickTarget() =
+        runComposeUiTest {
+            // timeline-card-report-kebab: with a report action the interactive targets are exactly
+            // FIVE (menu closed) — card, identity header, like, reply, kebab.
+            setContent { Card(model = model(), onReport = {}) }
+            onAllNodes(hasClickAction()).assertCountEquals(5)
+            onNodeWithTag(POST_CARD_KEBAB_TAG).assertIsDisplayed()
+        }
+
+    @Test
+    fun kebabLaporkanFiresOnReport_withoutFiringOpenOrOpenProfile() =
+        runComposeUiTest {
+            var reported = 0
+            var opened = 0
+            var profile = 0
+            setContent {
+                Card(
+                    model = model(),
+                    onOpen = { opened++ },
+                    onOpenProfile = { profile++ },
+                    onReport = { reported++ },
+                )
+            }
+            onNodeWithTag(POST_CARD_KEBAB_TAG).performClick()
+            onNodeWithTag(POST_CARD_REPORT_ITEM_TAG).performClick()
+            assertEquals(1, reported, "the Laporkan item fires onReport exactly once")
+            assertEquals(0, opened, "the kebab flow does NOT fire the whole-card onOpen")
+            assertEquals(0, profile, "the kebab flow does NOT fire the identity onOpenProfile")
         }
 
     @Test

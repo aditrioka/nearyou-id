@@ -101,9 +101,15 @@ Both affordances SHALL be real interactive controls: click semantics with press 
 
 #### Scenario: Action row exposes exactly two click targets and routes them to the right callbacks
 
-- **GIVEN** a rendered card with recording `onOpen` / `onToggleLike` / `onReplyShortcut` callbacks
+- **GIVEN** a rendered card with `onReport = null` and recording `onOpen` / `onToggleLike` / `onReplyShortcut` callbacks
 - **WHEN** the semantics tree is inspected, then the like affordance is tapped, then the reply affordance is tapped
-- **THEN** the tree contains exactly three clickable nodes (the card itself, the like affordance, the reply affordance) AND the like tap fires `onToggleLike` exactly once with `onOpen` NOT fired AND the reply tap fires `onReplyShortcut` exactly once with `onOpen` NOT fired
+- **THEN** the tree contains exactly four clickable nodes (the card itself, the identity header — § "Whole-card tap opens the detail; the identity header opens the author's profile" — the like affordance, and the reply affordance; the prior "exactly three" wording predated the tappable identity header and is corrected here to match the shipped contract) AND the like tap fires `onToggleLike` exactly once with `onOpen` NOT fired AND the reply tap fires `onReplyShortcut` exactly once with `onOpen` NOT fired
+
+#### Scenario: A supplied report action adds exactly the kebab as a fifth click target
+
+- **GIVEN** a rendered card with a non-null `onReport` and recording callbacks
+- **WHEN** the semantics tree is inspected (menu closed)
+- **THEN** the interactive targets are exactly five: the card itself, the identity header, the like affordance, the reply affordance, and the overflow kebab (§ "Optional overflow kebab per mockup frame 1")
 
 #### Scenario: Liked state switches the like affordance treatment
 
@@ -142,7 +148,7 @@ The action row SHALL render exactly TWO affordances — reply and like. The send
 
 ### Requirement: Whole-card tap opens the detail; the identity header opens the author's profile
 
-The card SHALL invoke a hoisted `onOpen` callback when tapped anywhere on the card OUTSIDE the identity header and the two action-row affordances. The **identity header** (the letter avatar + display name + @handle region) SHALL be a separate tap target invoking a hoisted **`onOpenProfile: () -> Unit`** callback (parameterless at the card boundary — the card holds NO author UUID; the host binds the target user id by closure, per `mobile-nearby-timeline` / `mobile-global-timeline`). Activating the identity header MUST NOT also fire the whole-card `onOpen`. The action-row affordances (§ "Action row renders interactive reply and like affordances per mockup frame 1") remain the only other interactive sub-controls. The card itself SHALL NOT hold navigation references and SHALL NOT carry or render the author UUID; navigation wiring (resolving the author id and building `ProfileRoute`) stays with the host screens per their specs. This supersedes the prior "identity is not separately tappable (no profile screen exists yet — issue [#196](https://github.com/aditrioka/nearyou-id/issues/196))" posture now that the profile screen ships (`mobile-profile`).
+The card SHALL invoke a hoisted `onOpen` callback when tapped anywhere on the card OUTSIDE the identity header, the two action-row affordances, and the optional overflow kebab (§ "Optional overflow kebab per mockup frame 1"). The **identity header** (the letter avatar + display name + @handle region) SHALL be a separate tap target invoking a hoisted **`onOpenProfile: () -> Unit`** callback (parameterless at the card boundary — the card holds NO author UUID; the host binds the target user id by closure, per `mobile-nearby-timeline` / `mobile-global-timeline`). Activating the identity header MUST NOT also fire the whole-card `onOpen`. The action-row affordances (§ "Action row renders interactive reply and like affordances per mockup frame 1") and the optional overflow kebab remain the only other interactive sub-controls. The card itself SHALL NOT hold navigation references and SHALL NOT carry or render the author UUID; navigation wiring (resolving the author id and building `ProfileRoute`) stays with the host screens per their specs. This supersedes the prior "identity is not separately tappable (no profile screen exists yet — issue [#196](https://github.com/aditrioka/nearyou-id/issues/196))" posture now that the profile screen ships (`mobile-profile`).
 
 #### Scenario: Tapping the identity header fires onOpenProfile, not the whole-card open
 
@@ -156,8 +162,18 @@ The card SHALL invoke a hoisted `onOpen` callback when tapped anywhere on the ca
 - **WHEN** the test taps the card content region (outside the identity header and the action row)
 - **THEN** `onOpen` fires exactly once AND `onOpenProfile` / `onToggleLike` / `onReplyShortcut` do NOT fire
 
-#### Scenario: The card carries and renders no author UUID
+### Requirement: Optional overflow kebab per mockup frame 1
 
-- **WHEN** inspecting the card model/API and the rendered tree for a post authored by `author_user_id = "11111111-1111-1111-1111-111111111111"`
-- **THEN** the card model accepts no author-UUID field, no UI node contains the UUID, AND `onOpenProfile` is a parameterless callback (the host supplies the id)
+The card SHALL accept an optional hoisted report action (`onReport: (() -> Unit)? = null`). When non-null, the card SHALL render an overflow kebab (`more_vert`) trailing the identity header row — the mockup frame-1 `.post .head .more` placement (`dev/mockups/nearyou-screens-mockup.html`; 20dp glyph in a muted `onSurfaceVariant` treatment; the M3 `IconButton` owns the ≥48dp touch metrics) — opening a `DropdownMenu` whose single item "Laporkan" (resource `profile_report_action`) invokes `onReport`. When `onReport` is null the kebab SHALL NOT be rendered in any form (no icon node, no disabled placeholder) — a menu with zero items would be a dead control, so hosts supply the action only when at least one item applies (the mockup shows the kebab on every card; the null-gated absence on own posts / non-feed hosts is the deliberate, spec-recorded divergence until more menu items exist). The kebab SHALL be a separate tap target: activating it (or a menu item) MUST NOT fire the whole-card `onOpen` nor the identity header's `onOpenProfile`. Its `contentDescription` SHALL come via `stringResource`. The card stays presentation-only and PII-free: the callback is hoisted and parameterless, and NO author UUID is introduced on `PostCardModel`.
+
+#### Scenario: Kebab renders and routes when a report action is supplied
+
+- **GIVEN** a rendered card with a recording `onReport` (plus recording `onOpen` / `onOpenProfile`)
+- **WHEN** the kebab is tapped and the "Laporkan" menu item is selected
+- **THEN** `onReport` fires exactly once AND `onOpen` and `onOpenProfile` do NOT fire
+
+#### Scenario: No kebab when the action is absent
+
+- **WHEN** the card is rendered with `onReport = null` (the default)
+- **THEN** the tree contains no kebab icon node and no overflow menu — byte-identical affordance surface to the pre-kebab card
 
