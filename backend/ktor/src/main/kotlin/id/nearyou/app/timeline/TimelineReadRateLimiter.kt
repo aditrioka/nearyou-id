@@ -3,8 +3,6 @@ package id.nearyou.app.timeline
 import id.nearyou.app.auth.UserPrincipal
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.subscription.PREMIUM_STATES
-import java.time.Duration
-import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -12,6 +10,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import java.time.Duration
+import java.util.UUID
 
 /**
  * Per-user Layer 2 read-side rate limiter for the three authenticated timeline

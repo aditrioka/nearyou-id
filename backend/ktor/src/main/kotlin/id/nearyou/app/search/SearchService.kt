@@ -4,12 +4,12 @@ import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.subscription.PREMIUM_STATES
 import id.nearyou.data.repository.SearchHit
 import id.nearyou.data.repository.SearchRepository
-import java.text.Normalizer
-import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import java.text.Normalizer
+import java.util.UUID
 
 /**
  * Premium full-text + fuzzy search orchestrator. The HTTP layer wraps each
