@@ -8,6 +8,9 @@ import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.auth.provider.JwksCache
 import id.nearyou.app.common.AppJson
 import id.nearyou.app.infra.repo.UserRepository
+import id.nearyou.app.notifications.NotificationEmitter
+import id.nearyou.data.repository.NotificationDispatcher
+import id.nearyou.data.repository.NotificationType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.request.receive
@@ -16,9 +19,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import java.util.Collections
+import javax.sql.DataSource
 
 const val APPLE_S2S_DEDUP_CAPACITY = 2_000
 
@@ -75,6 +81,9 @@ fun Application.appleS2SRoutes(
     users: UserRepository,
     deletionRepo: AccountDeletionRepository,
     hardDeleteWorker: AccountHardDeleteWorker,
+    dataSource: DataSource,
+    notificationEmitter: NotificationEmitter,
+    notificationDispatcher: NotificationDispatcher,
     dedup: InMemoryDedup = InMemoryDedup(),
 ) {
     routing {
@@ -182,7 +191,64 @@ fun Application.appleS2SRoutes(
                         return@post
                     }
                     val enabled = payload.type == "email-enabled"
-                    users.setAppleRelayEmail(sha256Hex(sub), enabled)
+                    val appleIdHash = sha256Hex(sub)
+                    // Resolve to a LIVE user (mirrors the deletion branch): the
+                    // apple_relay_email_changed notification needs the recipient id, and an
+                    // unknown/tombstoned sub stays a safe 200 no-op.
+                    val user = users.findByAppleIdHash(appleIdHash)?.takeIf { it.deletedAt == null }
+                    if (user == null) {
+                        dedup.record(dedupKey)
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+                        return@post
+                    }
+                    val notificationId =
+                        try {
+                            dataSource.connection.use { conn ->
+                                conn.autoCommit = false
+                                try {
+                                    users.setAppleRelayEmail(conn, appleIdHash, enabled)
+                                    // docs/06 §140: flag write + notifications row, one transaction.
+                                    // Actor NULL = system-originated (Apple, not a users row).
+                                    val id =
+                                        notificationEmitter.emit(
+                                            conn = conn,
+                                            recipientId = user.id,
+                                            actorUserId = null,
+                                            type = NotificationType.APPLE_RELAY_EMAIL_CHANGED,
+                                            targetType = null,
+                                            targetId = null,
+                                            bodyData =
+                                                buildJsonObject {
+                                                    put("relay_enabled", JsonPrimitive(enabled))
+                                                },
+                                        )
+                                    conn.commit()
+                                    id
+                                } catch (t: Throwable) {
+                                    conn.rollback()
+                                    throw t
+                                } finally {
+                                    conn.autoCommit = true
+                                }
+                            }
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (ex: Exception) {
+                            // Non-2xx so Apple retries; dedup key deliberately NOT recorded —
+                            // the retry must be processed (same contract as account-delete).
+                            logger.warn(
+                                "event=apple_s2s_relay_email_persist_failed error_class={}",
+                                ex::class.simpleName,
+                            )
+                            call.respond(
+                                HttpStatusCode.InternalServerError,
+                                ApiError(ApiError.Envelope("internal_error", "could not persist relay-email change")),
+                            )
+                            return@post
+                        }
+                    // Post-commit FCM dispatch (mirrors SubscriptionService) — a rolled-back
+                    // notification is never pushed.
+                    notificationId?.let { notificationDispatcher.dispatch(it) }
                     dedup.record(dedupKey)
                     call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
                 }

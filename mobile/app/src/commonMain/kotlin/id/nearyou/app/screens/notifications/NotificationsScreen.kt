@@ -40,6 +40,7 @@ import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.notif_account_action_applied
+import id.nearyou.resources.generated.resources.notif_apple_relay_email_changed
 import id.nearyou.resources.generated.resources.notif_chat_message
 import id.nearyou.resources.generated.resources.notif_chat_message_redacted
 import id.nearyou.resources.generated.resources.notif_data_export_ready
@@ -365,6 +366,7 @@ private fun NotificationRowItem(
  * (`post_liked` / `post_replied` / `followed` / `post_auto_hidden` / `chat_message`) plus the six
  * now-emitted types (follow-up #343: `privacy_flip_warning` / `subscription_billing_issue` /
  * `subscription_expired` / `chat_message_redacted` / `account_action_applied` / `data_export_ready`)
+ * and `apple_relay_email_changed` (follow-up #433, the Apple S2S email-relay writer)
  * get specific copy; the still-unemitted reserved `NotificationType` values AND any unknown/future
  * `type` fall back to the generic copy (no crash). `privacy_flip_warning` renders the flip deadline
  * date ([NotificationRow.flipDeadlineDate]) into its copy, degrading to the dateless `_soon` variant
@@ -387,5 +389,6 @@ private fun notificationCopy(row: NotificationRow): String =
         "chat_message_redacted" -> stringResource(Res.string.notif_chat_message_redacted)
         "account_action_applied" -> stringResource(Res.string.notif_account_action_applied)
         "data_export_ready" -> stringResource(Res.string.notif_data_export_ready)
+        "apple_relay_email_changed" -> stringResource(Res.string.notif_apple_relay_email_changed)
         else -> stringResource(Res.string.notif_generic)
     }

@@ -55,6 +55,7 @@ private const val COPY_SUBSCRIPTION_EXPIRED = "Langganan Premium kamu telah bera
 private const val COPY_CHAT_REDACTED = "Sebuah pesan di percakapanmu dihapus oleh moderator" // notif_chat_message_redacted
 private const val COPY_ACCOUNT_ACTION = "Ada tindakan moderasi pada akunmu" // notif_account_action_applied
 private const val COPY_DATA_EXPORT = "Ekspor datamu siap diunduh" // notif_data_export_ready
+private const val COPY_APPLE_RELAY = "Email bayangan Apple kamu sudah diperbarui." // notif_apple_relay_email_changed (#433)
 private const val ACTOR_UUID = "11111111-1111-1111-1111-111111111111"
 private const val TARGET_UUID = "22222222-2222-2222-2222-222222222222"
 
@@ -242,6 +243,7 @@ class NotificationsScreenTest {
                     fakeNotification(id = "n3", type = "chat_message_redacted", bodyData = buildJsonObject {}),
                     fakeNotification(id = "n4", type = "account_action_applied", bodyData = buildJsonObject {}),
                     fakeNotification(id = "n5", type = "data_export_ready", bodyData = buildJsonObject {}),
+                    fakeNotification(id = "n6", type = "apple_relay_email_changed", bodyData = buildJsonObject {}),
                 ),
                 null,
             ),
@@ -256,7 +258,8 @@ class NotificationsScreenTest {
             onNodeWithText(COPY_CHAT_REDACTED, substring = true).assertExists()
             onNodeWithText(COPY_ACCOUNT_ACTION, substring = true).assertExists()
             onNodeWithText(COPY_DATA_EXPORT, substring = true).assertExists()
-            // None of the five fell through to the generic fallback.
+            onNodeWithText(COPY_APPLE_RELAY, substring = true).assertExists()
+            // None of the six fell through to the generic fallback.
             assertEquals(0, onAllNodesWithText(COPY_GENERIC, substring = true).fetchSemanticsNodes().size)
         }
     }

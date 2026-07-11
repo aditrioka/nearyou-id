@@ -63,6 +63,7 @@ import id.nearyou.resources.generated.resources.location_consent_title
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.nearby_location_denied
 import id.nearyou.resources.generated.resources.notif_account_action_applied
+import id.nearyou.resources.generated.resources.notif_apple_relay_email_changed
 import id.nearyou.resources.generated.resources.notif_chat_message
 import id.nearyou.resources.generated.resources.notif_chat_message_redacted
 import id.nearyou.resources.generated.resources.notif_data_export_ready
@@ -361,6 +362,8 @@ class SharedStringsCatalogTest {
             Res.string.notif_chat_message_redacted,
             Res.string.notif_account_action_applied,
             Res.string.notif_data_export_ready,
+            // + 1 (follow-up #433: apple_relay_email_changed emit site + its specific in-app copy).
+            Res.string.notif_apple_relay_email_changed,
             // mobile-post-detail-screen (post header + like control + replies list + reply composer).
             // 11 net-new keys (the empty-`city_name` header gets its own `post_detail_posted_from_no_city`
             // variant; `post_detail_post_gone` is the terminal-404 banner). The replies-loading +
@@ -562,7 +565,8 @@ class SharedStringsCatalogTest {
         // + 7 (follow-up #343: specific in-app copy for the now-emitted notification types — dated +
         // dateless privacy_flip_warning, billing issue, expired, chat redacted, account action,
         // data export ready) = 236.
-        assertEquals(236, allDeclaredStrings.size)
+        // + 1 (follow-up #433: notif_apple_relay_email_changed) = 237.
+        assertEquals(237, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }
