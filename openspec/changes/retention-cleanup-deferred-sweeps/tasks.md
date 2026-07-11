@@ -11,7 +11,7 @@
 
 ## 3. Tests (spec scenarios → test cases)
 
-- [ ] 3.1 Repository tests: expired-unconsumed webauthn deleted / <1-day-expired survives / consumed survives; resolved moderation row >1y deleted / <1y survives / pending survives; actioned + dismissed reports >1y deleted / pending survives; NULL resolution-timestamp fail-safe
+- [ ] 3.1 Repository tests: expired-unconsumed webauthn deleted / <1-day-expired survives / consumed survives; resolved moderation row >1y deleted / <1y survives / pending survives; actioned + dismissed reports >1y deleted / pending survives; NULL resolution-timestamp fail-safe; no-archive-copy assertion (swept row gone, no `%archive%` table exists in the schema)
 - [ ] 3.2 Worker/route tests: 200 body carries all seven counts; immediate re-run returns all-zero; log line carries seven counts + duration_ms (extend existing suites)
 - [ ] 3.3 Update any existing test fixtures/assertions that pin the four-count response/log shape
 
