@@ -27,4 +27,4 @@
 ## 5. Verification
 
 - [x] 5.1 Gate: `./gradlew ktlintCheck :mobile:app:ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`
-- [ ] 5.2 Manual verify (UI-affecting, verify-loop §B): block an author from a feed card on the emulator — dialog copy, success toast, author's cards gone; screenshot evidence in the PR body (docs/11 §5 DoD)
+- [x] 5.2 Manual verify (UI-affecting, verify-loop §B): block an author from a feed card on the emulator — dialog copy, success toast, author's cards gone; screenshot evidence in the PR body (docs/11 §5 DoD)
