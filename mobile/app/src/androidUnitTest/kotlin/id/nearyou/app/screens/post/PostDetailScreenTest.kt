@@ -452,6 +452,101 @@ class PostDetailScreenTest {
         }
     }
 
+    // ---- post-detail-tap-to-profile: header + reply identity taps ----
+
+    // § "Identity tap opens the author profile once the freshness read resolves": the tap target appears
+    // AFTER the resume refresh resolves authorUserId, and tapping fires onOpenProfile with that UUID.
+    @Test
+    fun headerIdentityTap_opensAuthorProfile_withFreshnessAuthorUserId() {
+        installKoin(
+            FakePostDetailFlow(),
+            FakePostEditFlow(
+                refreshOutcome =
+                    PostRefreshOutcome.Loaded(content = CONTENT, editedAt = null, isAuthor = false, authorUserId = AUTHOR_UUID),
+            ),
+        )
+        runComposeUiTest {
+            var openedProfile: String? = null
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(), onBack = {}, onOpenProfile = { openedProfile = it })
+                    }
+                }
+            }
+            // The tap target depends on the resume-refresh authorUserId (async) — poll for it.
+            waitUntil(timeoutMillis = 2_000) {
+                onAllNodesWithTag(POST_DETAIL_HEADER_PROFILE_TAG).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithTag(POST_DETAIL_HEADER_PROFILE_TAG).performClick()
+            assertEquals(AUTHOR_UUID, openedProfile)
+            // § "No author UUID appears in the rendered tree": the resolved UUID stays a nav argument.
+            onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
+        }
+    }
+
+    // § "Identity row is not tappable when the freshness read degraded": default refresh = Unavailable →
+    // no authorUserId → the identity renders display-only (no tap target, no fire).
+    @Test
+    fun headerIdentity_notTappable_whenFreshnessReadDegraded() {
+        installKoin(FakePostDetailFlow())
+        runComposeUiTest {
+            var openedProfile: String? = null
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(), onBack = {}, onOpenProfile = { openedProfile = it })
+                    }
+                }
+            }
+            onNodeWithText("Raka Pratama").assertExists() // the identity still renders, display-only
+            onNodeWithTag(POST_DETAIL_HEADER_PROFILE_TAG).assertDoesNotExist()
+            assertEquals(null, openedProfile)
+        }
+    }
+
+    // § "Reply identity tap opens the reply author's profile" + § "No tap target without a wire identity"
+    // + the PII guard: the tap fires with the reply wire's author_id, an identity-less reply exposes no
+    // tap target, and no UUID enters the rendered tree with the affordances present.
+    @Test
+    fun replyIdentityTap_opensReplyAuthorProfile_andNoTargetWithoutIdentity() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome =
+                    RepliesOutcome.Loaded(
+                        listOf(
+                            fakeReply(id = "rId", authorId = AUTHOR_UUID, content = "WITH_IDENTITY"),
+                            fakeReply(
+                                id = "rNoId",
+                                authorId = AUTHOR_UUID,
+                                content = "NO_IDENTITY",
+                                authorUsername = null,
+                                authorDisplayName = null,
+                            ),
+                        ),
+                        nextCursor = null,
+                    ),
+            ),
+        )
+        runComposeUiTest {
+            var openedProfile: String? = null
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(), onBack = {}, onOpenProfile = { openedProfile = it })
+                    }
+                }
+            }
+            onNodeWithText("WITH_IDENTITY").assertExists()
+            onNodeWithText("NO_IDENTITY").assertExists()
+            // Exactly ONE reply tap target — the identity-less reply renders no identity row, so no target.
+            onAllNodesWithTag(POST_DETAIL_REPLY_PROFILE_TAG).assertCountEquals(1)
+            onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist() // UUID never rendered
+            onNodeWithTag(POST_DETAIL_REPLY_PROFILE_TAG).performClick()
+            assertEquals(AUTHOR_UUID, openedProfile)
+        }
+    }
+
     // ---- mobile-content-report: report affordances + entry points ----
     //
     // NOTE on dialog-internals coverage: the shared report dialog hosts an OutlinedTextField inside an

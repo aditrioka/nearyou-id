@@ -196,6 +196,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 onEditPost = { postId, content -> backStack.add(EditPostRoute(postId, content)) },
                 // chat-embedded-posts: "Bagikan ke chat" pushes the conversation picker for this post.
                 onShareToChat = { postId -> backStack.add(ConversationPickerRoute(postId)) },
+                // post-detail-tap-to-profile: header/reply identity taps push the author's profile onto
+                // the root stack — the same mechanism as the feed-card identity tap. The screen resolves
+                // the UUID from the freshness read / reply wire; the route payload stays UUID-free.
+                onOpenProfile = { userId -> backStack.add(ProfileRoute(userId)) },
             )
         }
         entry<EditPostRoute> { route ->
