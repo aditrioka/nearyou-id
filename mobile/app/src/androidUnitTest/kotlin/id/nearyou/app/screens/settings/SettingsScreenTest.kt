@@ -19,6 +19,7 @@ import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceState
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.privateprofile.PrivateProfileState
+import id.nearyou.app.push.NotificationContentPreference
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -49,6 +50,7 @@ private const val GANTI_USERNAME = "Ganti username"
 private const val COMING_SOON = "Segera hadir"
 private const val INVITE_FRIENDS = "Undang teman"
 private const val PAYWALL_CTA = "Aktifkan Premium" // cta_activate_premium — must NOT appear (no paywall divert)
+private const val CHAT_PREVIEW = "Tampilkan preview pesan chat di notifikasi"
 
 /**
  * A configurable [HideDistanceRepository] fake: seeds the toggle state, records write calls, and
@@ -91,6 +93,24 @@ private class FakePrivateProfileRepository(
     }
 }
 
+/**
+ * An in-memory [NotificationContentPreference] fake (mobile-notification-preview-toggle): seeds the
+ * device-local chat-preview value and records writes — the toggle's ONLY persistence seam (no ApiClient
+ * exists for it, so "no backend write" holds structurally in this Koin graph).
+ */
+private class FakeNotificationContentPreference(
+    private var value: Boolean? = null,
+) : NotificationContentPreference {
+    val setCalls = mutableListOf<Boolean>()
+
+    override suspend fun previewEnabled(): Boolean = value ?: false
+
+    override suspend fun setPreviewEnabled(v: Boolean) {
+        setCalls += v
+        value = v
+    }
+}
+
 private const val LOGOUT_ROW = "Keluar"
 private const val LOGOUT_DIALOG_TITLE = "Keluar dari akun?"
 private const val LOGOUT_CONFIRM = "Ya, keluar"
@@ -123,6 +143,7 @@ class SettingsScreenTest {
         hideDistance: HideDistanceRepository = FakeHideDistanceRepository(),
         privateProfile: PrivateProfileRepository = FakePrivateProfileRepository(),
         dataExport: FakeDataExportFlow = FakeDataExportFlow(),
+        chatPreview: NotificationContentPreference = FakeNotificationContentPreference(),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
@@ -139,6 +160,8 @@ class SettingsScreenTest {
                     single<DataExportFlow> { dataExportFlow }
                     single<HideDistanceRepository> { hideDistance }
                     single<PrivateProfileRepository> { privateProfile }
+                    // mobile-notification-preview-toggle: the device-local chat-preview preference.
+                    single<NotificationContentPreference> { chatPreview }
                 },
             )
         }
@@ -409,6 +432,47 @@ class SettingsScreenTest {
             gate.complete(Unit)
             waitUntil { fake.setCalls.isNotEmpty() }
             assertEquals(listOf(true), fake.setCalls, "a rapid double-tap issues AT MOST one in-flight PATCH")
+        }
+    }
+
+    @Test
+    fun chatPreview_toggle_persistsLocally_andIssuesNoBackendWrite() {
+        // mobile-notification-preview-toggle: the row is all-tiers + device-local. The preference fake is
+        // the ONLY seam it can write; the two backend-backed toggles' fakes double as the no-outbound-
+        // request assertion (this Koin graph has no other network seam the row could reach).
+        val preference = FakeNotificationContentPreference()
+        val hideDistanceFake = FakeHideDistanceRepository()
+        val privateProfileFake = FakePrivateProfileRepository()
+        installKoin(hideDistance = hideDistanceFake, privateProfile = privateProfileFake, chatPreview = preference)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the seed read settle (unset → OFF, the private default)
+            onNodeWithText(CHAT_PREVIEW).performScrollTo().performClick()
+            waitUntil { preference.setCalls.isNotEmpty() }
+            assertEquals(listOf(true), preference.setCalls)
+            assertEquals(emptyList(), hideDistanceFake.setCalls) // no backend write, either seam
+            assertEquals(emptyList(), privateProfileFake.setCalls)
+            onNodeWithText(COMING_SOON).assertDoesNotExist() // a BACKED row, not a deferred stub
+            onNodeWithText(PAYWALL_CTA).assertDoesNotExist() // not Premium-gated: no upsell for any tier
+        }
+    }
+
+    @Test
+    fun chatPreview_seedsFromStoredPreference() {
+        // Seeded ON: the row's first activation requests the INVERSE (false) — proving the rendered
+        // switch reflected the stored true (the row's onClick sends !checked).
+        val preference = FakeNotificationContentPreference(value = true)
+        installKoin(chatPreview = preference)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle() // let the seed read settle
+            onNodeWithText(CHAT_PREVIEW).performScrollTo().performClick()
+            waitUntil { preference.setCalls.isNotEmpty() }
+            assertEquals(listOf(false), preference.setCalls, "a seeded-ON row toggles OFF on first tap")
         }
     }
 

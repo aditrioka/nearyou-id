@@ -36,6 +36,7 @@ import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
+import id.nearyou.app.push.NotificationContentPreference
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
@@ -62,6 +63,7 @@ import id.nearyou.resources.generated.resources.ic_credit_card
 import id.nearyou.resources.generated.resources.ic_description
 import id.nearyou.resources.generated.resources.ic_lock
 import id.nearyou.resources.generated.resources.ic_logout
+import id.nearyou.resources.generated.resources.ic_nav_notifications
 import id.nearyou.resources.generated.resources.ic_nav_profile
 import id.nearyou.resources.generated.resources.ic_person_add
 import id.nearyou.resources.generated.resources.ic_post_location
@@ -78,6 +80,7 @@ import id.nearyou.resources.generated.resources.settings_private_profile_error
 import id.nearyou.resources.generated.resources.settings_private_profile_premium_only
 import id.nearyou.resources.generated.resources.settings_row_change_username
 import id.nearyou.resources.generated.resources.settings_row_change_username_sub
+import id.nearyou.resources.generated.resources.settings_row_chat_preview
 import id.nearyou.resources.generated.resources.settings_row_data_export
 import id.nearyou.resources.generated.resources.settings_row_data_export_sub
 import id.nearyou.resources.generated.resources.settings_row_delete_account
@@ -123,7 +126,9 @@ private const val LEGAL_URL: String = "https://nearyou.id/kebijakan-privasi"
  * toggles are now BACKED: "Sembunyikan jarak" (the `hide-distance` capability, `PATCH /api/v1/user/hide-distance`)
  * and "Profil privat" (the `private-profile` capability, `PATCH /api/v1/user/private-profile` — the
  * sanctioned `user_settings` privacy-flag write; the interactive write goes through that endpoint ONLY).
- * Both are Premium-gated (Free callers see the upsell + issue no write) and revert on a failed PATCH. All
+ * Both are Premium-gated (Free callers see the upsell + issue no write) and revert on a failed PATCH.
+ * "Tampilkan preview pesan chat di notifikasi" is a third, DEVICE-LOCAL switch (all tiers, no backend —
+ * mobile-notification-preview-toggle) writing through `NotificationContentPreference` only. All
  * copy via `:shared:resources`, under `NearYouTheme`.
  */
 @Composable
@@ -143,6 +148,9 @@ fun SettingsScreen(
     val koin = getKoin()
     val logoutAuthApi = remember(koin) { koin.getOrNull<AuthApiClient>() }
     val logoutFcmTokenProvider = remember(koin) { koin.getOrNull<FcmTokenProvider>() }
+    // mobile-notification-preview-toggle: same fail-safe resolution — a test not wiring the
+    // preference gets an inert OFF row, never a resolution crash.
+    val notificationContentPreference = remember(koin) { koin.getOrNull<NotificationContentPreference>() }
     val viewModel =
         viewModel {
             SettingsViewModel(
@@ -151,6 +159,7 @@ fun SettingsScreen(
                 privateProfileRepository,
                 logoutAuthApi,
                 logoutFcmTokenProvider,
+                notificationContentPreference,
             )
         }
     val loggedOut by viewModel.loggedOut.collectAsStateWithLifecycle()
@@ -158,6 +167,7 @@ fun SettingsScreen(
     val hideDistanceEvent by viewModel.hideDistanceEvent.collectAsStateWithLifecycle()
     val privateProfileChecked by viewModel.privateProfileChecked.collectAsStateWithLifecycle()
     val privateProfileEvent by viewModel.privateProfileEvent.collectAsStateWithLifecycle()
+    val chatPreviewChecked by viewModel.chatPreviewChecked.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -349,6 +359,18 @@ fun SettingsScreen(
                 trailing = SettingsRowTrailing.SwitchControl,
                 switchChecked = hideDistanceChecked,
                 onSwitchChange = { newValue -> viewModel.onHideDistanceToggle(newValue) },
+            )
+            // "Tampilkan preview pesan chat di notifikasi" is a DEVICE-LOCAL toggle
+            // (mobile-notification-preview-toggle, docs/03 § "User Toggle in Settings"): all tiers,
+            // no backend call — the write goes through NotificationContentPreference ONLY, so on iOS
+            // it lands in the App-Group suite the NSE reads. Default OFF (content-private).
+            SettingsRow(
+                icon = Res.drawable.ic_nav_notifications,
+                title = stringResource(Res.string.settings_row_chat_preview),
+                onClick = { viewModel.onChatPreviewToggle(!chatPreviewChecked) },
+                trailing = SettingsRowTrailing.SwitchControl,
+                switchChecked = chatPreviewChecked,
+                onSwitchChange = { newValue -> viewModel.onChatPreviewToggle(newValue) },
             )
             SettingsRow(
                 icon = Res.drawable.ic_privacy_shield,

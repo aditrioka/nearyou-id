@@ -7,6 +7,7 @@ import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
+import id.nearyou.app.push.NotificationContentPreference
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,7 +41,9 @@ enum class PrivateProfileEvent {
  * requirement) followed by an UNCONDITIONAL client wipe (clears [TokenStore] and raises
  * [loggedOut] so the screen routes to sign-in; a failed/offline server call never blocks the
  * wipe). Also owns the Premium privacy toggles: hide-distance (the `hide-distance` capability)
- * and private-profile (the `private-profile` capability).
+ * and private-profile (the `private-profile` capability), plus the device-local notification
+ * chat-preview toggle (mobile-notification-preview-toggle — seeded from
+ * [NotificationContentPreference], written back on toggle, no network).
  *
  * On init it seeds each toggle from its repository's `loadState` (`GET /api/v1/user/{hide-distance|private-profile}`):
  * the `*Checked` flow reflects the stored flag ONLY when the caller is effectively Premium, and the
@@ -56,6 +59,8 @@ class SettingsViewModel(
     // client-side-only wipe rather than failing resolution.
     private val authApi: AuthApiClient? = null,
     private val fcmTokenProvider: FcmTokenProvider? = null,
+    // mobile-notification-preview-toggle: nullable so tests (and a DI gap) degrade to an inert OFF row.
+    private val notificationContentPreference: NotificationContentPreference? = null,
 ) : ViewModel() {
     private val _loggedOut = MutableStateFlow(false)
     val loggedOut: StateFlow<Boolean> = _loggedOut.asStateFlow()
@@ -82,7 +87,16 @@ class SettingsViewModel(
 
     private val privateProfileWriting = MutableStateFlow(false)
 
+    private val _chatPreviewChecked = MutableStateFlow(false)
+    val chatPreviewChecked: StateFlow<Boolean> = _chatPreviewChecked.asStateFlow()
+
     init {
+        val contentPreference = notificationContentPreference
+        if (contentPreference != null) {
+            viewModelScope.launch {
+                _chatPreviewChecked.value = contentPreference.previewEnabled()
+            }
+        }
         val hideRepo = hideDistance
         if (hideRepo != null) {
             viewModelScope.launch {
@@ -189,5 +203,18 @@ class SettingsViewModel(
 
     fun onPrivateProfileEventShown() {
         _privateProfileEvent.value = null
+    }
+
+    /**
+     * Handle the notification chat-preview toggle (mobile-notification-preview-toggle). A device-local
+     * write via [NotificationContentPreference] — no Premium gate, no network, no revert path (design D2:
+     * a local KV put has no actionable failure). A null preference (tests / DI gap) keeps the row inert.
+     */
+    fun onChatPreviewToggle(requested: Boolean) {
+        val contentPreference = notificationContentPreference ?: return
+        _chatPreviewChecked.value = requested
+        viewModelScope.launch {
+            contentPreference.setPreviewEnabled(requested)
+        }
     }
 }

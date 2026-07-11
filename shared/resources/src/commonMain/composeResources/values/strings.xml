@@ -310,6 +310,9 @@
     <string name="settings_row_private_profile_sub">Jadi publik 72 jam setelah Premium berakhir</string>
     <string name="settings_row_hide_distance">Sembunyikan jarak</string>
     <string name="settings_row_hide_distance_sub">Angka jarak saja; nama kota tetap tampil</string>
+    <!-- mobile-notification-preview-toggle: the device-local notification content-privacy toggle
+         (docs/03 § "User Toggle in Settings"; default OFF/private). -->
+    <string name="settings_row_chat_preview">Tampilkan preview pesan chat di notifikasi</string>
     <string name="settings_row_privacy_data_sub">Analitik, laporan crash, personalisasi iklan</string>
     <string name="settings_row_legal">Ketentuan &amp; kebijakan privasi</string>
     <string name="settings_row_logout">Keluar</string>

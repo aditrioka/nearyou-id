@@ -6,8 +6,8 @@ package id.nearyou.app.push
  * seam: the Android render path and the iOS NSE read it before surfacing
  * `body_data.preview` in a notification body. Defaults to **OFF** (private)
  * when unset — at OFF the chat body is the sender+non-content form, never the
- * message preview. The Settings control row that flips it is deferred
- * (follow-up #431); only the store + safe default ship in this change.
+ * message preview. The Settings control row that flips it ships in
+ * `mobile-settings` (mobile-notification-preview-toggle, closing #431).
  */
 interface NotificationContentPreference {
     /** Whether the chat message preview may be surfaced. `false` (private) when unset. */
