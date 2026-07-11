@@ -43,6 +43,7 @@ class FakeNotificationsFlow(
             createdAtIso = "2026-05-31T10:00:00Z",
             likedByViewer = false,
             replyCount = 3,
+            imageUrl = null,
         ),
     private val partnerResolution: PartnerResolution =
         PartnerResolution.Resolved(username = "budi", displayName = "Budi"),

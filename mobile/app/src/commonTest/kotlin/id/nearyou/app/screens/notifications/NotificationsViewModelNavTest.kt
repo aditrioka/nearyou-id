@@ -57,6 +57,7 @@ class NotificationsViewModelNavTest {
                 createdAtIso = "2026-05-31T10:00:00Z",
                 likedByViewer = true,
                 replyCount = 5,
+                imageUrl = "https://img.example.test/p1.jpg",
             ),
         partnerResolution: PartnerResolution = PartnerResolution.Resolved("budi", "Budi"),
         suspendResolveOnCall: Int? = null,
@@ -86,6 +87,8 @@ class NotificationsViewModelNavTest {
         assertEquals("Jakarta", target.target.cityName)
         assertEquals(5, target.target.replyCount)
         assertTrue(target.target.likedByViewer)
+        // #388: a notification-resolved image post carries its imageUrl into the PostDetailRoute payload.
+        assertEquals("https://img.example.test/p1.jpg", target.target.imageUrl)
         assertFalse(viewModel.postUnavailable.value)
     }
 

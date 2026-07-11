@@ -72,6 +72,10 @@ sealed interface PostTargetResolution {
         val createdAtIso: String,
         val likedByViewer: Boolean,
         val replyCount: Int,
+        // image-attached-posts (#388): the post's public image URL from the by-id read, or null for a
+        // text-only post. NO default — every mapper states it explicitly (a silent default-null is how
+        // the notification deep-link lost the image in the first place).
+        val imageUrl: String?,
     ) : PostTargetResolution
 
     data object Unavailable : PostTargetResolution

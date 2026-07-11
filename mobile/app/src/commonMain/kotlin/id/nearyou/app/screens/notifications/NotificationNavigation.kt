@@ -134,5 +134,6 @@ class NotificationNavTargetResolver(
             replyCount = replyCount,
             authorUsername = authorUsername,
             authorDisplayName = authorDisplayName,
+            imageUrl = imageUrl,
         )
 }

@@ -62,6 +62,9 @@ data class SinglePostFullDto(
     @SerialName("city_name") val cityName: String,
     @SerialName("liked_by_viewer") val likedByViewer: Boolean,
     @SerialName("reply_count") val replyCount: Int,
+    // image-attached-posts: bare camelCase on the wire like `createdAt`; omitted for a text-only post
+    // (`explicitNulls = false` server-side) → decodes to null here. Opaque public delivery URL, no PII.
+    val imageUrl: String? = null,
 )
 
 /**
