@@ -11,15 +11,22 @@ import com.auth0.jwt.algorithms.Algorithm
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.cleanup
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.deleteRows
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.fcmTokenExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.hikari
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.moderationQueueRowExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.notificationExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.refreshTokenExists
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.reportExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedFcmToken
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedModerationQueueRow
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedNotification
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedRefreshToken
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedReport
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedUser
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedWebauthnChallenge
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.tag
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.webauthnChallengeExists
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
@@ -93,7 +100,7 @@ private fun rcSignedJwt(
 
 /**
  * Route-level tests for [retentionCleanupRoutes] — the endpoint contract (200 +
- * the three per-sweep counts), all-zero idempotency, the single structured INFO
+ * the seven per-sweep counts), all-zero idempotency, the single structured INFO
  * log, the unauthenticated 401 with no deletions, the sibling-non-capture
  * (`/internal/revenuecat-webhook` is NOT 401'd by this gate), and the sanitized
  * classified-500. Real-Postgres (`@Tags("database")`), mirroring
@@ -168,7 +175,7 @@ class RetentionCleanupRoutesTest : StringSpec({
         }
     }
 
-    "200 with the three correct per-sweep counts when each table has eligible rows" {
+    "200 with the correct per-sweep counts when each table has eligible rows" {
         val token = rcSignedJwt(privKey, pubKey)
         // Clear all currently-eligible rows so the post-seed counts are exact.
         worker.execute()
@@ -184,6 +191,9 @@ class RetentionCleanupRoutesTest : StringSpec({
             )
         val n = seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
         val fcm = seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
+        val challenge = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(2, ChronoUnit.DAYS))
+        val mod = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        val rep = seedReport(dataSource, u, status = "actioned", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
         try {
             withRoute {
                 val resp =
@@ -195,11 +205,19 @@ class RetentionCleanupRoutesTest : StringSpec({
                 body shouldContain "\"refresh_tokens_deleted\":1"
                 body shouldContain "\"notifications_deleted\":1"
                 body shouldContain "\"fcm_tokens_deleted\":1"
+                body shouldContain "\"webauthn_challenges_deleted\":1"
+                body shouldContain "\"moderation_queue_deleted\":1"
+                body shouldContain "\"reports_deleted\":1"
             }
             refreshTokenExists(dataSource, rt) shouldBe false
             notificationExists(dataSource, n) shouldBe false
             fcmTokenExists(dataSource, fcm) shouldBe false
+            webauthnChallengeExists(dataSource, challenge) shouldBe false
+            moderationQueueRowExists(dataSource, mod) shouldBe false
+            reportExists(dataSource, rep) shouldBe false
         } finally {
+            deleteRows(dataSource, "admin_webauthn_challenges", listOf(challenge))
+            deleteRows(dataSource, "moderation_queue", listOf(mod))
             cleanup(dataSource, listOf(u))
         }
     }
@@ -220,10 +238,13 @@ class RetentionCleanupRoutesTest : StringSpec({
             body shouldContain "\"notifications_deleted\":0"
             body shouldContain "\"fcm_tokens_deleted\":0"
             body shouldContain "\"login_events_deleted\":0"
+            body shouldContain "\"webauthn_challenges_deleted\":0"
+            body shouldContain "\"moderation_queue_deleted\":0"
+            body shouldContain "\"reports_deleted\":0"
         }
     }
 
-    "exactly one structured INFO log line with the four counts + duration" {
+    "exactly one structured INFO log line with the seven counts + duration" {
         val token = rcSignedJwt(privKey, pubKey)
         worker.execute()
         withLogCapture("id.nearyou.app.admin.retention.RetentionCleanupWorker") { appender ->
@@ -244,6 +265,9 @@ class RetentionCleanupRoutesTest : StringSpec({
             msg shouldContain "notifications_deleted="
             msg shouldContain "fcm_tokens_deleted="
             msg shouldContain "login_events_deleted="
+            msg shouldContain "webauthn_challenges_deleted="
+            msg shouldContain "moderation_queue_deleted="
+            msg shouldContain "reports_deleted="
             msg shouldContain "duration_ms="
             msg shouldNotContain token
         }
@@ -347,6 +371,12 @@ class RetentionCleanupRoutesTest : StringSpec({
                     override suspend fun deleteStaleFcmTokens(): Int = error("not reached")
 
                     override suspend fun deleteOldLoginEvents(): Int = error("not reached")
+
+                    override suspend fun deleteExpiredWebauthnChallenges(): Int = error("not reached")
+
+                    override suspend fun deleteOldResolvedModerationQueueRows(): Int = error("not reached")
+
+                    override suspend fun deleteOldResolvedReports(): Int = error("not reached")
                 },
             )
         withRoute(customWorker = timeoutWorker) {

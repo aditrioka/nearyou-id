@@ -22,6 +22,9 @@ data class RetentionCleanupResponse(
     @SerialName("notifications_deleted") val notificationsDeleted: Int,
     @SerialName("fcm_tokens_deleted") val fcmTokensDeleted: Int,
     @SerialName("login_events_deleted") val loginEventsDeleted: Int,
+    @SerialName("webauthn_challenges_deleted") val webauthnChallengesDeleted: Int,
+    @SerialName("moderation_queue_deleted") val moderationQueueDeleted: Int,
+    @SerialName("reports_deleted") val reportsDeleted: Int,
 )
 
 @Serializable
@@ -40,8 +43,8 @@ private data class ErrorResponse(val error: String)
  * verification ran. Regression guard: `InternalRoutingIsolationTest`. Never
  * reachable by a user JWT.
  *
- * Success: `200 OK` with body
- * `{"refresh_tokens_deleted": N, "notifications_deleted": N, "fcm_tokens_deleted": N}`.
+ * Success: `200 OK` with a body carrying the seven per-sweep counts
+ * (`refresh_tokens_deleted` … `reports_deleted`, see [RetentionCleanupResponse]).
  * On any thrown exception: `500` with a sanitized `{"error": "<classification>"}`
  * (`timeout` / `connection_refused` / `unknown`, via [classifyHandlerError] —
  * shared with the sibling workers); the original exception is logged at WARN
@@ -85,6 +88,9 @@ private suspend fun io.ktor.server.routing.RoutingContext.handleRetentionCleanup
                 notificationsDeleted = result.notificationsDeleted,
                 fcmTokensDeleted = result.fcmTokensDeleted,
                 loginEventsDeleted = result.loginEventsDeleted,
+                webauthnChallengesDeleted = result.webauthnChallengesDeleted,
+                moderationQueueDeleted = result.moderationQueueDeleted,
+                reportsDeleted = result.reportsDeleted,
             ),
         )
     }

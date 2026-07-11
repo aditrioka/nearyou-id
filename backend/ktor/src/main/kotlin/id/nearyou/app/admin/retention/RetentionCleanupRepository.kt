@@ -6,10 +6,11 @@ import kotlinx.coroutines.withContext
 import javax.sql.DataSource
 
 /**
- * The three retention sweeps that the `scheduled-retention-cleanup` worker
+ * The retention sweeps that the `scheduled-retention-cleanup` worker
  * (`POST /internal/cleanup`) runs on each invocation. Each method is one
  * idempotent threshold `DELETE` returning the number of rows it reclaimed
- * (`executeUpdate()`), per `docs/05-Implementation.md` §§112/582/1120.
+ * (`executeUpdate()`), per `docs/05-Implementation.md` §§112/582/750/1120 and
+ * `docs/06` § Retention Policy.
  *
  * The thresholds are fixed literals from `docs/05`; none is client- or
  * query-supplied (design Risks/Trade-offs).
@@ -48,6 +49,34 @@ interface RetentionCleanupRepository {
      * `login-history-tracking`.
      */
     suspend fun deleteOldLoginEvents(): Int
+
+    /**
+     * Delete every expired-and-unconsumed `admin_webauthn_challenges` row
+     * (`expires_at < NOW() - INTERVAL '1 day' AND consumed_at IS NULL`) —
+     * verbatim `docs/05` §750; the predicate matches the
+     * `admin_webauthn_challenges_cleanup_idx` partial index (V16). Consumed
+     * rows are deliberately NOT swept (design D4 — docs/05 prescribes only the
+     * unconsumed-expired cleanup).
+     */
+    suspend fun deleteExpiredWebauthnChallenges(): Int
+
+    /**
+     * Delete every resolved `moderation_queue` row past the 1-year retention
+     * window (`status = 'resolved' AND resolved_at < NOW() - INTERVAL
+     * '1 year'`) — `docs/06` § Retention Policy. The clock starts at
+     * resolution; pending rows and resolved rows with a NULL `resolved_at`
+     * survive (design D3, fail-safe NULL comparison).
+     */
+    suspend fun deleteOldResolvedModerationQueueRows(): Int
+
+    /**
+     * Delete every resolved `reports` row past the 1-year retention window
+     * (`status IN ('actioned', 'dismissed') AND reviewed_at < NOW() - INTERVAL
+     * '1 year'`) — `docs/06` § Retention Policy. `actioned`/`dismissed` are the
+     * two resolved states of the V9 CHECK (there is no `resolved` value);
+     * pending rows and rows with a NULL `reviewed_at` survive (design D3).
+     */
+    suspend fun deleteOldResolvedReports(): Int
 }
 
 /**
@@ -75,6 +104,12 @@ class JdbcRetentionCleanupRepository(
     override suspend fun deleteStaleFcmTokens(): Int = executeDelete(SQL_FCM_TOKENS)
 
     override suspend fun deleteOldLoginEvents(): Int = executeDelete(SQL_LOGIN_EVENTS)
+
+    override suspend fun deleteExpiredWebauthnChallenges(): Int = executeDelete(SQL_WEBAUTHN_CHALLENGES)
+
+    override suspend fun deleteOldResolvedModerationQueueRows(): Int = executeDelete(SQL_MODERATION_QUEUE)
+
+    override suspend fun deleteOldResolvedReports(): Int = executeDelete(SQL_REPORTS)
 
     private suspend fun executeDelete(sql: String): Int =
         withContext(dbDispatcher) {
@@ -109,5 +144,34 @@ class JdbcRetentionCleanupRepository(
         // index-served by login_events_user_occurred_idx (V35).
         const val SQL_LOGIN_EVENTS =
             "DELETE FROM login_events WHERE occurred_at < NOW() - INTERVAL '90 days'"
+
+        // Expired unconsumed WebAuthn challenges — verbatim docs/05 §750; the predicate
+        // is the exact shape of the admin_webauthn_challenges_cleanup_idx partial index
+        // (V16: (expires_at) WHERE consumed_at IS NULL). Consumed rows are not swept.
+        const val SQL_WEBAUTHN_CHALLENGES =
+            """
+            DELETE FROM admin_webauthn_challenges
+             WHERE expires_at < NOW() - INTERVAL '1 day'
+               AND consumed_at IS NULL
+            """
+
+        // Resolved moderation_queue rows past the 1-year window (docs/06 § Retention).
+        // Clock starts at resolution; a resolved row with NULL resolved_at survives
+        // (NULL comparison is UNKNOWN — fail-safe, design D3).
+        const val SQL_MODERATION_QUEUE =
+            """
+            DELETE FROM moderation_queue
+             WHERE status = 'resolved'
+               AND resolved_at < NOW() - INTERVAL '1 year'
+            """
+
+        // Resolved reports past the 1-year window — 'actioned'/'dismissed' are the two
+        // resolved states of the V9 status CHECK (no 'resolved' value exists).
+        const val SQL_REPORTS =
+            """
+            DELETE FROM reports
+             WHERE status IN ('actioned', 'dismissed')
+               AND reviewed_at < NOW() - INTERVAL '1 year'
+            """
     }
 }

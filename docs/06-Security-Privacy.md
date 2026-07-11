@@ -304,8 +304,8 @@ Neither path bumps `token_version` or deletes refresh tokens — the `token_vers
 | Location on app open | Not stored, request-only |
 | "Hapus Akun" user account | 30-day grace then tombstone (PII null, messages retained with "Akun Dihapus" label) |
 | Moderation action log | 1 year (audit & appeal) |
-| Moderation queue (resolved rows) | 1 year |
-| Reports (resolved) | 1 year |
+| Moderation queue (resolved rows) | 1 year (the `/internal/cleanup` worker, `retention-cleanup-deferred-sweeps` — clock starts at `resolved_at`) |
+| Reports (resolved) | 1 year (the `/internal/cleanup` worker, `retention-cleanup-deferred-sweeps` — clock starts at `reviewed_at`) |
 | Notifications (in-app list) | 90 days auto-purge |
 | Attestation verdict cache | 1 hour (Redis) |
 | Refresh token family log | Until all family members expired |

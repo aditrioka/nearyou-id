@@ -1,17 +1,24 @@
 package id.nearyou.app.admin.retention
 
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.cleanup
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.deleteRows
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.fcmTokenExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.hikari
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.loginEventExists
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.moderationQueueRowExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.notificationExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.refreshTokenExists
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.reportExists
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedFcmToken
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedLoginEvent
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedModerationQueueRow
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedNotification
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedRefreshToken
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedReport
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedUser
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.seedWebauthnChallenge
 import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.tag
+import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.webauthnChallengeExists
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
@@ -20,13 +27,12 @@ import io.kotest.matchers.shouldNotBe
 import java.sql.SQLException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.UUID
 
 /**
  * Repository-level sweep semantics for the `scheduled-retention-cleanup`
- * worker — every `#### Scenario:` from the new capability spec's three sweep
- * requirements + the worker-orchestration count contract + the two deferred
- * negative-guards. Real-Postgres (`@Tags("database")`), mirroring
+ * worker — every `#### Scenario:` from the capability spec's seven sweep
+ * requirements + the worker-orchestration count contract. Real-Postgres
+ * (`@Tags("database")`), mirroring
  * `PrivacyFlipWorkerTest`. The pool `autoClose(hikari())` is size 2 (CI
  * connection budget); each test cleans up only the rows it seeded (the tables
  * are shared with sibling suites in the full gate).
@@ -255,7 +261,7 @@ class RetentionCleanupRepositoryTest : StringSpec({
 
     // ----- Worker: all sweeps run + per-sweep counts (spec: runs all sweeps per invocation) -----
 
-    "a worker run deletes from all four tables and reports a count for every sweep" {
+    "a worker run deletes from all seven tables and reports a count for every sweep" {
         val t = tag()
         val u = seedUser(dataSource, t)
         seedRefreshToken(
@@ -268,6 +274,9 @@ class RetentionCleanupRepositoryTest : StringSpec({
         seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
         seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
         seedLoginEvent(dataSource, u, occurredAt = Instant.now().minus(91, ChronoUnit.DAYS))
+        val challenge = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(2, ChronoUnit.DAYS))
+        val mod = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        seedReport(dataSource, u, status = "actioned", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
         try {
             val result = worker.execute()
             // Other suites' aged rows may also be reaped in the shared DB, so the
@@ -276,7 +285,12 @@ class RetentionCleanupRepositoryTest : StringSpec({
             result.notificationsDeleted shouldBeGreaterThanOrEqual 1
             result.fcmTokensDeleted shouldBeGreaterThanOrEqual 1
             result.loginEventsDeleted shouldBeGreaterThanOrEqual 1
+            result.webauthnChallengesDeleted shouldBeGreaterThanOrEqual 1
+            result.moderationQueueDeleted shouldBeGreaterThanOrEqual 1
+            result.reportsDeleted shouldBeGreaterThanOrEqual 1
         } finally {
+            deleteRows(dataSource, "admin_webauthn_challenges", listOf(challenge))
+            deleteRows(dataSource, "moderation_queue", listOf(mod))
             cleanup(dataSource, listOf(u))
         }
     }
@@ -299,19 +313,30 @@ class RetentionCleanupRepositoryTest : StringSpec({
         )
         seedNotification(dataSource, u, createdAt = Instant.now().minus(91, ChronoUnit.DAYS))
         seedFcmToken(dataSource, u, t, lastSeenAt = Instant.now().minus(31, ChronoUnit.DAYS))
+        val challenge = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(2, ChronoUnit.DAYS))
+        val mod = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        seedReport(dataSource, u, status = "dismissed", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
         try {
             // First run reclaims exactly the N=1-per-table we just seeded.
             val first = worker.execute()
             first.refreshTokensDeleted shouldBe 1
             first.notificationsDeleted shouldBe 1
             first.fcmTokensDeleted shouldBe 1
+            first.webauthnChallengesDeleted shouldBe 1
+            first.moderationQueueDeleted shouldBe 1
+            first.reportsDeleted shouldBe 1
             // Immediate re-run: the same rows are gone, nothing newly aged → all zero
             // (proves the threshold DELETEs do not re-count already-reclaimed rows).
             val second = worker.execute()
             second.refreshTokensDeleted shouldBe 0
             second.notificationsDeleted shouldBe 0
             second.fcmTokensDeleted shouldBe 0
+            second.webauthnChallengesDeleted shouldBe 0
+            second.moderationQueueDeleted shouldBe 0
+            second.reportsDeleted shouldBe 0
         } finally {
+            deleteRows(dataSource, "admin_webauthn_challenges", listOf(challenge))
+            deleteRows(dataSource, "moderation_queue", listOf(mod))
             cleanup(dataSource, listOf(u))
         }
     }
@@ -341,6 +366,12 @@ class RetentionCleanupRepositoryTest : StringSpec({
                 override suspend fun deleteStaleFcmTokens(): Int = error("not reached — sweep 2 failed first")
 
                 override suspend fun deleteOldLoginEvents(): Int = error("not reached — sweep 2 failed first")
+
+                override suspend fun deleteExpiredWebauthnChallenges(): Int = error("not reached — sweep 2 failed first")
+
+                override suspend fun deleteOldResolvedModerationQueueRows(): Int = error("not reached — sweep 2 failed first")
+
+                override suspend fun deleteOldResolvedReports(): Int = error("not reached — sweep 2 failed first")
             }
         val failingWorker = RetentionCleanupWorker(failAfterFirstSweep)
         try {
@@ -359,103 +390,132 @@ class RetentionCleanupRepositoryTest : StringSpec({
         }
     }
 
-    // ----- Deferred negative-guards (spec: WebAuthn + moderation/reports out of scope) -----
+    // ----- WebAuthn-challenge sweep (spec: Scheduled WebAuthn-challenge cleanup sweep) -----
 
-    "the worker leaves an expired-unconsumed admin_webauthn_challenges row untouched" {
-        val challengeId = UUID.randomUUID()
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                INSERT INTO admin_webauthn_challenges (id, admin_id, challenge, ceremony, expires_at, consumed_at)
-                VALUES (?, NULL, ?, 'authentication', NOW() - INTERVAL '2 days', NULL)
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, challengeId)
-                ps.setBytes(2, byteArrayOf(1, 2, 3, 4))
-                ps.executeUpdate()
-            }
-        }
+    "an expired unconsumed webauthn challenge is deleted" {
+        val c = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(2, ChronoUnit.DAYS))
         try {
-            worker.execute()
-            val survives =
-                dataSource.connection.use { conn ->
-                    conn.prepareStatement("SELECT 1 FROM admin_webauthn_challenges WHERE id = ?").use { ps ->
-                        ps.setObject(1, challengeId)
-                        ps.executeQuery().use { rs -> rs.next() }
-                    }
-                }
-            survives shouldBe true
+            repository.deleteExpiredWebauthnChallenges() shouldBeGreaterThanOrEqual 1
+            webauthnChallengeExists(dataSource, c) shouldBe false
         } finally {
-            dataSource.connection.use { conn ->
-                conn.prepareStatement("DELETE FROM admin_webauthn_challenges WHERE id = ?").use { ps ->
-                    ps.setObject(1, challengeId)
-                    ps.executeUpdate()
-                }
-            }
+            deleteRows(dataSource, "admin_webauthn_challenges", listOf(c))
         }
     }
 
-    "the worker leaves old resolved moderation_queue and reports rows untouched" {
+    "a recently-expired unconsumed challenge survives the 1-day grace" {
+        // Expired 1 hour ago — inside the 1-day grace window.
+        val c = seedWebauthnChallenge(dataSource, expiresAt = Instant.now().minus(1, ChronoUnit.HOURS))
+        try {
+            repository.deleteExpiredWebauthnChallenges()
+            webauthnChallengeExists(dataSource, c) shouldBe true
+        } finally {
+            deleteRows(dataSource, "admin_webauthn_challenges", listOf(c))
+        }
+    }
+
+    "a consumed challenge is not touched regardless of age" {
+        val c =
+            seedWebauthnChallenge(
+                dataSource,
+                expiresAt = Instant.now().minus(30, ChronoUnit.DAYS),
+                consumedAt = Instant.now().minus(30, ChronoUnit.DAYS),
+            )
+        try {
+            repository.deleteExpiredWebauthnChallenges()
+            webauthnChallengeExists(dataSource, c) shouldBe true
+        } finally {
+            deleteRows(dataSource, "admin_webauthn_challenges", listOf(c))
+        }
+    }
+
+    // ----- Moderation-queue + reports retention sweeps (spec: 1-year resolved-row windows) -----
+
+    "a resolved moderation_queue row older than one year is deleted; a recent and a pending one survive" {
+        val old = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        val recent = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(300, ChronoUnit.DAYS))
+        // Pending row far older than a year — the sweep must never touch pending rows.
+        val pending =
+            seedModerationQueueRow(
+                dataSource,
+                status = "pending",
+                resolvedAt = null,
+                createdAt = Instant.now().minus(400, ChronoUnit.DAYS),
+            )
+        try {
+            repository.deleteOldResolvedModerationQueueRows() shouldBeGreaterThanOrEqual 1
+            moderationQueueRowExists(dataSource, old) shouldBe false
+            moderationQueueRowExists(dataSource, recent) shouldBe true
+            moderationQueueRowExists(dataSource, pending) shouldBe true
+        } finally {
+            deleteRows(dataSource, "moderation_queue", listOf(old, recent, pending))
+        }
+    }
+
+    "actioned and dismissed reports older than one year are deleted; a pending one survives" {
         val t = tag()
         val u = seedUser(dataSource, t)
-        val targetId = UUID.randomUUID()
-        val modId = UUID.randomUUID()
-        val reportId = UUID.randomUUID()
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                INSERT INTO moderation_queue (id, target_type, target_id, trigger, status, resolution, created_at, resolved_at)
-                VALUES (?, 'post', ?, 'admin_flag', 'resolved', 'keep',
-                        NOW() - INTERVAL '400 days', NOW() - INTERVAL '400 days')
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, modId)
-                ps.setObject(2, targetId)
-                ps.executeUpdate()
-            }
-            conn.prepareStatement(
-                """
-                INSERT INTO reports (id, reporter_id, target_type, target_id, reason_category, status, created_at, reviewed_at)
-                VALUES (?, ?, 'post', ?, 'spam', 'dismissed',
-                        NOW() - INTERVAL '400 days', NOW() - INTERVAL '400 days')
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, reportId)
-                ps.setObject(2, u)
-                ps.setObject(3, targetId)
-                ps.executeUpdate()
-            }
-        }
+        val actioned = seedReport(dataSource, u, status = "actioned", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        val dismissed = seedReport(dataSource, u, status = "dismissed", reviewedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        val pending =
+            seedReport(
+                dataSource,
+                u,
+                status = "pending",
+                reviewedAt = null,
+                createdAt = Instant.now().minus(400, ChronoUnit.DAYS),
+            )
         try {
-            worker.execute()
-            val modSurvives =
-                dataSource.connection.use { conn ->
-                    conn.prepareStatement("SELECT 1 FROM moderation_queue WHERE id = ?").use { ps ->
-                        ps.setObject(1, modId)
-                        ps.executeQuery().use { rs -> rs.next() }
-                    }
-                }
-            val reportSurvives =
-                dataSource.connection.use { conn ->
-                    conn.prepareStatement("SELECT 1 FROM reports WHERE id = ?").use { ps ->
-                        ps.setObject(1, reportId)
-                        ps.executeQuery().use { rs -> rs.next() }
-                    }
-                }
-            modSurvives shouldBe true
-            reportSurvives shouldBe true
+            repository.deleteOldResolvedReports() shouldBeGreaterThanOrEqual 2
+            reportExists(dataSource, actioned) shouldBe false
+            reportExists(dataSource, dismissed) shouldBe false
+            reportExists(dataSource, pending) shouldBe true
         } finally {
-            dataSource.connection.use { conn ->
-                conn.prepareStatement("DELETE FROM reports WHERE id = ?").use { ps ->
-                    ps.setObject(1, reportId)
-                    ps.executeUpdate()
-                }
-                conn.prepareStatement("DELETE FROM moderation_queue WHERE id = ?").use { ps ->
-                    ps.setObject(1, modId)
-                    ps.executeUpdate()
-                }
-            }
+            cleanup(dataSource, listOf(u)) // reports cascade with the reporter user
+        }
+    }
+
+    "a resolved-status row with a NULL resolution timestamp survives (fail-safe)" {
+        val t = tag()
+        val u = seedUser(dataSource, t)
+        // Hypothetically-inconsistent rows: resolved status but NULL timestamp — a NULL
+        // comparison is UNKNOWN, so the sweeps must leave them (design D3 fail-safe).
+        val mod = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = null)
+        val rep = seedReport(dataSource, u, status = "dismissed", reviewedAt = null)
+        try {
+            repository.deleteOldResolvedModerationQueueRows()
+            repository.deleteOldResolvedReports()
+            moderationQueueRowExists(dataSource, mod) shouldBe true
+            reportExists(dataSource, rep) shouldBe true
+        } finally {
+            deleteRows(dataSource, "moderation_queue", listOf(mod))
             cleanup(dataSource, listOf(u))
+        }
+    }
+
+    "a swept resolved row is removed without any archive copy (no archive table exists)" {
+        val old = seedModerationQueueRow(dataSource, status = "resolved", resolvedAt = Instant.now().minus(400, ChronoUnit.DAYS))
+        try {
+            repository.deleteOldResolvedModerationQueueRows() shouldBeGreaterThanOrEqual 1
+            moderationQueueRowExists(dataSource, old) shouldBe false
+            // Spec "No archive copy is made": the delete is not a move — the schema has
+            // no archive table to move to (audit trail is admin_actions_log).
+            val archiveTables =
+                dataSource.connection.use { conn ->
+                    conn.prepareStatement(
+                        // csam_detection_archive is excluded: an unrelated DESIGN-reserved table.
+                        "SELECT COUNT(*) FROM information_schema.tables " +
+                            "WHERE table_schema = 'public' AND table_name LIKE '%archive%' " +
+                            "AND table_name <> 'csam_detection_archive'",
+                    ).use { ps ->
+                        ps.executeQuery().use { rs ->
+                            rs.next()
+                            rs.getInt(1)
+                        }
+                    }
+                }
+            archiveTables shouldBe 0
+        } finally {
+            deleteRows(dataSource, "moderation_queue", listOf(old))
         }
     }
 })

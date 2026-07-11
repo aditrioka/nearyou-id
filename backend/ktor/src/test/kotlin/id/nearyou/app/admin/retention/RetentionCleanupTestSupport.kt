@@ -170,6 +170,89 @@ object RetentionCleanupTestSupport {
         return id
     }
 
+    /**
+     * Seed an `admin_webauthn_challenges` row with explicit `expires_at` /
+     * `consumed_at` (nullable). `admin_id` stays NULL (no admin_users FK parent
+     * needed; the column is nullable for pre-auth authentication ceremonies).
+     */
+    fun seedWebauthnChallenge(
+        dataSource: DataSource,
+        expiresAt: Instant,
+        consumedAt: Instant? = null,
+    ): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO admin_webauthn_challenges (id, admin_id, challenge, ceremony, expires_at, consumed_at)
+                VALUES (?, NULL, ?, 'authentication', ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setBytes(2, byteArrayOf(1, 2, 3, 4))
+                ps.setTimestamp(3, Timestamp.from(expiresAt))
+                if (consumedAt != null) ps.setTimestamp(4, Timestamp.from(consumedAt)) else ps.setNull(4, Types.TIMESTAMP)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    /** Seed a `moderation_queue` row with explicit `status` / `resolved_at` (nullable). */
+    fun seedModerationQueueRow(
+        dataSource: DataSource,
+        status: String,
+        resolvedAt: Instant?,
+        createdAt: Instant = Instant.now(),
+    ): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO moderation_queue (id, target_type, target_id, trigger, status, resolution, created_at, resolved_at)
+                VALUES (?, 'post', ?, 'admin_flag', ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, UUID.randomUUID())
+                ps.setString(3, status)
+                ps.setString(4, if (status == "resolved") "keep" else null)
+                ps.setTimestamp(5, Timestamp.from(createdAt))
+                if (resolvedAt != null) ps.setTimestamp(6, Timestamp.from(resolvedAt)) else ps.setNull(6, Types.TIMESTAMP)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    /** Seed a `reports` row with explicit `status` / `reviewed_at` (nullable). */
+    fun seedReport(
+        dataSource: DataSource,
+        reporterId: UUID,
+        status: String,
+        reviewedAt: Instant?,
+        createdAt: Instant = Instant.now(),
+    ): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO reports (id, reporter_id, target_type, target_id, reason_category, status, created_at, reviewed_at)
+                VALUES (?, ?, 'post', ?, 'spam', ?, ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, reporterId)
+                ps.setObject(3, UUID.randomUUID())
+                ps.setString(4, status)
+                ps.setTimestamp(5, Timestamp.from(createdAt))
+                if (reviewedAt != null) ps.setTimestamp(6, Timestamp.from(reviewedAt)) else ps.setNull(6, Types.TIMESTAMP)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
     fun refreshTokenExists(
         dataSource: DataSource,
         id: UUID,
@@ -189,6 +272,42 @@ object RetentionCleanupTestSupport {
         dataSource: DataSource,
         id: UUID,
     ): Boolean = rowExists(dataSource, "SELECT 1 FROM user_fcm_tokens WHERE id = ?", id)
+
+    fun webauthnChallengeExists(
+        dataSource: DataSource,
+        id: UUID,
+    ): Boolean = rowExists(dataSource, "SELECT 1 FROM admin_webauthn_challenges WHERE id = ?", id)
+
+    fun moderationQueueRowExists(
+        dataSource: DataSource,
+        id: UUID,
+    ): Boolean = rowExists(dataSource, "SELECT 1 FROM moderation_queue WHERE id = ?", id)
+
+    fun reportExists(
+        dataSource: DataSource,
+        id: UUID,
+    ): Boolean = rowExists(dataSource, "SELECT 1 FROM reports WHERE id = ?", id)
+
+    /**
+     * Targeted cleanup for the tables whose rows are NOT keyed by a seeded
+     * user id (webauthn challenges + moderation_queue; reports cascade with
+     * their reporter user, but a test may still want to remove a survivor
+     * explicitly before its user cleanup).
+     */
+    fun deleteRows(
+        dataSource: DataSource,
+        table: String,
+        ids: List<UUID>,
+    ) {
+        if (ids.isEmpty()) return
+        require(table in setOf("admin_webauthn_challenges", "moderation_queue", "reports")) { "unexpected table: $table" }
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("DELETE FROM $table WHERE id = ANY(?)").use { ps ->
+                ps.setArray(1, conn.createArrayOf("uuid", ids.toTypedArray()))
+                ps.executeUpdate()
+            }
+        }
+    }
 
     private fun rowExists(
         dataSource: DataSource,
