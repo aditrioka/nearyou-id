@@ -36,7 +36,7 @@ bash "$R/scripts/setup_cloud_env.sh" || true
 exit 0
 ```
 
-It always exits 0 (a non-zero setup script fails session start). Logs land in `/var/tmp/nearyou-setup/*.log`. The Gradle warm-up is time-boxed (`WARM_TIMEOUT`, default 210 s) so the script stays within the ~5 min setup budget; whatever it downloaded before the cutoff stays cached.
+It reads the script from the default branch, so it takes effect once this tooling is on `main`. It always exits 0 (a non-zero setup script fails session start). Logs land in `/var/tmp/nearyou-setup/*.log`. The Gradle warm-up is time-boxed (`WARM_TIMEOUT`, default 210 s) so the script stays within the ~5 min setup budget; whatever it downloaded before the cutoff stays cached.
 
 ### 2. Environment variables
 
