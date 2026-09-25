@@ -23,8 +23,9 @@
 # whatever it downloaded before the cutoff stays cached. Processes do not
 # survive the snapshot, so everything started here is stopped again.
 #
-# Always exits 0: a failed step only means session_start.sh does that work per
-# session instead; it must never make session start fail.
+# Always exits 0: a failed step only leaves less in the snapshot (the SessionStart
+# hook still installs the Android SDK and starts every service it needs); a
+# non-zero setup script would make session start fail.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -104,11 +105,23 @@ docker_step() {
 
 openspec_step() { bash scripts/setup_openspec.sh; }
 
-# Starts Postgres, migrates (which is what warms the Gradle cache), then stops
-# Postgres and the Gradle daemon so the snapshot holds a clean cluster.
+# Starts Postgres and migrates it, which is also what warms the Gradle cache.
+# Maven Central answers download bursts with 429 Too Many Requests; artifacts
+# fetched before a failure stay cached, so retry with backoff until
+# WARM_TIMEOUT runs out. Then stop Postgres and the Gradle daemon so the
+# snapshot holds a clean cluster.
 backend_step() {
-  local rc=0
-  timeout "$WARM_TIMEOUT" bash scripts/setup_backend_db.sh || rc=$?
+  local deadline=$((SECONDS + WARM_TIMEOUT)) rc=1 attempt=0 left
+  while :; do
+    left=$((deadline - SECONDS))
+    (( left > 20 )) || break
+    attempt=$((attempt + 1))
+    echo "--- attempt $attempt (${left}s of WARM_TIMEOUT left)"
+    rc=0
+    timeout "$left" bash scripts/setup_backend_db.sh || rc=$?
+    [[ "$rc" -eq 0 || "$rc" -eq 124 ]] && break
+    sleep $((attempt * 10))
+  done
   local pgbin
   pgbin="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)"
   if [[ -n "$pgbin" && -s /var/tmp/nearyou_pgdata/PG_VERSION ]]; then
@@ -116,7 +129,8 @@ backend_step() {
   fi
   ./gradlew --stop >/dev/null 2>&1 || true
   if [[ "$rc" -eq 124 ]]; then
-    # Not a failure: the partial cache is kept, session_start.sh finishes the migrate.
+    # Not a failure: the partial cache is kept; the backend tests migrate the
+    # schema on start and `bash scripts/setup_backend_db.sh` finishes it.
     echo "Gradle warm-up hit WARM_TIMEOUT=${WARM_TIMEOUT}s, partial cache kept."
     return 0
   fi
@@ -139,5 +153,5 @@ for step in android gcloud docker openspec backend; do
   fi
 done
 
-log "Done in $((SECONDS - T0))s.${FAILED[*]:+ Failed steps (session_start.sh retries per session): ${FAILED[*]}}"
+log "Done in $((SECONDS - T0))s.${FAILED[*]:+ Failed steps: ${FAILED[*]} (sessions still start; see the logs, then re-run this script or the step by hand).}"
 exit 0
