@@ -17,4 +17,4 @@
 
 - [x] 3.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`
 - [x] 3.2 Manual verify on emulator (verify-loop §B): tap header identity → profile opens; tap reply identity → profile opens; screenshot evidence into the PR body (docs/11 §5 DoD)
-- [ ] 3.3 PR title/body current; `Closes #455`; archive via /opsx:archive
+- [x] 3.3 PR title/body current; `Closes #455`; archive via /opsx:archive (PR #473 squash-merged 2026-07-11 before the archive commit; archived via a follow-up chore PR)
