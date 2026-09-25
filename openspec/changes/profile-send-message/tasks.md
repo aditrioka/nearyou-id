@@ -18,7 +18,7 @@
 - [ ] 3.1 `FakeChatFlow`: record `createOrReturn` recipient ids + an optional suspend gate (for the in-flight test)
 - [ ] 3.2 `ChatRepository.createOrReturn` mapping test (MockEngine): `201` and `200` both collapse to `Ready(id)`; `403`/`400`/`404` → `Blocked`/`SelfConversation`/`RecipientNotFound`; `401` → `SessionExpired`; `5xx` → `NetworkError` (no repository-level test existed)
 - [ ] 3.3 `ProfileViewModelTest`: `Ready` → one-shot set with the resolved id passed + `onChatOpened` clears; `Blocked` → `CHAT_BLOCKED`; `RecipientNotFound` → `TARGET_UNAVAILABLE`; `SelfConversation`/`Error`/`NetworkError`/`SessionExpired` → `ACTION_FAILED` + `isOpeningChat` false; in-flight double-tap → one call; self read → no call; null `chatFlow` → no-op
-- [ ] 3.4 `ProfileScreenTest` (Robolectric): other-user shows "Kirim pesan", self does not; tap with `Ready("c1")` → `onOpenChat("c1", username, displayName)`; `Blocked` → the send-blocked snackbar and no `onOpenChat`; no `ChatFlow` bound → no action; the no-UUID-in-tree guard still holds
+- [ ] 3.4 `ProfileScreenTest` (Robolectric): other-user shows "Kirim pesan", self does not; tap with `Ready("c1")` → `onOpenChat("c1", username, displayName)`; `Blocked` → the send-blocked snackbar and no `onOpenChat`; a gated (unresolved) create-or-return → the action renders disabled; no `ChatFlow` bound → no action; the no-UUID-in-tree guard still holds
 - [ ] 3.5 `ProfileFlowIosTest`: other-user "Kirim pesan" present + tap emits `onOpenChat` on the simulator (K/N-legal name)
 
 ## 4. Verification & lifecycle
