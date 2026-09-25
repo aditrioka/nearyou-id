@@ -10,8 +10,8 @@
 #     1. Android env   scripts/setup_android.sh (SDK restored from the
 #                      snapshot → only re-persists JAVA_HOME/ANDROID_HOME/PATH)
 #     2. dev/.env      scripts/setup_dev_env.sh (throwaway boot secrets)
-#     3. Postgres      scripts/setup_backend_db.sh on :5433 (start + migrate
-#                      only when the schema is behind the newest V<N>)
+#     3. Postgres      scripts/setup_backend_db.sh --no-migrate on :5433
+#                      (start only; the snapshot cluster is already migrated)
 #     4. Redis         redis-server on :6379, the port KotestProjectConfig
 #                      probes, same as the local docker compose stack
 #     5. dockerd       started detached for the CI-parity recipes (fresh
@@ -82,15 +82,13 @@ if is_cloud_container && [[ "${NEARYOU_SKIP_PROVISION:-0}" != "1" ]]; then
   run_step android bash scripts/setup_android.sh
   run_step dev-env bash scripts/setup_dev_env.sh
 
-  # A cold Gradle cache means no setup script ran: a flywayMigrate would first
-  # download the whole build classpath (minutes). Start Postgres only; the
-  # backend tests migrate the schema themselves (KotestProjectConfig).
-  db_args=()
-  if [[ ! -d "${GRADLE_USER_HOME:-$HOME/.gradle}/caches/modules-2" ]]; then
-    db_args=(--no-migrate)
-    say "Gradle cache is cold, starting Postgres without migrating (tests self-migrate)."
-  fi
-  run_step postgres bash scripts/setup_backend_db.sh ${db_args[@]+"${db_args[@]}"}
+  # Start only, never migrate here: a flywayMigrate is a full Gradle
+  # configuration (seconds when the snapshot's Gradle cache is warm, ~8 min
+  # cold), too slow to block session start on. The snapshot cluster is
+  # migrated by setup_cloud_env.sh, the backend tests migrate on start
+  # (KotestProjectConfig), and verify_backend_db.sh below says when the
+  # schema trails the repo.
+  run_step postgres bash scripts/setup_backend_db.sh --no-migrate
   run_step redis start_redis
   run_step dockerd start_dockerd
 fi

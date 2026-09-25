@@ -84,8 +84,16 @@ docker_step() {
     started=1
     for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 1; done
   fi
+  # Docker Hub HEAD requests fail intermittently through the proxy: skip images
+  # already on disk and retry the rest.
   for img in "${DOCKER_IMAGES[@]}"; do
-    docker pull -q "$img" || rc=1
+    docker image inspect "$img" >/dev/null 2>&1 && { echo "$img already present"; continue; }
+    local ok=0 attempt
+    for attempt in 1 2 3; do
+      docker pull -q "$img" && { ok=1; break; }
+      sleep $((attempt * 3))
+    done
+    [[ "$ok" -eq 1 ]] || rc=1
   done
   if [[ "$started" -eq 1 ]]; then
     kill "$(cat /var/run/docker.pid 2>/dev/null)" 2>/dev/null || true
