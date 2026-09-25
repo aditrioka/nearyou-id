@@ -119,16 +119,6 @@ To avoid trapping a user in onboarding on a transient persist failure, AFTER a `
 - **WHEN** continue is tapped against a MockEngine responding `503` (producing a `Retryable` outcome)
 - **THEN** a `consent_skip` affordance becomes present AND tapping it emits a navigation event routing to `HomeScreen`
 
-### Requirement: RootRouter does not re-gate returning token-bearing users on consent completion (deferred)
-
-Because consent lives only in the signup→Home transition, a user who force-quits at `ConsentScreen` holds a valid token and is routed straight to `HomeScreen` on the next launch (consent bypassed). This change SHALL NOT add a `consent_completed_at` flag or a `RootRouterScreen` consent re-gate to prevent that — the V2 safe defaults make the bypass benign for MVP (a bypassing user is at analytics=false/ads=false, and crash=true is the documented opt-out-able default). The re-gate is deferred and SHALL be recorded as GitHub issue [#199](https://github.com/aditrioka/nearyou-id/issues/199) `mobile-analytics-consent-rootrouter-regate` (label `follow-up`).
-
-#### Scenario: A returning token-bearing user reaches Home without a consent re-prompt, and the deferral is tracked
-
-- **GIVEN** a `SecureTokenStore` holding a valid token (a previously-created account)
-- **WHEN** the app launches and `RootRouterScreen` resolves the start destination
-- **THEN** the user is routed to `HomeRoute` directly (no `ConsentRoute` re-gate is interposed for an already-token-bearing user) AND GitHub issue [#199](https://github.com/aditrioka/nearyou-id/issues/199) (label `follow-up`) tracks `mobile-analytics-consent-rootrouter-regate`
-
 ### Requirement: The consent snapshot is durably persisted across sessions
 
 The device-local `ConsentSnapshotStore` SHALL be durably persisted across process restarts via a platform `expect/actual` binding (Android DataStore / iOS `NSUserDefaults` — the no-new-pin storage family backing `SecureTokenStore`), replacing the prior in-memory binding. The persisted triple SHALL remain the server-echoed `PATCH 200` body (`ConsentResponse`), never a client-side guess. This durable persistence resolves GitHub issue [#198](https://github.com/aditrioka/nearyou-id/issues/198) `mobile-analytics-consent-persist-hardening`: a consent choice acknowledged by the server survives process death, so a consumer reading the snapshot (the analytics tracker, the crash gate) honors the user's last server-acknowledged choice across cold starts. Background retry/queue of a *failed* PATCH remains out of scope — the existing in-screen retry + skip is unchanged; a failed submit simply leaves the last acknowledged snapshot in place (or absent, for a first-run user).
@@ -181,4 +171,26 @@ On a successful onboarding consent submit (`PATCH /api/v1/user/consent` → `200
 - **GIVEN** a `ConsentViewModel` backed by a fake `ConsentFlow` that counts `submitConsent(...)` calls (responding `Success` after a suspending delay) and a recording `ConsentSnapshotStore`
 - **WHEN** the continue action is invoked twice in rapid succession before the first completes
 - **THEN** exactly one `submitConsent(...)` call is recorded (the in-flight guard) AND on the `Success` the ViewModel wrote the submitted toggle triple to `ConsentSnapshotStore` exactly once BEFORE raising the done navigation one-shot; AND when the submit instead resolves to `RetryableError` no snapshot is written and `uiState.value` shows the retryable banner with the non-trapping skip available
+
+### Requirement: RootRouter re-gates token-bearing users who never completed consent
+
+Because consent lives only in the signup→Home transition, a user who force-quits at `ConsentScreen` (or uses the post-failure skip) holds a valid token and would otherwise reach `HomeScreen` on the next launch with consent bypassed. That bypass was deferred as benign while nothing consumed consent; the consent-gated wrappers (analytics tracker, crash gate, ads gate) have since landed, so `RootRouterScreen` SHALL now re-gate: on launch, after the token read resolves authenticated, it SHALL read `ConsentSnapshotStore.read()` once and, when the snapshot is `null` (no consent `PATCH 200` was ever acknowledged on this device — the snapshot is written only on a `200`, by the onboarding `ConsentViewModel` and by consent settings), route via a `onConsentPending` lambda wired in `appEntryProvider` to `backStack.replaceAll(ConsentRoute)` instead of `HomeRoute`. Snapshot presence is the completion flag — no separate `consent_completed_at` field SHALL be introduced. The re-gated `ConsentRoute` entry is the existing one (`onDone → replaceAll(HomeRoute)`), so the stack holds `[ConsentRoute]` alone and back-press cannot bypass the gate. An authenticated user WITH a snapshot routes to `HomeRoute` exactly as before; the unauthenticated branch (`SignInRoute`) and the splash/no-decision-before-read contract are unchanged. A post-failure skipper never wrote a snapshot and SHALL therefore be re-gated on the next launch — the skip is a non-trapping session affordance, not a durable consent waiver. This resolves GitHub issue [#199](https://github.com/aditrioka/nearyou-id/issues/199) `mobile-analytics-consent-rootrouter-regate`.
+
+#### Scenario: A token-bearing user without a consent snapshot is re-gated to ConsentRoute
+
+- **GIVEN** an `AuthFlow` resolving `isAuthenticated() == true` AND a `ConsentSnapshotStore` whose `read()` returns `null`
+- **WHEN** the app launches and `RootRouterScreen` resolves the start destination
+- **THEN** `backStack.replaceAll(ConsentRoute)` is invoked (not `HomeRoute`); the visible entry post-route is `ConsentRoute` (the `ConsentScreen` composable), from which `onDone` (a submit `200` or the post-failure skip) routes to `HomeRoute`
+
+#### Scenario: A token-bearing user with a consent snapshot routes to Home unchanged
+
+- **GIVEN** an `AuthFlow` resolving `isAuthenticated() == true` AND a `ConsentSnapshotStore` whose `read()` returns a persisted `ConsentSnapshot`
+- **WHEN** the app launches and `RootRouterScreen` resolves the start destination
+- **THEN** `backStack.replaceAll(HomeRoute)` is invoked; no `ConsentRoute` is interposed
+
+#### Scenario: An unauthenticated user is not consent-gated
+
+- **GIVEN** an `AuthFlow` resolving `isAuthenticated() == false` (regardless of snapshot state)
+- **WHEN** the app launches and `RootRouterScreen` resolves the start destination
+- **THEN** `backStack.replaceAll(SignInRoute)` is invoked — the consent check never runs on the unauthenticated branch
 
