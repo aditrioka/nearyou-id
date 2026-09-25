@@ -26,7 +26,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | ktlint | lint/static | `./gradlew ktlintCheck` | pre-merge | ✅ | no |
 | detekt (incl. custom rules) | lint/static | `./gradlew detekt` (root task — no `:mobile:app:detekt`) | pre-merge | ✅ | no |
 | detekt-rules unit tests | lint/static (JVM) | `:lint:detekt-rules:test` | pre-merge | ✅ | no |
-| backend Ktor (JVM + DB + Redis) | backend unit + backend DB | `./gradlew test -Dkotest.tags='!network'` | pre-merge | ⚠️ partial — needs local PG/Redis | no |
+| backend Ktor (JVM + DB + Redis) | backend unit + backend DB | `./gradlew test -Dkotest.tags='!network'` | pre-merge | ⚠️ partial — needs local PG/Redis (auto-started in cloud sessions by `scripts/session_start.sh`) | no |
 | **Dockerfile ↔ settings module-copy guard** | infra/build | `./dev/scripts/check-dockerfile-module-copies.sh` | pre-merge (lint lane) | ❌ | **yes** |
 | **admin static-asset integrity** | admin static | `sha256sum -c htmx.min.js.SHA256SUMS` + inventory diff (in `backend/ktor/.../admin/static/`) | pre-merge (lint lane) | ❌ | **yes** |
 | **supabase-parity Flyway migrate** | migration | `flyway/flyway:10 migrate` on a parity-init DB | pre-merge | ❌ (Docker) | **yes** |

@@ -18,7 +18,7 @@ the right runner automatically.
 | `scripts/test_android.sh` | Parity wrapper: adb device attached → `connectedAndroidTest`; else → farm (`FARM=local\|firebase\|browserstack`). |
 | `scripts/test_firebase.sh` | Build APKs + run the **instrumented test suite** on Firebase Test Lab. |
 | `scripts/test_browserstack.sh` | Same, on BrowserStack App Automate (fallback). |
-| `scripts/setup_android.sh` / `verify_env.sh` | Toolchain install / health check. |
+| `scripts/setup_android.sh` / `verify_env.sh` | Toolchain install / health check (both run from `scripts/session_start.sh`; the SDK is pre-installed by the environment setup script, see [`cloud-environment.md`](cloud-environment.md)). |
 
 `gcloud` is installed on demand by `scripts/_gcloud_lib.sh` (idempotent); no CLI
 is needed for BrowserStack (REST via `curl`).
