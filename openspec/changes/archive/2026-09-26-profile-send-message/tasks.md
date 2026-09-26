@@ -24,8 +24,8 @@
 ## 4. Verification & lifecycle
 
 - [x] 4.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:mobile:app:iosSimulatorArm64Test`
-- [ ] 4.2 Manual verify (verify-loop §B/§C, local emulator + iOS simulator): other-user profile shows "Kirim pesan"; tap → thread opens with the partner identity in the top bar; back returns to the profile; screenshots into the PR body (docs/11 §5 DoD)
-- [ ] 4.3 PR title/body current; `Closes #271`; archive via `/opsx:archive`
+- [x] 4.2 Manual verify (verify-loop §B/§C, local emulator + iOS simulator): other-user profile shows "Kirim pesan"; tap → thread opens with the partner identity in the top bar; back returns to the profile; screenshots into the PR body (docs/11 §5 DoD)
+- [x] 4.3 PR title/body current; `Closes #271`; archive via `/opsx:archive`
 
 ## 5. Review round (4-lens sub-agent review; qodo paused for this account)
 
