@@ -141,9 +141,9 @@ The review corrected several issue bodies (details in the comments):
 - **#348:** the DI drift has grown, including a new `DataExportFlowIosTest` gap.
 - **#277:** must re-check `subscription_status` before applying a flip.
 
-**Needs an operator decision (not labeled):**
-- **#334:** weigh the anti-probing leak against three distinct unavailable-username messages.
-- **#336:** spec cleanup only, to fold into the #333/#335 change; then close as a duplicate of #252.
+**Operator decisions (2026-09-26):**
+- **#334:** closed as not planned. The single generic 409 message is final (anti-probing). The now-stale `mobile-premium-username` deferral was added to #499.
+- **#336:** spec cleanup only, to fold into the #333/#335 change; then close as a duplicate of #252. Not labeled on its own.
 
 **Still valid, deferred (trigger not fired):**
 
@@ -159,7 +159,7 @@ The review corrected several issue bodies (details in the comments):
 | #430 | Operator Xcode setup; pairs with #495 |
 | #444 | Phase 2+ and live AdMob fill |
 
-**Close candidates (awaiting operator confirmation):**
+**Closed (operator-confirmed):**
 - **#189** (per-tab back stacks): superseded. Every intra-tab destination shipped as a root-stack push, and `mobile-home-tab-host` re-asserts "no per-tab NavDisplay".
 - **#398** (admin Amplitude embed): a duplicate of #303's "Amplitude funnel embed" bullet.
 
