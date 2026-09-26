@@ -31,12 +31,12 @@
 
 - [ ] 5.1 `deploy-staging.yml`: add `SENTRY_BACKEND_DSN=staging-sentry-backend-dsn:latest` to the *pending* `--set-secrets` comment list (not the live list — #381)
 - [ ] 5.2 `dev/docs/sentry-symbol-upload.md`: backend DSN section (Sentry project, slot, SA access, move mapping live, verify `event=sentry_enabled` + a test 500)
-- [ ] 5.3 docs/04 module table + § Sentry KMP backend line; `openspec/project.md` module table (`:infra:sentry-jvm`, and correct the stale `:infra:sentry` "SCAFFOLD NEXT" row); docs/09 pin row for `sentry-java`
+- [ ] 5.3 docs/04 module table + § Sentry KMP backend line + the §Stack row ("Sentry KMP SDK (unified Android + iOS + backend)" → KMP mobile / Java backend); docs/05 § Observability "Sentry KMP unified for backend + mobile" wording; `openspec/project.md` stack row + module table (`:infra:sentry-jvm`, and correct the stale `:infra:sentry` "SCAFFOLD NEXT" row); docs/09 pin row for `sentry-java`
 - [ ] 5.4 At archive: fix the stale "Backend (Sentry-Java) error capture is explicitly out of scope" sentence in `openspec/specs/mobile-crash-reporting/spec.md` § Purpose (the REMOVED delta doesn't touch Purpose)
 
 ## 6. Verify + ship
 
 - [ ] 6.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :infra:sentry-jvm:test` green; `check-dockerfile-module-copies.sh` green
-- [ ] 6.2 Staging branch deploy smoke (no slot yet): `event=sentry_disabled reason=dsn_missing` in logs, `/health/ready` 200
+- [ ] 6.2 Staging branch deploy smoke (no slot yet): `event=sentry_disabled reason=dsn_missing` in logs (also proves the 3.1 `Application.module()` wiring — spec "Bootstrap is called once at startup"), `/health/ready` 200
 - [ ] 6.3 Operator task (preflight): create the Sentry backend project + `staging-sentry-backend-dsn` slot + SA access, move the mapping live, confirm a staging 500 appears in Sentry with `call_id`, `environment=staging`, and no PII
 - [ ] 6.4 PR title/body current; `Closes #316`

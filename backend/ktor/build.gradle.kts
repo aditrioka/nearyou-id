@@ -28,6 +28,7 @@ dependencies {
     implementation(projects.infra.remoteConfig)
     implementation(projects.infra.resend)
     implementation(projects.infra.revenuecatApi)
+    implementation(projects.infra.sentryJvm)
     implementation(projects.infra.supabase)
 
     implementation(libs.logback)
@@ -85,6 +86,8 @@ dependencies {
     // SpanRecorder + FailingSpanProcessor test fixtures from `:infra:otel`,
     // consumed by `chat-realtime-broadcast` + `fcm-push-dispatch` pairing tests.
     testImplementation(testFixtures(projects.infra.otel))
+    // SentryEventRecorder (vendor-free) from `:infra:sentry-jvm` — SentryErrorCaptureTest.
+    testImplementation(testFixtures(projects.infra.sentryJvm))
 
     // RecordingModerationClient test fixture from `:infra:openai-moderation`, consumed by
     // Layer3Moderator + integration tests for the `text-moderation-perspective-api-layer`

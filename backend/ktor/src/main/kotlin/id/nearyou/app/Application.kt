@@ -172,6 +172,7 @@ import id.nearyou.app.infra.resend.ResendConfig
 import id.nearyou.app.infra.resend.ResendEmailSender
 import id.nearyou.app.infra.resend.emailSender
 import id.nearyou.app.infra.revenuecatapi.referralEntitlementGranter
+import id.nearyou.app.infra.sentryjvm.SentryBootstrap
 import id.nearyou.app.infra.supabase.realtime.NoopChatRealtimeClient
 import id.nearyou.app.infra.supabase.realtime.SupabaseBroadcastChatClient
 import id.nearyou.app.moderation.CachingLayer3ConfigLoader
@@ -303,6 +304,16 @@ fun Application.module() {
     // up to ~5 s of spans, so without this every SIGTERM/deploy drops the tail spans
     // (including the errors that explain why the instance died).
     monitor.subscribe(ApplicationStopped) { otelHandle.shutdown() }
+
+    // Sentry error reporting (backend-error-reporting): every ERROR log — incl. the StatusPages
+    // 500 handler — becomes a Sentry event. Blank DSN = no-op. resolve() takes the UN-prefixed
+    // name (env SENTRY_BACKEND_DSN; deploy maps it from staging-sentry-backend-dsn — #381).
+    // Release = the Cloud Run revision (unset locally).
+    SentryBootstrap.start(
+        env = otelEnv,
+        dsn = otelSecrets.resolve("sentry-backend-dsn"),
+        release = System.getenv("K_REVISION"),
+    )
 
     // Ktor server OTel plugin: emits a server span per inbound request with
     // `http.route` = Ktor route pattern, `http.status_code`, etc. Forbidden

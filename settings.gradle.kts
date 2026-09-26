@@ -95,5 +95,8 @@ include(":infra:redis")
 include(":infra:remote-config")
 include(":infra:resend")
 include(":infra:revenuecat-api")
+// backend-sentry-error-capture — JVM Sentry-Java fence for :backend:ktor (the mobile-only KMP
+// :infra:sentry above is Android-gated and has no JVM target).
+include(":infra:sentry-jvm")
 include(":infra:supabase")
 include(":lint:detekt-rules")
