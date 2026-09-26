@@ -40,17 +40,19 @@ It reads the script from the default branch, so it takes effect once this toolin
 
 ### 2. Environment variables
 
-Anyone who uses the environment can read these, so store **only** the least-privilege device-farm key, never staging DB credentials or production secrets:
+Anyone who uses the environment can read these, so store **only** the staging device-farm key, never staging DB credentials or production secrets. Note the `test-lab-runner` account holds `roles/editor` on `nearyou-staging` (Firebase's requirement for service-account Test Lab runs, see the provisioning script's header), so keep the environment personal:
 
 ```
-GCP_SA_KEY_JSON=<raw JSON of the test-lab-runner service account>   # Firebase Test Lab
-FIREBASE_PROJECT_ID=nearyou-staging                                  # optional, this is the default
+# Firebase Test Lab (the key JSON on ONE line, from: jq -c . test-lab-runner-key.json)
+GCP_SA_KEY_JSON='<paste here>'
+# optional, this is the default
+FIREBASE_PROJECT_ID=nearyou-staging
 # optional BrowserStack fallback:
 # BROWSERSTACK_USERNAME=...
 # BROWSERSTACK_ACCESS_KEY=...
 ```
 
-Mint the key with `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh` (see [`device-farm.md`](device-farm.md)). Backend boot secrets are **not** needed here: the hook generates throwaway ones into `dev/.env`.
+Mint the key with `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh` in an authenticated gcloud (Cloud Shell is the easiest; see [`device-farm.md`](device-farm.md)). The key file is pretty-printed over many lines: paste it compacted to one line and wrapped in **single** quotes, which keep the `\n` escapes inside `private_key` literal (the `.env` parser strips the quotes). Delete the local key file afterwards. Backend boot secrets are **not** needed here: the hook generates throwaway ones into `dev/.env`.
 
 ### 3. Network access
 
