@@ -43,11 +43,12 @@ class SentryErrorCaptureTest : StringSpec({
                 response.status shouldBe HttpStatusCode.InternalServerError
                 response.bodyAsText() shouldContain "internal_error"
             }
-            val event = recorder.events.single()
+            // Keyed by call_id, not single(): a lingering background coroutine from an earlier spec
+            // in this JVM may log an unrelated ERROR while the recorder is live.
+            val event = recorder.events.single { it.tags["call_id"] == "abc-123" }
             event.message shouldBe "event=unhandled_exception method=GET path=/probe/boom"
             event.exceptionTypes shouldContain "IllegalStateException"
             event.exceptionValues shouldContain "synthetic server fault"
-            event.tags["call_id"] shouldBe "abc-123"
             event.hasUser shouldBe false
         }
     }
