@@ -1,7 +1,7 @@
 # mobile-crash-reporting Specification
 
 ## Purpose
-Consent-gated, PII-scrubbed crash and error reporting for the mobile app (Android + iOS), so the team is not blind to production crashes at launch. Native crashes and unhandled exceptions are captured through a vendor-neutral `CrashReporter` interface in the `:infra:sentry` KMP module (the Sentry Kotlin Multiplatform SDK fenced behind it, invariant #16), tagged with release + environment and correlated to the signed-in user by an opaque id only. Reporting honors the `crash` consent category (opt-out default ON; closed on decline) and scrubs PII (`sendDefaultPii=false` + a `beforeSend` backstop + the coordinate-free breadcrumb contract). Backend (Sentry-Java) error capture is explicitly out of scope (tracked separately).
+Consent-gated, PII-scrubbed crash and error reporting for the mobile app (Android + iOS), so the team is not blind to production crashes at launch. Native crashes and unhandled exceptions are captured through a vendor-neutral `CrashReporter` interface in the `:infra:sentry` KMP module (the Sentry Kotlin Multiplatform SDK fenced behind it, invariant #16), tagged with release + environment and correlated to the signed-in user by an opaque id only. Reporting honors the `crash` consent category (opt-out default ON; closed on decline) and scrubs PII (`sendDefaultPii=false` + a `beforeSend` backstop + the coordinate-free breadcrumb contract). Backend (Sentry-Java) error capture is a separate capability, `backend-error-reporting` (`:infra:sentry-jvm`), in the same Sentry org.
 ## Requirements
 ### Requirement: Mobile crash and error reporting via a vendor-neutral interface
 The mobile app SHALL report native crashes and unhandled exceptions on Android and iOS through a vendor-SDK-free `CrashReporter` interface defined in a new `:infra:sentry` KMP module. The Sentry Kotlin Multiplatform SDK MUST be confined to `:infra:sentry` and depended on with `implementation` scope so it never reaches `:mobile:app`'s compile classpath (invariant #16).
@@ -100,15 +100,4 @@ The change SHALL add the Gradle-side configuration to produce and upload symboli
 #### Scenario: Reporting works before symbol upload is wired
 - **WHEN** the operator CI upload step is not yet configured
 - **THEN** crashes still report (unsymbolicated), and the operator task to wire upload remains tracked
-
-### Requirement: Backend error capture is out of scope (deferred)
-This change SHALL NOT add Sentry error capture to `:backend:ktor`. Backend error reporting remains served by the existing OpenTelemetry tracing; Sentry-Java backend integration is deferred and MUST be tracked as a follow-up so the gap is explicit, not silent.
-
-#### Scenario: No Sentry in the backend
-- **WHEN** this change is implemented
-- **THEN** `:backend:ktor` contains no Sentry SDK dependency or initialization
-
-#### Scenario: Deferral is tracked
-- **WHEN** this change is implemented
-- **THEN** a `follow-up` issue exists capturing backend Sentry-Java error capture as deferred scope
 
