@@ -95,21 +95,33 @@ export ANDROID_HOME ANDROID_SDK_ROOT="$ANDROID_HOME"
 # `yes` takes SIGPIPE when sdkmanager closes the pipe early, which under
 # `set -o pipefail` would fail the pipeline even on success — so check
 # sdkmanager's OWN exit status via PIPESTATUS, with pipefail off for the call.
-log "Accepting SDK licenses..."
-set +o pipefail
-yes 2>/dev/null | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
-set -o pipefail
+# Fast path: every package dir already on disk (e.g. restored from the cloud
+# environment snapshot) → skip the two sdkmanager JVM boots, so the SessionStart
+# re-run only re-persists env. `platforms;android-36` lives at platforms/android-36.
+missing_pkgs=0
+for pkg in "${SDK_PACKAGES[@]}"; do
+  [[ -d "$ANDROID_HOME/${pkg//;//}" ]] || { missing_pkgs=1; break; }
+done
 
-log "Installing SDK packages: ${SDK_PACKAGES[*]}"
-set +o pipefail
-yes 2>/dev/null | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "${SDK_PACKAGES[@]}" >/dev/null
-sdk_rc=${PIPESTATUS[1]}
-set -o pipefail
-[[ "$sdk_rc" -eq 0 ]] || die "sdkmanager package install failed (exit $sdk_rc)."
+if [[ "$missing_pkgs" -eq 0 ]]; then
+  log "All SDK packages already installed, skipping sdkmanager."
+else
+  log "Accepting SDK licenses..."
+  set +o pipefail
+  yes 2>/dev/null | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+  set -o pipefail
+
+  log "Installing SDK packages: ${SDK_PACKAGES[*]}"
+  set +o pipefail
+  yes 2>/dev/null | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "${SDK_PACKAGES[@]}" >/dev/null
+  sdk_rc=${PIPESTATUS[1]}
+  set -o pipefail
+  [[ "$sdk_rc" -eq 0 ]] || die "sdkmanager package install failed (exit $sdk_rc)."
+fi
 
 # Guard the hard constraint: ensure no emulator/system-image slipped in.
-if "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --list_installed 2>/dev/null \
-     | grep -Eiq 'system-images|^[[:space:]]*emulator'; then
+# (Directory check, same as verify_env.sh; no extra sdkmanager JVM boot.)
+if [[ -d "$ANDROID_HOME/emulator" || -d "$ANDROID_HOME/system-images" ]]; then
   warn "An emulator/system-image package is installed — that is explicitly out of scope for this headless env."
 fi
 

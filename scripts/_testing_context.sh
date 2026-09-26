@@ -33,10 +33,18 @@ adb_device_count() {
   "$adb_bin" devices 2>/dev/null | grep -cE '\sdevice$' || echo 0
 }
 
+# is_cloud_container -> exit 0 inside a Claude-Code-on-the-web container (the
+# markers above), 1 otherwise. Unlike testing_context it ignores adb devices:
+# it answers "may this session provision the VM?" (scripts/session_start.sh),
+# not "where do mobile tests run?".
+is_cloud_container() {
+  [ -n "${CLAUDE_CODE_CONTAINER_ID:-}" ] || [ -n "${CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE:-}" ]
+}
+
 testing_context() {
   if [ -n "${FORCE_TESTING_CONTEXT:-}" ]; then echo "$FORCE_TESTING_CONTEXT"; return; fi
   [ "$(adb_device_count)" -gt 0 ] 2>/dev/null && { echo "local"; return; }
-  if [ -n "${CLAUDE_CODE_CONTAINER_ID:-}" ] || [ -n "${CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE:-}" ]; then
+  if is_cloud_container; then
     echo "cloud"; return
   fi
   echo "local"

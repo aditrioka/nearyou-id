@@ -21,6 +21,7 @@ fi
 
 ok()  { printf '\033[1;32m  ok \033[0m %s\n' "$*"; }
 bad() { printf '\033[1;31m FAIL\033[0m %s\n' "$*"; FAILED=1; }
+note() { printf '\033[1;33m note\033[0m %s\n' "$*"; }
 FAILED=0
 
 echo "== Backend test DB verification =="
@@ -36,9 +37,27 @@ if [[ "$FAILED" -eq 0 ]]; then
     "SELECT COUNT(*) FROM flyway_schema_history WHERE success" 2>/dev/null || echo 0)"
   if [[ "${applied:-0}" -gt 0 ]]; then
     ok "schema migrated ($applied Flyway migrations applied)"
+    # Informational, not a failure: the backend tests migrate on start
+    # (KotestProjectConfig), and a snapshot-restored cluster can trail main.
+    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    latest_on_disk="$(ls "$repo_root/backend/ktor/src/main/resources/db/migration" 2>/dev/null \
+      | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | tail -1)"
+    latest_applied="$(psql -h localhost -p "$PGPORT" -U postgres -d "$PGDATABASE" -tAc \
+      "SELECT MAX(version::int) FROM flyway_schema_history WHERE success" 2>/dev/null || true)"
+    if [[ -n "$latest_on_disk" && -n "$latest_applied" && "$latest_applied" -lt "$latest_on_disk" ]]; then
+      note "schema at V$latest_applied, repo has V$latest_on_disk: run scripts/setup_backend_db.sh (tests also self-migrate)"
+    fi
   else
     bad "schema not migrated (run scripts/setup_backend_db.sh)"
   fi
+fi
+
+# Redis: informational only. Tests probe :6379 and fall back to a NoOp limiter
+# when it is down; CI runs a real one (REDIS_URL=redis://localhost:6379).
+if command -v redis-cli >/dev/null 2>&1 && redis-cli -p 6379 ping 2>/dev/null | grep -q PONG; then
+  ok "redis answering on localhost:6379"
+else
+  note "redis not answering on localhost:6379 (tests fall back to NoOp; CI uses a real Redis)"
 fi
 
 if [[ "$FAILED" -ne 0 ]]; then

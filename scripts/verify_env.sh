@@ -21,7 +21,7 @@ echo "== Android env verification =="
 
 # 1. JDK
 if command -v java >/dev/null 2>&1; then
-  ver="$(java -version 2>&1 | head -1)"
+  ver="$(java -version 2>&1 | grep -v '^Picked up' | head -1)"
   ok "java: $ver"
   [[ -n "${JAVA_HOME:-}" && -x "${JAVA_HOME}/bin/java" ]] \
     && ok "JAVA_HOME=$JAVA_HOME" \
