@@ -6,7 +6,7 @@
 
 - [ ] 2.1 `ResolvedEmbeddedPost` gains `authorId: UUID`; `JdbcEmbeddedPostResolver` projects `p.author_id` in both UNION arms + the outer SELECT; amend both KDocs (author UUID is projected for the erasure-linkage column only, never into the snapshot).
 - [ ] 2.2 `EmbeddedPostData` gains `authorId`; `ChatService.sendMessage` passes `resolved.authorId`; `ChatRepository.insertChatMessage` writes `embedded_post_author_id` (NULL for plain messages); RETURNING column list unchanged.
-- [ ] 2.3 `ChatRepository` send transaction: after the INSERT of an embed row, run the author-tombstone re-check (`UPDATE chat_messages cm … FROM users u WHERE cm.id = ? AND u.id = cm.embedded_post_author_id AND u.deleted_at IS NOT NULL RETURNING cm.embedded_post_snapshot`) and, when it returns a row, replace the returned `ChatMessageRow.embeddedPostSnapshot` so the 201 response + after-commit broadcast carry the scrubbed identity. Annotate `@AllowMissingBlockJoin` with the erasure-check reason; comment the FK-lock serialization argument (design D3).
+- [ ] 2.3 `ChatRepository` send transaction: after the INSERT of an embed row, lock the author row (`SELECT username, display_name, deleted_at FROM users WHERE id = ? FOR SHARE` — by id only, `deleted_at` checked in Kotlin) and, when tombstoned, overwrite the row's identity keys (`UPDATE … RETURNING embedded_post_snapshot`), replacing the returned `ChatMessageRow.embeddedPostSnapshot` so the 201 response + after-commit broadcast carry the scrubbed identity. Annotate `@AllowMissingBlockJoin` with the erasure-check reason; comment the lock-serialization argument (design D3).
 
 ## 3. Tombstone scrub leg
 
@@ -26,12 +26,13 @@
 - [ ] 4.10 `ChatEmbeddedPostSendTest`: `apple_s2s_account_delete` row via `executeImmediate` → scrubbed ("Apple S2S immediate deletion scrubs snapshots").
 - [ ] 4.11 `ChatEmbeddedPostSendTest`: fault-inject a failure after the scrub (a test-scoped `deletion_log` BEFORE INSERT trigger raising only for the seeded user id, dropped in `finally`) → snapshot still carries the original identity, request stays due ("A failed tombstone leaves snapshots untouched").
 - [ ] 4.12 `ChatEmbeddedPostSendTest`: resolver wrapper tombstones the author (via `executeImmediate`) after resolving and before the INSERT → persisted AND 201-response snapshot carry the tombstoned identity ("Tombstone commits between resolve and INSERT").
-- [ ] 4.13 `ChatEmbeddedPostSendTest`: open a raw (out-of-pool) transaction that INSERTs an embed row for A and holds it; run the worker for A concurrently, wait until its backend is lock-waiting (`pg_stat_activity.wait_event_type = 'Lock'`), commit → after the worker completes the row is scrubbed ("Tombstone blocked behind an in-flight send").
+- [ ] 4.13 `ChatEmbeddedPostSendTest`: pause the REAL `ChatRepository.sendMessage` transaction after its INSERT + re-check (via `afterInsertHookInTx` + a latch); run the worker for A concurrently, wait until its backend is lock-waiting (`pg_stat_activity.wait_event_type = 'Lock'`, out-of-pool poll), release → after the worker completes the row is scrubbed ("Tombstone blocked behind an in-flight send").
 
 ## 5. Docs
 
 - [ ] 5.1 `docs/05-Implementation.md` § Chat Message Schema: add the `embedded_post_author_id` column + partial index and a sentence on its erasure-only purpose.
 - [ ] 5.2 `docs/06-Security-Privacy.md` § Account Deletion: list embedded-post snapshots under Anonymize/Tombstone (author identity scrubbed at rest on hard-delete; content retained).
+- [ ] 5.3 `docs/05` § deletion worker summary + `docs/04` § Post-restore reconciliation script: add the snapshot author re-scrub (a restored pre-deletion dump would otherwise resurrect the identity in snapshots). `docs/02` § Embedded Post Behavior already specifies the "Akun Dihapus" author label for a tombstoned author — this change fulfils it (no edit).
 
 ## 6. Verification + delivery
 

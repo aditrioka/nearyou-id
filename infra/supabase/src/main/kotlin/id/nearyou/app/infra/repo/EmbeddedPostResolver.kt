@@ -7,9 +7,13 @@ import java.util.UUID
  * Coordinate-free projection used to build a `chat_messages.embedded_post_snapshot` when a user
  * shares a post into a DM (`chat-embedded-posts`). Mirrors the shipped `single-post-read`
  * projection ([SinglePostRow]) — author handle + display name, `content`, `cityName`, `createdAt`,
- * `editedAt` — and DELIBERATELY omits `latitude` / `longitude` / `display_location` / the author
- * UUID (spatial-fuzzing critical invariant: a snapshot is a NEW serialization path that must not
- * regress `display_location`-only).
+ * `editedAt` — and DELIBERATELY omits `latitude` / `longitude` / `display_location` (spatial-fuzzing
+ * critical invariant: a snapshot is a NEW serialization path that must not regress
+ * `display_location`-only).
+ *
+ * [authorId] is carried ONLY for the `chat_messages.embedded_post_author_id` erasure-linkage column
+ * (`embedded-snapshot-author-erasure`, V38) — it is never serialized into the snapshot or onto the
+ * wire; the account-hard-delete worker keys the snapshot author scrub on it.
  *
  * [latestEditId] is the post's most-recent `post_edits.id` at resolution time (NULL when the post
  * has never been edited) — the "version-at-share-time" anchor persisted to
@@ -20,6 +24,7 @@ import java.util.UUID
  */
 data class ResolvedEmbeddedPost(
     val postId: UUID,
+    val authorId: UUID,
     val authorUsername: String,
     val authorDisplayName: String,
     val content: String,

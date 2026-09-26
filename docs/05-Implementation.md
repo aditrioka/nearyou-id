@@ -639,7 +639,7 @@ CREATE INDEX deletion_requests_immediate_idx
 
 - Cancellation sets `cancelled_at`; `apple_s2s_account_delete` rows cannot be cancelled.
 - **Immediate-execution for `apple_s2s_account_delete`**: the Apple S2S handler inserts the row AND synchronously enqueues a one-shot tombstone+cascade job before responding to Apple. If the sync job fails, the daily worker backstops via `deletion_requests_immediate_idx`.
-- Daily hard-delete worker: scans `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`, runs tombstone + cascade + deletion-log write, sets `executed_at = NOW()`.
+- Daily hard-delete worker: scans `scheduled_hard_delete_at <= NOW() AND executed_at IS NULL AND cancelled_at IS NULL`, runs tombstone + embedded-post snapshot author scrub (`chat_messages.embedded_post_author_id`, V38) + cascade + deletion-log write, sets `executed_at = NOW()`.
 
 ---
 
@@ -1068,6 +1068,7 @@ CREATE TABLE chat_messages (
     embedded_post_id UUID REFERENCES posts(id) ON DELETE SET NULL,
     embedded_post_snapshot JSONB,
     embedded_post_edit_id UUID REFERENCES post_edits(id) ON DELETE SET NULL,
+    embedded_post_author_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     redacted_at TIMESTAMPTZ,
     redacted_by UUID REFERENCES admin_users(id) ON DELETE SET NULL,
@@ -1081,9 +1082,10 @@ CREATE TABLE chat_messages (
 CREATE INDEX chat_messages_conv_idx ON chat_messages(conversation_id, created_at DESC);
 CREATE INDEX chat_messages_sender_idx ON chat_messages(sender_id, created_at DESC);
 CREATE INDEX chat_messages_redacted_idx ON chat_messages(redacted_by, redacted_at DESC) WHERE redacted_at IS NOT NULL;
+CREATE INDEX chat_messages_embedded_post_author_idx ON chat_messages(embedded_post_author_id) WHERE embedded_post_author_id IS NOT NULL;
 ```
 
-First CHECK prevents fully empty messages (snapshot term keeps historical rows valid after embedded-post hard-delete — FK cascade nulls `embedded_post_id`). Second CHECK enforces redaction atomicity (all-null OR `redacted_at` + `redacted_by` both set). Third CHECK (`embedded_post_snapshot` size cap, V37 `chat-embedded-posts`) bounds the snapshot to `octet_length(::text) < 4096` so an oversized JSONB can never be persisted or broadcast, keeping the Supabase Realtime broadcast payload within its per-message size limit; the `IS NULL OR` guard short-circuits for every plain (non-embed) message. `embedded_post_edit_id` / `redacted_by` ON DELETE SET NULL preserve history. Redaction UX: client renders "Pesan ini telah dihapus oleh moderator." regardless of original content; affected conversation participants receive a `chat_message_redacted` notification (one row per active participant — matches docs/07 "Chat Message Redaction").
+First CHECK prevents fully empty messages (snapshot term keeps historical rows valid after embedded-post hard-delete — FK cascade nulls `embedded_post_id`). Second CHECK enforces redaction atomicity (all-null OR `redacted_at` + `redacted_by` both set). Third CHECK (`embedded_post_snapshot` size cap, V37 `chat-embedded-posts`) bounds the snapshot to `octet_length(::text) < 4096` so an oversized JSONB can never be persisted or broadcast, keeping the Supabase Realtime broadcast payload within its per-message size limit; the `IS NULL OR` guard short-circuits for every plain (non-embed) message. `embedded_post_edit_id` / `redacted_by` ON DELETE SET NULL preserve history. `embedded_post_author_id` (V38 `embedded-snapshot-author-erasure`) is the share-time post author, used ONLY as the erasure linkage: on account tombstone the hard-delete worker overwrites the snapshot's `authorUsername` / `authorDisplayName` with the tombstoned `users` values for every row keyed on it — independent of `embedded_post_id`, which the post-purge FK nulls. Never serialized to clients. Redaction UX: client renders "Pesan ini telah dihapus oleh moderator." regardless of original content; affected conversation participants receive a `chat_message_redacted` notification (one row per active participant — matches docs/07 "Chat Message Redaction").
 
 ### Block Enforcement in Chat
 

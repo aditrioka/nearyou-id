@@ -40,20 +40,22 @@ The worker overwrites the two identity keys in place: `embedded_post_snapshot ||
 
 `ON DELETE SET NULL` (not RESTRICT/CASCADE): `users` rows are tombstoned, never row-deleted, so the action only matters for an accidental raw row-delete, where preserving the chat row matches every other `chat_messages` FK posture.
 
-### D3 — Close the share-vs-tombstone race with the FK lock + a post-insert re-check
+### D3 — Close the share-vs-tombstone race with an explicit author-row lock + a post-insert re-check
 
 The snapshot is built from a resolver read that happens *before* the send transaction. Interleaving: resolver reads live author → worker tombstones + scrubs + commits → send INSERTs the stale snapshot → nothing ever scrubs it. The worker cannot see an uncommitted INSERT, so only the send side can close it.
 
-Mechanism: the new FK's INSERT-time check takes `FOR KEY SHARE` on the author's `users` row; the tombstone `UPDATE` changes `username` (a `UNIQUE` column), which takes `FOR UPDATE` — the two conflict, so the transactions serialize on that row. After the INSERT, still inside the send transaction, `ChatRepository` runs one re-check: `UPDATE chat_messages cm SET embedded_post_snapshot = cm.embedded_post_snapshot || jsonb_build_object('authorUsername', u.username, 'authorDisplayName', u.display_name) FROM users u WHERE cm.id = ? AND u.id = cm.embedded_post_author_id AND u.deleted_at IS NOT NULL RETURNING cm.embedded_post_snapshot`.
-- Send locks first → the tombstone waits for the send to commit → the worker's scrub statement (a fresh READ COMMITTED snapshot) sees the committed row and scrubs it.
-- Tombstone locks first → the send's FK check waits for the worker to commit → the re-check statement (a fresh snapshot) sees `deleted_at` and scrubs; the returned snapshot replaces the row's so the 201 response + the after-commit broadcast carry the anonymized identity.
+Mechanism: after the INSERT, still inside the send transaction, `ChatRepository` locks the author row with `SELECT username, display_name, deleted_at FROM users WHERE id = ? FOR SHARE`; when `deleted_at` is set it overwrites the new row's two identity keys with the returned values (`UPDATE … RETURNING embedded_post_snapshot`). `FOR SHARE` conflicts with every `UPDATE` row lock, so the send and the tombstone serialize on the author row:
+- Send locks first → the tombstone `UPDATE users` waits for the send to commit → the worker's scrub statement (a fresh READ COMMITTED snapshot) sees the committed row and scrubs it.
+- Tombstone locks first → the `FOR SHARE` waits for the worker to commit, then returns the tombstoned row version → the send scrubs its own row; the returned snapshot replaces the row's so the 201 response + the after-commit broadcast carry the anonymized identity.
 - Non-overlapping → whichever runs second handles it.
 
-The re-check runs only for embed sends (one PK-keyed statement). It reads raw `users` for the tombstone state, so the function carries `@AllowMissingBlockJoin` (an erasure check on the message's own linked author, not a visibility read).
+Two subtleties, both deliberate: (1) the lock is taken by `id` ONLY and `deleted_at` is checked on the returned row — a locking SELECT filters on its pre-wait snapshot, so a `deleted_at IS NOT NULL` predicate would drop the row (skipping the wait) while the tombstone is still uncommitted; (2) the explicit `FOR SHARE` is used instead of relying on the new FK's INSERT-time `FOR KEY SHARE`, which only conflicts with the tombstone because it happens to rewrite a `UNIQUE` column (`username`) — a guarantee that would silently vanish if the tombstone's column set changed.
+
+The re-check runs only for embed sends (one PK lookup, plus one PK-keyed UPDATE when the author is tombstoned). It reads raw `users` for the tombstone state, so the function carries `@AllowMissingBlockJoin` (an erasure check on the message's own linked author, not a visibility read). Deadlock-free: the worker's scrub never waits on the send's uncommitted chat row (invisible to its snapshot), and the worker touches no row the send holds besides the author's `users` row.
 
 *Alternative — accept the race* (millisecond window, daily worker): rejected for an erasure-critical path — a lost race leaves real identity permanently and silently, and closing it is one statement.
 
-*Alternative — resolve the snapshot inside the send transaction with `SELECT … FOR KEY SHARE`*: equivalent correctness but moves JSON building into the repository and restructures `ChatService`; the post-insert re-check keeps the shipped service shape.
+*Alternative — resolve the snapshot inside the send transaction under the lock*: equivalent correctness but moves JSON building into the repository and restructures `ChatService`; the post-insert re-check keeps the shipped service shape.
 
 ### D4 — V38 backfills linkage and retro-scrubs already-tombstoned authors
 
@@ -63,7 +65,7 @@ The re-check runs only for embed sends (one PK-keyed statement). It reads raw `u
 
 - **Backend layering / data layer**: raw JDBC in the existing repository/worker classes (`ChatRepository`, `AccountHardDeleteWorker`, `JdbcEmbeddedPostResolver`); no new repository, service, or pattern. The worker leg is one more statement in the existing per-row transaction, next to the cascade DELETEs.
 - **Schema**: Flyway migration with a `NOW()`-free partial index (partial-index invariant); FK `ON DELETE SET NULL` like the other `chat_messages` history-preserving FKs.
-- **Lint invariants**: the worker scrub is `UPDATE chat_messages … WHERE embedded_post_author_id = ?` (no `FROM`/`JOIN` on a protected table); the send-side re-check reads raw `users` and is annotated `@AllowMissingBlockJoin` with its reason; no `username` write (the `@allow-username-write` allowlist is untouched — the snapshot copy is JSONB, not `users.username`); `ContentWriteRequiresModerationRule` is unaffected (no `INSERT … content` change beyond an extra non-content column).
+- **Lint invariants**: the worker scrub is `UPDATE chat_messages … WHERE embedded_post_author_id = ?` (no `FROM`/`JOIN` on a protected table); the send-side re-check reads raw `users` (`FOR SHARE`, by id) and is annotated `@AllowMissingBlockJoin` with its reason; no `username` write (the `@allow-username-write` allowlist is untouched — the snapshot copy is JSONB, not `users.username`); `ContentWriteRequiresModerationRule` is unaffected (no `INSERT … content` change beyond an extra non-content column).
 - No Pattern-Registry deviation → no docs/11 amendment.
 
 ### Cross-layer scope (docs/12)

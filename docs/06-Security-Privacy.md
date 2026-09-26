@@ -341,6 +341,7 @@ Request recorded in `deletion_requests` (`05-Implementation.md`).
 
 **Anonymize/Tombstone** (remain, with sender/author becoming user-facing "Akun Dihapus"):
 - Chat messages (preserved for the other participant's UX)
+- Embedded-post snapshots in chat (`chat_messages.embedded_post_snapshot` — the frozen copy of the author's handle + display name is scrubbed **at rest** to the tombstoned `deleted_user_…` / "Akun Dihapus" in the hard-delete transaction; the shared post content is retained like the post itself)
 - Posts + location field
 - Replies
 - Likes (count remains accurate)

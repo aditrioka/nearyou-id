@@ -67,7 +67,7 @@ In the same migration, existing embed rows SHALL be backfilled with `embedded_po
 
 ### Requirement: A share racing the author's tombstone cannot persist a stale identity
 
-The embed snapshot is built from a read that precedes the send transaction, so a tombstone committing in between could otherwise leave a freshly inserted snapshot with the pre-deletion identity. Inside the send transaction, after the INSERT, the send path SHALL re-check the linked author and, when `users.deleted_at IS NOT NULL`, SHALL scrub the new row's snapshot identity (same overwrite as the tombstone requirement) before commit; the scrubbed snapshot SHALL be the one returned in the `201` response and published in the after-commit broadcast. Correctness relies on the `embedded_post_author_id` FK check's `FOR KEY SHARE` lock on the author row conflicting with the tombstone `UPDATE`'s row lock, which serializes the two transactions: if the send commits first, the worker's scrub (a later statement) sees the committed row; if the tombstone commits first, the send's post-insert re-check sees `deleted_at`.
+The embed snapshot is built from a read that precedes the send transaction, so a tombstone committing in between could otherwise leave a freshly inserted snapshot with the pre-deletion identity. Inside the send transaction, after the INSERT, the send path SHALL lock the linked author's `users` row (`FOR SHARE`, selected by id only) and, when that row's `deleted_at IS NOT NULL`, SHALL scrub the new row's snapshot identity (same overwrite as the tombstone requirement) before commit; the scrubbed snapshot SHALL be the one returned in the `201` response and published in the after-commit broadcast. The lock conflicts with the tombstone `UPDATE`'s row lock, which serializes the two transactions: if the send commits first, the worker's scrub (a later statement) sees the committed row; if the tombstone commits first, the send's lock waits for it and the re-check sees `deleted_at`.
 
 #### Scenario: Tombstone commits between resolve and INSERT
 - **GIVEN** S's embed of A's post resolved A's live identity, and A's tombstone transaction (tombstone + scrub) commits before S's INSERT
@@ -75,7 +75,7 @@ The embed snapshot is built from a read that precedes the send transaction, so a
 - **THEN** the persisted snapshot carries A's tombstoned identity AND the `201` response's snapshot carries the tombstoned identity
 
 #### Scenario: Tombstone blocked behind an in-flight send
-- **GIVEN** S's send transaction has inserted an embed of A's post (holding the FK's key-share lock on A's `users` row) and not yet committed
+- **GIVEN** S's send transaction has inserted an embed of A's post and re-checked A (holding a share lock on A's `users` row) and not yet committed
 - **WHEN** A's tombstone runs concurrently and S's transaction then commits
 - **THEN** the tombstone waits for S's commit, and after it completes the persisted snapshot carries A's tombstoned identity
 
