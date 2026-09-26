@@ -14,22 +14,28 @@
 #   just works.
 #
 # Idempotent: safe to re-run. Skips initdb if the cluster exists, skips start if
-# already accepting, uses IF NOT EXISTS for the DB/extensions, and Flyway skips
-# already-applied migrations.
+# already accepting, uses IF NOT EXISTS for the DB/extensions, and skips the
+# gradle-driven Flyway step entirely when the schema already sits at the newest
+# V<N> on disk (so a SessionStart re-run costs seconds, not a gradle boot).
 #
 # Usage:  bash scripts/setup_backend_db.sh [--no-migrate]
 #   --no-migrate   provision + start Postgres but skip the (slow, gradle-driven)
 #                  Flyway migrate step. The DB env is still persisted.
 #
 # Tunables (env): PGPORT (default 5433, the repo's DB_URL default), PGDATA
-#   (default /tmp/nearyou_pgdata), PGDATABASE (default nearyou_dev).
+#   (default /var/tmp/nearyou_pgdata: on disk, so the cloud environment
+#   snapshot built by scripts/setup_cloud_env.sh keeps the migrated cluster),
+#   PGDATABASE (default nearyou_dev).
+#
+# Reset (e.g. a branch edited an applied migration → Flyway checksum mismatch):
+#   pg_ctl stop, `rm -rf $PGDATA`, re-run this script.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 PGPORT="${PGPORT:-5433}"
-PGDATA="${PGDATA:-/tmp/nearyou_pgdata}"
+PGDATA="${PGDATA:-/var/tmp/nearyou_pgdata}"
 PGDATABASE="${PGDATABASE:-nearyou_dev}"
 DO_MIGRATE=1
 [[ "${1:-}" == "--no-migrate" ]] && DO_MIGRATE=0
@@ -83,12 +89,14 @@ else
 fi
 
 # 3. Start (idempotent). The cluster listens on localhost only.
+#    max_connections=200 mirrors dev/docker-compose.yml: the full DB-tagged test
+#    run's per-spec Hikari pools peak past the default 100 ("too many clients").
 if "$PGBIN/pg_isready" -h localhost -p "$PGPORT" >/dev/null 2>&1; then
   log "Postgres already accepting on localhost:$PGPORT."
 else
   log "Starting Postgres on localhost:$PGPORT."
   "${PGRUN[@]}" "$PGBIN/pg_ctl" -D "$PGDATA" \
-    -o "-p $PGPORT -c listen_addresses=localhost" \
+    -o "-p $PGPORT -c listen_addresses=localhost -c max_connections=200" \
     -l /tmp/nearyou_pglog.log start >/dev/null 2>&1 \
     || { tail -8 /tmp/nearyou_pglog.log >&2; die "pg_ctl start failed."; }
   for _ in $(seq 1 20); do
@@ -131,8 +139,15 @@ fi
 export DB_URL="$DB_URL_VALUE" DB_USER="postgres" DB_PASSWORD=""
 
 # 6. Apply Flyway migrations (unless --no-migrate). Idempotent: Flyway skips
-#    already-applied versions. Slow on a cold gradle cache (first dep download).
-if [[ "$DO_MIGRATE" -eq 1 ]]; then
+#    already-applied versions. Slow on a cold gradle cache (first dep download),
+#    so skip gradle altogether when the newest on-disk V<N> is already applied.
+latest_on_disk="$(ls "$REPO_ROOT/backend/ktor/src/main/resources/db/migration" 2>/dev/null \
+  | sed -nE 's/^V([0-9]+)__.*/\1/p' | sort -n | tail -1)"
+latest_applied="$(psql -h localhost -p "$PGPORT" -U postgres -d "$PGDATABASE" -tAc \
+  "SELECT MAX(version::int) FROM flyway_schema_history WHERE success" 2>/dev/null || true)"
+if [[ "$DO_MIGRATE" -eq 1 && -n "$latest_on_disk" && "$latest_applied" == "$latest_on_disk" ]]; then
+  log "Schema already at V$latest_on_disk, skipping flywayMigrate."
+elif [[ "$DO_MIGRATE" -eq 1 ]]; then
   log "Applying Flyway migrations (./gradlew :backend:ktor:flywayMigrate) …"
   ./gradlew :backend:ktor:processResources :backend:ktor:flywayMigrate \
     --no-configuration-cache --console=plain >/tmp/nearyou_flyway.log 2>&1 \

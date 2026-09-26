@@ -4,6 +4,12 @@ Resumable checklist for the Claude Code cloud-sandbox Android environment
 (build APK + dispatch instrumented tests to a device farm; **no local emulator**).
 Update each box as a step lands so a dropped session can resume without redoing work.
 
+> **Superseded for day-to-day setup:** the whole cloud environment (backend DB + Redis, admin panel
+> tooling, Android SDK, gcloud, Docker images) is now provisioned by `scripts/setup_cloud_env.sh`
+> (environment setup script) + `scripts/session_start.sh` (SessionStart hook). Runbook:
+> [`dev/docs/cloud-environment.md`](dev/docs/cloud-environment.md). This file stays as the Android
+> bring-up history + the operator step 20 below.
+
 ## Repo facts (detected, not assumed)
 
 - Android module: **`:mobile:app`** (`android.namespace = id.nearyou.app`).
@@ -36,7 +42,7 @@ Update each box as a step lands so a dropped session can resume without redoing 
 - [x] 3. `scripts/verify_env.sh` — assert `java`, `sdkmanager`, `gradlew`, `adb`; non-zero on any miss.
 - [x] 4. `scripts/test_firebase.sh` — build debug + androidTest APKs, dispatch to Firebase Test Lab.
 - [x] 5. `scripts/test_browserstack.sh` — build debug + androidTest APKs, dispatch to BrowserStack Espresso.
-- [x] 6. `.claude/settings.json` — SessionStart hook running `verify_env.sh`.
+- [x] 6. `.claude/settings.json` — SessionStart hook running `verify_env.sh`. (Now called from `scripts/session_start.sh`, the single SessionStart hook.)
 - [x] 7. CLAUDE.md — "Android build & test (cloud sandbox)" section.
 - [x] 8. This checklist file.
 - [x] 9. Ran `setup_android.sh` end-to-end in the live sandbox — JDK 17 installed, cmdline-tools + all SDK packages installed, env persisted; `verify_env.sh` reports **Environment OK** and `java -version` resolves to 17.

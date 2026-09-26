@@ -1,0 +1,89 @@
+# Cloud environment: making a Claude Code cloud session behave like a local one
+
+A Claude Code cloud session ("Claude Code on the web", the Claude app, `claude --cloud`) runs in an Ubuntu 24.04 x86_64 VM: 4 vCPU, 16 GB RAM, 30 GB disk, no KVM, no macOS. This page covers what the repo automates to close the gap with a local session, the one-time settings the operator enters in the environment, and what can't be closed.
+
+Upstream docs: [Configure cloud environments](https://code.claude.com/docs/en/cloud-environments) · [Hooks](https://code.claude.com/docs/en/hooks).
+
+## How it works: two layers
+
+| Layer | Runs | Script | Does |
+|---|---|---|---|
+| **Environment setup script** | Once per environment build, as root, before Claude Code starts. The filesystem is then **snapshotted** and every later session starts from it (rebuilt when the script or network settings change, or after ~7 days). | [`scripts/setup_cloud_env.sh`](../../scripts/setup_cloud_env.sh) | Slow, on-disk installs: apt (PostGIS, oathtool, JDK 17, redis-server), Android SDK, Google Cloud SDK, Docker images, OpenSpec CLI, a migrated Postgres cluster, a warm Gradle cache. |
+| **SessionStart hook** | Every session (startup/resume/clear/compact), local **and** cloud. | [`scripts/session_start.sh`](../../scripts/session_start.sh) via [`.claude/settings.json`](../../.claude/settings.json) | Local: OpenSpec CLI + banner + health checks only. Cloud (detected by the container markers in [`scripts/_testing_context.sh`](../../scripts/_testing_context.sh)): additionally starts Postgres :5433 (no migrate) and Redis :6379, generates `dev/.env`, re-exports `JAVA_HOME`/`ANDROID_HOME`/`DB_*`, and starts `dockerd`. |
+
+The snapshot keeps files, not processes. That's why services are started per session by the hook. Every step in both scripts is idempotent. The hook never runs Gradle, so session start takes seconds: Postgres is started as-is (`--no-migrate`), the backend tests migrate the schema on start (`KotestProjectConfig`), and the health check prints a note when the snapshot's schema trails the repo (`bash scripts/setup_backend_db.sh` catches it up). Without the setup script the hook still works, but the first session downloads the Android SDK (1 to 2 min) and Postgres starts unmigrated.
+
+**Why the Gradle warm-up matters:** on this VM a cold Gradle cache costs ~8 min before the first task runs (plugin downloads plus build-logic compilation and classpath transforms, about 1.4 GB in `~/.gradle`). With a warm cache, the first Gradle command on a fresh clone takes ~25 s.
+
+## One-time operator setup
+
+Open claude.ai/code, pick the environment from the menu in the session title bar, then **Edit**.
+
+### 1. Setup script
+
+Paste this. The logic stays in the repo; the wrapper only locates it and falls back to a shallow clone if the checkout isn't there yet:
+
+```bash
+#!/bin/bash
+# nearyou-id: provisioning logic lives in the repo: scripts/setup_cloud_env.sh
+R=/home/user/nearyou-id
+if [ ! -f "$R/scripts/setup_cloud_env.sh" ]; then
+  R=/tmp/nearyou-id-setup; rm -rf "$R"
+  git clone -q --depth 1 https://github.com/aditrioka/nearyou-id.git "$R" || exit 0
+fi
+bash "$R/scripts/setup_cloud_env.sh" || true
+[ "$R" = /tmp/nearyou-id-setup ] && rm -rf "$R"
+exit 0
+```
+
+It reads the script from the default branch, so it takes effect once this tooling is on `main`. It always exits 0 (a non-zero setup script fails session start). Logs land in `/var/tmp/nearyou-setup/*.log`. The Gradle warm-up is time-boxed (`WARM_TIMEOUT`, default 210 s) so the script stays within the ~5 min setup budget; whatever it downloaded before the cutoff stays cached.
+
+### 2. Environment variables
+
+Anyone who uses the environment can read these, so store **only** the staging device-farm key, never staging DB credentials or production secrets. Note the `test-lab-runner` account holds `roles/editor` on `nearyou-staging` (Firebase's requirement for service-account Test Lab runs, see the provisioning script's header), so keep the environment personal:
+
+```
+# Firebase Test Lab (the key JSON on ONE line, from: jq -c . test-lab-runner-key.json)
+GCP_SA_KEY_JSON='<paste here>'
+# optional, this is the default
+FIREBASE_PROJECT_ID=nearyou-staging
+# optional BrowserStack fallback:
+# BROWSERSTACK_USERNAME=...
+# BROWSERSTACK_ACCESS_KEY=...
+```
+
+Mint the key with `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.sh` in an authenticated gcloud (Cloud Shell is the easiest; see [`device-farm.md`](device-farm.md)). The key file is pretty-printed over many lines: paste it compacted to one line and wrapped in **single** quotes, which keep the `\n` escapes inside `private_key` literal (the `.env` parser strips the quotes). Delete the local key file afterwards. Backend boot secrets are **not** needed here: the hook generates throwaway ones into `dev/.env`.
+
+### 3. Network access
+
+**Trusted** (it covers npm, Maven Central, Docker Hub and other common registries) plus the Android/Google hosts listed in [`ENVIRONMENT_SETUP_CHECKLIST.md`](../../ENVIRONMENT_SETUP_CHECKLIST.md) § Network allowlist. **Full** also works.
+
+## Parity per layer
+
+| Layer | Local session | Cloud session |
+|---|---|---|
+| **Backend DB** | `dev/docker-compose.yml` Postgres+PostGIS on :5433 | Native Postgres 16 + PostGIS on :5433 (`max_connections=200`, same as compose), data in `/var/tmp/nearyou_pgdata`; `DB_URL`/`DB_USER`/`DB_PASSWORD` exported every session |
+| **Redis** | compose Redis on :6379 | `redis-server` on :6379 (the port `KotestProjectConfig` probes) |
+| **Backend boot** | hand-made `dev/.env` | `dev/.env` generated by [`scripts/setup_dev_env.sh`](../../scripts/setup_dev_env.sh): `KTOR_ENV=test`, fresh RSA/JWT/HMAC keys, admin-panel keys. Boot with `set -a; . dev/.env; set +a; ./gradlew --no-daemon :backend:ktor:run` |
+| **CI-parity gate** | Docker containers on fresh ports | Same: `dockerd` is running and `postgis/postgis:16-3.4`, `redis:7-alpine`, `flyway/flyway:10` are pre-pulled (the verify-loop skill's "run CI-equivalently" recipe works as written) |
+| **Admin panel (web UI)** | Browser / Claude_Preview MCP | Headless Chromium via the global Playwright (`PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`); `oathtool` for the TOTP step. See the verify-loop skill § A. |
+| **Mockup boards** | Browser + `dev/scripts/mockup-measure.sh` | Same script; Chromium + python3 are present |
+| **Android build + JVM/Robolectric tests** | Android Studio SDK | SDK in `~/android-sdk` (snapshot), `JAVA_HOME` = JDK 17 exported every session |
+| **Android on a device** | Emulator/adb, `dev` flavor → local backend | **Firebase Test Lab** real device, `staging` flavor → `api-staging` (`scripts/test_android.sh`, `scripts/run_on_device.sh`). Needs `GCP_SA_KEY_JSON`. |
+| **iOS** | Xcode + simulator | **Not possible**, see below |
+| **OpenSpec CLI** | npm global | Same (`scripts/setup_openspec.sh`) |
+
+## What can't be closed
+
+- **iOS.** The VM is Linux; Kotlin/Native Apple targets (`iosSimulatorArm64Test`, `linkDebugFrameworkIosSimulatorArm64`) and Xcode need macOS. For iOS work, run a session on a Mac: `claude remote-control` in the repo folder (or the Claude Desktop app) shows up in the Claude app like a cloud session but executes locally.
+- **Device ↔ sandbox backend.** A Test Lab device can't reach the sandbox's `localhost`, so on-device runs hit staging. A backend change is visible on a device only after it deploys to staging (post-merge `deploy-staging.yml`). Verify backend behavior in the sandbox with `curl` and the test suite.
+- **Memory.** `gradle.properties` gives the Gradle and Kotlin daemons `-Xmx6g` each. Run the backend and mobile lanes as separate invocations instead of one giant `./gradlew test`.
+
+## Troubleshooting
+
+- **Logs:** `/var/tmp/nearyou-setup/*.log` (environment build), `/tmp/nearyou-session/*.log` (per session).
+- **Re-run by hand:** `bash scripts/session_start.sh` (per-session) or `bash scripts/setup_cloud_env.sh` (full provisioning, ~5 min).
+- **`429 Too Many Requests` from Maven Central or Docker Hub:** registry rate limits on shared egress. The setup script retries Gradle with backoff until `WARM_TIMEOUT` runs out and skips Docker images already on disk; anything it couldn't fetch is downloaded on first use in the session. Re-running later usually succeeds.
+- **Skip cloud provisioning for one session:** set `NEARYOU_SKIP_PROVISION=1` in the environment variables.
+- **Flyway checksum mismatch** (a branch edited an applied migration): `sudo -u postgres /usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/nearyou_pgdata stop && rm -rf /var/tmp/nearyou_pgdata && bash scripts/setup_backend_db.sh`.
+- **`dev/.env` stale or hand-broken:** delete it; the next `bash scripts/setup_dev_env.sh` (or session) regenerates it.
