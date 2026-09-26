@@ -1,5 +1,6 @@
 package id.nearyou.app.account
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -150,6 +151,13 @@ class AccountHardDeleteWorker(
         userId: UUID,
         source: String,
     ): Boolean {
+        // Lock the user's embed rows BEFORE the users row — the order admin chat redaction takes
+        // (chat row, then the participants' users rows via its notification FK), so a redaction of
+        // an embed of this user's post cannot deadlock against the tombstone.
+        conn.prepareStatement(SQL_LOCK_EMBEDDED_SNAPSHOTS).use { ps ->
+            ps.setObject(1, userId)
+            ps.executeQuery().use { rs -> while (rs.next()) Unit }
+        }
         // 2. Tombstone the user (UPDATE — never a row-delete). No row returned =
         //    user already tombstoned by an earlier request row → moot row.
         val placeholder =
@@ -250,6 +258,15 @@ class AccountHardDeleteWorker(
                 username                = 'deleted_user_' || left(id::text, 8)
              WHERE id = ? AND deleted_at IS NULL
             RETURNING username, display_name
+            """
+
+        @AllowMissingBlockJoin("system erasure worker — locks the departing author's own linked embed rows, not a visibility read")
+        const val SQL_LOCK_EMBEDDED_SNAPSHOTS =
+            """
+            SELECT 1 FROM chat_messages
+             WHERE embedded_post_author_id = ?
+               AND embedded_post_snapshot IS NOT NULL
+             FOR NO KEY UPDATE
             """
 
         // Snapshot author-erasure (V38 linkage). Only the two identity keys change; content,

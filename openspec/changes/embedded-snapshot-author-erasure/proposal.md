@@ -9,7 +9,7 @@
 - **Migration `V38`**: add the column + index, backfill it from `posts.author_id` for existing embed rows, and retro-scrub snapshots whose author was tombstoned before this change shipped (erasure is not only forward-looking).
 - **Share-vs-tombstone race closed.** The send transaction re-checks the author after the INSERT under an explicit `FOR SHARE` lock on the author row (which serializes against the tombstone's row lock), scrubbing a snapshot built from a pre-tombstone read and returning the scrubbed snapshot to the 201 response + Realtime broadcast.
 - **Spec MODIFY**: `chat-embedded-posts` "Embedded snapshots are NOT re-anonymized on author account-tombstone (deferred)" flips to the shipped behavior (the requirement was written so this change can MODIFY it); `account-hard-delete-worker` gains the snapshot-scrub leg.
-- **Docs amend**: `docs/05` § Chat Message Schema (new column + index), `docs/06` § Account Deletion (snapshots listed under Anonymize/Tombstone).
+- **Docs amend**: `docs/05` § Chat Message Schema (new column + index) + worker summary, `docs/06` § Account Deletion (snapshots listed under Anonymize/Tombstone) + § Retention row, `docs/04` § Post-restore reconciliation (re-scrub on tombstone re-apply).
 
 ## Capabilities
 
@@ -19,6 +19,7 @@
 ### Modified Capabilities
 - `chat-embedded-posts`: the deferred "snapshots are NOT re-anonymized on author tombstone" requirement becomes "snapshots ARE re-anonymized on author tombstone"; a new requirement records the share-time author linkage (`embedded_post_author_id`, V38) + its backfill/retro-scrub + the share-vs-tombstone race guard. The snapshot key set and its no-author-UUID rule are unchanged.
 - `account-hard-delete-worker`: the tombstone transaction additionally scrubs the departing author's identity from every linked `embedded_post_snapshot`.
+- `mobile-chat-embedded-posts`: text-only — the edited-since-shared requirement's dangling "same treatment as the author-tombstone deferral below" pointer is rewritten (that deferral is now fulfilled; behavior unchanged).
 - `chat-conversations`: the "Conversation schema" requirement's `chat_messages` column + index enumeration gains `embedded_post_author_id` and its partial index (V38), with an FK-shape scenario — keeping the schema requirement verbatim-aligned with `docs/05`.
 
 ## Impact
@@ -26,5 +27,5 @@
 - **Backend** (`:backend:ktor`, `:infra:supabase`): `AccountHardDeleteWorker` (tombstone `RETURNING` + one scrub `UPDATE`); `JdbcEmbeddedPostResolver` + `ResolvedEmbeddedPost` (project `author_id` — used for the column only, never serialized); `ChatService` / `EmbeddedPostData` / `ChatRepository.insertChatMessage` (write the column + post-insert re-check); new Flyway `V38__chat_embedded_post_author_erasure.sql`.
 - **Wire contract**: unchanged — no new response/broadcast field; the snapshot key set is unchanged (values change only for tombstoned authors).
 - **Mobile**: no code change — `EmbeddedPostCard` renders the snapshot's `authorDisplayName` / `@authorUsername` verbatim, so a scrubbed card shows "Akun Dihapus" / "@deleted_user_…", matching the live post card for a tombstoned author.
-- **Admin**: no code change — admin chat-redaction reads the stored snapshot and sees the scrubbed identity after tombstone (consistent with the tombstoned `users` row).
+- **Admin**: no code change — the chat-redaction surface only records snapshot presence (`hasEmbed` / `had_embed`), never the identity.
 - **Out of scope**: #347 (account-deletion-tombstone concurrency tests + PII review) is deliberately sequenced after this change and is NOT folded in.

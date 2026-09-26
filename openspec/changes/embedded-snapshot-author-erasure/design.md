@@ -51,7 +51,9 @@ Mechanism: after the INSERT, still inside the send transaction, `ChatRepository`
 
 Two subtleties, both deliberate: (1) the lock is taken by `id` ONLY and `deleted_at` is checked on the returned row — a locking SELECT filters on its pre-wait snapshot, so a `deleted_at IS NOT NULL` predicate would drop the row (skipping the wait) while the tombstone is still uncommitted; (2) the explicit `FOR SHARE` is used instead of relying on the new FK's INSERT-time `FOR KEY SHARE`, which only conflicts with the tombstone because it happens to rewrite a `UNIQUE` column (`username`) — a guarantee that would silently vanish if the tombstone's column set changed.
 
-The re-check runs only for embed sends (one PK lookup, plus one PK-keyed UPDATE when the author is tombstoned). It reads raw `users` for the tombstone state, so the function carries `@AllowMissingBlockJoin` (an erasure check on the message's own linked author, not a visibility read). Deadlock-free: the worker's scrub never waits on the send's uncommitted chat row (invisible to its snapshot), and the worker touches no row the send holds besides the author's `users` row.
+The re-check runs only for embed sends (one PK lookup, plus one PK-keyed UPDATE when the author is tombstoned). It reads raw `users` for the tombstone state, so the function carries `@AllowMissingBlockJoin` (an erasure check on the message's own linked author, not a visibility read).
+
+Lock ordering (no deadlocks): the worker locks the author's linked embed rows (`FOR NO KEY UPDATE`) BEFORE the tombstone `UPDATE users` — the same order admin chat redaction takes (it locks the chat row, then its participant-notification INSERTs take `FOR KEY SHARE` on the participants' `users` rows), so a redaction of an embed of the departing author's post, in a conversation the author is part of, cannot form a cycle with the tombstone (review round 1 caught the original users-then-chat order). Against the send path there is no cycle either: a send's uncommitted chat row is invisible to the worker's statements, and the send never waits on a row the worker holds besides the author's `users` row. Tests 4.13 / 4.14 exercise both send interleavings and pin both subtleties (`FOR SHARE` vs the FK's `FOR KEY SHARE`; lock by id only).
 
 *Alternative — accept the race* (millisecond window, daily worker): rejected for an erasure-critical path — a lost race leaves real identity permanently and silently, and closing it is one statement.
 
@@ -72,7 +74,7 @@ The re-check runs only for embed sends (one PK lookup, plus one PK-keyed UPDATE 
 
 - **Backend**: full — schema, write path, erasure leg, race guard.
 - **Mobile**: no change required. `EmbeddedPostCard` renders `snapshot.authorDisplayName` / `"@${snapshot.authorUsername}"` verbatim, so a scrubbed card reads "Akun Dihapus" / "@deleted_user_…" — the same identity the live post card shows for a tombstoned author. Tapping still re-resolves the live post (which surfaces anonymized per V28).
-- **Admin**: no change required. The chat-redaction view reads the stored snapshot, which is now scrubbed; admins see the tombstoned identity, consistent with the tombstoned `users` row.
+- **Admin**: no change required. The chat-redaction surface reduces the snapshot to a presence flag (`hasEmbed`; the audit `before_state` records only `had_embed`), so no admin view renders or copies the snapshot identity and the immutable `admin_actions_log` holds no copy to erase.
 - No layer is deferred.
 
 ## Risks / Trade-offs
@@ -81,12 +83,15 @@ The re-check runs only for embed sends (one PK lookup, plus one PK-keyed UPDATE 
 - [Worker transaction now touches `chat_messages` rows → longer row-lock hold] → bounded by the author's shared-post count; indexed lookup; runs in the existing per-row transaction.
 - [The snapshot is no longer strictly immutable] → the mutation is limited to two identity keys, only on author erasure; the `chat-embedded-posts` Purpose line is amended at archive to say so.
 - [Pre-V38 unlinkable rows] → empty set by construction (D4).
+- [V38's inline `ADD COLUMN … REFERENCES users` + backfill + retro-scrub + non-concurrent index run in one migration transaction, holding ACCESS EXCLUSIVE on `chat_messages` and SHARE ROW EXCLUSIVE on `users` throughout] → fine pre-launch (small tables); the same shape against a large production table would need `NOT VALID` + `VALIDATE CONSTRAINT`, a batched backfill, and `CREATE INDEX CONCURRENTLY` in a non-transactional migration.
+- [The send-side `FOR SHARE` briefly blocks the embedded author's own `users`-row UPDATEs (profile edit, privacy flip) while an embed send of their post is mid-transaction] → held only for the remainder of that send transaction (milliseconds; embed sends are rate-limited like every chat send); `FOR KEY SHARE` would avoid it but only conflicts with key-column updates (D3 subtlety 2).
 
 ## Migration Plan
 
 1. Deploy V38 (additive: nullable column, partial index, backfill + retro-scrub). Flyway runs at boot before serving; the backfill is a single set-based UPDATE over embed rows only.
 2. The new code writes `embedded_post_author_id` on every embed send and scrubs on tombstone.
 3. Rollback: the column is nullable and ignored by the previous build's explicit-column SQL, so the previous build runs against the V38 schema. Scrubbed snapshots are intentionally not restorable (erasure).
+4. Old-revision window (accepted, pre-launch): embeds sent by the previous revision after V38 applied (Cloud Run traffic cutover, or a rollback period) get a NULL `embedded_post_author_id`, and a tombstone executed by the previous revision does not scrub. Pre-launch there is no production traffic (staging is synthetic-only) and the cutover window is seconds; after any rollback-then-redeploy, re-execute V38's two DML statements (idempotent by construction) to backfill + retro-scrub the window's rows.
 
 ## Open Questions
 

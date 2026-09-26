@@ -309,7 +309,7 @@ Neither path bumps `token_version` or deletes refresh tokens — the `token_vers
 | Notifications (in-app list) | 90 days auto-purge |
 | Attestation verdict cache | 1 hour (Redis) |
 | Refresh token family log | Until all family members expired |
-| Chat `embedded_post_snapshot` | Indefinite (part of the conversation) |
+| Chat `embedded_post_snapshot` | Indefinite (part of the conversation); the author identity is scrubbed at rest when the post author is tombstoned |
 | Chat messages | Indefinite (tombstone sender, retain content) |
 | CSAM detection archive | 90+ days minimum, until Kominfo + investigation fulfilled |
 | `rejected_identifiers` (under-18 bypass list) | Indefinite (anti-abuse, only identifier hash stored) |

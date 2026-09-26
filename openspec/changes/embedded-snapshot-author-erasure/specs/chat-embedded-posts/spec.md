@@ -79,6 +79,11 @@ The embed snapshot is built from a read that precedes the send transaction, so a
 - **WHEN** A's tombstone runs concurrently and S's transaction then commits
 - **THEN** the tombstone waits for S's commit, and after it completes the persisted snapshot carries A's tombstoned identity
 
+#### Scenario: Send waits behind an uncommitted tombstone
+- **GIVEN** A's tombstone transaction holds A's `users` row (updated, uncommitted) when S's send transaction reaches the post-insert re-check
+- **WHEN** the tombstone commits
+- **THEN** S's re-check (which waited on the row lock) reads the tombstoned row and scrubs its own snapshot, and the returned snapshot carries the tombstoned identity
+
 #### Scenario: Live author is not scrubbed by the re-check
 - **GIVEN** author A is not tombstoned
 - **WHEN** S shares A's post

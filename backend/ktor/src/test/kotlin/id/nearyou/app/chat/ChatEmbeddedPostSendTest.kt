@@ -301,6 +301,17 @@ class ChatEmbeddedPostSendTest : StringSpec({
             }
         }
 
+    fun rowJson(messageId: UUID): String =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT row_to_json(cm)::text FROM chat_messages cm WHERE id = ?").use { ps ->
+                ps.setObject(1, messageId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getString(1)
+                }
+            }
+        }
+
     fun snapshotOf(messageId: UUID): JsonObject = Json.parseToJsonElement(embedColumns(messageId).second!!).jsonObject
 
     fun identityOf(userId: UUID): Pair<String, String> =
@@ -355,24 +366,32 @@ class ChatEmbeddedPostSendTest : StringSpec({
     val dbUser = System.getenv("DB_USER") ?: "postgres"
     val dbPassword = System.getenv("DB_PASSWORD") ?: "postgres"
 
-    /** Poll (out-of-pool) until the tombstone UPDATE is lock-waiting on the author row. */
-    suspend fun awaitTombstoneLockWait() {
+    fun backendPid(conn: Connection): Int =
+        conn.createStatement().use { st ->
+            st.executeQuery("SELECT pg_backend_pid()").use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+
+    /** Poll (out-of-pool) until some backend is lock-blocked by [blockerPid] — this test's own interleaving. */
+    suspend fun awaitBlockedBy(blockerPid: Int) {
         java.sql.DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { conn ->
             repeat(300) {
-                val waiting =
+                val blocked =
                     conn.prepareStatement(
-                        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() " +
-                            "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock' AND query LIKE '%deleted_user_%'",
+                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid)))",
                     ).use { ps ->
+                        ps.setInt(1, blockerPid)
                         ps.executeQuery().use { rs ->
                             rs.next()
-                            rs.getInt(1)
+                            rs.getBoolean(1)
                         }
                     }
-                if (waiting > 0) return
+                if (blocked) return
                 delay(50)
             }
-            error("tombstone never blocked on the in-flight send's lock on the author row")
+            error("no backend ever blocked on pid $blockerPid's author-row lock")
         }
     }
 
@@ -743,6 +762,7 @@ class ChatEmbeddedPostSendTest : StringSpec({
                 val plain = send(tok, conv, """{"content":"halo"}""").messageId()
                 authorIdOf(plain) shouldBe null
             }
+            fake.invocations.size shouldBe 2 // embed + plain — the no-UUID check below is not vacuous
             fake.invocations.forEach { (_, broadcast) -> broadcast.toString() shouldNotContain author.toString() }
         } finally {
             cleanup(sender, recipient, author)
@@ -849,11 +869,11 @@ class ChatEmbeddedPostSendTest : StringSpec({
                 // The doomed user SENT an embed of B's post (they authored no shared post).
                 val sentByDoomed = send(doomedTok, conv1, """{"embedded_post_id":"$postB"}""").messageId()
                 val unrelated = send(otherTok, conv2, """{"embedded_post_id":"$postC"}""").messageId()
-                val beforeSent = embedColumns(sentByDoomed).second
-                val beforeUnrelated = embedColumns(unrelated).second
+                val beforeSent = rowJson(sentByDoomed)
+                val beforeUnrelated = rowJson(unrelated)
                 tombstone(doomed) shouldBe true
-                embedColumns(sentByDoomed).second shouldBe beforeSent // row retained, B's identity intact
-                embedColumns(unrelated).second shouldBe beforeUnrelated
+                rowJson(sentByDoomed) shouldBe beforeSent // row retained byte-identical, B's identity intact
+                rowJson(unrelated) shouldBe beforeUnrelated
             }
         } finally {
             cleanup(doomed, otherSender, recipient, authorB, authorC)
@@ -885,6 +905,7 @@ class ChatEmbeddedPostSendTest : StringSpec({
                 snapshot["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
                 text shouldNotContain origUsername
                 text shouldNotContain origDisplay
+                text shouldNotContain author.toString() // the linkage column is never on the wire
             }
         } finally {
             cleanup(sender, recipient, author)
@@ -981,6 +1002,7 @@ class ChatEmbeddedPostSendTest : StringSpec({
         val (author, _) = seedUser()
         val paused = CountDownLatch(1)
         val release = CountDownLatch(1)
+        var sendPid = 0
         try {
             val conv = createConv(sender, recipient)
             val post = seedPost(author)
@@ -998,16 +1020,32 @@ class ChatEmbeddedPostSendTest : StringSpec({
                             senderId = sender,
                             content = null,
                             embed = EmbeddedPostData(postId = post, snapshotJson = snapshotJson, editId = null, authorId = author),
-                            afterInsertHookInTx = { _, _ ->
+                            afterInsertHookInTx = { conn, _ ->
+                                sendPid = backendPid(conn)
                                 paused.countDown()
                                 check(release.await(15, TimeUnit.SECONDS))
                             },
                         )
                     }
                 check(withContext(Dispatchers.IO) { paused.await(15, TimeUnit.SECONDS) })
+                // Pin design D3 subtlety 2: the re-check's explicit FOR SHARE blocks even a NON-key
+                // author UPDATE (the FK's FOR KEY SHARE alone would not) → lock_timeout 55P03.
+                val probe =
+                    withContext(Dispatchers.IO) {
+                        java.sql.DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { conn ->
+                            conn.createStatement().use { it.execute("SET lock_timeout = '300ms'") }
+                            runCatching {
+                                conn.prepareStatement("UPDATE users SET bio = 'probe' WHERE id = ?").use { ps ->
+                                    ps.setObject(1, author)
+                                    ps.executeUpdate()
+                                }
+                            }.exceptionOrNull()
+                        }
+                    }
+                (probe as? java.sql.SQLException)?.sqlState shouldBe "55P03"
                 val tomb = async(Dispatchers.IO) { worker.executeImmediate(req) }
                 try {
-                    awaitTombstoneLockWait()
+                    awaitBlockedBy(sendPid)
                 } finally {
                     release.countDown()
                 }
@@ -1017,6 +1055,55 @@ class ChatEmbeddedPostSendTest : StringSpec({
             }
         } finally {
             release.countDown()
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.14 a send whose re-check meets an uncommitted tombstone waits for it, then scrubs its own row" {
+        val (sender, _) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            val (liveUsername, liveDisplay) = identityOf(author)
+            val snapshotJson =
+                """{"authorUsername":"$liveUsername","authorDisplayName":"$liveDisplay","content":"post content",""" +
+                    """"cityName":null,"createdAt":"2026-09-01T00:00:00Z","editedAt":null}"""
+            java.sql.DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { tomb ->
+                tomb.autoCommit = false
+                val tombPid = backendPid(tomb)
+                // A NON-key tombstone-shaped update (no username rewrite → FOR NO KEY UPDATE): the INSERT's
+                // FK KEY SHARE does not wait on it, so only the re-check's FOR SHARE serializes — and it
+                // must re-read the row after the wait (design D3 subtlety 1: lock by id only).
+                tomb.prepareStatement(
+                    "UPDATE users SET deleted_at = NOW(), display_name = 'Akun Dihapus' WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, author)
+                    ps.executeUpdate()
+                }
+                coroutineScope {
+                    val send =
+                        async(Dispatchers.IO) {
+                            repository.sendMessage(
+                                conversationId = conv,
+                                senderId = sender,
+                                content = null,
+                                embed = EmbeddedPostData(postId = post, snapshotJson = snapshotJson, editId = null, authorId = author),
+                            )
+                        }
+                    try {
+                        awaitBlockedBy(tombPid)
+                    } finally {
+                        tomb.commit()
+                    }
+                    val row = send.await()
+                    row.embeddedPostSnapshot!!.jsonObject["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                    snapshotOf(row.id)["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                    embedColumns(row.id).second!! shouldNotContain liveDisplay
+                }
+            }
+        } finally {
             cleanup(sender, recipient, author)
         }
     }
