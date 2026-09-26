@@ -1,8 +1,14 @@
 package id.nearyou.app.health
 
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import id.nearyou.app.auth.jwt.TestKeys
+import id.nearyou.app.infra.sentryjvm.SentryBootstrap
+import id.nearyou.app.infra.sentryjvm.testing.SentryEventRecorder
 import id.nearyou.app.module
 import io.kotest.core.spec.style.StringSpec
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.get
@@ -10,6 +16,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
+import org.slf4j.LoggerFactory
 
 // EnvVarSecretResolver falls back to System.getProperty; stash 32-byte base64
 // blobs here so module() can boot without INVITE_CODE_SECRET / JITTER_SECRET in the OS env.
@@ -67,6 +74,50 @@ class HealthRoutesTest : StringSpec({
             val response = client.get("/health/ready")
             response.status shouldBe HttpStatusCode.ServiceUnavailable
             response.bodyAsText() shouldContain "degraded"
+        }
+    }
+
+    // backend-error-reporting § "Bootstrap is called once at startup" — the REAL wiring through the
+    // REAL EnvVarSecretResolver (system-property fallback), so a wrong secret name (#381) fails here.
+    fun sentryLines(block: () -> Unit): List<String> {
+        val logger = LoggerFactory.getLogger(SentryBootstrap::class.java) as Logger
+        val lines = ListAppender<ILoggingEvent>().apply { start() }
+        logger.addAppender(lines)
+        try {
+            block()
+        } finally {
+            logger.detachAppender(lines)
+        }
+        return lines.list.map { it.formattedMessage }
+    }
+
+    "module() boot without a Sentry DSN no-ops and the service stays live" {
+        val lines =
+            sentryLines {
+                testApplication {
+                    environment { config = config("jdbc:postgresql://nowhere:1/nodb") }
+                    application { module() }
+                    client.get("/health/live").status shouldBe HttpStatusCode.OK
+                }
+            }
+        lines shouldContain "event=sentry_disabled reason=dsn_missing"
+    }
+
+    "module() boot resolves SENTRY_BACKEND_DSN and enables reporting" {
+        System.setProperty("SENTRY_BACKEND_DSN", SentryEventRecorder.FAKE_DSN)
+        try {
+            val lines =
+                sentryLines {
+                    testApplication {
+                        environment { config = config("jdbc:postgresql://nowhere:1/nodb") }
+                        application { module() }
+                        client.get("/health/live").status shouldBe HttpStatusCode.OK
+                    }
+                }
+            lines.single { it.startsWith("event=sentry_") } shouldContain "event=sentry_enabled environment=test"
+        } finally {
+            System.clearProperty("SENTRY_BACKEND_DSN")
+            SentryEventRecorder.reset()
         }
     }
 })

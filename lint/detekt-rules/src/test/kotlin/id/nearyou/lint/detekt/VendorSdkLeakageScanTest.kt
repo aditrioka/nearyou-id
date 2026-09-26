@@ -12,8 +12,8 @@ import java.io.File
  * state but don't prevent future drift).
  *
  * Two scopes, because the forbidden vendor differs by module set:
- *  - **Server-side SDKs** (Supabase / Lettuce / Firebase Admin) are checked against `:core:domain`,
- *    `:core:data`, `:backend:ktor`. `:infra:*` modules are the canonical homes (exempt).
+ *  - **Server-side SDKs** (Supabase / Lettuce / Firebase Admin / Sentry Java) are checked against
+ *    `:core:domain`, `:core:data`, `:backend:ktor`. `:infra:*` modules are the canonical homes (exempt).
  *  - The **Sentry KMP SDK** (`io.sentry.`) is checked against `:mobile:app` — it must reach Sentry
  *    ONLY through the `:infra:sentry` `CrashReporter` interface (mobile-crash-reporting). The
  *    server-side prefixes are deliberately NOT applied to `mobile/app/src`: the mobile app
@@ -53,7 +53,7 @@ class VendorSdkLeakageScanTest : StringSpec({
         return violations
     }
 
-    "no Supabase / Lettuce / Firebase SDK imports outside :infra:*" {
+    "no Supabase / Lettuce / Firebase / Sentry SDK imports outside :infra:*" {
         val serverRoots =
             listOf(
                 File(repoRoot, "core/domain/src"),
@@ -69,6 +69,8 @@ class VendorSdkLeakageScanTest : StringSpec({
                 "io.lettuce.",
                 // Firebase Admin SDK — `:infra:fcm` is the canonical home.
                 "com.google.firebase.",
+                // Sentry Java SDK — `:infra:sentry-jvm` is the canonical home (backend-error-reporting).
+                "io.sentry.",
             )
         val violations = scanImports(serverRoots, serverPrefixes)
         if (violations.isNotEmpty()) {

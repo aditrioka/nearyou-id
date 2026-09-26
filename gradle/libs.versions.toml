@@ -141,6 +141,12 @@ sentry-kmp = "0.26.0"
 # SDK klib owns the bindings; the Pod provides only the framework binary at link time). A mismatch here
 # surfaces as an iOS `ld: framework 'Sentry' not found` / symbol error.
 sentryCocoaIos = "8.58.2"
+# backend-sentry-error-capture — Sentry Java SDK (core + logback appender) for :backend:ktor error
+# capture. Distinct from sentry-kmp (mobile). sentry + sentry-logback MUST share one version (the SDK
+# hard-fails init on mixed module versions). Verified 2026-09-25: 8.58.0 is latest on Maven Central
+# (released 2026-09-23); sentry-logback depends only on io.sentry:sentry at the same version. Vendor
+# import fenced to :infra:sentry-jvm (invariant #16).
+sentry-java = "8.58.0"
 # mobile-paywall-screen — RevenueCat purchases-kmp (in-app subscriptions) for the paywall. Stable v3
 # line, on Maven Central (verified 2026-06-16: 3.0.6 is latest). Vendor import fenced to
 # :infra:revenuecat (invariant #16); consumed there only, behind the vendor-free PurchaseController.
@@ -289,6 +295,10 @@ supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 # Consumed ONLY by :infra:sentry; the vendor import is fenced there (invariant #16). See the
 # `sentry-kmp` version pin for the apply-phase substrate re-check rationale + #17 fallback.
 sentry-kotlinMultiplatform = { module = "io.sentry:sentry-kotlin-multiplatform", version.ref = "sentry-kmp" }
+# Sentry Java SDK — backend error capture (backend-error-reporting). Consumed ONLY by
+# :infra:sentry-jvm (implementation-scoped); the vendor import is fenced there (invariant #16).
+sentry-java-core = { module = "io.sentry:sentry", version.ref = "sentry-java" }
+sentry-java-logback = { module = "io.sentry:sentry-logback", version.ref = "sentry-java" }
 # mobile-paywall-screen — RevenueCat KMP in-app-subscription SDK. Consumed ONLY by :infra:revenuecat
 # (implementation-scoped); the vendor import is fenced there (invariant #16).
 purchases-kmp-core = { module = "com.revenuecat.purchases:purchases-kmp-core", version.ref = "purchases-kmp" }

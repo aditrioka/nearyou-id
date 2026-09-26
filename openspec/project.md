@@ -34,7 +34,7 @@ Full principle statement + cross-file reference map: [`docs/00-README.md`](../do
 | Subscription | RevenueCat |
 | Feature flags | Firebase Remote Config |
 | Email | Resend (transactional only) |
-| Observability | Sentry KMP (errors), OpenTelemetry → Grafana Cloud (traces), GCP Monitoring (metrics), Amplitude (consent-gated product analytics) |
+| Observability | Sentry (errors — KMP SDK on mobile, Java SDK on the backend), OpenTelemetry → Grafana Cloud (traces), GCP Monitoring (metrics), Amplitude (consent-gated product analytics) |
 | Serialization | kotlinx.serialization |
 | DI | Koin |
 
@@ -69,7 +69,8 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 | `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
 | `:infra:revenuecat` | DESIGN | Premium subscription billing |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |
-| `:infra:sentry` | SCAFFOLD NEXT | Follow-up `infra-sentry-kmp-module-isation` (split from Mobile #1 if scaffold scope grows; see § Mobile + Admin Scaffolding Priority menu Mobile #1) |
+| `:infra:sentry` | SHIPPED | Mobile crash reporting via the Sentry KMP SDK — `mobile-sentry-crash-reporting` ([PR #299](https://github.com/aditrioka/nearyou-id/pull/299)); mobile-only, Android-gated |
+| `:infra:sentry-jvm` | SHIPPED | Backend error reporting via the Sentry Java SDK — `backend-sentry-error-capture` ([PR #483](https://github.com/aditrioka/nearyou-id/pull/483)); JVM, consumed by `:backend:ktor` |
 | `:infra:amplitude` | DESIGN | Consent-gated analytics |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | SHIPPED | Firebase Remote Config wordlist + threshold delivery for `content-moderation-keyword-lists` (PR #70). DB-backed flags (`premium_*_cap_override`) remain the per-user override surface; Remote Config is the platform-wide tunable surface. |
