@@ -1,5 +1,6 @@
 package id.nearyou.app.account
 
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,10 +29,13 @@ data class HardDeleteResult(
  *     resolves deterministically.
  *  2. Tombstone the user (set `deleted_at`, erase PII — placeholder/sentinel for the
  *     `NOT NULL` columns, NULL the nullable ones, rename `username`).
- *  3. Cascade-DELETE the ephemeral/relational data (refresh tokens, follows + blocks
+ *  3. Scrub the user's identity out of every `chat_messages.embedded_post_snapshot` of a
+ *     post they authored (keyed on `embedded_post_author_id`), overwriting the two author
+ *     keys with the values the tombstone just wrote (`embedded-snapshot-author-erasure`).
+ *  4. Cascade-DELETE the ephemeral/relational data (refresh tokens, follows + blocks
  *     both directions, FCM tokens, addressed notifications) — explicit DELETEs because
  *     the un-row-deleted user never fires the FK cascades.
- *  4. Insert a `deletion_log` row and stamp `executed_at` — atomic with the mutations.
+ *  5. Insert a `deletion_log` row and stamp `executed_at` — atomic with the mutations.
  *
  * Authored content (posts/replies/likes/edits/chat/reports) is deliberately RETAINED;
  * it anonymizes against the tombstoned row. A failing row is rolled back (no partial
@@ -147,18 +151,33 @@ class AccountHardDeleteWorker(
         userId: UUID,
         source: String,
     ): Boolean {
-        // 2. Tombstone the user (UPDATE — never a row-delete). Zero rows updated =
+        // Lock the user's embed rows BEFORE the users row — the order admin chat redaction takes
+        // (chat row, then the participants' users rows via its notification FK), so a redaction of
+        // an embed of this user's post cannot deadlock against the tombstone.
+        conn.prepareStatement(SQL_LOCK_EMBEDDED_SNAPSHOTS).use { ps ->
+            ps.setObject(1, userId)
+            ps.executeQuery().use { rs -> while (rs.next()) Unit }
+        }
+        // 2. Tombstone the user (UPDATE — never a row-delete). No row returned =
         //    user already tombstoned by an earlier request row → moot row.
-        val tombstoned =
+        val placeholder =
             conn.prepareStatement(SQL_TOMBSTONE).use { ps ->
                 ps.setObject(1, userId)
-                ps.executeUpdate()
+                ps.executeQuery().use { rs -> if (rs.next()) rs.getString("username") to rs.getString("display_name") else null }
             }
-        if (tombstoned == 0) {
+        if (placeholder == null) {
             execOne(conn, SQL_MARK_EXECUTED, requestId)
             return false
         }
-        // 3. Cascade-DELETE ephemeral/relational data (explicit — the un-row-deleted
+        // 3. Scrub the author identity out of their shared-post snapshots, reusing the
+        //    tombstone's own values (one source of truth for the placeholder).
+        conn.prepareStatement(SQL_SCRUB_EMBEDDED_SNAPSHOTS).use { ps ->
+            ps.setString(1, placeholder.first)
+            ps.setString(2, placeholder.second)
+            ps.setObject(3, userId)
+            ps.executeUpdate()
+        }
+        // 4. Cascade-DELETE ephemeral/relational data (explicit — the un-row-deleted
         //    user never fires the FK cascades). Both directions for follows + blocks.
         execOne(conn, SQL_DEL_REFRESH, userId)
         execTwo(conn, SQL_DEL_FOLLOWS, userId, userId)
@@ -166,7 +185,7 @@ class AccountHardDeleteWorker(
         execOne(conn, SQL_DEL_FCM, userId)
         execOne(conn, SQL_DEL_NOTIFS, userId)
         execOne(conn, SQL_DEL_LOGIN_EVENTS, userId)
-        // 4. deletion_log + mark executed (atomic with the above; same transaction).
+        // 5. deletion_log + mark executed (atomic with the above; same transaction).
         conn.prepareStatement(SQL_INSERT_LOG).use { ps ->
             ps.setObject(1, userId)
             ps.setString(2, source)
@@ -238,6 +257,27 @@ class AccountHardDeleteWorker(
                 apple_relay_email       = FALSE,
                 username                = 'deleted_user_' || left(id::text, 8)
              WHERE id = ? AND deleted_at IS NULL
+            RETURNING username, display_name
+            """
+
+        @AllowMissingBlockJoin("system erasure worker — locks the departing author's own linked embed rows, not a visibility read")
+        const val SQL_LOCK_EMBEDDED_SNAPSHOTS =
+            """
+            SELECT 1 FROM chat_messages
+             WHERE embedded_post_author_id = ?
+               AND embedded_post_snapshot IS NOT NULL
+             FOR NO KEY UPDATE
+            """
+
+        // Snapshot author-erasure (V38 linkage). Only the two identity keys change; content,
+        // cityName, timestamps and every other column are untouched; no chat row is deleted.
+        const val SQL_SCRUB_EMBEDDED_SNAPSHOTS =
+            """
+            UPDATE chat_messages
+               SET embedded_post_snapshot = embedded_post_snapshot
+                   || jsonb_build_object('authorUsername', ?::text, 'authorDisplayName', ?::text)
+             WHERE embedded_post_author_id = ?
+               AND embedded_post_snapshot IS NOT NULL
             """
 
         const val SQL_DEL_REFRESH = "DELETE FROM refresh_tokens WHERE user_id = ?"

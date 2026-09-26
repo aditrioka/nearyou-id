@@ -2,6 +2,7 @@ package id.nearyou.app.chat
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.account.AccountHardDeleteWorker
 import id.nearyou.app.auth.configureUserJwt
 import id.nearyou.app.auth.jwt.JwtIssuer
 import id.nearyou.app.auth.jwt.RsaKeyLoader
@@ -13,6 +14,7 @@ import id.nearyou.app.core.domain.chat.PublishResult
 import id.nearyou.app.core.domain.ratelimit.InMemoryRateLimiter
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.guard.ContentLengthGuard
+import id.nearyou.app.infra.repo.EmbeddedPostResolver
 import id.nearyou.app.infra.repo.JdbcEmbeddedPostResolver
 import id.nearyou.app.infra.repo.JdbcUserRepository
 import id.nearyou.app.notifications.NoopNotificationDispatcher
@@ -23,6 +25,8 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldMatch
+import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -41,8 +45,15 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respondText
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -55,6 +66,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
 private fun hikari(): HikariDataSource {
@@ -249,14 +262,143 @@ class ChatEmbeddedPostSendTest : StringSpec({
                 )
                 st.executeUpdate("DELETE FROM posts WHERE author_id IN ($inList)")
                 st.executeUpdate("DELETE FROM user_blocks WHERE blocker_id IN ($inList) OR blocked_id IN ($inList)")
+                st.executeUpdate("DELETE FROM deletion_log WHERE user_id IN ($inList)")
                 st.executeUpdate("DELETE FROM users WHERE id IN ($inList)")
             }
+        }
+    }
+
+    // ---- embedded-snapshot-author-erasure helpers ------------------------------
+
+    val worker = AccountHardDeleteWorker(dataSource)
+
+    fun exec(sql: String) {
+        dataSource.connection.use { conn -> conn.createStatement().use { it.execute(sql) } }
+    }
+
+    fun count(
+        sql: String,
+        id: UUID,
+    ): Int =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(sql).use { ps ->
+                ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        }
+
+    fun authorIdOf(messageId: UUID): UUID? =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT embedded_post_author_id FROM chat_messages WHERE id = ?").use { ps ->
+                ps.setObject(1, messageId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getObject(1, UUID::class.java)
+                }
+            }
+        }
+
+    fun rowJson(messageId: UUID): String =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT row_to_json(cm)::text FROM chat_messages cm WHERE id = ?").use { ps ->
+                ps.setObject(1, messageId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getString(1)
+                }
+            }
+        }
+
+    fun snapshotOf(messageId: UUID): JsonObject = Json.parseToJsonElement(embedColumns(messageId).second!!).jsonObject
+
+    fun identityOf(userId: UUID): Pair<String, String> =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement("SELECT username, display_name FROM users WHERE id = ?").use { ps ->
+                ps.setObject(1, userId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getString(1) to rs.getString(2)
+                }
+            }
+        }
+
+    /** A due (scheduled in the past) deletion request for [userId]; returns its id. */
+    fun seedDueDeletion(
+        userId: UUID,
+        source: String = "user",
+    ): UUID {
+        val id = UUID.randomUUID()
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO deletion_requests (id, user_id, scheduled_hard_delete_at, source) " +
+                    "VALUES (?, ?, NOW() - INTERVAL '1 minute', ?)",
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, userId)
+                ps.setString(3, source)
+                ps.executeUpdate()
+            }
+        }
+        return id
+    }
+
+    suspend fun tombstone(userId: UUID): Boolean = worker.executeImmediate(seedDueDeletion(userId))
+
+    /** Identity keys carry the tombstoned users values; every other key is unchanged. */
+    fun assertScrubbed(
+        messageId: UUID,
+        authorId: UUID,
+        before: JsonObject,
+    ) {
+        val after = snapshotOf(messageId)
+        val tombUsername = identityOf(authorId).first
+        tombUsername shouldMatch Regex("^deleted_user_[0-9a-f]{8,}$")
+        after["authorUsername"]!!.jsonPrimitive.content shouldBe tombUsername
+        after["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+        after.keys shouldBe before.keys
+        for (key in listOf("content", "cityName", "createdAt", "editedAt")) after[key] shouldBe before[key]
+    }
+
+    val dbUrl = System.getenv("DB_URL") ?: "jdbc:postgresql://localhost:5433/nearyou_dev"
+    val dbUser = System.getenv("DB_USER") ?: "postgres"
+    val dbPassword = System.getenv("DB_PASSWORD") ?: "postgres"
+
+    fun backendPid(conn: Connection): Int =
+        conn.createStatement().use { st ->
+            st.executeQuery("SELECT pg_backend_pid()").use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+
+    /** Poll (out-of-pool) until some backend is lock-blocked by [blockerPid] — this test's own interleaving. */
+    suspend fun awaitBlockedBy(blockerPid: Int) {
+        java.sql.DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { conn ->
+            repeat(300) {
+                val blocked =
+                    conn.prepareStatement(
+                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid)))",
+                    ).use { ps ->
+                        ps.setInt(1, blockerPid)
+                        ps.executeQuery().use { rs ->
+                            rs.next()
+                            rs.getBoolean(1)
+                        }
+                    }
+                if (blocked) return
+                delay(50)
+            }
+            error("no backend ever blocked on pid $blockerPid's author-row lock")
         }
     }
 
     suspend fun withChat(
         realtime: ChatRealtimeClient = FakeEmbedRealtimeClient(),
         rateLimiter: RateLimiter = InMemoryRateLimiter(),
+        embedResolver: EmbeddedPostResolver = resolver,
         block: suspend ApplicationTestBuilder.() -> Unit,
     ) {
         val service =
@@ -268,7 +410,7 @@ class ChatEmbeddedPostSendTest : StringSpec({
                 remoteConfig = StubRemoteConfig(),
                 textModerator = id.nearyou.app.moderation.TestModerationFixtures.ALLOW_ONLY_MODERATOR,
                 moderationQueue = id.nearyou.app.moderation.TestModerationFixtures.SHARED_QUEUE_REPO,
-                embeddedPostResolver = resolver,
+                embeddedPostResolver = embedResolver,
             )
         testApplication {
             application {
@@ -589,6 +731,377 @@ class ChatEmbeddedPostSendTest : StringSpec({
                 (m["embedded_post_snapshot"] != JsonNull) shouldBe true
                 m["embedded_post_snapshot"]!!.jsonObject["content"]!!.jsonPrimitive.content shouldBe "history body"
                 m["embedded_post_edit_id"]!!.jsonPrimitive.content shouldBe editId.toString()
+            }
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    // ---- embedded-snapshot-author-erasure (#425) -------------------------------
+
+    "erasure 4.4 embed send records embedded_post_author_id; no author UUID on the wire; plain message NULL" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            val fake = FakeEmbedRealtimeClient()
+            withChat(realtime = fake) {
+                val resp = send(tok, conv, """{"embedded_post_id":"$post"}""")
+                resp.status shouldBe HttpStatusCode.Created
+                val body = resp.bodyAsText()
+                val mid = UUID.fromString(Json.parseToJsonElement(body).jsonObject["id"]!!.jsonPrimitive.content)
+                authorIdOf(mid) shouldBe author
+                body shouldNotContain author.toString()
+                embedColumns(mid).second!! shouldNotContain author.toString()
+                // Live author → the re-check is a no-op: the snapshot keeps the live identity.
+                val (liveUsername, liveDisplay) = identityOf(author)
+                snapshotOf(mid)["authorUsername"]!!.jsonPrimitive.content shouldBe liveUsername
+                snapshotOf(mid)["authorDisplayName"]!!.jsonPrimitive.content shouldBe liveDisplay
+                val plain = send(tok, conv, """{"content":"halo"}""").messageId()
+                authorIdOf(plain) shouldBe null
+            }
+            fake.invocations.size shouldBe 2 // embed + plain — the no-UUID check below is not vacuous
+            fake.invocations.forEach { (_, broadcast) -> broadcast.toString() shouldNotContain author.toString() }
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.5 worker execute() scrubs every embedded snapshot of the tombstoned author in the tombstone tx" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val p1 = seedPost(author, content = "first shared")
+            val p2 = seedPost(author, content = "second shared")
+            withChat {
+                val m1 = send(tok, conv, """{"embedded_post_id":"$p1"}""").messageId()
+                val m2 = send(tok, conv, """{"content":"lihat","embedded_post_id":"$p2"}""").messageId()
+                val before1 = snapshotOf(m1)
+                val before2 = snapshotOf(m2)
+                val req = seedDueDeletion(author)
+                worker.execute()
+                assertScrubbed(m1, author, before1)
+                assertScrubbed(m2, author, before2)
+                contentOf(m2) shouldBe "lihat" // chat rows retained, non-snapshot columns untouched
+                count("SELECT count(*) FROM deletion_log WHERE user_id = ?", author) shouldBe 1
+                count("SELECT count(*) FROM deletion_requests WHERE id = ? AND executed_at IS NOT NULL", req) shouldBe 1
+            }
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.6 scrub survives a source-post hard-delete (linkage is embedded_post_author_id)" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author, content = "purged later")
+            withChat {
+                val mid = send(tok, conv, """{"embedded_post_id":"$post"}""").messageId()
+                val before = snapshotOf(mid)
+                hardDeletePost(post)
+                embedColumns(mid).first shouldBe null
+                tombstone(author) shouldBe true
+                assertScrubbed(mid, author, before)
+            }
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.7 an admin-redacted embed row is scrubbed too" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        val admin = UUID.randomUUID()
+        try {
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "INSERT INTO admin_users (id, email, display_name, password_hash, role) " +
+                        "VALUES (?, ?, 'Erasure Admin', 'argon2-hash', 'moderator')",
+                ).use { ps ->
+                    ps.setObject(1, admin)
+                    ps.setString(2, "erasure_$admin@example.com")
+                    ps.executeUpdate()
+                }
+            }
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            withChat {
+                val mid = send(tok, conv, """{"embedded_post_id":"$post"}""").messageId()
+                val before = snapshotOf(mid)
+                dataSource.connection.use { conn ->
+                    conn.prepareStatement(
+                        "UPDATE chat_messages SET redacted_at = NOW(), redacted_by = ?, redaction_reason = 'test' WHERE id = ?",
+                    ).use { ps ->
+                        ps.setObject(1, admin)
+                        ps.setObject(2, mid)
+                        ps.executeUpdate()
+                    }
+                }
+                tombstone(author) shouldBe true
+                assertScrubbed(mid, author, before)
+            }
+        } finally {
+            cleanup(sender, recipient, author) // messages first — redacted_by needs its admin row
+            exec("DELETE FROM admin_users WHERE id = '$admin'")
+        }
+    }
+
+    "erasure 4.8 other authors' snapshots and a sharer-only user's own sent rows are untouched" {
+        val (doomed, doomedTok) = seedUser()
+        val (otherSender, otherTok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (authorB, _) = seedUser()
+        val (authorC, _) = seedUser()
+        try {
+            val conv1 = createConv(doomed, recipient)
+            val conv2 = createConv(otherSender, recipient)
+            val postB = seedPost(authorB)
+            val postC = seedPost(authorC)
+            withChat {
+                // The doomed user SENT an embed of B's post (they authored no shared post).
+                val sentByDoomed = send(doomedTok, conv1, """{"embedded_post_id":"$postB"}""").messageId()
+                val unrelated = send(otherTok, conv2, """{"embedded_post_id":"$postC"}""").messageId()
+                val beforeSent = rowJson(sentByDoomed)
+                val beforeUnrelated = rowJson(unrelated)
+                tombstone(doomed) shouldBe true
+                rowJson(sentByDoomed) shouldBe beforeSent // row retained byte-identical, B's identity intact
+                rowJson(unrelated) shouldBe beforeUnrelated
+            }
+        } finally {
+            cleanup(doomed, otherSender, recipient, authorB, authorC)
+        }
+    }
+
+    "erasure 4.9 the recipient's GET /messages shows the anonymized card after the author tombstones" {
+        val (sender, tok) = seedUser()
+        val (recipient, recipientTok) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            val (origUsername, origDisplay) = identityOf(author)
+            withChat {
+                send(tok, conv, """{"embedded_post_id":"$post"}""").status shouldBe HttpStatusCode.Created
+                tombstone(author) shouldBe true
+                val hist =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/chat/$conv/messages") {
+                            header(HttpHeaders.Authorization, "Bearer $recipientTok")
+                        }
+                hist.status shouldBe HttpStatusCode.OK
+                val text = hist.bodyAsText()
+                val snapshot =
+                    Json.parseToJsonElement(text).jsonObject["messages"]!!.jsonArray.first()
+                        .jsonObject["embedded_post_snapshot"]!!.jsonObject
+                snapshot["authorUsername"]!!.jsonPrimitive.content shouldBe identityOf(author).first
+                snapshot["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                text shouldNotContain origUsername
+                text shouldNotContain origDisplay
+                text shouldNotContain author.toString() // the linkage column is never on the wire
+            }
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.10 an apple_s2s_account_delete row via executeImmediate scrubs identically" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            withChat {
+                val mid = send(tok, conv, """{"embedded_post_id":"$post"}""").messageId()
+                val before = snapshotOf(mid)
+                worker.executeImmediate(seedDueDeletion(author, source = "apple_s2s_account_delete")) shouldBe true
+                assertScrubbed(mid, author, before)
+            }
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.11 a failed tombstone rolls the snapshot scrub back with it" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        // Test-scoped fault: deletion_log (inserted AFTER the scrub) raises for this author only.
+        val fn = "test_fail_dellog_" + author.toString().replace("-", "").take(12)
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            withChat {
+                val mid = send(tok, conv, """{"embedded_post_id":"$post"}""").messageId()
+                val before = embedColumns(mid).second
+                val origUsername = identityOf(author).first
+                exec(
+                    "CREATE FUNCTION $fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN " +
+                        "IF NEW.user_id = '$author' THEN RAISE EXCEPTION 'injected failure'; END IF; " +
+                        "RETURN NEW; END $$",
+                )
+                exec("CREATE TRIGGER $fn BEFORE INSERT ON deletion_log FOR EACH ROW EXECUTE FUNCTION $fn()")
+                val req = seedDueDeletion(author)
+                worker.executeImmediate(req) shouldBe false
+                embedColumns(mid).second shouldBe before
+                identityOf(author).first shouldBe origUsername
+                count("SELECT count(*) FROM deletion_requests WHERE id = ? AND executed_at IS NULL", req) shouldBe 1
+            }
+        } finally {
+            exec("DROP TRIGGER IF EXISTS $fn ON deletion_log")
+            exec("DROP FUNCTION IF EXISTS $fn()")
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.12 a tombstone committing between resolve and INSERT is scrubbed by the send's re-check" {
+        val (sender, tok) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            val (liveUsername, liveDisplay) = identityOf(author)
+            val req = seedDueDeletion(author)
+            // Resolve with the LIVE identity, then commit the tombstone before the send tx opens.
+            val racingResolver =
+                EmbeddedPostResolver { s, p ->
+                    resolver.resolveForSender(s, p)?.also { check(runBlocking { worker.executeImmediate(req) }) }
+                }
+            val fake = FakeEmbedRealtimeClient()
+            withChat(realtime = fake, embedResolver = racingResolver) {
+                val resp = send(tok, conv, """{"embedded_post_id":"$post"}""")
+                resp.status shouldBe HttpStatusCode.Created
+                val body = resp.bodyAsText()
+                val json = Json.parseToJsonElement(body).jsonObject
+                val mid = UUID.fromString(json["id"]!!.jsonPrimitive.content)
+                val tombUsername = identityOf(author).first
+                snapshotOf(mid)["authorUsername"]!!.jsonPrimitive.content shouldBe tombUsername
+                snapshotOf(mid)["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                json["embedded_post_snapshot"]!!.jsonObject["authorUsername"]!!.jsonPrimitive.content shouldBe tombUsername
+                body shouldNotContain liveUsername
+                body shouldNotContain liveDisplay
+            }
+            fake.invocations.single().second.embeddedPostSnapshot.toString() shouldNotContain liveUsername
+        } finally {
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.13 a tombstone racing an in-flight send waits for its commit, then scrubs the row" {
+        val (sender, _) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        val paused = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var sendPid = 0
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            val (liveUsername, liveDisplay) = identityOf(author)
+            val snapshotJson =
+                """{"authorUsername":"$liveUsername","authorDisplayName":"$liveDisplay","content":"post content",""" +
+                    """"cityName":null,"createdAt":"2026-09-01T00:00:00Z","editedAt":null}"""
+            val req = seedDueDeletion(author)
+            coroutineScope {
+                // The real send tx, paused after INSERT + re-check (author-row locks held, uncommitted).
+                val send =
+                    async(Dispatchers.IO) {
+                        repository.sendMessage(
+                            conversationId = conv,
+                            senderId = sender,
+                            content = null,
+                            embed = EmbeddedPostData(postId = post, snapshotJson = snapshotJson, editId = null, authorId = author),
+                            afterInsertHookInTx = { conn, _ ->
+                                sendPid = backendPid(conn)
+                                paused.countDown()
+                                check(release.await(15, TimeUnit.SECONDS))
+                            },
+                        )
+                    }
+                check(withContext(Dispatchers.IO) { paused.await(15, TimeUnit.SECONDS) })
+                // Pin design D3 subtlety 2: the re-check's explicit FOR SHARE blocks even a NON-key
+                // author UPDATE (the FK's FOR KEY SHARE alone would not) → lock_timeout 55P03.
+                val probe =
+                    withContext(Dispatchers.IO) {
+                        java.sql.DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { conn ->
+                            conn.createStatement().use { it.execute("SET lock_timeout = '300ms'") }
+                            runCatching {
+                                conn.prepareStatement("UPDATE users SET bio = 'probe' WHERE id = ?").use { ps ->
+                                    ps.setObject(1, author)
+                                    ps.executeUpdate()
+                                }
+                            }.exceptionOrNull()
+                        }
+                    }
+                (probe as? java.sql.SQLException)?.sqlState shouldBe "55P03"
+                val tomb = async(Dispatchers.IO) { worker.executeImmediate(req) }
+                try {
+                    awaitBlockedBy(sendPid)
+                } finally {
+                    release.countDown()
+                }
+                val row = send.await()
+                tomb.await() shouldBe true
+                assertScrubbed(row.id, author, Json.parseToJsonElement(snapshotJson).jsonObject)
+            }
+        } finally {
+            release.countDown()
+            cleanup(sender, recipient, author)
+        }
+    }
+
+    "erasure 4.14 a send whose re-check meets an uncommitted tombstone waits for it, then scrubs its own row" {
+        val (sender, _) = seedUser()
+        val (recipient, _) = seedUser()
+        val (author, _) = seedUser()
+        try {
+            val conv = createConv(sender, recipient)
+            val post = seedPost(author)
+            val (liveUsername, liveDisplay) = identityOf(author)
+            val snapshotJson =
+                """{"authorUsername":"$liveUsername","authorDisplayName":"$liveDisplay","content":"post content",""" +
+                    """"cityName":null,"createdAt":"2026-09-01T00:00:00Z","editedAt":null}"""
+            java.sql.DriverManager.getConnection(dbUrl, dbUser, dbPassword).use { tomb ->
+                tomb.autoCommit = false
+                val tombPid = backendPid(tomb)
+                // A NON-key tombstone-shaped update (no username rewrite → FOR NO KEY UPDATE): the INSERT's
+                // FK KEY SHARE does not wait on it, so only the re-check's FOR SHARE serializes — and it
+                // must re-read the row after the wait (design D3 subtlety 1: lock by id only).
+                tomb.prepareStatement(
+                    "UPDATE users SET deleted_at = NOW(), display_name = 'Akun Dihapus' WHERE id = ?",
+                ).use { ps ->
+                    ps.setObject(1, author)
+                    ps.executeUpdate()
+                }
+                coroutineScope {
+                    val send =
+                        async(Dispatchers.IO) {
+                            repository.sendMessage(
+                                conversationId = conv,
+                                senderId = sender,
+                                content = null,
+                                embed = EmbeddedPostData(postId = post, snapshotJson = snapshotJson, editId = null, authorId = author),
+                            )
+                        }
+                    try {
+                        awaitBlockedBy(tombPid)
+                    } finally {
+                        tomb.commit()
+                    }
+                    val row = send.await()
+                    row.embeddedPostSnapshot!!.jsonObject["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                    snapshotOf(row.id)["authorDisplayName"]!!.jsonPrimitive.content shouldBe "Akun Dihapus"
+                    embedColumns(row.id).second!! shouldNotContain liveDisplay
+                }
             }
         } finally {
             cleanup(sender, recipient, author)

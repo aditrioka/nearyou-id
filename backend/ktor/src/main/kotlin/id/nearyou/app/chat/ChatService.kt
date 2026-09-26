@@ -233,6 +233,7 @@ class ChatService(
                     postId = resolved.postId,
                     snapshotJson = buildEmbeddedPostSnapshotJson(resolved),
                     editId = resolved.latestEditId,
+                    authorId = resolved.authorId,
                 )
             } else {
                 null

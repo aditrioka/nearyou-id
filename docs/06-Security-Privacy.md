@@ -309,7 +309,7 @@ Neither path bumps `token_version` or deletes refresh tokens — the `token_vers
 | Notifications (in-app list) | 90 days auto-purge |
 | Attestation verdict cache | 1 hour (Redis) |
 | Refresh token family log | Until all family members expired |
-| Chat `embedded_post_snapshot` | Indefinite (part of the conversation) |
+| Chat `embedded_post_snapshot` | Indefinite (part of the conversation); the author identity is scrubbed at rest when the post author is tombstoned |
 | Chat messages | Indefinite (tombstone sender, retain content) |
 | CSAM detection archive | 90+ days minimum, until Kominfo + investigation fulfilled |
 | `rejected_identifiers` (under-18 bypass list) | Indefinite (anti-abuse, only identifier hash stored) |
@@ -341,6 +341,7 @@ Request recorded in `deletion_requests` (`05-Implementation.md`).
 
 **Anonymize/Tombstone** (remain, with sender/author becoming user-facing "Akun Dihapus"):
 - Chat messages (preserved for the other participant's UX)
+- Embedded-post snapshots in chat (`chat_messages.embedded_post_snapshot` — the frozen copy of the author's handle + display name is scrubbed **at rest** to the tombstoned `deleted_user_…` / "Akun Dihapus" in the hard-delete transaction; the shared post content is retained like the post itself)
 - Posts + location field
 - Replies
 - Likes (count remains accurate)

@@ -14,9 +14,10 @@ import javax.sql.DataSource
  * renders anonymized via the V24 tombstone surfacing — shadow-ban-safe because `visible_posts`
  * already excludes shadow-banned/soft-deleted-post rows).
  *
- * NO `display_location` / `latitude` / `longitude` / author UUID is projected — the snapshot is a
- * new serialization path that must preserve `display_location`-only (spatial-fuzzing critical
- * invariant). The latest-edit anchor + its timestamp come from a `post_edits` LATERAL keyed on the
+ * NO `display_location` / `latitude` / `longitude` is projected — the snapshot is a new
+ * serialization path that must preserve `display_location`-only (spatial-fuzzing critical
+ * invariant). `author_id` IS projected, but only for the erasure-linkage column (see
+ * [ResolvedEmbeddedPost.authorId]) — never into the snapshot. The latest-edit anchor + its timestamp come from a `post_edits` LATERAL keyed on the
  * RESOLVED `p.id`, so an invisible/blocked post never yields an edit-existence signal; `post_edits`
  * is in neither lint rule's pattern and lives in THIS same literal so the four
  * `BlockExclusionJoinRule` tokens stay co-located.
@@ -40,6 +41,7 @@ class JdbcEmbeddedPostResolver(
         val sql =
             """
             SELECT p.id,
+                   p.author_id,
                    p.author_username,
                    p.author_display_name,
                    p.content,
@@ -49,7 +51,7 @@ class JdbcEmbeddedPostResolver(
                    e.edited_at AS edited_at
               FROM (
                   (
-                      SELECT p.id, u.username AS author_username,
+                      SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
                              p.city_name, p.created_at
                         FROM visible_posts p
@@ -60,7 +62,7 @@ class JdbcEmbeddedPostResolver(
                   )
                   UNION ALL
                   (
-                      SELECT p.id, u.username AS author_username,
+                      SELECT p.id, p.author_id, u.username AS author_username,
                              u.display_name AS author_display_name, p.content,
                              p.city_name, p.created_at
                         FROM posts p
@@ -91,6 +93,7 @@ class JdbcEmbeddedPostResolver(
                     return if (rs.next()) {
                         ResolvedEmbeddedPost(
                             postId = rs.getObject("id", UUID::class.java),
+                            authorId = rs.getObject("author_id", UUID::class.java),
                             authorUsername = rs.getString("author_username"),
                             authorDisplayName = rs.getString("author_display_name"),
                             content = rs.getString("content"),

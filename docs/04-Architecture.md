@@ -441,6 +441,7 @@ interface CrashReporter {
 3. Download deletion-log objects for range [dump_timestamp, now]
 4. For each deletion entry:
    - Re-apply tombstone (set users.deleted_at, null PII)
+   - Re-scrub embedded-post snapshot author identity (chat_messages WHERE embedded_post_author_id = user → authorUsername/authorDisplayName = tombstoned values)
    - Re-apply cascade (delete chat tokens, follow relations, etc)
    - Log to new audit entry with restore_reconciliation flag
 5. Verify: SELECT COUNT(*) FROM users WHERE id IN (deletion_log) AND deleted_at IS NULL = 0

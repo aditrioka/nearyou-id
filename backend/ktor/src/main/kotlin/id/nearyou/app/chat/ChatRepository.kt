@@ -1,6 +1,7 @@
 package id.nearyou.app.chat
 
 import id.nearyou.app.core.domain.lint.AllowContentWriteWithoutModeration
+import id.nearyou.app.core.domain.lint.AllowMissingBlockJoin
 import id.nearyou.app.infra.db.UserPairLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -113,6 +114,8 @@ data class EmbeddedPostData(
     val snapshotJson: String,
     /** Version-at-share-time anchor: the post's latest `post_edits.id`, NULL when unedited. */
     val editId: UUID?,
+    /** Post author → `embedded_post_author_id` (erasure linkage only; never serialized). */
+    val authorId: UUID,
 )
 
 open class ChatRepository(
@@ -402,7 +405,8 @@ open class ChatRepository(
                 // For an embed-only send (content NULL) the service passes a null hook — the
                 // snapshot content already passed moderation at post-creation time.
                 preInsertHookInTx?.invoke(conn)
-                val row = insertChatMessage(conn, conversationId, senderId, content, embed)
+                val inserted = insertChatMessage(conn, conversationId, senderId, content, embed)
+                val row = if (embed != null) scrubIfAuthorTombstoned(conn, inserted, embed.authorId) else inserted
                 // After-INSERT hook (writes the moderation_queue row for Verdict.Flag in
                 // the same transaction — tx atomicity per content-moderation-keyword-lists
                 // chat-conversations spec scenario "Flag transaction is atomic"). Runs
@@ -770,8 +774,9 @@ open class ChatRepository(
         conn.prepareStatement(
             """
             INSERT INTO chat_messages
-                (conversation_id, sender_id, content, embedded_post_id, embedded_post_snapshot, embedded_post_edit_id)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?)
+                (conversation_id, sender_id, content, embedded_post_id, embedded_post_snapshot, embedded_post_edit_id,
+                 embedded_post_author_id)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)
             RETURNING id, conversation_id, sender_id, content, created_at, redacted_at,
                       embedded_post_id, embedded_post_snapshot, embedded_post_edit_id
             """.trimIndent(),
@@ -782,9 +787,61 @@ open class ChatRepository(
             ps.setObject(4, embed?.postId)
             ps.setString(5, embed?.snapshotJson)
             ps.setObject(6, embed?.editId)
+            ps.setObject(7, embed?.authorId)
             ps.executeQuery().use { rs ->
                 check(rs.next()) { "INSERT ... RETURNING produced no row" }
                 return rs.toChatMessageRow()
+            }
+        }
+    }
+
+    /**
+     * embedded-snapshot-author-erasure (design D3): the snapshot was built from a resolver read
+     * that precedes this transaction, so an author tombstone committing in between would leave a
+     * pre-deletion identity that no later scrub reaches. `FOR SHARE` conflicts with every `UPDATE`
+     * row lock, so this serializes against the tombstone: either the worker waits for this commit
+     * (its scrub statement then sees this row) or this lock waits for the worker's commit and
+     * returns the tombstoned row. Returns [row] with the scrubbed snapshot so the 201 response and
+     * the after-commit broadcast carry the anonymized identity.
+     *
+     * The lock is taken by `id` ONLY and `deleted_at` is checked on the returned row: a locking
+     * SELECT filters on its pre-wait snapshot, so a `deleted_at IS NOT NULL` predicate would drop
+     * the row (and skip the wait) while the tombstone is still uncommitted.
+     */
+    @AllowMissingBlockJoin("erasure re-check on the message's own embedded-post author — tombstone state, not a visibility read")
+    private fun scrubIfAuthorTombstoned(
+        conn: Connection,
+        row: ChatMessageRow,
+        authorId: UUID,
+    ): ChatMessageRow {
+        val tombstoned =
+            conn.prepareStatement(
+                "SELECT username, display_name, deleted_at FROM users WHERE id = ? FOR SHARE",
+            ).use { ps ->
+                ps.setObject(1, authorId)
+                ps.executeQuery().use { rs ->
+                    if (rs.next() && rs.getTimestamp("deleted_at") != null) {
+                        rs.getString("username") to rs.getString("display_name")
+                    } else {
+                        null
+                    }
+                }
+            } ?: return row
+        conn.prepareStatement(
+            """
+            UPDATE chat_messages
+               SET embedded_post_snapshot = embedded_post_snapshot
+                   || jsonb_build_object('authorUsername', ?::text, 'authorDisplayName', ?::text)
+             WHERE id = ?
+            RETURNING embedded_post_snapshot
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setString(1, tombstoned.first)
+            ps.setString(2, tombstoned.second)
+            ps.setObject(3, row.id)
+            ps.executeQuery().use { rs ->
+                check(rs.next()) { "UPDATE ... RETURNING produced no row" }
+                return row.copy(embeddedPostSnapshot = Json.parseToJsonElement(rs.getString(1)))
             }
         }
     }
