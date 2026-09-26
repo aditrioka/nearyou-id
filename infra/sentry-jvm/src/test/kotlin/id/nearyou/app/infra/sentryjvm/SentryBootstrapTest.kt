@@ -15,6 +15,8 @@ import io.kotest.matchers.string.shouldNotContain
 import io.sentry.Sentry
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 
 /**
  * backend-error-reporting spec — bootstrap lifecycle, capture path, PII posture, correlation.
@@ -66,6 +68,7 @@ class SentryBootstrapTest : StringSpec({
         Sentry.isEnabled() shouldBe true
         root.iteratorForAppenders().asSequence().count { it.name == SentryBootstrap.APPENDER_NAME } shouldBe 1
         Sentry.getCurrentScopes().options.isTracingEnabled shouldBe false
+        Sentry.getCurrentScopes().options.flushTimeoutMillis shouldBe 2_000L
     }
 
     "repeated start does not double-attach" {
@@ -98,21 +101,30 @@ class SentryBootstrapTest : StringSpec({
 
     "WARN and INFO are not reported" {
         SentryEventRecorder.start().use { recorder ->
-            appLog.warn("event=redis_acquire_failed")
+            appLog.warn("event=layer3_dispatch_failed failure_kind=timeout")
             appLog.info("event=rate_limit_check")
             recorder.events.shouldBeEmpty()
         }
     }
 
-    "uncaught exception on a background thread is reported" {
+    "uncaught exception on a background thread is reported AND still printed to stderr" {
         SentryEventRecorder.start().use { recorder ->
-            Thread { throw IllegalArgumentException("bg boom") }.apply {
-                start()
-                join()
+            val stderr = ByteArrayOutputStream()
+            val original = System.err
+            System.setErr(PrintStream(stderr, true))
+            try {
+                Thread { throw IllegalArgumentException("bg boom") }.apply {
+                    start()
+                    join()
+                }
+            } finally {
+                System.setErr(original)
             }
             val event = recorder.events.single()
             event.exceptionTypes shouldContain "IllegalArgumentException"
             event.exceptionValues shouldContain "bg boom"
+            // Cloud Logging keeps the trace: the SDK's handler replaced the JVM's default printer.
+            stderr.toString() shouldContain "IllegalArgumentException: bg boom"
         }
     }
 
@@ -147,6 +159,15 @@ class SentryBootstrapTest : StringSpec({
             listOf("-6.2088", "abc.def-ghi", "eyJhbGci", "someone@example.com", "203.0.113.9", "2001:db8")
                 .forEach { message shouldNotContain it }
             message shouldContain "[redacted]"
+        }
+    }
+
+    "raw log arguments never leave the process" {
+        SentryEventRecorder.start().use { recorder ->
+            appLog.error("event=probe mail={} at {}", "a@b.co", "-6.2088,106.8456")
+            val event = recorder.events.single()
+            event.message shouldBe "event=probe mail=[redacted] at [redacted]"
+            event.messageParams shouldBe null
         }
     }
 

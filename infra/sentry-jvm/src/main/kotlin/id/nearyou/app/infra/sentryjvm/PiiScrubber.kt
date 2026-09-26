@@ -8,7 +8,8 @@ package id.nearyou.app.infra.sentryjvm
  * Backend sibling of the mobile `:infra:sentry` `PiiScrubber` (same name + shape; that module is
  * KMP android/iOS-only, so this is pattern reuse, not an import — backend-error-reporting spec).
  * Superset of the mobile patterns: server exception messages can also carry emails, IPs, and
- * pgJDBC's `Detail: Key (col)=(value)` echo of the offending row value.
+ * pgJDBC's server `Detail:` echoes — `Key (col)=(value)` and `Failing row contains (…)`, the latter
+ * dumping the WHOLE row incl. post content and `actual_location` EWKB (exact, unfuzzed coordinates).
  */
 internal object PiiScrubber {
     private const val REDACTED = "[redacted]"
@@ -16,6 +17,17 @@ internal object PiiScrubber {
     // pgJDBC unique/FK violations: "Key (email)=(a@b.co) already exists" — keep the column, drop
     // the value. ponytail: values containing ')' are only partially matched; still redacted up to it.
     private val pgKeyDetail = Regex("""Key \(([^)]*)\)=\([^)]*\)""")
+
+    // NOT NULL / CHECK violations: "Failing row contains (<every column value>)." — greedy to the
+    // last ')' on the line (row values nest parens).
+    private val pgFailingRow = Regex("""Failing row contains \(.*\)""")
+
+    // WKT points: "POINT(106.8456 -6.2088)" / "SRID=4326;POINT (…)".
+    private val wktPoint = Regex("""(?i)\bPOINT\s*\([^)]*\)""")
+
+    // A single labeled coordinate: lat=-6.2088, "lng":106.8456, longitude: 106.8 — keep the label.
+    private val labeledCoordinate =
+        Regex("""(?i)\b(lat|lng|lon|latitude|longitude)("?\s*[:=]\s*)-?\d{1,3}\.\d+""")
 
     // A decimal lat,long pair (≥3 fractional digits → real coordinates, not version numbers).
     private val coordinatePair = Regex("""-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}""")
@@ -35,6 +47,9 @@ internal object PiiScrubber {
     fun scrub(text: String): String =
         text
             .replace(pgKeyDetail, "Key ($1)=($REDACTED)")
+            .replace(pgFailingRow, "Failing row contains ($REDACTED)")
+            .replace(wktPoint, REDACTED)
+            .replace(labeledCoordinate, "$1$2$REDACTED")
             .replace(coordinatePair, REDACTED)
             .replace(bearer, REDACTED)
             .replace(jwt, REDACTED)

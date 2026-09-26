@@ -19,6 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 data class CapturedSentryEvent(
     val level: String?,
     val message: String?,
+    val messageParams: List<String>?,
     val exceptionTypes: List<String>,
     val exceptionValues: List<String?>,
     val tags: Map<String, String>,
@@ -44,6 +45,7 @@ class SentryEventRecorder private constructor(
                     CapturedSentryEvent(
                         level = event.level?.name?.lowercase(),
                         message = event.message?.formatted,
+                        messageParams = event.message?.params,
                         exceptionTypes = event.exceptions.orEmpty().mapNotNull { it.type },
                         exceptionValues = event.exceptions.orEmpty().map { it.value },
                         tags = event.tags.orEmpty(),
@@ -56,15 +58,18 @@ class SentryEventRecorder private constructor(
                 }
             }
 
-    override fun close() {
-        val context = LoggerFactory.getILoggerFactory() as LoggerContext
-        context.getLogger(Logger.ROOT_LOGGER_NAME).detachAppender(APPENDER_NAME)
-        Sentry.close()
-    }
+    override fun close() = reset()
 
     companion object {
         const val FAKE_DSN = "https://public@sentry.invalid/1"
         private const val APPENDER_NAME = "SENTRY"
+
+        /** Detaches the root `SENTRY` appender and closes the SDK — undoes any [SentryBootstrap.start]. */
+        fun reset() {
+            val context = LoggerFactory.getILoggerFactory() as LoggerContext
+            context.getLogger(Logger.ROOT_LOGGER_NAME).detachAppender(APPENDER_NAME)
+            Sentry.close()
+        }
 
         fun start(
             env: String = "test",

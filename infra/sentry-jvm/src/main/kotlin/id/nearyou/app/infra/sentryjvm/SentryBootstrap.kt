@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory
  */
 object SentryBootstrap {
     internal const val APPENDER_NAME = "SENTRY"
+    private const val FLUSH_TIMEOUT_MILLIS = 2_000L
 
     private val log = LoggerFactory.getLogger(SentryBootstrap::class.java)
 
@@ -60,10 +61,11 @@ object SentryBootstrap {
                 transportFactory?.let(options::setTransportFactory)
             }
             check(Sentry.isEnabled()) { "Sentry did not enable" }
-            // The appender's own start() re-runs Sentry.init at InitPriority.LOWEST; the SDK skips
-            // it because ours ran at the default MEDIUM, so these options stay authoritative.
-            // ponytail: an explicitly EMPTY `SENTRY_DSN` env var would make that re-init close the
-            // SDK (external config) — we never set it; the DSN lives in SENTRY_BACKEND_DSN.
+            // The appender's own start() re-runs Sentry.init with external configuration and a null
+            // DSN: normally that throws "DSN is required." (swallowed by the appender) before
+            // touching our instance; with an external SENTRY_DSN set, the InitPriority check (LOWEST
+            // vs our MEDIUM) skips it. ponytail: an explicitly EMPTY `SENTRY_DSN` env var would make
+            // that re-init close the SDK — we never set it; the DSN lives in SENTRY_BACKEND_DSN.
             val appender =
                 SentryAppender().apply {
                     name = APPENDER_NAME
@@ -75,9 +77,11 @@ object SentryBootstrap {
             root.addAppender(appender)
             log.info("event=sentry_enabled environment={} release={}", env, release)
             true
-        } catch (e: Exception) {
-            Sentry.close()
-            log.info("event=sentry_disabled reason=init_failed error_class={}", e.javaClass.name)
+        } catch (t: Throwable) {
+            // Throwable, not Exception: a LinkageError / ServiceConfigurationError from the SDK must
+            // not crash startup either (the OtelBootstrap precedent).
+            runCatching { Sentry.close() }
+            log.info("event=sentry_disabled reason=init_failed error_class={}", t.javaClass.name)
             false
         }
     }
@@ -95,6 +99,12 @@ object SentryBootstrap {
         options.isAttachServerName = false
         options.addContextTag("call_id")
         options.addInAppInclude("id.nearyou")
+        // Nothing else installs a default uncaught handler, so without this the SDK's handler would
+        // swallow the JVM's "Exception in thread …" stderr trace — Cloud Logging stays the log store.
+        options.isPrintUncaughtStackTrace = true
+        // The uncaught path blocks the throwing thread until the upload flushes (default 15 s); on a
+        // coroutine worker that thread lives on, so cap the stall.
+        options.flushTimeoutMillis = FLUSH_TIMEOUT_MILLIS
         options.setBeforeSend { event, _ -> scrub(event) }
     }
 
@@ -103,6 +113,9 @@ object SentryBootstrap {
         event.message?.let { message ->
             message.formatted = message.formatted?.let(PiiScrubber::scrub)
             message.message = message.message?.let(PiiScrubber::scrub)
+            // The appender copies each raw log argument into `params`; `formatted` (scrubbed above)
+            // already carries them, so the raw copies never leave the process.
+            message.params = null
         }
         event.exceptions?.forEach { exception -> exception.value = exception.value?.let(PiiScrubber::scrub) }
         return event

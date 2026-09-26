@@ -26,6 +26,8 @@
 - [x] 4.3 Infra scrubbing tests: message with coordinate / bearer / JWT / email / IPv4 / IPv6 → `[redacted]` on the wire; exception value with email + `Key (email)=(…)` → `[redacted]`; `PiiScrubber` unit cases incl. `HH:MM:SS` and UUID not redacted
 - [x] 4.4 Backend `SentryErrorCaptureTest`: route throw through `installAppStatusPages()` + CallId/CallLogging(`callIdMdc("call_id")`) → client gets the `internal_error` 500 AND one event with the exception type, `event=unhandled_exception` message, and `call_id` tag = the sent `X-Request-Id`
 - [x] 4.5 `:lint:detekt-rules:test` green with the extended prefix list
+- [x] 4.6 Review round (independent sub-agent): drop raw `message.params`; `printUncaughtStackTrace=true` + `flushTimeoutMillis=2000`; catch `Throwable`; scrub `Failing row contains (…)`, WKT `POINT(…)`, labeled `lat`/`lng`; correct the appender re-init rationale; define the "Sentry WARN" vocabulary (design D9) — with tests (raw-args, stderr trace, flush timeout, new scrub cases)
+- [x] 4.7 `HealthRoutesTest`: real `module()` boot — no DSN → `event=sentry_disabled reason=dsn_missing` + `/health/live` 200; `SENTRY_BACKEND_DSN` (via the real `EnvVarSecretResolver`) → `event=sentry_enabled` (catches a #381-class wrong secret name)
 
 ## 5. Deploy + docs
 
@@ -37,6 +39,6 @@
 ## 6. Verify + ship
 
 - [ ] 6.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :infra:sentry-jvm:test` green; `check-dockerfile-module-copies.sh` green
-- [ ] 6.2 Staging branch deploy smoke (no slot yet): `event=sentry_disabled reason=dsn_missing` in logs (also proves the 3.1 `Application.module()` wiring — spec "Bootstrap is called once at startup"), `/health/ready` 200
+- [ ] 6.2 Staging branch deploy smoke (no slot yet): `event=sentry_disabled reason=dsn_missing` in logs (the 3.1 wiring is now also unit-tested by 4.7), `/health/ready` 200
 - [ ] 6.3 Operator task (preflight): create the Sentry backend project + `staging-sentry-backend-dsn` slot + SA access, move the mapping live, confirm a staging 500 appears in Sentry with `call_id`, `environment=staging`, and no PII
 - [ ] 6.4 PR title/body current; `Closes #316`
