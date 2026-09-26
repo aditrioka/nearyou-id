@@ -155,6 +155,7 @@ import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_reason_title
 import id.nearyou.resources.generated.resources.profile_report_submit
 import id.nearyou.resources.generated.resources.profile_report_success_toast
+import id.nearyou.resources.generated.resources.profile_send_message
 import id.nearyou.resources.generated.resources.profile_unfollow
 import id.nearyou.resources.generated.resources.referral_code_copied
 import id.nearyou.resources.generated.resources.referral_code_heading
@@ -392,6 +393,7 @@ class SharedStringsCatalogTest {
             Res.string.profile_premium_badge_icon_description,
             Res.string.profile_follow,
             Res.string.profile_unfollow,
+            Res.string.profile_send_message,
             Res.string.profile_actions_menu_description,
             Res.string.profile_block_action,
             Res.string.profile_report_action,
@@ -566,7 +568,8 @@ class SharedStringsCatalogTest {
         // dateless privacy_flip_warning, billing issue, expired, chat redacted, account action,
         // data export ready) = 236.
         // + 1 (follow-up #433: notif_apple_relay_email_changed) = 237.
-        assertEquals(237, allDeclaredStrings.size)
+        // + 1 (profile-send-message #271: profile_send_message) = 238.
+        assertEquals(238, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

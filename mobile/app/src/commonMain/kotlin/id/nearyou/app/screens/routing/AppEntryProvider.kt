@@ -265,10 +265,15 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // leaves HomeRoute. targetUserId = the route's resource key; onBack pops the overlay.
             // onOpenFollowList (mobile-follow-lists): the tappable counts push the tabbed list onto the
             // root stack at the tapped tab — the screen supplies the resolved profile userId.
+            // onOpenChatThread (profile-send-message): "Kirim pesan" resolved a conversation → push the thread
+            // atop the profile (back returns here); the route carries display identity only, no UUID.
             ProfileScreen(
                 targetUserId = route.userId,
                 onBack = { backStack.removeLastOrNull() },
                 onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
+                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
+                },
             )
         }
         entry<FollowListRoute> { route ->

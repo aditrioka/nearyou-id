@@ -226,8 +226,8 @@ data class FollowListRoute(
 data object ConversationListRoute : NavKey
 
 /**
- * Chat-thread surface (`mobile-chat-screen`), reached from a [ConversationListRoute] row tap (and, after
- * PR #245, the profile "Kirim pesan" create-or-return path). Pushed onto the ROOT back stack. A
+ * Chat-thread surface (`mobile-chat-screen`), reached from a [ConversationListRoute] row tap and the
+ * other-user profile "Kirim pesan" create-or-return path (`profile-send-message`). Pushed onto the ROOT back stack. A
  * payload-carrying `@Serializable data class` (like [PostDetailRoute]), so it MUST be registered in the
  * `navSavedStateConfiguration` polymorphic `SerializersModule` for the iOS-saveable back stack.
  *

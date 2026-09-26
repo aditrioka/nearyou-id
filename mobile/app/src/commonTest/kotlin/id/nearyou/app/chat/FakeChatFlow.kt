@@ -1,10 +1,13 @@
 package id.nearyou.app.chat
 
+import kotlinx.coroutines.CompletableDeferred
+
 /**
  * A configurable [ChatFlow] for ViewModel tests. [historyOutcomes] is a queue consumed one-per
  * [loadHistory] call (the last entry repeats once drained), so a test can script the initial load + a
  * resync. [sendOutcome] / [createOutcome] drive [send] / [createOrReturn]. Invocation counts let the
- * test assert resync-on-resubscribe + send-via-REST.
+ * test assert resync-on-resubscribe + send-via-REST. [createGate], when set, suspends [createOrReturn]
+ * until completed (the in-flight window a double-tap test needs); [createdRecipientIds] records each call.
  */
 class FakeChatFlow(
     historyOutcomes: List<ChatThreadOutcome> = listOf(ChatThreadOutcome.Loaded(emptyList(), null)),
@@ -19,6 +22,7 @@ class FakeChatFlow(
             ),
         ),
     var createOutcome: CreateConversationOutcome = CreateConversationOutcome.Ready("c1"),
+    var createGate: CompletableDeferred<Unit>? = null,
 ) : ChatFlow {
     private val queue = ArrayDeque(historyOutcomes)
 
@@ -53,5 +57,11 @@ class FakeChatFlow(
         return sendOutcome
     }
 
-    override suspend fun createOrReturn(recipientUserId: String): CreateConversationOutcome = createOutcome
+    val createdRecipientIds: MutableList<String> = mutableListOf()
+
+    override suspend fun createOrReturn(recipientUserId: String): CreateConversationOutcome {
+        createdRecipientIds.add(recipientUserId)
+        createGate?.await()
+        return createOutcome
+    }
 }

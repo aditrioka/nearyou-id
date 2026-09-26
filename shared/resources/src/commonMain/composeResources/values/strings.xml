@@ -387,6 +387,9 @@
     <string name="profile_premium_badge_icon_description">Akun Premium</string>
     <string name="profile_follow">Ikuti</string>
     <string name="profile_unfollow">Mengikuti</string>
+    <!-- profile-send-message: the other-user "Kirim pesan" action (create-or-return → the 1:1 thread).
+         Same copy as chat_send (the thread's send-button description) but a distinct role/key. -->
+    <string name="profile_send_message">Kirim pesan</string>
     <string name="profile_actions_menu_description">Opsi lainnya</string>
     <!-- The self-profile section's settings gear (mobile-settings entry point, #288) — "Buka pengaturan"
          mirrors the section_*_icon_description "Buka <thing>" register. -->

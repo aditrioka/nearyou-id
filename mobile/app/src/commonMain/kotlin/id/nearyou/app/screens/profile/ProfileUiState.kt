@@ -45,15 +45,32 @@ enum class ProfileMessage {
     /** Report 429 → the report rate-limit copy. */
     REPORT_RATE_LIMITED,
 
-    /** A block / report network failure → a generic "try again" copy. */
+    /** "Kirim pesan" create-or-return 403 (a block in either direction) → the docs-verbatim send-blocked copy. */
+    CHAT_BLOCKED,
+
+    /** A block / report / create-or-return failure → a generic "try again" copy. */
     ACTION_FAILED,
 }
 
 /**
+ * "Kirim pesan" resolved (`profile-send-message`): the conversation to open + the partner's DISPLAY
+ * identity for the thread top bar, snapshotted from the loaded profile when the create-or-return
+ * resolved — so the screen's consumption never depends on the current phase. Carries no user UUID
+ * (the `ChatThreadRoute` it becomes persists to disk on iOS).
+ */
+data class ProfileChatTarget(
+    val conversationId: String,
+    val partnerUsername: String,
+    val partnerDisplayName: String,
+)
+
+/**
  * The Compose-free, PII-free rendered state of the profile screen. [followedByViewer] is the LIVE
- * (optimistic) follow value the toggle renders; [message] + [navigateBack] are one-shots consumed via
- * `onMessageShown()` / `onNavigatedBack()`. The follow/block/report actions are rendered only when the
- * [ProfilePhase.Content] profile's `isSelf` is false (the screen reads that off the profile).
+ * (optimistic) follow value the toggle renders; [message] + [navigateBack] + [openChat]
+ * are one-shots consumed via `onMessageShown()` / `onNavigatedBack()` / `onChatOpened()`.
+ * [isOpeningChat] disables "Kirim pesan" while its create-or-return is in flight. The follow/message/
+ * block/report actions are rendered only when the [ProfilePhase.Content] profile's `isSelf` is false
+ * (the screen reads that off the profile).
  */
 data class ProfileUiState(
     val phase: ProfilePhase,
@@ -61,6 +78,8 @@ data class ProfileUiState(
     val isFollowInFlight: Boolean,
     val message: ProfileMessage?,
     val navigateBack: Boolean,
+    val isOpeningChat: Boolean,
+    val openChat: ProfileChatTarget?,
 )
 
 /**
@@ -77,6 +96,8 @@ fun profileUiState(
     isFollowInFlight: Boolean,
     message: ProfileMessage?,
     navigateBack: Boolean,
+    isOpeningChat: Boolean = false,
+    openChat: ProfileChatTarget? = null,
 ): ProfileUiState {
     val phase =
         if (isInitialLoad) {
@@ -99,5 +120,7 @@ fun profileUiState(
         isFollowInFlight = isFollowInFlight,
         message = message,
         navigateBack = navigateBack,
+        isOpeningChat = isOpeningChat,
+        openChat = openChat,
     )
 }

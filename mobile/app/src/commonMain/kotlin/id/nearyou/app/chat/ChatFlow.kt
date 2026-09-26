@@ -24,7 +24,7 @@ interface ChatFlow {
         embeddedPostId: String? = null,
     ): SendOutcome
 
-    /** Create-or-return a 1:1 conversation with [recipientUserId] (the future profile "Kirim pesan" path). */
+    /** Create-or-return a 1:1 conversation with [recipientUserId] (the other-user profile "Kirim pesan" path). */
     suspend fun createOrReturn(recipientUserId: String): CreateConversationOutcome
 }
 

@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -12,11 +14,15 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.chat.ChatFlow
+import id.nearyou.app.chat.CreateConversationOutcome
+import id.nearyou.app.chat.FakeChatFlow
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.theme.NearYouTheme
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -40,8 +46,10 @@ private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdPro
  * Robolectric render coverage of the profile surface (`mobile-profile`). Covers self-vs-other rendering
  * (the follow toggle + kebab appear only for an other-user read), the null-bio omission, the Premium
  * badge, the tappable counts (→ follow-list navigation), the block confirmation modal (Batal → no call; confirm → navigate
- * back), the six-category report picker, the not-found state, and the no-UUID-in-tree guard. Uses the
- * commonTest [FakeProfileFlow]; Release-excluded (the `*ScreenTest` host-activity convention).
+ * back), the six-category report picker, the not-found state, the "Kirim pesan" action (other-user only;
+ * Ready → onOpenChatThread with the display identity; Blocked → snackbar; disabled in flight; absent with no
+ * ChatFlow bound), and the no-UUID-in-tree guard. Uses the commonTest [FakeProfileFlow] + [FakeChatFlow];
+ * Release-excluded (the `*ScreenTest` host-activity convention).
  *
  * `@Suppress("DEPRECATION")`: keeps the v1 `runComposeUiTest` API the sibling screen tests use.
  */
@@ -53,6 +61,7 @@ class ProfileScreenTest {
     private fun installKoin(
         outcome: ProfileOutcome,
         selfId: String? = "self-1",
+        chat: ChatFlow? = null,
     ): FakeProfileFlow {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         val fake = FakeProfileFlow(profileOutcome = outcome)
@@ -61,6 +70,9 @@ class ProfileScreenTest {
                 module {
                     single<ProfileFlow> { fake }
                     single<SelfUserIdProvider> { FakeSelfUserId(selfId) }
+                    // profile-send-message: bound only by the "Kirim pesan" tests (the fail-safe resolution
+                    // leaves the action absent otherwise).
+                    if (chat != null) single<ChatFlow> { chat }
                 },
             )
         }
@@ -80,12 +92,14 @@ class ProfileScreenTest {
     @Test
     fun otherUserProfile_showsIdentityFollowToggleAndKebab() =
         runComposeUiTest {
-            val fake = installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1", followedByViewer = false)))
+            val fake =
+                installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1", followedByViewer = false)), chat = FakeChatFlow())
             setContent { OtherProfile() }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Raka Pratama").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("Raka Pratama").assertExists()
             onNodeWithText("@raka.jkt").assertExists()
             onNodeWithTag(PROFILE_FOLLOW_TOGGLE_TAG).assertExists()
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).assertExists()
             onNodeWithTag(PROFILE_ACTIONS_MENU_TAG).assertExists()
             // The settings gear is self-section-only — it must NOT appear on the other-user overlay.
             onNodeWithTag(PROFILE_SETTINGS_TAG).assertDoesNotExist()
@@ -97,10 +111,12 @@ class ProfileScreenTest {
             installKoin(
                 ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("self-1", isSelf = true)),
                 selfId = "self-1",
+                chat = FakeChatFlow(),
             )
             setContent { KoinContext { NearYouTheme { ProfileScreen(targetUserId = null, onBack = null) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOWERS_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(PROFILE_FOLLOW_TOGGLE_TAG).assertDoesNotExist()
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).assertDoesNotExist()
             onNodeWithTag(PROFILE_ACTIONS_MENU_TAG).assertDoesNotExist()
         }
 
@@ -242,9 +258,89 @@ class ProfileScreenTest {
     @Test
     fun noUserIdUuid_appearsInTheRenderedTree() =
         runComposeUiTest {
-            val fake = installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(OTHER_UUID)))
+            val fake = installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(OTHER_UUID)), chat = FakeChatFlow())
             setContent { OtherProfile() }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Raka Pratama").fetchSemanticsNodes().isNotEmpty() }
             onAllNodesWithText("11111111", substring = true).assertCountEquals(0)
+        }
+
+    // profile-send-message — the other-user "Kirim pesan" action.
+
+    @Composable
+    private fun OtherProfileWithChat(onOpenChatThread: (String, String, String) -> Unit = { _, _, _ -> }) {
+        KoinContext { NearYouTheme { ProfileScreen(targetUserId = "u1", onBack = {}, onOpenChatThread = onOpenChatThread) } }
+    }
+
+    @Test
+    fun sendMessage_shownAndEnabledOnOtherUserRead() =
+        runComposeUiTest {
+            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")), chat = FakeChatFlow())
+            setContent { OtherProfileWithChat() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SEND_MESSAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).assert(hasClickAction()).assertIsEnabled()
+            onNodeWithText("Kirim pesan").assertExists()
+        }
+
+    @Test
+    fun sendMessage_ready_emitsOnOpenChatThreadWithTheProfileDisplayIdentity_andClearsTheOneShot() =
+        runComposeUiTest {
+            val chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Ready("c1"))
+            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")), chat = chat)
+            val opened = mutableListOf<Triple<String, String, String>>()
+            setContent { OtherProfileWithChat(onOpenChatThread = { id, username, name -> opened += Triple(id, username, name) }) }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SEND_MESSAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { opened.isNotEmpty() }
+            assertEquals(listOf(Triple("c1", "raka.jkt", "Raka Pratama")), opened)
+            // The endpoint returns the SAME conversation id again: a second emission is only possible if the
+            // screen cleared the one-shot (onChatOpened) after the first — an uncleared equal value never re-keys.
+            waitForIdle()
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { opened.size == 2 }
+            assertEquals(listOf("u1", "u1"), chat.createdRecipientIds)
+        }
+
+    @Test
+    fun sendMessage_blocked_showsTheSendBlockedSnackbar_andDoesNotOpenChat() =
+        runComposeUiTest {
+            installKoin(
+                ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")),
+                chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Blocked),
+            )
+            var opened = 0
+            setContent { OtherProfileWithChat(onOpenChatThread = { _, _, _ -> opened++ }) }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SEND_MESSAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText("Tidak dapat mengirim pesan ke user ini").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(0, opened)
+        }
+
+    @Test
+    fun sendMessage_rendersDisabledWhileCreateOrReturnIsInFlight() =
+        runComposeUiTest {
+            val chat = FakeChatFlow(createGate = CompletableDeferred())
+            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")), chat = chat)
+            setContent { OtherProfileWithChat() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SEND_MESSAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { chat.createdRecipientIds.isNotEmpty() }
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).assertIsNotEnabled()
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, chat.createdRecipientIds.size, "a tap while in flight issues no second call")
+            chat.createGate?.complete(Unit)
+        }
+
+    @Test
+    fun sendMessage_absentWhenNoChatFlowIsBound() =
+        runComposeUiTest {
+            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")))
+            setContent { OtherProfile() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_FOLLOW_TOGGLE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Raka Pratama").assertExists()
+            onNodeWithTag(PROFILE_ACTIONS_MENU_TAG).assertExists()
+            onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).assertDoesNotExist()
         }
 }
