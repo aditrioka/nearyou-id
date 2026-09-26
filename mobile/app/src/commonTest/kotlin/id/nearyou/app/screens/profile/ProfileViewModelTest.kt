@@ -1,12 +1,16 @@
 package id.nearyou.app.screens.profile
 
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.chat.ChatFlow
+import id.nearyou.app.chat.CreateConversationOutcome
+import id.nearyou.app.chat.FakeChatFlow
 import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileOutcome
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -43,8 +47,9 @@ class ProfileViewModelTest {
         flow: FakeProfileFlow = FakeProfileFlow(),
         self: SelfUserIdProvider = FakeSelfUserIdProvider("self-id"),
         target: String? = "u1",
+        chat: ChatFlow? = null,
     ): ProfileViewModel {
-        val viewModel = ProfileViewModel(flow, self, target)
+        val viewModel = ProfileViewModel(flow, self, target, chat)
         backgroundScope.launch { viewModel.uiState.collect {} }
         return viewModel
     }
@@ -222,6 +227,109 @@ class ProfileViewModelTest {
             advanceUntilIdle()
             assertEquals(ProfileMessage.REPORT_SUCCESS, viewModel.uiState.value.message)
             viewModel.onMessageShown()
+            assertNull(viewModel.uiState.value.message)
+        }
+
+    // profile-send-message — "Kirim pesan" create-or-return.
+
+    @Test
+    fun `send message Ready sets the open-chat one-shot for the resolved id and onChatOpened clears it`() =
+        runTest {
+            val chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Ready("c9"))
+            val viewModel = vm(target = "u1", chat = chat)
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertEquals(listOf("u1"), chat.createdRecipientIds)
+            assertEquals("c9", viewModel.uiState.value.openChatConversationId)
+            assertEquals(false, viewModel.uiState.value.isOpeningChat)
+            assertNull(viewModel.uiState.value.message, "a resolved conversation raises no message")
+            viewModel.onChatOpened()
+            assertNull(viewModel.uiState.value.openChatConversationId)
+        }
+
+    @Test
+    fun `send message Blocked surfaces the send-blocked message and does not open a chat`() =
+        runTest {
+            val viewModel = vm(chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Blocked))
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertEquals(ProfileMessage.CHAT_BLOCKED, viewModel.uiState.value.message)
+            assertNull(viewModel.uiState.value.openChatConversationId)
+        }
+
+    @Test
+    fun `send message RecipientNotFound surfaces the neutral unavailable message`() =
+        runTest {
+            val viewModel = vm(chat = FakeChatFlow(createOutcome = CreateConversationOutcome.RecipientNotFound))
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertEquals(ProfileMessage.TARGET_UNAVAILABLE, viewModel.uiState.value.message)
+            assertNull(viewModel.uiState.value.openChatConversationId)
+        }
+
+    @Test
+    fun `send message self-error-network-session outcomes all surface the generic failure`() =
+        runTest {
+            listOf(
+                CreateConversationOutcome.SelfConversation,
+                CreateConversationOutcome.Error,
+                CreateConversationOutcome.NetworkError,
+                CreateConversationOutcome.SessionExpired,
+            ).forEach { outcome ->
+                val viewModel = vm(chat = FakeChatFlow(createOutcome = outcome))
+                advanceUntilIdle()
+                viewModel.onSendMessage()
+                advanceUntilIdle()
+                assertEquals(ProfileMessage.ACTION_FAILED, viewModel.uiState.value.message, "$outcome")
+                assertNull(viewModel.uiState.value.openChatConversationId, "$outcome")
+                assertEquals(false, viewModel.uiState.value.isOpeningChat, "$outcome")
+            }
+        }
+
+    @Test
+    fun `send message ignores a second tap while the first is in flight`() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Ready("c1"), createGate = gate)
+            val viewModel = vm(chat = chat)
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.isOpeningChat)
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertEquals(1, chat.createdRecipientIds.size, "the in-flight guard drops the second tap")
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals("c1", viewModel.uiState.value.openChatConversationId)
+            assertEquals(false, viewModel.uiState.value.isOpeningChat)
+        }
+
+    @Test
+    fun `send message on the self read never calls create-or-return`() =
+        runTest {
+            val chat = FakeChatFlow()
+            val flow = FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("self-id", isSelf = true)))
+            val viewModel = vm(flow, target = null, self = FakeSelfUserIdProvider("self-id"), chat = chat)
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertTrue(chat.createdRecipientIds.isEmpty(), "self read must not create a conversation")
+            assertNull(viewModel.uiState.value.openChatConversationId)
+        }
+
+    @Test
+    fun `send message is a no-op when no ChatFlow is bound`() =
+        runTest {
+            val viewModel = vm(chat = null)
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            assertEquals(false, viewModel.uiState.value.isOpeningChat)
+            assertNull(viewModel.uiState.value.openChatConversationId)
             assertNull(viewModel.uiState.value.message)
         }
 }

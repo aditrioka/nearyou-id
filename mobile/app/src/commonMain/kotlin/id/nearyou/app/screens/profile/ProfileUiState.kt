@@ -45,15 +45,20 @@ enum class ProfileMessage {
     /** Report 429 → the report rate-limit copy. */
     REPORT_RATE_LIMITED,
 
-    /** A block / report network failure → a generic "try again" copy. */
+    /** "Kirim pesan" create-or-return 403 (a block in either direction) → the docs-verbatim send-blocked copy. */
+    CHAT_BLOCKED,
+
+    /** A block / report / create-or-return failure → a generic "try again" copy. */
     ACTION_FAILED,
 }
 
 /**
  * The Compose-free, PII-free rendered state of the profile screen. [followedByViewer] is the LIVE
- * (optimistic) follow value the toggle renders; [message] + [navigateBack] are one-shots consumed via
- * `onMessageShown()` / `onNavigatedBack()`. The follow/block/report actions are rendered only when the
- * [ProfilePhase.Content] profile's `isSelf` is false (the screen reads that off the profile).
+ * (optimistic) follow value the toggle renders; [message] + [navigateBack] + [openChatConversationId]
+ * are one-shots consumed via `onMessageShown()` / `onNavigatedBack()` / `onChatOpened()`.
+ * [isOpeningChat] disables "Kirim pesan" while its create-or-return is in flight. The follow/message/
+ * block/report actions are rendered only when the [ProfilePhase.Content] profile's `isSelf` is false
+ * (the screen reads that off the profile).
  */
 data class ProfileUiState(
     val phase: ProfilePhase,
@@ -61,6 +66,8 @@ data class ProfileUiState(
     val isFollowInFlight: Boolean,
     val message: ProfileMessage?,
     val navigateBack: Boolean,
+    val isOpeningChat: Boolean,
+    val openChatConversationId: String?,
 )
 
 /**
@@ -77,6 +84,8 @@ fun profileUiState(
     isFollowInFlight: Boolean,
     message: ProfileMessage?,
     navigateBack: Boolean,
+    isOpeningChat: Boolean = false,
+    openChatConversationId: String? = null,
 ): ProfileUiState {
     val phase =
         if (isInitialLoad) {
@@ -99,5 +108,7 @@ fun profileUiState(
         isFollowInFlight = isFollowInFlight,
         message = message,
         navigateBack = navigateBack,
+        isOpeningChat = isOpeningChat,
+        openChatConversationId = openChatConversationId,
     )
 }

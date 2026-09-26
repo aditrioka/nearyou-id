@@ -162,6 +162,29 @@ class ConversationsApiClientTest {
         }
 
     @Test
+    fun `ChatRepository createOrReturn collapses 201 and 200 to Ready and maps each failure status`() =
+        runTest {
+            // profile-send-message: the repository seam the profile "Kirim pesan" caller consumes — new (201)
+            // and existing (200) must be indistinguishable to the caller; each failure status is distinct.
+            suspend fun outcome(status: HttpStatusCode): CreateConversationOutcome {
+                val http =
+                    client {
+                        respond("""{"conversation":{"id":"c7","created_at":"t"},"participants":[]}""", status, JSON_HEADERS)
+                    }
+                return ChatRepository(ChatMessagesApiClient(http), ConversationsApiClient(http)).createOrReturn("u2")
+            }
+
+            assertEquals(CreateConversationOutcome.Ready("c7"), outcome(HttpStatusCode.Created))
+            assertEquals(CreateConversationOutcome.Ready("c7"), outcome(HttpStatusCode.OK))
+            assertEquals(CreateConversationOutcome.Blocked, outcome(HttpStatusCode.Forbidden))
+            assertEquals(CreateConversationOutcome.SelfConversation, outcome(HttpStatusCode.BadRequest))
+            assertEquals(CreateConversationOutcome.RecipientNotFound, outcome(HttpStatusCode.NotFound))
+            assertEquals(CreateConversationOutcome.SessionExpired, outcome(HttpStatusCode.Unauthorized))
+            assertEquals(CreateConversationOutcome.NetworkError, outcome(HttpStatusCode.ServiceUnavailable))
+            assertEquals(CreateConversationOutcome.Error, outcome(HttpStatusCode.Conflict))
+        }
+
+    @Test
     fun `transport failure maps to NetworkError`() =
         runTest {
             val api = ConversationsApiClient(client { throw RuntimeException("refused") })

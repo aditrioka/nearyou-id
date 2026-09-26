@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ChatThreadOutcome
-import id.nearyou.app.chat.CreateConversationOutcome
 import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.data.report.ReportReasonCategory
@@ -93,13 +92,6 @@ class ChatThreadViewModel(
 
     private val _sendInFlight = MutableStateFlow(false)
     val sendInFlight: StateFlow<Boolean> = _sendInFlight.asStateFlow()
-
-    // The create-or-return one-shot result for the future profile "Kirim pesan" caller (design D5,
-    // follow-up). Non-null once startConversation resolves a conversation id to navigate to.
-    private val _startedConversationId = MutableStateFlow<String?>(null)
-    val startedConversationId: StateFlow<String?> = _startedConversationId.asStateFlow()
-    private val _startOutcome = MutableStateFlow<CreateConversationOutcome?>(null)
-    val startOutcome: StateFlow<CreateConversationOutcome?> = _startOutcome.asStateFlow()
 
     // mobile-chat-message-report: the message id the report dialog targets (null = no dialog) + the
     // one-shot report-result message. Both nullable VM state cleared via callbacks (onReportDialogDismissed
@@ -253,21 +245,6 @@ class ChatThreadViewModel(
      *  recomposition / config change). */
     fun onReportMessageShown() {
         _reportMessage.value = null
-    }
-
-    /**
-     * The create-or-return entry for the future profile "Kirim pesan" caller (design D5 — profile wiring
-     * deferred to a follow-up after PR #245). Resolves a 1:1 conversation with [recipientUserId] and, on
-     * success, exposes its id via [startedConversationId] for the caller to navigate to a fresh
-     * `ChatThreadRoute`; non-success maps to [startOutcome] for the caller to surface.
-     */
-    fun startConversation(recipientUserId: String) {
-        viewModelScope.launch {
-            when (val outcome = flow.createOrReturn(recipientUserId)) {
-                is CreateConversationOutcome.Ready -> _startedConversationId.value = outcome.conversationId
-                else -> _startOutcome.value = outcome
-            }
-        }
     }
 
     private suspend fun resyncFirstPage(initial: Boolean) {

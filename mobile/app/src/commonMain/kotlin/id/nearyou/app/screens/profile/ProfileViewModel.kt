@@ -3,6 +3,8 @@ package id.nearyou.app.screens.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.chat.ChatFlow
+import id.nearyou.app.chat.CreateConversationOutcome
 import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
@@ -23,14 +25,18 @@ import kotlinx.coroutines.launch
  * overlay). Exposes ONE [StateFlow]<[ProfileUiState]> via `stateIn(WhileSubscribed)`. The target is
  * [targetUserId] (the `ProfileRoute.userId`) or, when null, the **self** profile — resolved from the
  * session via [SelfUserIdProvider] (the access token's `sub`). Follow is optimistic with revert; block
- * pops back on success; report surfaces a per-outcome message. One-shot events (the toasts/banners +
- * the block navigate-back) are nullable state fields cleared via `onMessageShown()` / `onNavigatedBack()`
- * — NOT a `Channel`/`SharedFlow` event bus.
+ * pops back on success; report surfaces a per-outcome message; "Kirim pesan" create-or-returns a 1:1
+ * conversation via [chatFlow] (`profile-send-message`). One-shot events (the toasts/banners, the block
+ * navigate-back, the open-chat conversation id) are nullable state fields cleared via `onMessageShown()`
+ * / `onNavigatedBack()` / `onChatOpened()` — NOT a `Channel`/`SharedFlow` event bus. [chatFlow] is null
+ * only in a test graph that binds no `ChatFlow` (the screen's fail-safe resolution) — the action is then
+ * absent and [onSendMessage] a no-op.
  */
 class ProfileViewModel(
     private val flow: ProfileFlow,
     private val selfUserIdProvider: SelfUserIdProvider,
     private val targetUserId: String?,
+    private val chatFlow: ChatFlow? = null,
 ) : ViewModel() {
     private data class VmState(
         val outcome: ProfileOutcome? = null,
@@ -39,6 +45,8 @@ class ProfileViewModel(
         val isFollowInFlight: Boolean = false,
         val message: ProfileMessage? = null,
         val navigateBack: Boolean = false,
+        val isOpeningChat: Boolean = false,
+        val openChatConversationId: String? = null,
     )
 
     private val state = MutableStateFlow(VmState())
@@ -145,6 +153,41 @@ class ProfileViewModel(
         }
     }
 
+    /** "Kirim pesan" (other-user only): create-or-return the 1:1 conversation; `Ready` → the
+     *  [ProfileUiState.openChatConversationId] one-shot the screen turns into a `ChatThreadRoute` push.
+     *  Ignored while one is in flight (the endpoint is idempotent, navigation is not). */
+    fun onSendMessage() {
+        val chat = chatFlow ?: return
+        val current = state.value
+        val profile = (current.outcome as? ProfileOutcome.Loaded)?.profile ?: return
+        if (profile.isSelf || current.isOpeningChat) return
+        val id = resolvedUserId ?: return
+        state.update { it.copy(isOpeningChat = true) }
+        viewModelScope.launch {
+            val outcome = chat.createOrReturn(id)
+            state.update { s ->
+                when (outcome) {
+                    is CreateConversationOutcome.Ready ->
+                        s.copy(isOpeningChat = false, openChatConversationId = outcome.conversationId)
+                    CreateConversationOutcome.Blocked -> s.copy(isOpeningChat = false, message = ProfileMessage.CHAT_BLOCKED)
+                    // Neutral, direction-less — the same copy as the follow-POST constant 404.
+                    CreateConversationOutcome.RecipientNotFound ->
+                        s.copy(isOpeningChat = false, message = ProfileMessage.TARGET_UNAVAILABLE)
+                    // SelfConversation is unreachable (no action on the self read); SessionExpired is also
+                    // re-routed by the Auth plugin — both share the share-to-chat picker's Failed bucket.
+                    CreateConversationOutcome.SelfConversation,
+                    CreateConversationOutcome.Error,
+                    CreateConversationOutcome.NetworkError,
+                    CreateConversationOutcome.SessionExpired,
+                    -> s.copy(isOpeningChat = false, message = ProfileMessage.ACTION_FAILED)
+                }
+            }
+        }
+    }
+
+    /** Clears the one-shot [ProfileUiState.openChatConversationId] after the screen has navigated. */
+    fun onChatOpened() = state.update { it.copy(openChatConversationId = null) }
+
     /** Clears the one-shot [ProfileUiState.message] after the screen has shown it. */
     fun onMessageShown() = state.update { it.copy(message = null) }
 
@@ -159,5 +202,7 @@ class ProfileViewModel(
             isFollowInFlight = isFollowInFlight,
             message = message,
             navigateBack = navigateBack,
+            isOpeningChat = isOpeningChat,
+            openChatConversationId = openChatConversationId,
         )
 }

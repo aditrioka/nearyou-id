@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.profile.ProfileFlow
@@ -51,6 +52,7 @@ import id.nearyou.app.ui.components.BlockConfirmDialog
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.chat_send_blocked
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_action_settings
@@ -77,6 +79,7 @@ import id.nearyou.resources.generated.resources.profile_report_duplicate
 import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_reason_title
 import id.nearyou.resources.generated.resources.profile_report_success_toast
+import id.nearyou.resources.generated.resources.profile_send_message
 import id.nearyou.resources.generated.resources.profile_settings_action
 import id.nearyou.resources.generated.resources.profile_unfollow
 import id.nearyou.resources.generated.resources.section_profile
@@ -84,6 +87,7 @@ import id.nearyou.resources.generated.resources.signin_error_network
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /** Test tags for the profile surface (Robolectric `ProfileScreenTest`). */
@@ -95,6 +99,7 @@ const val PROFILE_FOLLOWERS_TAG: String = "profileFollowers"
 const val PROFILE_FOLLOWING_TAG: String = "profileFollowing"
 const val PROFILE_NOT_FOUND_TAG: String = "profileNotFound"
 const val PROFILE_BACK_TAG: String = "profileBack"
+const val PROFILE_SEND_MESSAGE_TAG: String = "profileSendMessage"
 
 /** Test tag on the self-profile settings gear (`ProfileScreenTest` + `AppShellScreenTest`). */
 const val PROFILE_SETTINGS_TAG: String = "profileSettings"
@@ -103,17 +108,18 @@ const val PROFILE_SETTINGS_TAG: String = "profileSettings"
  * The profile surface (`mobile-profile`). Renders a user from `GET /api/v1/users/{id}` via a
  * `viewModel { }`-scoped [ProfileViewModel]. Two modes (design D1):
  *  - **other-user overlay** ([onBack] non-null) — a root-stack `ProfileRoute` overlay owning its own
- *    `Scaffold` + back `TopAppBar` + `SnackbarHost`; shows the follow toggle + the Blokir/Laporkan kebab
- *    when the loaded profile's `isSelf` is false.
+ *    `Scaffold` + back `TopAppBar` + `SnackbarHost`; shows the follow toggle, "Kirim pesan", and the
+ *    Blokir/Laporkan kebab when the loaded profile's `isSelf` is false.
  *  - **self section** ([onBack] null, [targetUserId] null) — rendered inset-free in the shell's Profil
  *    section (no own `Scaffold`/`TopAppBar`); the loaded `isSelf = true` profile shows no follow/block/
  *    report actions, but DOES carry an in-body header (the `NotificationsScreen` idiom) with a trailing
  *    settings gear that invokes [onSettings] — the Settings surface's entry point (mockup frame 3; #288).
  *
  * One-shot events: [ProfileUiState.message] → a snackbar (overlay only — the self read raises none);
- * [ProfileUiState.navigateBack] (block success) → [onBack] then cleared. The target `userId` is the
- * route resource key, never rendered. [onSettings] is self-section-only (defaulted no-op so the
- * other-user route need not pass it).
+ * [ProfileUiState.navigateBack] (block success) → [onBack] then cleared; [ProfileUiState.openChatConversationId]
+ * ("Kirim pesan" resolved) → [onOpenChat] with the loaded profile's display identity, then cleared (the
+ * host pushes `ChatThreadRoute`). The target `userId` is the route resource key, never rendered.
+ * [onSettings] is self-section-only (defaulted no-op so the other-user route need not pass it).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,12 +129,18 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     onSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
+    onOpenChat: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit = { _, _, _ -> },
 ) {
     val flow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
-    val viewModel = viewModel { ProfileViewModel(flow, selfUserIdProvider, targetUserId) }
+    // profile-send-message: fail-safe resolution (the TimelineAds getOrNull idiom) — a screen test not
+    // exercising "Kirim pesan" binds no ChatFlow; the action is then simply absent. Production binds it.
+    val koin = getKoin()
+    val chatFlow = remember(koin) { koin.getOrNull<ChatFlow>() }
+    val viewModel = viewModel { ProfileViewModel(flow, selfUserIdProvider, targetUserId, chatFlow) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val onSendMessage: (() -> Unit)? = if (chatFlow != null) viewModel::onSendMessage else null
 
     // One-shot navigate-back after a successful block (other-user overlay only).
     LaunchedEffect(uiState.navigateBack) {
@@ -136,6 +148,14 @@ fun ProfileScreen(
             onBack?.invoke()
             viewModel.onNavigatedBack()
         }
+    }
+    // One-shot open-chat after create-or-return resolved → the host pushes ChatThreadRoute with the loaded
+    // profile's display identity (the route carries no user UUID).
+    LaunchedEffect(uiState.openChatConversationId) {
+        val conversationId = uiState.openChatConversationId ?: return@LaunchedEffect
+        val profile = (uiState.phase as? ProfilePhase.Content)?.profile ?: return@LaunchedEffect
+        onOpenChat(conversationId, profile.username, profile.displayName)
+        viewModel.onChatOpened()
     }
     // One-shot message → snackbar. messageText resolves the enum to a string; null → nothing.
     val message = uiState.message
@@ -166,6 +186,7 @@ fun ProfileScreen(
             ProfileBody(
                 uiState = uiState,
                 onToggleFollow = viewModel::onToggleFollow,
+                onSendMessage = onSendMessage,
                 onBlockConfirmed = viewModel::onBlockConfirmed,
                 onReportSubmitted = viewModel::onReportSubmitted,
                 onRetry = viewModel::retry,
@@ -184,6 +205,7 @@ fun ProfileScreen(
             ProfileBody(
                 uiState = uiState,
                 onToggleFollow = viewModel::onToggleFollow,
+                onSendMessage = onSendMessage,
                 onBlockConfirmed = viewModel::onBlockConfirmed,
                 onReportSubmitted = viewModel::onReportSubmitted,
                 onRetry = viewModel::retry,
@@ -226,6 +248,7 @@ private fun SelfProfileHeader(onSettings: () -> Unit) {
 private fun ProfileBody(
     uiState: ProfileUiState,
     onToggleFollow: () -> Unit,
+    onSendMessage: (() -> Unit)?,
     onBlockConfirmed: () -> Unit,
     onReportSubmitted: (ReportReasonCategory, String?) -> Unit,
     onRetry: () -> Unit,
@@ -244,6 +267,8 @@ private fun ProfileBody(
                     followedByViewer = uiState.followedByViewer,
                     isFollowInFlight = uiState.isFollowInFlight,
                     onToggleFollow = onToggleFollow,
+                    isOpeningChat = uiState.isOpeningChat,
+                    onSendMessage = onSendMessage,
                     onBlockConfirmed = onBlockConfirmed,
                     onReportSubmitted = onReportSubmitted,
                     onOpenFollowList = onOpenFollowList,
@@ -258,6 +283,8 @@ private fun ProfileContent(
     followedByViewer: Boolean,
     isFollowInFlight: Boolean,
     onToggleFollow: () -> Unit,
+    isOpeningChat: Boolean,
+    onSendMessage: (() -> Unit)?,
     onBlockConfirmed: () -> Unit,
     onReportSubmitted: (ReportReasonCategory, String?) -> Unit,
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit,
@@ -337,6 +364,17 @@ private fun ProfileContent(
         if (!profile.isSelf) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 FollowButton(followedByViewer, isFollowInFlight, onToggleFollow)
+                // "Kirim pesan" (profile-send-message): secondary to the follow CTA; null when no ChatFlow
+                // is bound (test graphs). Disabled while the create-or-return is in flight.
+                if (onSendMessage != null) {
+                    OutlinedButton(
+                        onClick = onSendMessage,
+                        enabled = !isOpeningChat,
+                        modifier = Modifier.testTag(PROFILE_SEND_MESSAGE_TAG),
+                    ) {
+                        Text(text = stringResource(Res.string.profile_send_message))
+                    }
+                }
                 ProfileActionsMenu(
                     username = profile.username,
                     onBlock = { showBlockDialog = true },
@@ -471,6 +509,7 @@ private fun ProfileMessage.resource(): StringResource =
         ProfileMessage.REPORT_SUCCESS -> Res.string.profile_report_success_toast
         ProfileMessage.REPORT_DUPLICATE -> Res.string.profile_report_duplicate
         ProfileMessage.REPORT_RATE_LIMITED -> Res.string.profile_report_rate_limited
+        ProfileMessage.CHAT_BLOCKED -> Res.string.chat_send_blocked
         ProfileMessage.ACTION_FAILED -> Res.string.profile_action_failed
     }
 
