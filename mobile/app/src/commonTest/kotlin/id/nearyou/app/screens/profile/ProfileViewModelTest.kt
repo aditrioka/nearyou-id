@@ -233,7 +233,7 @@ class ProfileViewModelTest {
     // profile-send-message — "Kirim pesan" create-or-return.
 
     @Test
-    fun `send message Ready sets the open-chat one-shot for the resolved id and onChatOpened clears it`() =
+    fun `send message Ready sets the open-chat target for the resolved id and onChatOpened clears it`() =
         runTest {
             val chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Ready("c9"))
             val viewModel = vm(target = "u1", chat = chat)
@@ -241,11 +241,11 @@ class ProfileViewModelTest {
             viewModel.onSendMessage()
             advanceUntilIdle()
             assertEquals(listOf("u1"), chat.createdRecipientIds)
-            assertEquals("c9", viewModel.uiState.value.openChatConversationId)
+            assertEquals(ProfileChatTarget("c9", "raka.jkt", "Raka Pratama"), viewModel.uiState.value.openChat)
             assertEquals(false, viewModel.uiState.value.isOpeningChat)
             assertNull(viewModel.uiState.value.message, "a resolved conversation raises no message")
             viewModel.onChatOpened()
-            assertNull(viewModel.uiState.value.openChatConversationId)
+            assertNull(viewModel.uiState.value.openChat)
         }
 
     @Test
@@ -256,7 +256,7 @@ class ProfileViewModelTest {
             viewModel.onSendMessage()
             advanceUntilIdle()
             assertEquals(ProfileMessage.CHAT_BLOCKED, viewModel.uiState.value.message)
-            assertNull(viewModel.uiState.value.openChatConversationId)
+            assertNull(viewModel.uiState.value.openChat)
         }
 
     @Test
@@ -267,7 +267,7 @@ class ProfileViewModelTest {
             viewModel.onSendMessage()
             advanceUntilIdle()
             assertEquals(ProfileMessage.TARGET_UNAVAILABLE, viewModel.uiState.value.message)
-            assertNull(viewModel.uiState.value.openChatConversationId)
+            assertNull(viewModel.uiState.value.openChat)
         }
 
     @Test
@@ -284,7 +284,7 @@ class ProfileViewModelTest {
                 viewModel.onSendMessage()
                 advanceUntilIdle()
                 assertEquals(ProfileMessage.ACTION_FAILED, viewModel.uiState.value.message, "$outcome")
-                assertNull(viewModel.uiState.value.openChatConversationId, "$outcome")
+                assertNull(viewModel.uiState.value.openChat, "$outcome")
                 assertEquals(false, viewModel.uiState.value.isOpeningChat, "$outcome")
             }
         }
@@ -304,7 +304,7 @@ class ProfileViewModelTest {
             assertEquals(1, chat.createdRecipientIds.size, "the in-flight guard drops the second tap")
             gate.complete(Unit)
             advanceUntilIdle()
-            assertEquals("c1", viewModel.uiState.value.openChatConversationId)
+            assertEquals("c1", viewModel.uiState.value.openChat?.conversationId)
             assertEquals(false, viewModel.uiState.value.isOpeningChat)
         }
 
@@ -318,7 +318,7 @@ class ProfileViewModelTest {
             viewModel.onSendMessage()
             advanceUntilIdle()
             assertTrue(chat.createdRecipientIds.isEmpty(), "self read must not create a conversation")
-            assertNull(viewModel.uiState.value.openChatConversationId)
+            assertNull(viewModel.uiState.value.openChat)
         }
 
     @Test
@@ -329,7 +329,39 @@ class ProfileViewModelTest {
             viewModel.onSendMessage()
             advanceUntilIdle()
             assertEquals(false, viewModel.uiState.value.isOpeningChat)
-            assertNull(viewModel.uiState.value.openChatConversationId)
+            assertNull(viewModel.uiState.value.openChat)
             assertNull(viewModel.uiState.value.message)
+        }
+
+    @Test
+    fun `send message Ready after a successful block is dropped - the block wins`() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Ready("c1"), createGate = gate)
+            val viewModel = vm(flow = FakeProfileFlow(blockOutcome = BlockOutcome.Blocked), chat = chat)
+            advanceUntilIdle()
+            viewModel.onSendMessage()
+            advanceUntilIdle()
+            viewModel.onBlockConfirmed()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.navigateBack)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertNull(viewModel.uiState.value.openChat, "a Ready landing after the block must not open the chat")
+            assertEquals(false, viewModel.uiState.value.isOpeningChat)
+        }
+
+    @Test
+    fun `send message before the profile has loaded is a no-op`() =
+        runTest {
+            listOf(ProfileOutcome.NotFound, ProfileOutcome.NetworkError).forEach { outcome ->
+                val chat = FakeChatFlow()
+                val viewModel = vm(flow = FakeProfileFlow(profileOutcome = outcome), chat = chat)
+                advanceUntilIdle()
+                viewModel.onSendMessage()
+                advanceUntilIdle()
+                assertTrue(chat.createdRecipientIds.isEmpty(), "$outcome")
+                assertEquals(false, viewModel.uiState.value.isOpeningChat, "$outcome")
+            }
         }
 }

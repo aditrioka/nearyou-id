@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -116,9 +117,9 @@ const val PROFILE_SETTINGS_TAG: String = "profileSettings"
  *    settings gear that invokes [onSettings] — the Settings surface's entry point (mockup frame 3; #288).
  *
  * One-shot events: [ProfileUiState.message] → a snackbar (overlay only — the self read raises none);
- * [ProfileUiState.navigateBack] (block success) → [onBack] then cleared; [ProfileUiState.openChatConversationId]
- * ("Kirim pesan" resolved) → [onOpenChat] with the loaded profile's display identity, then cleared (the
- * host pushes `ChatThreadRoute`). The target `userId` is the route resource key, never rendered.
+ * [ProfileUiState.navigateBack] (block success) → [onBack] then cleared; [ProfileUiState.openChat]
+ * ("Kirim pesan" resolved) → [onOpenChatThread] with the snapshotted display identity, then cleared (the host
+ * pushes `ChatThreadRoute`). The target `userId` is the route resource key, never rendered.
  * [onSettings] is self-section-only (defaulted no-op so the other-user route need not pass it).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,7 +130,7 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     onSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
-    onOpenChat: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit = { _, _, _ -> },
+    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit = { _, _, _ -> },
 ) {
     val flow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
@@ -149,12 +150,11 @@ fun ProfileScreen(
             viewModel.onNavigatedBack()
         }
     }
-    // One-shot open-chat after create-or-return resolved → the host pushes ChatThreadRoute with the loaded
-    // profile's display identity (the route carries no user UUID).
-    LaunchedEffect(uiState.openChatConversationId) {
-        val conversationId = uiState.openChatConversationId ?: return@LaunchedEffect
-        val profile = (uiState.phase as? ProfilePhase.Content)?.profile ?: return@LaunchedEffect
-        onOpenChat(conversationId, profile.username, profile.displayName)
+    // One-shot open-chat after create-or-return resolved → the host pushes ChatThreadRoute with the
+    // snapshotted display identity (the route carries no user UUID).
+    LaunchedEffect(uiState.openChat) {
+        val target = uiState.openChat ?: return@LaunchedEffect
+        onOpenChatThread(target.conversationId, target.partnerUsername, target.partnerDisplayName)
         viewModel.onChatOpened()
     }
     // One-shot message → snackbar. messageText resolves the enum to a string; null → nothing.
@@ -360,9 +360,14 @@ private fun ProfileContent(
                         .semantics { contentDescription = followingOpenCd },
             )
         }
-        // Actions are other-user only (the endpoint's isSelf is authoritative).
+        // Actions are other-user only (the endpoint's isSelf is authoritative). A FlowRow so a large font
+        // scale wraps the row instead of squeezing the trailing kebab (the Blokir/Laporkan safety entry).
         if (!profile.isSelf) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
                 FollowButton(followedByViewer, isFollowInFlight, onToggleFollow)
                 // "Kirim pesan" (profile-send-message): secondary to the follow CTA; null when no ChatFlow
                 // is bound (test graphs). Disabled while the create-or-return is in flight.

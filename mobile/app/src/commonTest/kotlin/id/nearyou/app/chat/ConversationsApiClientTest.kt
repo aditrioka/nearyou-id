@@ -182,6 +182,12 @@ class ConversationsApiClientTest {
             assertEquals(CreateConversationOutcome.SessionExpired, outcome(HttpStatusCode.Unauthorized))
             assertEquals(CreateConversationOutcome.NetworkError, outcome(HttpStatusCode.ServiceUnavailable))
             assertEquals(CreateConversationOutcome.Error, outcome(HttpStatusCode.Conflict))
+            // Transport failure → the ApiClient's NetworkError → the repository's NetworkError.
+            val refused = client { throw RuntimeException("refused") }
+            assertEquals(
+                CreateConversationOutcome.NetworkError,
+                ChatRepository(ChatMessagesApiClient(refused), ConversationsApiClient(refused)).createOrReturn("u2"),
+            )
         }
 
     @Test

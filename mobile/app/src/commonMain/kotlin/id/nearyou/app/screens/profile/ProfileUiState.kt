@@ -53,8 +53,20 @@ enum class ProfileMessage {
 }
 
 /**
+ * "Kirim pesan" resolved (`profile-send-message`): the conversation to open + the partner's DISPLAY
+ * identity for the thread top bar, snapshotted from the loaded profile when the create-or-return
+ * resolved — so the screen's consumption never depends on the current phase. Carries no user UUID
+ * (the `ChatThreadRoute` it becomes persists to disk on iOS).
+ */
+data class ProfileChatTarget(
+    val conversationId: String,
+    val partnerUsername: String,
+    val partnerDisplayName: String,
+)
+
+/**
  * The Compose-free, PII-free rendered state of the profile screen. [followedByViewer] is the LIVE
- * (optimistic) follow value the toggle renders; [message] + [navigateBack] + [openChatConversationId]
+ * (optimistic) follow value the toggle renders; [message] + [navigateBack] + [openChat]
  * are one-shots consumed via `onMessageShown()` / `onNavigatedBack()` / `onChatOpened()`.
  * [isOpeningChat] disables "Kirim pesan" while its create-or-return is in flight. The follow/message/
  * block/report actions are rendered only when the [ProfilePhase.Content] profile's `isSelf` is false
@@ -67,7 +79,7 @@ data class ProfileUiState(
     val message: ProfileMessage?,
     val navigateBack: Boolean,
     val isOpeningChat: Boolean,
-    val openChatConversationId: String?,
+    val openChat: ProfileChatTarget?,
 )
 
 /**
@@ -85,7 +97,7 @@ fun profileUiState(
     message: ProfileMessage?,
     navigateBack: Boolean,
     isOpeningChat: Boolean = false,
-    openChatConversationId: String? = null,
+    openChat: ProfileChatTarget? = null,
 ): ProfileUiState {
     val phase =
         if (isInitialLoad) {
@@ -109,6 +121,6 @@ fun profileUiState(
         message = message,
         navigateBack = navigateBack,
         isOpeningChat = isOpeningChat,
-        openChatConversationId = openChatConversationId,
+        openChat = openChat,
     )
 }

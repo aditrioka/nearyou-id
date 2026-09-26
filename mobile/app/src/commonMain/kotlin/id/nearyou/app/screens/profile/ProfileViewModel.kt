@@ -36,7 +36,7 @@ class ProfileViewModel(
     private val flow: ProfileFlow,
     private val selfUserIdProvider: SelfUserIdProvider,
     private val targetUserId: String?,
-    private val chatFlow: ChatFlow? = null,
+    private val chatFlow: ChatFlow?,
 ) : ViewModel() {
     private data class VmState(
         val outcome: ProfileOutcome? = null,
@@ -46,7 +46,7 @@ class ProfileViewModel(
         val message: ProfileMessage? = null,
         val navigateBack: Boolean = false,
         val isOpeningChat: Boolean = false,
-        val openChatConversationId: String? = null,
+        val openChat: ProfileChatTarget? = null,
     )
 
     private val state = MutableStateFlow(VmState())
@@ -154,8 +154,10 @@ class ProfileViewModel(
     }
 
     /** "Kirim pesan" (other-user only): create-or-return the 1:1 conversation; `Ready` → the
-     *  [ProfileUiState.openChatConversationId] one-shot the screen turns into a `ChatThreadRoute` push.
-     *  Ignored while one is in flight (the endpoint is idempotent, navigation is not). */
+     *  [ProfileUiState.openChat] one-shot (id + the loaded profile's display identity) the screen turns
+     *  into a `ChatThreadRoute` push. Ignored while one is in flight (the endpoint is idempotent,
+     *  navigation is not). A `Ready` landing after a successful block (navigate-back pending) is dropped
+     *  — the block wins; the backend would 403 every send in that thread anyway. */
     fun onSendMessage() {
         val chat = chatFlow ?: return
         val current = state.value
@@ -168,7 +170,14 @@ class ProfileViewModel(
             state.update { s ->
                 when (outcome) {
                     is CreateConversationOutcome.Ready ->
-                        s.copy(isOpeningChat = false, openChatConversationId = outcome.conversationId)
+                        if (s.navigateBack) {
+                            s.copy(isOpeningChat = false)
+                        } else {
+                            s.copy(
+                                isOpeningChat = false,
+                                openChat = ProfileChatTarget(outcome.conversationId, profile.username, profile.displayName),
+                            )
+                        }
                     CreateConversationOutcome.Blocked -> s.copy(isOpeningChat = false, message = ProfileMessage.CHAT_BLOCKED)
                     // Neutral, direction-less — the same copy as the follow-POST constant 404.
                     CreateConversationOutcome.RecipientNotFound ->
@@ -185,8 +194,8 @@ class ProfileViewModel(
         }
     }
 
-    /** Clears the one-shot [ProfileUiState.openChatConversationId] after the screen has navigated. */
-    fun onChatOpened() = state.update { it.copy(openChatConversationId = null) }
+    /** Clears the one-shot [ProfileUiState.openChat] after the screen has navigated. */
+    fun onChatOpened() = state.update { it.copy(openChat = null) }
 
     /** Clears the one-shot [ProfileUiState.message] after the screen has shown it. */
     fun onMessageShown() = state.update { it.copy(message = null) }
@@ -203,6 +212,6 @@ class ProfileViewModel(
             message = message,
             navigateBack = navigateBack,
             isOpeningChat = isOpeningChat,
-            openChatConversationId = openChatConversationId,
+            openChat = openChat,
         )
 }

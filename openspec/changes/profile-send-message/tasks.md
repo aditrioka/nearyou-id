@@ -23,6 +23,15 @@
 
 ## 4. Verification & lifecycle
 
-- [ ] 4.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:mobile:app:iosSimulatorArm64Test`
+- [x] 4.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:mobile:app:iosSimulatorArm64Test`
 - [ ] 4.2 Manual verify (verify-loop §B/§C, local emulator + iOS simulator): other-user profile shows "Kirim pesan"; tap → thread opens with the partner identity in the top bar; back returns to the profile; screenshots into the PR body (docs/11 §5 DoD)
 - [ ] 4.3 PR title/body current; `Closes #271`; archive via `/opsx:archive`
+
+## 5. Review round (4-lens sub-agent review; qodo paused for this account)
+
+- [x] 5.1 Snapshot the open-chat one-shot as `ProfileChatTarget` (id + display identity at resolve time) — removes the phase dependency + the same-id re-key trap (design D3)
+- [x] 5.2 Drop a `Ready` that lands after a successful block (design D7) + `ProfileViewModelTest` block-then-Ready case
+- [x] 5.3 Rename the host lambda `onOpenChat` → `onOpenChatThread` (the shell's existing name for the thread push; docs/11 §4)
+- [x] 5.4 Action row → `FlowRow` so a large font scale wraps instead of squeezing the kebab (design D6); verified on-device at font scale 2
+- [x] 5.5 Tests: screen proves the one-shot clears (second tap re-emits the same id); `ChatThreadViewModelSourceGuardTest` backs the mobile-chat "no create-or-return entry" scenario; not-yet-loaded no-op; repository transport-failure branch; self/other render tests bind `ChatFlow` and assert the action
+- [x] 5.6 Drop the unused `chatFlow = null` default (both callers pass it explicitly)

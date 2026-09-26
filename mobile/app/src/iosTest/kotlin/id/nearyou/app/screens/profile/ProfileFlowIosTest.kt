@@ -29,7 +29,7 @@ private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdPro
 /**
  * iOS counterpart to the Robolectric [ProfileScreenTest] — the profile surface (`mobile-profile`) run
  * natively on the iOS simulator (task 9.5). Covers the self read (Profil section, `targetUserId = null`),
- * the other-user overlay (follow toggle present), the other-user "Kirim pesan" → onOpenChat path, and the
+ * the other-user overlay (follow toggle present), the other-user "Kirim pesan" → onOpenChatThread path, and the
  * constant-404 not-found state, reusing the commonTest [FakeProfileFlow] + [FakeChatFlow]. K/N-legal fn
  * names (no `,()#`); see `SignInFlowIosTest` for the v1-API + iosTest-placement rationale.
  */
@@ -90,7 +90,7 @@ class ProfileFlowIosTest {
     @Test
     fun otherUserSendMessageOpensTheChatWithTheDisplayIdentity() =
         runComposeUiTest {
-            // profile-send-message: "Kirim pesan" → create-or-return Ready → onOpenChat (display identity only).
+            // profile-send-message: "Kirim pesan" → create-or-return Ready → onOpenChatThread (display identity only).
             installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")), chat = FakeChatFlow())
             val opened = mutableListOf<Triple<String, String, String>>()
             setContent {
@@ -99,7 +99,7 @@ class ProfileFlowIosTest {
                         ProfileScreen(
                             targetUserId = "u1",
                             onBack = {},
-                            onOpenChat = { id, username, name -> opened += Triple(id, username, name) },
+                            onOpenChatThread = { id, username, name -> opened += Triple(id, username, name) },
                         )
                     }
                 }

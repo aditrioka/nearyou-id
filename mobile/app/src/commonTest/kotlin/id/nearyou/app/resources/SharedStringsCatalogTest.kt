@@ -568,6 +568,7 @@ class SharedStringsCatalogTest {
         // dateless privacy_flip_warning, billing issue, expired, chat redacted, account action,
         // data export ready) = 236.
         // + 1 (follow-up #433: notif_apple_relay_email_changed) = 237.
+        // + 1 (profile-send-message #271: profile_send_message) = 238.
         assertEquals(238, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
