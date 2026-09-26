@@ -37,7 +37,7 @@ The mobile half shipped in `mobile-sentry-crash-reporting` (PR #299): `:infra:se
 
 **D8 — Vendor-free test fixture `SentryEventRecorder`.** `:backend:ktor` tests may not import `io.sentry` (the leakage scan covers `backend/ktor/src`, test sources included). `:infra:sentry-jvm` publishes a `java-test-fixtures` recorder (the `:infra:otel` `SpanRecorder` precedent) that starts the bootstrap with a recording transport and exposes captured events as a plain data class. The public `SentryBootstrap.start` signature stays vendor-free; the transport hook is `internal`.
 
-Version: `io.sentry:sentry-bom:8.58.0` — verified 2026-09-25 against Maven Central `maven-metadata.xml` (latest release, published 2026-09-23); `sentry-logback` 8.58.0 depends only on `io.sentry:sentry` at the same version (no mixed-version risk, which the SDK hard-fails on). Compatible with our logback 1.5.32.
+Version: `io.sentry:sentry` + `io.sentry:sentry-logback` 8.58.0 (one shared `version.ref`, no BOM) — verified 2026-09-25 against Maven Central `maven-metadata.xml` (latest release, published 2026-09-23); `sentry-logback` 8.58.0 depends only on `io.sentry:sentry` at the same version (no mixed-version risk, which the SDK hard-fails on). Compatible with our logback 1.5.32.
 
 ### Standards conformance
 

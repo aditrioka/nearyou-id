@@ -32,7 +32,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | SSL/TLS | Cloudflare managed SSL for nearyou.id + subdomains (api, img, admin) |
 | Observability Traces | OpenTelemetry SDK + Grafana Cloud |
 | Observability Metrics | GCP Cloud Monitoring |
-| Mobile + Backend Errors | Sentry KMP SDK (unified Android + iOS + backend). dSYM (iOS) + ProGuard mappings (Android) uploaded via CI step. |
+| Mobile + Backend Errors | Sentry — KMP SDK on mobile (Android + iOS, `:infra:sentry`), Java SDK on the backend (`:infra:sentry-jvm`); one Sentry org for a unified dashboard. dSYM (iOS) + ProGuard mappings (Android) uploaded via CI step. |
 | Product Analytics | Amplitude (free tier event quota, opt-in per UU PDP) |
 | Localization | Compose Multiplatform Resources |
 | Backup | Supabase PITR 7-day + Cloudflare R2 offsite weekly dump (AES-256-GCM via `age` CLI in the backup container) + append-only deletion log |
@@ -128,6 +128,7 @@ Redis Streams provide: message persistence within the stream retention window; c
 | `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
 | `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27) |
 | `:infra:sentry` | shipped | `mobile-sentry-crash-reporting` ([PR #299](https://github.com/aditrioka/nearyou-id/pull/299)) — `CrashReporter` interface + `SentryCrashReporter` androidMain/iosMain actuals + `NoOpCrashReporter` default + `PiiScrubber`. Consumed by `:mobile:app` via Koin. |
+| `:infra:sentry-jvm` | shipped | `backend-sentry-error-capture` ([PR #483](https://github.com/aditrioka/nearyou-id/pull/483)) — backend (JVM) Sentry Java fence: vendor-free `SentryBootstrap.start(env, dsn, release)` attaches a logback `SentryAppender` at ERROR (StatusPages 500s + every `log.error`), `call_id` tag, no user, no breadcrumbs, backend `PiiScrubber`; blank DSN = no-op. Consumed by `:backend:ktor` (`Application.module()`). |
 | `:infra:amplitude` | shipped | `mobile-amplitude-analytics` ([PR #367](https://github.com/aditrioka/nearyou-id/pull/367)) — consent-gated **client-side** Amplitude HTTP V2 wrapper (mobile-only KMP module, androidTarget + iOS). Consumed by `:mobile:app` via Koin. |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Firebase Remote Config module may be redundant or complementary — needs explicit decision before scaffolding |
@@ -381,7 +382,7 @@ OTel SDK in Ktor (auto-instrument: HTTP server, HTTP client, Postgres JDBC, Redi
 
 ### Sentry KMP (unified crash + error reporting)
 
-Mobile crash reporting (Android + iOS) via the Sentry KMP SDK; backend errors via Sentry Java; unified dashboard for correlation. Setup via the `:infra:sentry` module:
+Mobile crash reporting (Android + iOS) via the Sentry KMP SDK; backend errors via Sentry Java; unified dashboard for correlation. Mobile setup via the `:infra:sentry` module (below); backend via `:infra:sentry-jvm` (see **Backend** after the code block):
 
 ```kotlin
 // §2.5 pattern: a commonMain interface + Koin platform actuals — NOT `expect object`
@@ -398,6 +399,8 @@ interface CrashReporter {
 // androidMain/iosMain bind SentryCrashReporter actuals via Koin; NoOpCrashReporter is the
 // blank-dsn / consent-declined / headless default.
 ```
+
+**Backend** (`backend-error-reporting` spec, `:infra:sentry-jvm`): `Application.module()` calls `SentryBootstrap.start(env, dsn, release)` right after the OTel bootstrap. A logback `SentryAppender` at `ERROR` on the root logger makes every `log.error` — including the StatusPages `event=unhandled_exception` 500 line — a Sentry event; the SDK's uncaught-exception handler covers non-request threads. No user identity (so the §06 consent-decline rule holds for everyone), log breadcrumbs off (thread-local scopes would mix requests on coroutine threads), `PiiScrubber` `beforeSend`; `call_id` tag → Cloud Logging for the request trail; `environment` = `ktor.environment`, `release` = Cloud Run `K_REVISION`; tracing stays with OTel. DSN: Secret Manager `sentry-backend-dsn` (env `SENTRY_BACKEND_DSN`); blank = no-op. Runbook: `dev/docs/sentry-symbol-upload.md` § Backend DSN.
 
 **Symbol / mapping upload (CI step, mandatory)**: Android — Gradle task `sentry-cli upload-proguard` + `uploadSentrySymbolsDebug/Release`; iOS — Xcode build phase `sentry-cli upload-dsym` or Fastlane integration; backend — no symbol upload (Kotlin JVM stack traces readable).
 

@@ -54,3 +54,28 @@ iOS: the build phase above). Until this lands, crashes still report — just uns
 Trigger a release-build crash on a device; confirm the Sentry issue shows a **symbolicated** stack
 (method names + line numbers), the correct `environment` + `release` tags, and **no** IP / coordinate /
 token in the payload (`sendDefaultPii = false` + the `beforeSend` scrubber enforce this).
+
+## 6. Backend DSN (`backend-sentry-error-capture`)
+The backend (`:infra:sentry-jvm`, spec `backend-error-reporting`) reports every `ERROR` log — including
+every 500 — to Sentry once a DSN is present. Until then it logs `event=sentry_disabled reason=dsn_missing`
+at startup and does nothing else. No symbol upload is needed (JVM stack traces are readable).
+
+1. In the same Sentry org as mobile, create a **Java** project for the backend (e.g. `nearyou-backend`);
+   copy its DSN. One project for staging + prod is fine — events carry `environment`.
+2. Store it in Secret Manager and let the Cloud Run runtime SA read it (the
+   `dev/scripts/admin-totp-key-bootstrap.sh` shape):
+   ```bash
+   printf '%s' 'https://<key>@oXXX.ingest.sentry.io/<proj>' | gcloud secrets create staging-sentry-backend-dsn \
+     --project=nearyou-staging --replication-policy=automatic --data-file=-
+   gcloud secrets add-iam-policy-binding staging-sentry-backend-dsn --project=nearyou-staging \
+     --member="serviceAccount:27815942904-compute@developer.gserviceaccount.com" \
+     --role="roles/secretmanager.secretAccessor"
+   ```
+3. In `.github/workflows/deploy-staging.yml`, move `SENTRY_BACKEND_DSN=staging-sentry-backend-dsn:latest`
+   from the *pending* comment list into the live `--set-secrets` list (only after step 2 — mapping a
+   missing slot fails the deploy, #381). The backend resolves the **unprefixed** name
+   (`secrets.resolve("sentry-backend-dsn")` → env `SENTRY_BACKEND_DSN`); do not name it `SENTRY_DSN`.
+4. Verify after the deploy: startup logs `event=sentry_enabled environment=staging release=<revision>`;
+   trigger a 500 and confirm the Sentry issue carries `environment=staging`, a `call_id` tag matching the
+   response's `X-Request-Id`, no `user`, no `server_name`, and no coordinate / token / email / IP.
+5. Production: the same slot unprefixed (`sentry-backend-dsn`) at prod cutover.

@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- **New JVM module `:infra:sentry-jvm`** fencing the Sentry Java SDK (`io.sentry:sentry` + `io.sentry:sentry-logback`, BOM-pinned `8.58.0`) per invariant #16. Separate from the mobile-only KMP `:infra:sentry` (Android-gated, no JVM target) — the `:infra:revenuecat` / `:infra:revenuecat-api` precedent.
+- **New JVM module `:infra:sentry-jvm`** fencing the Sentry Java SDK (`io.sentry:sentry` + `io.sentry:sentry-logback`, pinned `8.58.0`) per invariant #16. Separate from the mobile-only KMP `:infra:sentry` (Android-gated, no JVM target) — the `:infra:revenuecat` / `:infra:revenuecat-api` precedent.
 - **`SentryBootstrap.start(env, dsn, release)`** — vendor-free entrypoint called once near the top of `Application.module()` (right after OTel). Blank/absent DSN is a safe no-op (one INFO line, no appender, no SDK init). Idempotent across repeated `module()` calls.
 - **Capture path = logback `SentryAppender` on the root logger**: `ERROR` log events (including the StatusPages `event=unhandled_exception` 500 handler, which carries the stack trace) become Sentry events; the SDK's default uncaught-exception handler catches crashes on non-request threads. No per-call-site code changes — the existing ERROR lines are the contract.
 - **PII posture mirrors mobile**: `sendDefaultPii = false`, no `server_name`, **no user identity attached** (docs/06 "backend skips error enrichment with user_id" satisfied by construction for every user, consented or not), log-derived breadcrumbs **off** (thread-local scopes on coroutine threads would mix unrelated requests), and a `beforeSend` scrubber over the message + exception values (coordinates, bearer tokens, JWTs, emails, IPs, Postgres `Key (…)=(…)` detail values).
@@ -26,6 +26,6 @@
 
 - **New module**: `infra/sentry-jvm/` (+ `settings.gradle.kts` unconditional include, `Dockerfile` COPY ×2, `dev/module-descriptions.txt`).
 - **Code**: `backend/ktor/.../Application.kt` (one bootstrap call), `backend/ktor/build.gradle.kts` (dep + test fixture), `lint/detekt-rules/.../VendorSdkLeakageScanTest.kt`.
-- **Dependencies**: `gradle/libs.versions.toml` — `sentry-java = "8.58.0"` (BOM + `sentry` + `sentry-logback`). Runtime-only for `:backend:ktor` (`implementation` in the infra module).
+- **Dependencies**: `gradle/libs.versions.toml` — `sentry-java = "8.58.0"` (`sentry` + `sentry-logback` on one version ref). Runtime-only for `:backend:ktor` (`implementation` in the infra module).
 - **Ops (human-required)**: create the Sentry backend project/DSN, provision `staging-sentry-backend-dsn`, move the pending `--set-secrets` mapping live; production slot at prod cutover.
 - **No schema, API, wire-contract, admin, or mobile change.** Operator-facing only (the Sentry dashboard).

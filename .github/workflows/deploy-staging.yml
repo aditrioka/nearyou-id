@@ -138,6 +138,7 @@ jobs:
       #   CLOUDFLARE_IMAGES_ACCOUNT_HASH=staging-cloudflare-images-account-hash:latest
       #   GCP_VISION_SA=staging-gcp-vision-sa:latest
       #   REVENUECAT_SECRET_API_KEY=staging-revenuecat-test-api-key:latest  (slot already exists)
+      #   SENTRY_BACKEND_DSN=staging-sentry-backend-dsn:latest  (backend-sentry-error-capture; unset = Sentry no-op)
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE}" \
