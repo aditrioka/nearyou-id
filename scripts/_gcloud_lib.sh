@@ -45,6 +45,12 @@ gcloud_auth() {
   # Firebase-enabled; reused for Test Lab so device runs share its free quota.
   # Override with FIREBASE_PROJECT_ID for a dedicated project.
   : "${FIREBASE_PROJECT_ID:=nearyou-staging}"
+  # A Claude Code cloud session exports CLOUDSDK_AUTH_ACCESS_TOKEN as a proxy
+  # placeholder, and gcloud prefers that variable over any activated account:
+  # every call would go out with the placeholder and fail UNAUTHENTICATED.
+  # Drop it (callers source this lib, so the unset reaches their gcloud calls)
+  # so the service-account key below is what authenticates.
+  unset CLOUDSDK_AUTH_ACCESS_TOKEN
   gcloud auth activate-service-account --key-file="$key" --quiet || return 1
   gcloud config set project "$FIREBASE_PROJECT_ID" --quiet || return 1
   echo "[gcloud] authenticated; project=$FIREBASE_PROJECT_ID"

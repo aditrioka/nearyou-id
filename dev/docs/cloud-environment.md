@@ -84,6 +84,7 @@ Mint the key with `PROJECT_ID=nearyou-staging dev/scripts/provision-test-lab-sa.
 - **Logs:** `/var/tmp/nearyou-setup/*.log` (environment build), `/tmp/nearyou-session/*.log` (per session).
 - **Re-run by hand:** `bash scripts/session_start.sh` (per-session) or `bash scripts/setup_cloud_env.sh` (full provisioning, ~5 min).
 - **`429 Too Many Requests` from Maven Central or Docker Hub:** registry rate limits on shared egress. The setup script retries Gradle with backoff until `WARM_TIMEOUT` runs out and skips Docker images already on disk; anything it couldn't fetch is downloaded on first use in the session. Re-running later usually succeeds.
+- **`gcloud` says `UNAUTHENTICATED` / "authenticated with an access token from the CLOUDSDK_AUTH_ACCESS_TOKEN environment variable":** a cloud session exports `CLOUDSDK_AUTH_ACCESS_TOKEN` as a proxy placeholder, and `gcloud` prefers it over any activated service account. `scripts/_gcloud_lib.sh` (used by `run_on_device.sh` / `test_firebase.sh`) unsets it; for ad-hoc commands run `env -u CLOUDSDK_AUTH_ACCESS_TOKEN gcloud ...`.
 - **Skip cloud provisioning for one session:** set `NEARYOU_SKIP_PROVISION=1` in the environment variables.
 - **Flyway checksum mismatch** (a branch edited an applied migration): `sudo -u postgres /usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/nearyou_pgdata stop && rm -rf /var/tmp/nearyou_pgdata && bash scripts/setup_backend_db.sh`.
 - **`dev/.env` stale or hand-broken:** delete it; the next `bash scripts/setup_dev_env.sh` (or session) regenerates it.
