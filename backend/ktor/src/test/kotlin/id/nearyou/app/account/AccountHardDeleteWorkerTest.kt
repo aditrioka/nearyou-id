@@ -12,6 +12,7 @@ import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 private fun hikari(): HikariDataSource {
     val url = System.getenv("DB_URL") ?: "jdbc:postgresql://localhost:5433/nearyou_dev"
@@ -128,6 +129,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
         val dob: LocalDate,
         val relay: Boolean,
         val username: String,
+        val inviteCode: String,
     )
 
     fun loadUser(id: UUID): Tomb? =
@@ -135,7 +137,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
             conn.prepareStatement(
                 """
                 SELECT deleted_at, display_name, bio, email, google_id_hash, apple_id_hash,
-                       device_fingerprint_hash, date_of_birth, apple_relay_email, username
+                       device_fingerprint_hash, date_of_birth, apple_relay_email, username, invite_code_prefix
                   FROM users WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
@@ -153,6 +155,7 @@ class AccountHardDeleteWorkerTest : StringSpec({
                         dob = rs.getDate("date_of_birth").toLocalDate(),
                         relay = rs.getBoolean("apple_relay_email"),
                         username = rs.getString("username"),
+                        inviteCode = rs.getString("invite_code_prefix"),
                     )
                 }
             }
@@ -224,6 +227,8 @@ class AccountHardDeleteWorkerTest : StringSpec({
             t.dob shouldBe LocalDate.of(1900, 1, 1)
             t.relay shouldBe false
             t.username shouldMatch Regex("^deleted_user_[0-9a-f]{8,}$")
+            // Rotated off the shared HMAC code; the leading '0' is outside the live-code base32 alphabet.
+            t.inviteCode shouldMatch Regex("^0[0-9a-f]{7}$")
         } finally {
             cleanup(uid)
         }
@@ -303,6 +308,91 @@ class AccountHardDeleteWorkerTest : StringSpec({
         try {
             runBlocking { worker.execute() }
             (loadUser(uid)!!.deletedAt == null) shouldBe true
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "concurrent workers do not double-process a row" {
+        val uid = seedUser()
+        val reqId = seedRequest(uid, Instant.now().minusSeconds(60))
+        try {
+            // Another runner holds the row's claim lock: this run must SKIP it (not wait, not process).
+            dataSource.otherSession().use { runner ->
+                runner.prepareStatement("SELECT 1 FROM deletion_requests WHERE id = ? FOR UPDATE").use { ps ->
+                    ps.setObject(1, reqId)
+                    ps.executeQuery().close()
+                }
+                inBackground { worker.execute() }.get(10, TimeUnit.SECONDS)
+                loadUser(uid)!!.deletedAt shouldBe null
+                runner.rollback()
+            }
+            // Two overlapping runs over the released row: exactly one processes it.
+            val a = inBackground { worker.execute() }
+            val b = inBackground { worker.execute() }
+            a.get(30, TimeUnit.SECONDS)
+            b.get(30, TimeUnit.SECONDS)
+            count("SELECT COUNT(*) FROM deletion_log WHERE user_id = ?", uid) shouldBe 1
+            count("SELECT COUNT(*) FROM deletion_requests WHERE id = ? AND executed_at IS NOT NULL", reqId) shouldBe 1
+            (loadUser(uid)!!.deletedAt != null) shouldBe true
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "cancel racing with execution — the cancel commits first: the row is skipped, no tombstone" {
+        val uid = seedUser()
+        val reqId = seedRequest(uid, Instant.now().minusSeconds(60))
+        try {
+            dataSource.otherSession().use { canceller ->
+                // The cancel is in flight (row locked, uncommitted) while the worker snapshots the row as due.
+                canceller.prepareStatement(
+                    "UPDATE deletion_requests SET cancelled_at = NOW() WHERE id = ? AND executed_at IS NULL AND cancelled_at IS NULL",
+                ).use { ps ->
+                    ps.setObject(1, reqId)
+                    ps.executeUpdate() shouldBe 1
+                }
+                inBackground { worker.execute() }.get(10, TimeUnit.SECONDS)
+                canceller.commit()
+            }
+            runBlocking { worker.execute() } // the committed cancel now excludes it outright
+            val t = loadUser(uid)!!
+            t.deletedAt shouldBe null
+            t.displayName shouldBe "Real Name"
+            count("SELECT COUNT(*) FROM deletion_log WHERE user_id = ?", uid) shouldBe 0
+            count("SELECT COUNT(*) FROM deletion_requests WHERE id = ? AND executed_at IS NULL", reqId) shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "cancel racing with execution — the worker commits first: the cancel is rejected" {
+        val uid = seedUser()
+        val reqId = seedRequest(uid, Instant.now().minusSeconds(60))
+        val repo = AccountDeletionRepository(dataSource)
+        try {
+            dataSource.otherSession().use { holder ->
+                // Pause the worker mid-transaction: it claims the request row, then blocks on this users-row lock.
+                holder.prepareStatement("SELECT 1 FROM users WHERE id = ? FOR UPDATE").use { ps ->
+                    ps.setObject(1, uid)
+                    ps.executeQuery().close()
+                }
+                val work = inBackground { worker.executeImmediate(reqId) }
+                val workerPid = holder.awaitWaiterOn(holder.backendPid())
+                // The cancel queues behind the worker's claim lock on the request row.
+                val cancel = inBackground { repo.cancelDeletion(uid) }
+                holder.awaitWaiterOn(workerPid)
+                holder.rollback()
+                work.get(10, TimeUnit.SECONDS) shouldBe true
+                // Re-evaluated after the worker's commit: executed_at IS NOT NULL → nothing to cancel.
+                cancel.get(10, TimeUnit.SECONDS) shouldBe false
+            }
+            (loadUser(uid)!!.deletedAt != null) shouldBe true
+            count("SELECT COUNT(*) FROM deletion_log WHERE user_id = ?", uid) shouldBe 1
+            count(
+                "SELECT COUNT(*) FROM deletion_requests WHERE id = ? AND executed_at IS NOT NULL AND cancelled_at IS NULL",
+                reqId,
+            ) shouldBe 1
         } finally {
             cleanup(uid)
         }

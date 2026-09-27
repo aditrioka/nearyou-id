@@ -3,6 +3,7 @@ package id.nearyou.app.account
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.sql.Connection
 import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
@@ -31,18 +32,29 @@ class AccountDeletionRepository(
      * existing `scheduled_hard_delete_at` WITHOUT inserting a second row; otherwise
      * inserts a fresh `source = 'user'` row at `NOW() + 30 days` and returns that.
      * Atomic (single statement), so a sequential re-request is a pure no-op insert.
+     *
+     * Concurrent double-request: the V39 `deletion_requests_one_pending_grace_idx`
+     * makes the loser's INSERT a no-op (`ON CONFLICT DO NOTHING`), but its statement
+     * snapshot predates the winner's commit, so it returns zero rows — one re-run
+     * (autoCommit → fresh snapshot) reads the winner's schedule.
      */
     suspend fun requestDeletion(userId: UUID): Instant =
         withContext(dbDispatcher) {
             dataSource.connection.use { conn ->
-                conn.prepareStatement(SQL_REQUEST).use { ps ->
-                    ps.setObject(1, userId)
-                    ps.setObject(2, userId)
-                    ps.executeQuery().use { rs ->
-                        check(rs.next()) { "deletion-request returned no scheduled timestamp" }
-                        rs.getTimestamp("scheduled_hard_delete_at").toInstant()
-                    }
-                }
+                requestOnce(conn, userId)
+                    ?: checkNotNull(requestOnce(conn, userId)) { "deletion-request returned no scheduled timestamp" }
+            }
+        }
+
+    private fun requestOnce(
+        conn: Connection,
+        userId: UUID,
+    ): Instant? =
+        conn.prepareStatement(SQL_REQUEST).use { ps ->
+            ps.setObject(1, userId)
+            ps.setObject(2, userId)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) rs.getTimestamp("scheduled_hard_delete_at").toInstant() else null
             }
         }
 
@@ -129,6 +141,11 @@ class AccountDeletionRepository(
         }
 
     private companion object {
+        // Arbiter for the V39 partial-unique index (one pending grace row per user); the
+        // predicate must match the index's so Postgres infers it.
+        const val PENDING_GRACE_CONFLICT =
+            "(user_id) WHERE cancelled_at IS NULL AND executed_at IS NULL AND source <> 'apple_s2s_account_delete'"
+
         // Atomic idempotent request: return the existing pending schedule if one
         // exists, else INSERT a fresh 30-day-grace row and return its schedule.
         const val SQL_REQUEST =
@@ -143,6 +160,7 @@ class AccountDeletionRepository(
                 INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source)
                 SELECT ?, NOW() + INTERVAL '30 days', 'user'
                  WHERE NOT EXISTS (SELECT 1 FROM existing)
+                ON CONFLICT $PENDING_GRACE_CONFLICT DO NOTHING
                 RETURNING scheduled_hard_delete_at
             )
             SELECT scheduled_hard_delete_at FROM inserted
@@ -165,6 +183,7 @@ class AccountDeletionRepository(
             INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source)
             SELECT ?, NOW() + INTERVAL '30 days', 'apple_s2s_consent_revoked'
              WHERE NOT EXISTS (SELECT 1 FROM existing)
+            ON CONFLICT $PENDING_GRACE_CONFLICT DO NOTHING
             RETURNING id
             """
 

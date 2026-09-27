@@ -53,13 +53,15 @@ For each due request, the worker SHALL, in one transaction, tombstone the user: 
 - Set `display_name = 'Akun Dihapus'` (the `NOT NULL` real-name column → the canonical docs/06 placeholder; replacing the real name erases the PII AND makes every server-rendered surface show "Akun Dihapus" with no client logic).
 - Set `date_of_birth` to a CHECK-satisfying sentinel `DATE '1900-01-01'` (the `NOT NULL` + `>= 18y` CHECK forbids NULL; the sentinel erases the real DOB).
 - Reset the residual Apple-identity flag `apple_relay_email = FALSE` (part of the Apple cluster; `docs/06:325`'s list omits it but the shipped schema carries it).
+- Rotate `invite_code_prefix` (`NOT NULL UNIQUE`, the HMAC invite code the user shared with third parties) to `'0' || left(gen_random_uuid()::text, 7)`: the leading `'0'` is outside the base32 alphabet live codes use, so it never collides with a live code, and a known code no longer links to the tombstone (issue #347). A rare tombstone-vs-tombstone collision fails the row's transaction, which stays due and retries with a fresh value next run.
+- Deliberately RETAIN `analytics_consent` — the consent record is lawful-basis evidence (docs/06 § Account Deletion), and nothing processes it after the tombstone.
 - Rename `username = 'deleted_user_' || left(id::text, 8)` (collision-free, widened as needed to preserve the `username` UNIQUE constraint).
 
 The `username` (and `display_name`) UPDATE site MUST carry the `// @allow-username-write: deletion` allowlist annotation (the username-write lint invariant) and MUST stay within the 60-char `username` ceiling. The user ROW is NOT row-deleted — it persists as a tombstone so retained content (posts/replies/chat) can anonymize against it.
 
 #### Scenario: Tombstone erases the PII set
 - **WHEN** the worker hard-deletes a user
-- **THEN** afterward that `users` row has `deleted_at` set, `bio / google_id_hash / apple_id_hash / device_fingerprint_hash / email` all NULL, `display_name = 'Akun Dihapus'`, `date_of_birth = DATE '1900-01-01'`, `apple_relay_email = FALSE`, and `username` matching `^deleted_user_[0-9a-f]{8,}$` (the `deleted_user_` prefix + a unique id-derived suffix)
+- **THEN** afterward that `users` row has `deleted_at` set, `bio / google_id_hash / apple_id_hash / device_fingerprint_hash / email` all NULL, `display_name = 'Akun Dihapus'`, `date_of_birth = DATE '1900-01-01'`, `apple_relay_email = FALSE`, `username` matching `^deleted_user_[0-9a-f]{8,}$` (the `deleted_user_` prefix + a unique id-derived suffix), and `invite_code_prefix` matching `^0[0-9a-f]{7}$` (rotated off the shared code)
 
 #### Scenario: A tombstoned user cannot sign back in to the same account
 - **WHEN** the (nulled) `google_id_hash` / `apple_id_hash` are searched for at a later sign-in

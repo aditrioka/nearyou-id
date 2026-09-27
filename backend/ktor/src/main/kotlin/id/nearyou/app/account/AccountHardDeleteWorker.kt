@@ -28,7 +28,8 @@ data class HardDeleteResult(
  *     so concurrent invocations never double-process and a cancel racing the worker
  *     resolves deterministically.
  *  2. Tombstone the user (set `deleted_at`, erase PII — placeholder/sentinel for the
- *     `NOT NULL` columns, NULL the nullable ones, rename `username`).
+ *     `NOT NULL` columns, NULL the nullable ones, rename `username`, rotate
+ *     `invite_code_prefix`).
  *  3. Scrub the user's identity out of every `chat_messages.embedded_post_snapshot` of a
  *     post they authored (keyed on `embedded_post_author_id`), overwriting the two author
  *     keys with the values the tombstone just wrote (`embedded-snapshot-author-erasure`).
@@ -240,7 +241,13 @@ class AccountHardDeleteWorker(
 
         // Tombstone: erase PII. NOT-NULL columns (display_name, date_of_birth) take a
         // placeholder/sentinel (you cannot NULL them); nullable PII is NULLed; username
-        // is renamed to a unique deleted_user_ handle. `deleted_at IS NULL` = the
+        // is renamed to a unique deleted_user_ handle. `invite_code_prefix` (NOT NULL
+        // UNIQUE, the HMAC code the user shared with others) is rotated to a random value
+        // so a known code no longer links to this row; the leading '0' is outside the
+        // base32 alphabet live codes use, so it can never collide with one (a rare
+        // tombstone-vs-tombstone collision rolls the row back and the next run retries
+        // with a fresh value). `analytics_consent` is deliberately RETAINED as the
+        // lawful-basis record (docs/06 § Account Deletion). `deleted_at IS NULL` = the
         // per-user idempotency guard (see tombstoneAndCascade KDoc).
         // @allow-username-write: deletion  (username + display_name erasure on the tombstoned row)
         const val SQL_TOMBSTONE =
@@ -255,6 +262,7 @@ class AccountHardDeleteWorker(
                 device_fingerprint_hash = NULL,
                 date_of_birth           = DATE '1900-01-01',
                 apple_relay_email       = FALSE,
+                invite_code_prefix      = '0' || left(gen_random_uuid()::text, 7),
                 username                = 'deleted_user_' || left(id::text, 8)
              WHERE id = ? AND deleted_at IS NULL
             RETURNING username, display_name

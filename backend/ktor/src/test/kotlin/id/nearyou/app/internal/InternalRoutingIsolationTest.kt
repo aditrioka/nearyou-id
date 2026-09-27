@@ -2,6 +2,7 @@ package id.nearyou.app.internal
 
 import id.nearyou.app.account.AccountDeletionRepository
 import id.nearyou.app.account.AccountHardDeleteWorker
+import id.nearyou.app.account.accountHardDeleteWorkerRoute
 import id.nearyou.app.admin.PrivacyFlipWorker
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.privacyFlipWorkerRoute
@@ -100,6 +101,7 @@ class InternalRoutingIsolationTest : StringSpec({
                 route("/internal") {
                     unbanWorkerRoute(SuspensionUnbanWorker(UnusedDataSource), NeverCalledVerifier)
                     privacyFlipWorkerRoute(PrivacyFlipWorker(UnusedDataSource), NeverCalledVerifier)
+                    accountHardDeleteWorkerRoute(AccountHardDeleteWorker(UnusedDataSource), NeverCalledVerifier)
                     referralActivityCheckRoute(
                         ReferralActivityCheckWorker(UnusedDataSource, ReferralGrantRepository(), NoOpReferralEntitlementGranter),
                         NeverCalledVerifier,
@@ -151,6 +153,16 @@ class InternalRoutingIsolationTest : StringSpec({
         testApplication {
             mountProductionShape()
             val response = client.post("/internal/privacy-flip-worker")
+            response.status shouldBe HttpStatusCode.Unauthorized
+        }
+    }
+
+    // account-hard-delete-worker "Unauthenticated internal call is rejected": 401 before the worker
+    // runs — a dispatch would hit UnusedDataSource and surface as a 500, not a 401.
+    "account-hard-delete-worker without a bearer token is still rejected 401 by its own gate" {
+        testApplication {
+            mountProductionShape()
+            val response = client.post("/internal/account-hard-delete-worker")
             response.status shouldBe HttpStatusCode.Unauthorized
         }
     }
