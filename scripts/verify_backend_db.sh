@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# verify_backend_db.sh — assert the local backend test DB is up + migrated.
+# verify_backend_db.sh: assert the local backend test DB is up, and report its migration state.
 # Lightweight (no gradle): for the SessionStart hook + a fast pre-gate check.
-# Exits non-zero with guidance when Postgres is unreachable or unmigrated, so a
-# session can self-heal by running scripts/setup_backend_db.sh.
+# Exits non-zero with guidance when Postgres is unreachable, so a session can
+# self-heal by running scripts/setup_backend_db.sh. An unmigrated or trailing
+# schema is only a note: the backend tests migrate on start.
 set -uo pipefail
 
 # Pick up persisted DB env if the current shell hasn't sourced it.
@@ -48,7 +49,11 @@ if [[ "$FAILED" -eq 0 ]]; then
       note "schema at V$latest_applied, repo has V$latest_on_disk: run scripts/setup_backend_db.sh (tests also self-migrate)"
     fi
   else
-    bad "schema not migrated (run scripts/setup_backend_db.sh)"
+    # Informational, not a failure: setup_cloud_env.sh's time-boxed Gradle
+    # warm-up rarely gets as far as the migrate on a cold cache, and the backend
+    # tests migrate on start (KotestProjectConfig). Booting the backend does not
+    # (RUN_FLYWAY_ON_STARTUP is only set on staging), so migrate before that.
+    note "schema not migrated yet: tests self-migrate; before booting the backend run scripts/setup_backend_db.sh"
   fi
 fi
 
