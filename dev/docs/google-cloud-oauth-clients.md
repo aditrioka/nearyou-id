@@ -29,6 +29,11 @@ Create under **APIs & Services → Credentials → Create credentials → OAuth 
   for the ceremony, but the backend still validates against the same server/web client ID's
   audience — confirm the backend's audience allow-list includes it.
 - Debug SHA-1: `./gradlew :mobile:app:signingReport` (look for the `debug` variant).
+- Each package + SHA-1 pair is its own Android client. For `id.nearyou.app.staging` the
+  Firebase Android app holds two SHA-1s today: the operator's local debug keystore and the
+  shared staging-debug keystore that cloud and CI device runs sign with
+  ([`device-farm.md`](device-farm.md) § Google Sign-In on the device). Adding a fingerprint
+  there creates the matching OAuth client.
 - Release SHA-1: from the upload/release keystore (Play App Signing).
 
 After provisioning, replace the `REPLACE_WITH_*_SERVER_CLIENT_ID` placeholders in

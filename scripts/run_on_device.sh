@@ -36,12 +36,15 @@ RESULTS_DIR="robo-$STAMP"
 
 trap gcloud_cleanup_key EXIT
 
-# 1. Build the app APK (Robo needs only the app APK, not the test APK).
-build_apks   # exports APP_APK + TEST_APK
-
-# 2. gcloud ready + authenticated.
+# 1. gcloud ready + authenticated first: the build needs the shared
+#    staging-debug keystore from Secret Manager so Google Sign-In works on the
+#    device (see fetch_staging_debug_keystore in scripts/_gcloud_lib.sh).
 ensure_gcloud
 gcloud_auth
+fetch_staging_debug_keystore
+
+# 2. Build the app APK (Robo needs only the app APK, not the test APK).
+build_apks   # exports APP_APK + TEST_APK
 
 # 3. Robo run on a real device.
 echo "[device] launching Robo run on $DEVICE (project=$FIREBASE_PROJECT_ID)..."
