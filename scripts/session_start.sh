@@ -84,10 +84,11 @@ if is_cloud_container && [[ "${NEARYOU_SKIP_PROVISION:-0}" != "1" ]]; then
 
   # Start only, never migrate here: a flywayMigrate is a full Gradle
   # configuration (seconds when the snapshot's Gradle cache is warm, ~8 min
-  # cold), too slow to block session start on. The snapshot cluster is
-  # migrated by setup_cloud_env.sh, the backend tests migrate on start
-  # (KotestProjectConfig), and verify_backend_db.sh below says when the
-  # schema trails the repo.
+  # cold), too slow to block session start on. setup_cloud_env.sh migrates
+  # the snapshot cluster only when its time-boxed Gradle warm-up gets that
+  # far (a cold cache usually doesn't), the backend tests migrate on start
+  # (KotestProjectConfig), and verify_backend_db.sh below notes when the
+  # schema is unmigrated or trails the repo.
   run_step postgres bash scripts/setup_backend_db.sh --no-migrate
   run_step redis start_redis
   run_step dockerd start_dockerd
