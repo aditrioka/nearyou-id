@@ -633,6 +633,16 @@ CREATE INDEX deletion_requests_immediate_idx
     WHERE source = 'apple_s2s_account_delete'
       AND executed_at IS NULL
       AND cancelled_at IS NULL;
+
+-- V39 (issue #347): at most one pending GRACE row per user, so the idempotent
+-- request / consent-revoked inserts hold under concurrent double-POST
+-- (they pair it with ON CONFLICT DO NOTHING). Apple account-delete rows are
+-- excluded: that path escalates an already-pending grace row by design.
+CREATE UNIQUE INDEX deletion_requests_one_pending_grace_idx
+    ON deletion_requests(user_id)
+    WHERE cancelled_at IS NULL
+      AND executed_at IS NULL
+      AND source <> 'apple_s2s_account_delete';
 ```
 
 **Source semantics**: `user` / `admin` / `apple_s2s_consent_revoked` → `NOW() + 30 days`, 30-day cancellable grace. `apple_s2s_account_delete` → `NOW()`, no grace (Apple-required).

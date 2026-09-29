@@ -14,6 +14,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 private fun hikari(): HikariDataSource {
     val url = System.getenv("DB_URL") ?: "jdbc:postgresql://localhost:5433/nearyou_dev"
@@ -108,6 +109,84 @@ class AccountDeletionRepositoryTest : StringSpec({
             val first = runBlocking { repo.requestDeletion(uid) }
             val second = runBlocking { repo.requestDeletion(uid) }
             second shouldBe first
+            pendingCount(uid) shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "V39 index: a second pending grace row is rejected, an Apple immediate-delete row is not" {
+        val uid = seedUser()
+
+        fun insertPending(source: String) =
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source) VALUES (?, NOW(), ?)",
+                ).use {
+                    it.setObject(1, uid)
+                    it.setString(2, source)
+                    it.executeUpdate()
+                }
+            }
+        try {
+            insertPending("user")
+            listOf("user", "apple_s2s_consent_revoked", "admin").forEach { src ->
+                shouldThrow<java.sql.SQLException> { insertPending(src) }.sqlState shouldBe "23505"
+            }
+            insertPending("apple_s2s_account_delete") // exempt: the escalation path
+            pendingCount(uid) shouldBe 2
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "concurrent double-request yields ONE pending row and the same schedule (V39 index)" {
+        val uid = seedUser()
+        try {
+            dataSource.otherSession().use { first ->
+                // The first request is mid-transaction (inserted, uncommitted) when the second arrives.
+                val firstSchedule =
+                    first.prepareStatement(
+                        """
+                        INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source)
+                        VALUES (?, NOW() + INTERVAL '30 days', 'user')
+                        RETURNING scheduled_hard_delete_at
+                        """.trimIndent(),
+                    ).use { ps ->
+                        ps.setObject(1, uid)
+                        ps.executeQuery().use { rs ->
+                            rs.next()
+                            rs.getTimestamp(1).toInstant()
+                        }
+                    }
+                val second = inBackground { repo.requestDeletion(uid) }
+                // Its INSERT queues on the unique index (without V39 it would not block at all).
+                first.awaitWaiterOn(first.backendPid())
+                first.commit()
+                second.get(10, TimeUnit.SECONDS) shouldBe firstSchedule
+            }
+            pendingCount(uid) shouldBe 1
+        } finally {
+            cleanup(uid)
+        }
+    }
+
+    "concurrent consent-revoked after a pending request inserts nothing (V39 index)" {
+        val uid = seedUser()
+        try {
+            dataSource.otherSession().use { first ->
+                first.prepareStatement(
+                    "INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source) " +
+                        "VALUES (?, NOW() + INTERVAL '30 days', 'user')",
+                ).use { ps ->
+                    ps.setObject(1, uid)
+                    ps.executeUpdate()
+                }
+                val revoked = inBackground { repo.scheduleConsentRevoked(uid) }
+                first.awaitWaiterOn(first.backendPid())
+                first.commit()
+                revoked.get(10, TimeUnit.SECONDS) shouldBe false // suppressed, not a unique-violation error
+            }
             pendingCount(uid) shouldBe 1
         } finally {
             cleanup(uid)
@@ -257,10 +336,12 @@ class AccountDeletionRepositoryTest : StringSpec({
                     }
                 }
             }
+            // Inserted cancelled: four PENDING rows for one user would trip the V39 one-pending-grace index.
             listOf("user", "apple_s2s_consent_revoked", "apple_s2s_account_delete", "admin").forEach { src ->
                 dataSource.connection.use { conn ->
                     conn.prepareStatement(
-                        "INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source) VALUES (?, NOW(), ?)",
+                        "INSERT INTO deletion_requests (user_id, scheduled_hard_delete_at, source, cancelled_at) " +
+                            "VALUES (?, NOW(), ?, NOW())",
                     ).use {
                         it.setObject(1, uid)
                         it.setString(2, src)
@@ -276,11 +357,19 @@ class AccountDeletionRepositoryTest : StringSpec({
     "schema: partial indexes exist and are NOW()-free; deletion_log has no FK on user_id" {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
-                "SELECT indexdef FROM pg_indexes WHERE indexname IN ('deletion_requests_scheduled_idx','deletion_requests_immediate_idx')",
+                """
+                SELECT indexdef FROM pg_indexes
+                 WHERE indexname IN (
+                     'deletion_requests_scheduled_idx', 'deletion_requests_immediate_idx', 'deletion_requests_one_pending_grace_idx'
+                 )
+                """.trimIndent(),
             ).use { ps ->
                 ps.executeQuery().use { rs ->
                     val defs = buildList { while (rs.next()) add(rs.getString("indexdef")) }
-                    defs.size shouldBe 2
+                    defs.size shouldBe 3
+                    // V39: UNIQUE per user, but the Apple immediate-delete escalation stays outside it.
+                    val grace = defs.single { it.contains("one_pending_grace") }
+                    (grace.contains("UNIQUE") && grace.contains("apple_s2s_account_delete")) shouldBe true
                     defs.none { it.contains("now()", ignoreCase = true) } shouldBe true
                 }
             }

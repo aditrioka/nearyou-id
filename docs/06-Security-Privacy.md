@@ -327,6 +327,8 @@ Request recorded in `deletion_requests` (`05-Implementation.md`).
 - `deleted_at` column set
 - PII nulled: `display_name`, `bio`, `google_id_hash`, `apple_id_hash`, `device_fingerprint_hash`, `date_of_birth`, `email`
 - Username replaced with `deleted_user_<uuid_prefix>`
+- `invite_code_prefix` rotated to a random value (`'0'` + 7 hex — the leading `0` is outside the base32 alphabet live codes use, so it never collides with one): the old code was shared with third parties by design, so keeping it would let anyone who knew it link the tombstone back to the person (issue #347). The code was already unredeemable (invite resolution filters `deleted_at IS NULL`); rotation removes the linkage.
+- `analytics_consent` deliberately **retained**: it is the record of what the user consented to (lawful-basis evidence under UU PDP Art. 20–22), not profile data, and no processing reads it after the tombstone (the account cannot sign in).
 - Profile endpoint: 404 or user-facing "Akun Dihapus" placeholder
 
 **Cascade delete** (permanently gone on hard-delete):

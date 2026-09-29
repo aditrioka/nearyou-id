@@ -33,9 +33,25 @@ CREATE INDEX deletion_requests_immediate_idx
 
 The `source` CHECK MUST enumerate all four canonical values even though this change only PRODUCES `'user'` rows (the other three are reserved for the downstream Apple-S2S and admin paths, which then need no further migration). Both partial-index `WHERE` clauses MUST be `NOW()`-free (the partial-index lint invariant).
 
+Migration `V39__deletion_requests_one_pending_grace.sql` (issue #347) SHALL add a partial-**unique** index allowing at most one pending grace-period row per user, so request idempotency holds across concurrent transactions (not only within one statement):
+
+```sql
+CREATE UNIQUE INDEX deletion_requests_one_pending_grace_idx
+    ON deletion_requests(user_id)
+    WHERE cancelled_at IS NULL
+      AND executed_at IS NULL
+      AND source <> 'apple_s2s_account_delete';
+```
+
+`apple_s2s_account_delete` rows MUST stay outside this index: that path is an unconditional immediate insert that escalates an already-pending grace row (`apple-s2s-deletion-flows`), and the moot grace row is no-op'd by the worker's per-user guard. The predicate is `NOW()`-free like the others.
+
 #### Scenario: Table and indexes exist after migration
 - **WHEN** the migration set is applied and `deletion_requests` is inspected via `information_schema`
-- **THEN** the table exists with columns `id, user_id, requested_at, scheduled_hard_delete_at, cancelled_at, executed_at, source` AND both partial indexes `deletion_requests_scheduled_idx` and `deletion_requests_immediate_idx` exist
+- **THEN** the table exists with columns `id, user_id, requested_at, scheduled_hard_delete_at, cancelled_at, executed_at, source` AND the partial indexes `deletion_requests_scheduled_idx`, `deletion_requests_immediate_idx`, and the UNIQUE `deletion_requests_one_pending_grace_idx` exist
+
+#### Scenario: One pending grace row per user, Apple immediate-delete exempt
+- **WHEN** a user already has a pending `'user'` (or `'apple_s2s_consent_revoked'`) row
+- **THEN** a second pending grace-source row for that user violates `deletion_requests_one_pending_grace_idx` AND a pending `'apple_s2s_account_delete'` row for the same user is still accepted
 
 #### Scenario: source CHECK rejects an unknown value
 - **WHEN** an `INSERT INTO deletion_requests (...) VALUES (..., 'gdpr_export')` is attempted
@@ -60,6 +76,10 @@ An authenticated endpoint `POST /api/v1/account/deletion-request` (Bearer JWT vi
 #### Scenario: Re-request is idempotent
 - **WHEN** a user who already has one pending (un-cancelled, un-executed) request calls the endpoint again
 - **THEN** no second row is inserted AND the response returns the same `scheduled_hard_delete_at` as the existing row
+
+#### Scenario: Concurrent double-request yields one pending row
+- **WHEN** two `POST /api/v1/account/deletion-request` calls for the same user overlap (the second arrives while the first's insert is uncommitted)
+- **THEN** the second insert is a no-op via `ON CONFLICT DO NOTHING` on `deletion_requests_one_pending_grace_idx`, it returns the first request's `scheduled_hard_delete_at` (re-read after the winner commits), and exactly one pending row exists — never a unique-violation error to the client
 
 #### Scenario: Re-request after a cancellation creates a new pending row
 - **WHEN** a user whose only deletion request was cancelled (`cancelled_at IS NOT NULL`) calls `POST /api/v1/account/deletion-request` again
