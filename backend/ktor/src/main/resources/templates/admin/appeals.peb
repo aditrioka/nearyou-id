@@ -45,10 +45,10 @@
         </div>
     </article>
     {% endfor %}
-    {% if prevOffset is not null or nextOffset is not null %}
+    {# Keyset pager (oldest-first queue): the next page holds NEWER appeals. #}
+    {% if newerUrl is not null %}
     <div class="pager">
-        {% if prevOffset is not null %}<a href="/admin/appeals?offset={{ prevOffset }}">Newer</a>{% endif %}
-        {% if nextOffset is not null %}<a href="/admin/appeals?offset={{ nextOffset }}">Load older</a>{% endif %}
+        <a class="pagination-newer" href="{{ newerUrl }}">Load newer</a>
     </div>
     {% endif %}
 {% else %}
