@@ -20,12 +20,14 @@ source "$REPO_ROOT/scripts/_gcloud_lib.sh"
 FTL_DEVICE="${FTL_DEVICE:-model=shiba,version=34,locale=en_US,orientation=portrait}"
 trap gcloud_cleanup_key EXIT
 
-# 1. Build the APKs.
-build_apks   # exports APP_APK + TEST_APK
-
-# 2. gcloud ready + authenticated.
+# 1. gcloud ready + authenticated first: the build needs the shared
+#    staging-debug keystore from Secret Manager (fetch_staging_debug_keystore).
 ensure_gcloud
 gcloud_auth
+fetch_staging_debug_keystore
+
+# 2. Build the APKs.
+build_apks   # exports APP_APK + TEST_APK
 
 # 3. Dispatch the instrumentation run.
 echo "[firebase] dispatching instrumentation run on $FTL_DEVICE (project=$FIREBASE_PROJECT_ID)..."

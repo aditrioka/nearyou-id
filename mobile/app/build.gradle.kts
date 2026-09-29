@@ -343,6 +343,23 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    // The shared staging-debug keystore (Secret Manager slots staging-android-debug-keystore
+    // + -password), whose SHA-1 is registered on the Firebase Android app for
+    // id.nearyou.app.staging. Cloud sessions and CI get a fresh random ~/.android/debug.keystore,
+    // so without this Google Sign-In on a Test Lab device fails ("not registered to use OAuth2.0").
+    // scripts/_gcloud_lib.sh fetch_staging_debug_keystore materializes it and sets these; when
+    // they are unset (a local build) nothing changes. Applied to stagingDebug in androidComponents.
+    val stagingDebugKeystore = providers.environmentVariable("NEARYOU_STAGING_DEBUG_KEYSTORE").orNull
+    val stagingDebugKeystorePassword = providers.environmentVariable("NEARYOU_STAGING_DEBUG_KEYSTORE_PASSWORD").orNull
+    if (!stagingDebugKeystore.isNullOrBlank() && !stagingDebugKeystorePassword.isNullOrBlank()) {
+        signingConfigs.create("stagingDebug") {
+            storeFile = file(stagingDebugKeystore)
+            storePassword = stagingDebugKeystorePassword
+            storeType = "pkcs12"
+            keyAlias = "nearyou-staging-debug"
+            keyPassword = stagingDebugKeystorePassword
+        }
+    }
     buildTypes {
         getByName("release") {
             // docs/11 §2.4: R8 + the optimize default file. Enabled pre-launch deliberately
@@ -361,6 +378,17 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+}
+
+// A signingConfig on the staging flavor would lose to the debug build type's own (the build
+// type wins), so the shared staging-debug keystore is applied per variant instead.
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        val stagingDebugSigning = android.signingConfigs.findByName("stagingDebug")
+        if (variant.flavorName == "staging" && stagingDebugSigning != null) {
+            variant.signingConfig.setConfig(stagingDebugSigning)
+        }
     }
 }
 

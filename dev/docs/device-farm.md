@@ -94,6 +94,53 @@ deploy SA behind `GCP_SA_KEY` does **not** by default, so either set
 It's quota-aware: superseded runs are cancelled and only mobile-code pushes
 trigger it, keeping within the 5-physical-runs/day free tier.
 
+## Google Sign-In on the device: the shared staging-debug keystore
+
+Google Sign-In only works for an APK whose signing-cert SHA-1 is registered for
+its package. A cloud session or CI runner generates a fresh random
+`~/.android/debug.keystore`, so its builds were rejected on the device
+(`not registered to use OAuth2.0`, error `28444`, shown in the app as the
+connectivity error on the sign-in screen).
+
+So cloud and CI device runs sign `stagingDebug` with one shared keystore:
+
+- **Secret Manager** (`nearyou-staging`): `staging-android-debug-keystore` (the
+  PKCS12 file, base64, alias `nearyou-staging-debug`) and
+  `staging-android-debug-keystore-password`. `test-lab-runner` holds
+  `roles/secretmanager.secretAccessor` on both, so the key the scripts already use
+  can read them. No GitHub secret is involved.
+- **Firebase** Android app `id.nearyou.app.staging`: its SHA-1
+  `E5:CC:49:40:64:D3:24:61:2E:DA:19:6D:CC:91:5B:BB:E9:4A:D1:80` is registered next
+  to the operator's own debug SHA-1 (Firebase creates the matching OAuth client).
+- **Wiring:** `run_on_device.sh` / `test_firebase.sh` call
+  `fetch_staging_debug_keystore` (`scripts/_gcloud_lib.sh`) right after
+  `gcloud_auth`. It writes the keystore to a 0600 temp file, exports
+  `NEARYOU_STAGING_DEBUG_KEYSTORE` / `_PASSWORD`, prints the SHA-1, and the file
+  is removed on exit. `mobile/app/build.gradle.kts` applies it to `stagingDebug`
+  only. Without those variables (a local build) nothing changes, and without
+  Secret Manager access the scripts warn and fall back to the default keystore.
+  `test_browserstack.sh` does not fetch it.
+
+To rotate or recreate it (Cloud Shell, as project Owner), then add the printed
+SHA-1 under Firebase **Project settings → General → `id.nearyou.app.staging` →
+Add fingerprint** and remove the old one:
+
+```bash
+gcloud config set project nearyou-staging
+PW=$(openssl rand -base64 24)
+keytool -genkeypair -keystore staging-debug.p12 -storetype PKCS12 \
+  -alias nearyou-staging-debug -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass "$PW" -dname "CN=NearYou Staging Debug"
+keytool -list -v -keystore staging-debug.p12 -storepass "$PW" | grep 'SHA1:'
+base64 -w0 staging-debug.p12 | gcloud secrets versions add staging-android-debug-keystore --data-file=-
+printf '%s' "$PW" | gcloud secrets versions add staging-android-debug-keystore-password --data-file=-
+rm staging-debug.p12; unset PW
+```
+
+(First-time setup used `gcloud secrets create` plus `gcloud secrets
+add-iam-policy-binding ... --member=serviceAccount:test-lab-runner@nearyou-staging.iam.gserviceaccount.com
+--role=roles/secretmanager.secretAccessor` on both secrets.)
+
 ## Choosing a device
 
 `--device` specs use Test Lab model ids. List them with:
