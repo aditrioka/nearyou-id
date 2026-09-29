@@ -101,6 +101,8 @@
   - update the existing `.value` reads to the Flow
 - [ ] 6.9 `PaywallScreenTest` (Robolectric, already in the Release-variant exclude): the pending state renders the pending copy + check-status CTA label and no error text.
 - [ ] 6.10 `PaywallFlowIosTest`: add the `Success(false)` + recheck-true confirm path and the pending path on Kotlin/Native (K/N-legal test names).
+- [ ] 6.11 `PremiumEntitlementKoinResolutionTest` (androidUnitTest, mirrors `CrashReportingKoinResolutionTest`): the real `mobileModule` + stub platform bindings resolve `PremiumEntitlementSession`, `SessionInvalidator`, `AuthRepository`, the `HttpClient`, and `AdFeedController`. This proves the D2/D6 wiring adds no Koin resolution cycle and satisfies the "Production binds the session as a Koin single" scenario.
+- [ ] 6.12 The "unbound session degrades to never-confirmed" scenario is backed by the existing `NearbyTimelineScreenTest` / `UsernameCustomizationScreenTest` / `SearchScreenTest` / `PaywallScreenTest` / `TimelineAdsScreenTest`. None of them bind `PremiumEntitlementSession`, so they MUST stay green unmodified (no new Koin binding added to their modules).
 
 ## 7. Gates + verification
 
@@ -108,8 +110,9 @@
 - [ ] 7.2 `./gradlew :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest :infra:revenuecat:ktlintCheck` green (named explicitly — the root aggregate is not trusted for mobile).
 - [ ] 7.3 `./gradlew :mobile:app:iosSimulatorArm64Test` (K/N — the paywall flow test + the new commonMain code) and `:mobile:app:linkDebugFrameworkIosSimulatorArm64` (the `:infra:revenuecat` `awaitLogIn`/`awaitLogOut` iOS link). The known pre-existing `AppShellFlowIosTest` red (#348) is confirmed by stash-rerun, not attributed to this change.
 - [ ] 7.4 Manual UI verification (docs/11 §5 DoD): render the paywall pending state and the post-confirmation radius unlock on the Android emulator (verify-loop §B), with screenshots in the PR body.
-- [ ] 7.5 **HUMAN-REQUIRED (operator, physical device + Play license tester):** the staging sandbox purchase end-to-end.
-  - Sign in on a `stagingDebug` build.
+- [ ] 7.5 **HUMAN-REQUIRED (operator):** the staging sandbox purchase end-to-end. Staging uses the RevenueCat **Test Store** (project `9d323c42`), so no Play license tester is needed; any device or emulator running a `stagingDebug` build carrying the Test Store key (`-PstagingRevenueCatPublicKey`, value from Secret Manager `staging-revenuecat-test-api-key`) works.
+  - Prerequisite: the RevenueCat dashboard webhook is registered (Integrations → Webhooks → `https://api-staging.nearyou.id/internal/revenuecat-webhook` with the `staging-revenuecat-webhook-secret` Bearer).
+  - Sign in on the `stagingDebug` build.
   - Confirm in the RevenueCat dashboard that the customer id = the account's `users.id` (not `$RCAnonymousID`).
   - Buy the Monthly package in sandbox.
   - Confirm the webhook `200 ok` in Cloud Run logs and `users.subscription_status = 'premium_active'` (Supabase MCP read).
