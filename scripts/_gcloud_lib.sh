@@ -12,6 +12,7 @@
 # Credentials are env-var-only (never hard-coded):
 #   GOOGLE_APPLICATION_CREDENTIALS  path to a GCP service-account JSON, OR
 #   GCP_SA_KEY_JSON                 the raw JSON (written to a 0600 temp file)
+#   (neither set: falls back to the active `gcloud auth login` account, if any)
 #   FIREBASE_PROJECT_ID             GCP/Firebase project id
 
 _GCLOUD_TMP_KEY=""
@@ -40,10 +41,6 @@ gcloud_auth() {
     printf '%s' "$GCP_SA_KEY_JSON" > "$key"
     _GCLOUD_TMP_KEY="$key"
   fi
-  if [[ -z "$key" || ! -f "$key" ]]; then
-    echo "[gcloud] ERROR: set GOOGLE_APPLICATION_CREDENTIALS (path) or GCP_SA_KEY_JSON (raw JSON)." >&2
-    return 1
-  fi
   # Default to the staging GCP project (project number 27815942904) — already
   # Firebase-enabled; reused for Test Lab so device runs share its free quota.
   # Override with FIREBASE_PROJECT_ID for a dedicated project.
@@ -54,7 +51,16 @@ gcloud_auth() {
   # Drop it (callers source this lib, so the unset reaches their gcloud calls)
   # so the service-account key below is what authenticates.
   unset CLOUDSDK_AUTH_ACCESS_TOKEN
-  gcloud auth activate-service-account --key-file="$key" --quiet || return 1
+  if [[ -n "$key" && -f "$key" ]]; then
+    gcloud auth activate-service-account --key-file="$key" --quiet || return 1
+  elif [[ -n "$(gcloud config get-value account 2>/dev/null)" ]]; then
+    # A local machine already signed in with `gcloud auth login` runs as that account.
+    echo "[gcloud] no key provided; using the active gcloud account"
+  else
+    echo "[gcloud] ERROR: set GOOGLE_APPLICATION_CREDENTIALS (path) or GCP_SA_KEY_JSON (raw JSON)," \
+      "or sign in with \`gcloud auth login\`." >&2
+    return 1
+  fi
   gcloud config set project "$FIREBASE_PROJECT_ID" --quiet || return 1
   echo "[gcloud] authenticated; project=$FIREBASE_PROJECT_ID"
 }
@@ -104,14 +110,16 @@ gcloud_cleanup_key() {
 # local directory. Args: <gcloud-output-logfile> <dest-dir>. Never hard-fails.
 pull_testlab_artifacts() {
   local logf="$1" dest="$2" gcs
-  # The CLI prints either a gs:// URL or a console storage-browser URL.
+  # The CLI prints the results dir as a console storage-browser URL (or, in
+  # older versions, a gs:// URL). Prefer the browser URL: the log can also hold
+  # gs:// paths of APKs staged before the run (test_firebase.sh).
   # NOTE the trailing `|| true`: under `set -euo pipefail` a command-substitution
   # assignment whose pipeline exits non-zero (grep finds no match → 1, amplified
   # by pipefail) ABORTS the whole script. That bug previously killed run_on_device.sh
   # right here — before the verdict/pull ran — so a Passed Robo run still showed ⚠️.
-  gcs="$(grep -oE 'gs://[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 || true)"
+  gcs="$(grep -oE 'storage/browser/[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 | sed 's#storage/browser/#gs://#' || true)"
   if [[ -z "$gcs" ]]; then
-    gcs="$(grep -oE 'storage/browser/[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 | sed 's#storage/browser/#gs://#' || true)"
+    gcs="$(grep -oE 'gs://[A-Za-z0-9._/-]+' "$logf" 2>/dev/null | head -1 || true)"
   fi
   if [[ -z "$gcs" ]]; then
     echo "[gcloud] could not locate the GCS results path in output — see the Firebase console link above." >&2
@@ -122,7 +130,9 @@ pull_testlab_artifacts() {
   # Surface stderr (not silent) so a permission/path issue is diagnosable in the
   # CI log. Recurse the whole results dir — Robo stores video.mp4 + screenshots
   # in per-device subfolders, so copy the directory, not just a top-level glob.
-  if gcloud storage cp --recursive "${gcs%/}" "$dest/" 2>&1; then
+  # Skip the uploaded APKs: they are the local build, and the 30+ MB download
+  # was the part that failed (HashMismatchError) on a flaky link.
+  if gcloud storage rsync --recursive --exclude='.*\.apk$' "${gcs%/}" "$dest/$(basename "${gcs%/}")" 2>&1; then
     echo "[gcloud] artifacts saved under: $dest"
   else
     echo "[gcloud] artifact download failed (non-fatal) — browse results at: $gcs" >&2
