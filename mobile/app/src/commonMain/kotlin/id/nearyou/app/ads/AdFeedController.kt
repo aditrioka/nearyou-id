@@ -24,7 +24,8 @@ fun adRequestModeFor(adsPersonalization: Boolean): AdRequestMode =
 /**
  * App-singleton ad-eligibility + native-ad load controller for the timeline feeds
  * (mobile-admob-ads-foundation). Shared across Nearby/Following/Global so the SDK initializes + the UMP
- * gate runs at most once per signed-in account (premium-entitlement-lifecycle keys the latch per account).
+ * gate runs at most once per signed-in session (premium-entitlement-lifecycle keys the latch on
+ * `PremiumEntitlementSession.sessionKey`, so even a sign-out → sign-in into the same account re-evaluates).
  *
  * [prepare] (single-flight) fetches the server `ads-config` and, ONLY when ads are enabled for the viewer,
  * initializes the [AdProvider] + runs the UMP consent gate BEFORE any ad loads; it then publishes the
@@ -97,6 +98,9 @@ class AdFeedController(
 
     suspend fun loadAd(slotKey: String): NativeAdContent? {
         if (_frequency.value == null || purchaseConfirmed.value) return null
+        // A slot rendered in the gap before a NEW session's prepare() must not load on the previous session's
+        // eligibility (e.g. a Premium account seeing the prior Free account's frequency for a frame).
+        if (currentSessionKey() != preparedFor) return null
         return loadMutex.withLock {
             if (loadedAds.containsKey(slotKey)) {
                 loadedAds[slotKey]

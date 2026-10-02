@@ -67,7 +67,7 @@ There is one function instead of separate `onSignedIn(id)` / `onSignedOut()` cal
 
 | Boundary | Call site | Ordering |
 |---|---|---|
-| Sign-in / sign-up success | `AuthRepository` | After `tokenStore.write`, before returning `Success`, awaited. |
+| Sign-in / sign-up success | `AuthRepository` | After `tokenStore.write`, before returning `Success`, awaited but bounded by a 3 s timeout (review round 2). |
 | Voluntary logout | `SettingsViewModel.confirmLogout` | Inside the existing `NonCancellable` wipe, after `tokenStore.clear()` and the `loggedOut` flip, so routing is not delayed. |
 | Involuntary invalidation | App-root `SessionExpiryEffect`, when it consumes the session-expired signal | After its re-route, launched so it never stalls the collector. Deliberately NOT inside `SessionInvalidator.invalidate`, which runs within `TokenRefresher`'s single-flight critical section; a vendor round-trip there would hold every request waiting on the refresh (review round 1). |
 | Cold-start restore + foreground | New app-root `BillingIdentityEffect` (`ON_RESUME`) | Fire-and-forget on the app-root scope. It also self-heals a `logIn` that failed offline. |
@@ -78,11 +78,11 @@ New constructor parameters on `AuthRepository` / `SettingsViewModel` / `PaywallV
 `PremiumEntitlementSession` depends only on `SelfUserIdProvider → TokenStore` and `PurchaseController`. `RevenueCatPurchaseController` has no dependencies. So no consumer of the session gets a cycle through the `HttpClient`. `syncIdentity()` also wraps its body in a non-cancellation catch-all, so its "never throws" contract is enforced at the vendor boundary rather than trusted to the binding.
 
 - *Alternative: sync from `RootRouterScreen`.* The router leaves composition immediately after routing, cancelling its effect scope. It also runs once, so a failed `logIn` never retries. Rejected in favour of the `ON_RESUME` effect.
-- *Why sign-in awaits:* the sign-in flow already shows a loader across the Google ceremony and the backend exchange. An offline RevenueCat call fails fast, and a slow one is healed by the next resume anyway. The pre-purchase sync is the hard guarantee.
+- *Why sign-in awaits, bounded:* binding before `Success` makes the common case immediate. The bound (3 s, `withTimeoutOrNull`) keeps a hanging vendor call from holding sign-in; both review lenses flagged the unbounded await. A timed-out bind is healed by the next resume sync, and the pre-purchase sync is the hard guarantee.
 
 ### D3 — A purchase is never made under an anonymous identity
 
-`RevenueCatPurchaseController.purchase()` returns `PurchaseResult.Error("identity_unavailable")` when `Purchases.sharedInstance.isAnonymous`. The paywall's pre-purchase `syncIdentity()` makes this unreachable in the normal path. The controller guard is the fail-closed backstop against taking money the server can never attribute, for example after a DI gap.
+`RevenueCatPurchaseController.purchase()` returns `PurchaseResult.Error("identity_unavailable")` when `Purchases.sharedInstance.isAnonymous`. The paywall's pre-purchase `syncIdentity()` makes this unreachable in the normal path. The controller guard is a fail-closed backstop against the *anonymous* case only: money the server can never attribute. It cannot detect a *stale different* identity (a failed `logOut` followed by a DI gap), because the controller does not know the expected `users.id`. That case is covered by the pre-purchase `syncIdentity()` (`false` → no purchase) plus `PremiumEntitlementKoinResolutionTest` pinning the production binding (review round 2).
 
 ### D4 — The paywall confirms the entitlement; pending is a distinct state
 
@@ -115,7 +115,7 @@ Consumers take `StateFlow<Boolean>` (not the session class), so tests drive a `M
 - `frequency` becomes `combine(_frequency, purchaseConfirmed) { f, confirmed -> f.takeUnless { confirmed } }`, so slots vanish the moment a purchase is confirmed. `loadAd` returns `null` while confirmed.
 - `prepare()` re-runs when the session key differs from the one it last prepared for (a new account, or the same account after a sign-out): it resets the frequency, clears cached ads, and re-fetches config. Within a session it stays a no-op. `currentFrequency` gives a synchronous seed for the UI collector, so feed re-entry never renders one ad-less frame. A confirmed purchase short-circuits `prepare()` before SDK init / UMP, per "Premium viewers see zero ads … no SDK initialization, no UMP form".
 - This amends `mobile-ads`' "no client-only premium flag" wording: the client signal can only *remove* ads, which is the fail-safe direction. The server `ads-config` remains the sole source that can *enable* them.
-- *Why not have the session reset the controller:* `PremiumEntitlementSession → AdFeedController → AdsConfigFlow → HttpClient → SessionInvalidator → PremiumEntitlementSession` is a Koin resolution cycle. The controller observes instead.
+- *Why the controller observes instead of the session resetting it:* this keeps the dependency one-way (ads → session). A session → `AdFeedController` edge would pull the `HttpClient` graph (via `AdsConfigFlow`) into the session's dependencies, even though the session must stay a leaf (`SelfUserIdProvider` + `PurchaseController`) that any consumer can take. `loadAd` also checks that the session is unchanged since the last `prepare()`, so a slot rendered in the gap before the new session's `prepare()` never loads an ad (review round 2 N4).
 
 ### D7 — Backend: a non-UUID `app_user_id` is an unknown user, not a malformed body
 
@@ -131,6 +131,9 @@ This matches the existing spec scenario: "an app-user identifier that maps to no
 - **[Identity guard false-negative]** If `logIn` fails repeatedly (RevenueCat outage), purchases are blocked with a retryable error → a deliberate fail-closed choice. Money the server cannot attribute is worse than a retry.
 - **[Instant search re-run vs. the lag window]** Search re-runs the gated query the moment the purchase is confirmed, while the paywall is still on top. If the webhook hasn't landed yet, that re-run 403s back to the upsell → accepted under the webhook-lag non-goal (review round 1, N2). The username gate deliberately does NOT auto-re-probe, for the same reason: it clears the stale gate and re-probes on the next edit. A server-side reconcile would close the window for every surface.
 - **[Webhook alias lookup]** The route does not fall back to `original_app_user_id` / `aliases` before ignoring a non-UUID id (review round 1, Q1). Not needed: the client now refuses anonymous purchases (D3), and no production purchases exist pre-launch.
+- **[Session dies while the store sheet is open]** If the refresh token is revoked while the purchase sheet is up, `SessionExpiryEffect`'s unbind can race RevenueCat's receipt post, which could then land under a fresh anonymous id and be acked `ignored` → judged very unlikely (it needs a dead refresh token in exactly that window). Recovery: re-signing in as the same account makes RevenueCat alias the anonymous receipt to that user. Revisit, by deferring the unbind while a purchase is in flight, only if it is ever observed (review round 2, Q1).
+- **[Restore / transfer behavior]** Identified users make "two app accounts on one store account" real, and `SubscriptionService` ignores `TRANSFER`. No Restore UI ships yet. The RevenueCat project's restore behavior should be chosen deliberately (operator) before one does (review round 2, Q2).
+- **[Alert continuity]** The non-UUID ack logs `event=revenuecat_orphan_event` with `reason=non_uuid_app_user_id`. It reuses the unknown-user event name, so an alert keyed on `revenuecat_orphan_event` still sees these, even though RevenueCat no longer shows them as retried 400s.
 - **[#492 overlap]** This change adds one line to the logout wipe that #492 also touches → #492 is held until this merges. It will rebase trivially.
 
 ## Migration Plan

@@ -35,8 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
-import id.nearyou.app.billing.rememberPremiumConfirmed
 import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.username.UsernameFlow
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_activate_premium

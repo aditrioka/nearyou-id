@@ -12,7 +12,7 @@ On the client, the paywall reports success without checking the entitlement, and
 - **Premium re-evaluates after a confirmed purchase.** `PremiumEntitlementSession.purchaseConfirmed` is a `StateFlow<Boolean>` set on confirmation and reset when the account changes. It never outlives the account that bought. Consumers:
   - The Nearby radius gate and the username gate treat a confirmed purchase as Premium-known, so the effective tier is server `isPremium` OR client-confirmed. The server 403s still backstop.
   - Search re-runs the gated query once.
-  - `AdFeedController` drops ad slots on confirmation. Its once-per-session `prepare` latch is now keyed to the signed-in account, so a sign-out → sign-in re-evaluates eligibility.
+  - `AdFeedController` drops ad slots on confirmation. Its `prepare` latch is now keyed to the signed-in session, so any sign-out → sign-in re-evaluates eligibility, even back into the same account.
 - **Backend webhook tolerates anonymous ids.** A well-formed event whose `app_user_id` is not a UUID (a RevenueCat anonymous id) maps to no `users.id`. It is now acknowledged `200 ignored` with a WARN, per the existing unknown-user scenario, instead of `400`, so RevenueCat stops retrying it.
 - Out of scope, held for sequencing: Sentry crash-reporting user/session handling on logout (issue #492) touches the same logout path and lands after this change.
 
@@ -26,7 +26,7 @@ On the client, the paywall reports success without checking the entitlement, and
 - `mobile-nearby-radius-slider`: on-entry tier resolution also honours a confirmed purchase, both at entry and live while the HomeRoute-scoped VM survives the paywall push.
 - `mobile-premium-username`: on-entry Premium resolution also honours a confirmed purchase, both at entry and live, clearing a stale gate.
 - `mobile-search`: a confirmed purchase re-runs the gated query once, a documented exception to "the gate panel issues no further request".
-- `mobile-ads`: a confirmed client purchase suppresses ads (fail-safe direction), and the prepare latch is per-account rather than per-process.
+- `mobile-ads`: a confirmed client purchase suppresses ads (fail-safe direction), and the prepare latch is per-session rather than per-process.
 - `subscription-billing-webhook`: a non-UUID `app_user_id` is treated as an unknown user (`200 ignored`), not a malformed body.
 
 ## Impact
@@ -34,7 +34,7 @@ On the client, the paywall reports success without checking the entitlement, and
 - **Mobile (`:mobile:app`, `:infra:revenuecat`)**:
   - `PurchaseController.kt`, `RevenueCatPurchaseController.kt`, `RevenueCatConfig.kt` (KDoc).
   - New `billing/PremiumEntitlementSession.kt` plus an app-root `BillingIdentityEffect`.
-  - `AuthRepository`, `SessionInvalidator`, `SettingsViewModel`.
+  - `AuthRepository`, `SettingsViewModel`, `SessionExpiryEffect` (the involuntary unbind), and a note in `SessionInvalidator` explaining why it makes no RevenueCat call.
   - `PaywallViewModel` / `PaywallUiState` / `PaywallScreen` (pending copy).
   - `NearbyTimelineViewModel`, `UsernameCustomizationViewModel`, `SearchViewModel`, `AdFeedController` (+ `TimelineAds`), `MobileModule` wiring, and the matching screens' VM construction.
   - New CMP strings: paywall pending message, recheck CTA.

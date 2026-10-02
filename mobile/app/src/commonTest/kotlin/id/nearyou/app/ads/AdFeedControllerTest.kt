@@ -293,6 +293,27 @@ class AdFeedControllerTest {
         }
 
     @Test
+    fun `a slot loaded before the new session's prepare serves no ad`() =
+        runTest {
+            val provider = RecordingAdProvider(ConsentState.OBTAINED)
+            var session: String? = "u-1#0"
+            val controller =
+                AdFeedController(
+                    CountingAdsConfig(AdsConfigOutcome.Enabled(6)),
+                    provider,
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    currentSessionKey = { session },
+                )
+            controller.prepare()
+
+            session = "u-2#1" // account switched; prepare() for u-2 has not run yet
+
+            assertNull(controller.loadAd("ad:6"), "no ad on the previous session's eligibility")
+            assertFalse(provider.calls.contains("loadNativeAd"))
+        }
+
+    @Test
     fun `the synchronous frequency seed matches the flow`() =
         runTest {
             val confirmed = MutableStateFlow(false)

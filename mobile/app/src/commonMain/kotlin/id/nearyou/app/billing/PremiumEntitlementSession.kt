@@ -1,7 +1,5 @@
 package id.nearyou.app.billing
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,7 +7,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.koin.compose.getKoin
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -49,8 +46,9 @@ class PremiumEntitlementSession(
 
     /**
      * Align RevenueCat with the session; true iff identified as the signed-in user. Never throws — enforced
-     * here, not trusted to the vendor binding: callers include the token-refresh failure path
-     * (`SessionInvalidator`) and the logout wipe, which an identity hiccup must never break.
+     * here, not trusted to the vendor binding: callers include sign-in (`AuthRepository`), the logout wipe
+     * (`SettingsViewModel`) and the session-expiry re-route (`SessionExpiryEffect`), which an identity hiccup
+     * must never break.
      */
     suspend fun syncIdentity(): Boolean =
         mutex.withLock {
@@ -77,17 +75,4 @@ class PremiumEntitlementSession(
     fun onPurchaseConfirmed() {
         confirmed.value = true
     }
-}
-
-private val neverConfirmed: StateFlow<Boolean> = MutableStateFlow(false)
-
-/**
- * The [PremiumEntitlementSession.purchaseConfirmed] signal for a screen to hand its ViewModel, resolved
- * fail-safe (`getOrNull`, the `TimelineAds` idiom): a host that does not bind the session (a screen test's own
- * Koin module, a DI gap) gets a never-confirmed flow and behaves exactly as before — no resolution crash.
- */
-@Composable
-fun rememberPremiumConfirmed(): StateFlow<Boolean> {
-    val koin = getKoin()
-    return remember(koin) { koin.getOrNull<PremiumEntitlementSession>()?.purchaseConfirmed ?: neverConfirmed }
 }

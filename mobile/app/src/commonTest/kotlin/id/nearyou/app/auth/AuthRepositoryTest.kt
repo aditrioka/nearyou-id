@@ -12,6 +12,7 @@ import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -473,6 +474,32 @@ class AuthRepositoryTest {
 
             assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
             assertNotNull(store.read(), "tokens are persisted even when the identity sync fails")
+        }
+
+    @Test
+    fun `a hanging RevenueCat logIn does not hold sign-in past the bound`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val controller = FakePurchaseController().apply { logInGate = CompletableDeferred() } // never completes
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", "Test User", "test@example.com")),
+                    store,
+                    premiumEntitlement = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller),
+                ) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+
+            val started = testScheduler.currentTime
+            assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
+            assertTrue(
+                testScheduler.currentTime - started <= IDENTITY_SYNC_TIMEOUT.inWholeMilliseconds,
+                "sign-in returned within the identity-sync bound despite a hung logIn",
+            )
         }
 }
 

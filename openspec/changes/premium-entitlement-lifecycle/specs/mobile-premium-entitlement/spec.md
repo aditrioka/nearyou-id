@@ -26,7 +26,7 @@ The mobile app SHALL keep the RevenueCat app-user id equal to the signed-in user
 
 `syncIdentity()` SHALL be invoked at each point where the session begins, is restored, or ends:
 
-1. Sign-in and sign-up success (`AuthRepository`): after the token pair is persisted and before the success outcome is returned.
+1. Sign-in and sign-up success (`AuthRepository`): after the token pair is persisted and before the success outcome is returned. The sync is bounded by a short timeout, so a hanging vendor call never holds sign-in; a timed-out bind is healed by the resume and pre-purchase syncs.
 2. Voluntary logout (`SettingsViewModel.confirmLogout`): inside the unconditional, non-cancellable client wipe, after the token store is cleared.
 3. Involuntary session invalidation: when the app-root `SessionExpiryEffect` consumes the session-expired signal, after its re-route to sign-in, launched so it never stalls the collector. It MUST NOT run inside `SessionInvalidator.invalidate`, which executes within `TokenRefresher`'s single-flight critical section; a vendor round-trip there would hold every request waiting on the refresh.
 4. Every app-root `Lifecycle.Event.ON_RESUME` (a new `BillingIdentityEffect` hosted next to `ProactiveRefreshEffect` in `App.kt`), covering cold-start session restore and foreground return, and self-healing a `logIn` that previously failed. Fire-and-forget on the app-root coroutine scope; a failure MUST NOT crash the scope, and `CancellationException` is re-thrown.
@@ -69,6 +69,12 @@ Sign-in, logout, and invalidation MUST complete their existing behavior when ide
 - **WHEN** `syncIdentity()` is invoked signed in or signed out
 - **THEN** it returns `false` AND no exception propagates
 
+#### Scenario: A hanging identity sync does not hold sign-in
+
+- **GIVEN** a `PurchaseController` whose `logIn(...)` never completes
+- **WHEN** `signInWithGoogle()` completes with a `200` token pair
+- **THEN** the outcome is `SignInOutcome.Success` AND it is returned within the sync timeout bound
+
 #### Scenario: A failed identity sync does not block sign-in
 
 - **GIVEN** a `PurchaseController` whose `logIn(...)` returns `false`
@@ -101,7 +107,7 @@ Sign-in, logout, and invalidation MUST complete their existing behavior when ide
 
 ### Requirement: Premium-gated surfaces resolve the signal fail-safe
 
-Every screen that hands `purchaseConfirmed` to its ViewModel (Nearby, username, search, paywall) and the `AdFeedController` binding SHALL resolve `PremiumEntitlementSession` via a fail-safe lookup (`getKoin().getOrNull<PremiumEntitlementSession>()`, the `TimelineAds` precedent). If it is not bound (a screen test that installs its own Koin module, or a DI gap), the surface falls back to a never-confirmed `false` signal and behaves exactly as before this change: no crash, no `NoDefinitionFound`. Production binds `PremiumEntitlementSession` as a single in `mobileModule`.
+Every composable that resolves `PremiumEntitlementSession` SHALL use a fail-safe lookup (`getKoin().getOrNull<PremiumEntitlementSession>()`, the `TimelineAds` precedent). That covers the screens that hand `purchaseConfirmed` to their ViewModel (Nearby, username, search, paywall, settings) and the app-root `BillingIdentityEffect` / `SessionExpiryEffect`. The `mobileModule` bindings declared alongside the session (`AuthRepository`, `AdFeedController`) resolve it with a strict `get()`: the session is declared in the same module, so a missing definition there must fail loudly. If it is not bound (a screen test that installs its own Koin module, or a DI gap), the surface falls back to a never-confirmed `false` signal and behaves exactly as before this change: no crash, no `NoDefinitionFound`. Production binds `PremiumEntitlementSession` as a single in `mobileModule`.
 
 #### Scenario: An unbound session degrades to never-confirmed
 
@@ -112,11 +118,11 @@ Every screen that hands `purchaseConfirmed` to its ViewModel (Nearby, username, 
 #### Scenario: Production binds the session as a Koin single
 
 - **WHEN** inspecting `mobileModule`
-- **THEN** `PremiumEntitlementSession` is declared as a `single` over `SelfUserIdProvider` + `PurchaseController` AND the same instance is passed to `AuthRepository`, `SessionInvalidator`, and (via the fail-safe lookup) the gated screens and `AdFeedController`
+- **THEN** `PremiumEntitlementSession` is declared as a `single` over `SelfUserIdProvider` + `PurchaseController` AND the same instance is passed to `AuthRepository` and `AdFeedController` (strict `get()`), and to the gated screens, `SettingsViewModel`, `PaywallViewModel`, `BillingIdentityEffect` and `SessionExpiryEffect` (via the fail-safe lookup)
 
 ### Requirement: Test coverage for the entitlement lifecycle
 
-The change SHALL ship commonTest coverage for:
+The change SHALL ship test coverage (commonTest, plus Robolectric androidUnitTest for the composable app-root effects) for:
 
 - **(1)** `PremiumEntitlementSession`: signed-in → `logIn(sub)`; signed-out → `logOut()`; `logIn` failure → `false`; the confirmed signal set, surviving a same-account resync, and reset on sign-out / account switch.
 - **(2)** The session-boundary call sites (`AuthRepository` sign-in + sign-up, `SettingsViewModel` logout, `SessionExpiryEffect` invalidation, `BillingIdentityEffect` resume), each asserting the controller identity call, and, for sign-in and sign-up, that the boundary's existing behavior still completes when sync fails.

@@ -32,10 +32,10 @@ import kotlin.test.assertTrue
 
 /**
  * premium-entitlement-lifecycle §6.11 — Koin-wiring check (mirrors `CrashReportingKoinResolutionTest`): the
- * real [mobileModule] resolves [PremiumEntitlementSession] as a single AND every consumer it was threaded into
- * — [SessionInvalidator] (itself a dependency of the shared [HttpClient]), [AuthRepository], and
- * [AdFeedController] (which depends on the HttpClient via ads-config). A Koin resolution cycle (design D2/D6:
- * SessionInvalidator → session must not reach back into the HttpClient) would stack-overflow here.
+ * real [mobileModule] resolves [PremiumEntitlementSession] as a single AND the module-level consumers it is
+ * threaded into — [AuthRepository] and [AdFeedController] (which depends on the HttpClient via ads-config) —
+ * alongside the [SessionInvalidator] / [HttpClient] graph. The session must stay a dependency LEAF (design
+ * D2/D6: it never reaches back into the HttpClient), so a resolution cycle would stack-overflow here.
  */
 class PremiumEntitlementKoinResolutionTest {
     @BeforeTest

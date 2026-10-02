@@ -38,8 +38,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.nearyou.app.billing.rememberPremiumConfirmed
 import id.nearyou.app.search.SearchFlow
+import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.ui.components.capCountdownMinutes
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_activate_premium

@@ -17,7 +17,7 @@
   - `syncIdentity(): Boolean`, Mutex-serialized: resolves the id via `SelfUserIdProvider`, then `logIn`/`logOut`; resets `purchaseConfirmed` when the bound id changes
   - `purchaseConfirmed: StateFlow<Boolean>`
   - `onPurchaseConfirmed()`
-- [x] 2.2 `MobileModule`: `single { PremiumEntitlementSession(get(), get()) }`. Pass it to `AuthRepository` and `SessionInvalidator` (both new params default `null`).
+- [x] 2.2 `MobileModule`: `single { PremiumEntitlementSession(get(), get()) }`. Pass it to `AuthRepository` (new param defaults `null`). `SessionInvalidator` takes NO session: the involuntary unbind lives in `SessionExpiryEffect` (2.4, revised in review round 1).
 - [x] 2.3 `AuthRepository`: call `syncIdentity()` after `tokenStore.write` on sign-in AND sign-up success (before returning `Success`).
 - [x] 2.4 Involuntary invalidation: `SessionExpiryEffect` launches `syncIdentity()` after its re-route when it consumes the session-expired signal. Revised in review round 1: NOT inside `SessionInvalidator.invalidate`, which runs within `TokenRefresher`'s single-flight critical section.
 - [x] 2.5 `SettingsViewModel`:
@@ -58,12 +58,13 @@
   - the collector calls `retry()` once when it flips `true` while the outcome is `PremiumGate`
   - `SearchScreen` passes it via the fail-safe lookup
 - [x] 4.4 `AdFeedController`:
-  - add `purchaseConfirmed: StateFlow<Boolean>` and `currentAccountId: suspend () -> String?` (both defaulted)
+  - add `purchaseConfirmed: StateFlow<Boolean>` and `currentSessionKey: suspend () -> String?` (both defaulted)
   - `frequency` = `combine(_frequency, purchaseConfirmed)` (null while confirmed)
   - `loadAd` returns null while confirmed
   - `prepare()` is session-keyed via `PremiumEntitlementSession.sessionKey` (re-evaluates + clears cached ads on any new session, incl. the same account after a sign-out — review round 1 B1) and short-circuits before SDK init/UMP while confirmed
-  - `rememberTimelineAds` collects with `collectAsState(initial = null)`
-  - `MobileModule` binds the session's signal (via `getOrNull`) + `SelfUserIdProvider::selfUserId`
+  - `rememberTimelineAds` collects with `collectAsState(initial = controller.currentFrequency)` (synchronous seed, no ad-less frame)
+  - `loadAd` returns null when the session changed since the last `prepare()` (review round 2 N4)
+  - `MobileModule` binds the session's signal + `PremiumEntitlementSession::sessionKey` via a strict `get()` (same module)
 
 ## 5. Backend webhook
 
@@ -81,7 +82,8 @@
 - [x] 6.3 Boundary call sites:
   - `AuthRepositoryTest`: sign-in `logIn(sub)` + success despite `logIn` failure
   - `AuthRepositorySignUpTest`: sign-up `logIn(sub)`
-  - `SessionInvalidatorTest`: `invalidate` → `logOut` + signal still delivered
+  - `SessionExpiryEffectTest` (Robolectric): invalidation → re-route to sign-in + `logOut` (replaces the round-0 `SessionInvalidatorTest` case)
+  - `AuthRepositoryTest`: a hanging `logIn` does not hold sign-in past `IDENTITY_SYNC_TIMEOUT` (review round 2)
   - `SettingsLogoutViewModelTest`: `logout` → `logOut` + wipe
 - [x] 6.4 `PaywallViewModelTest`:
   - confirmed → `purchaseConfirmed` true
@@ -117,6 +119,13 @@
   - paywall in-progress/double-tap, exactly-one-recheck, pending-with-session tests
   - username submit-gate clear test
   - `SessionExpiryEffectTest` + `BillingIdentityEffectTest` (Robolectric, Release-excluded)
+
+- [x] 6.14 Review round 2 fixes:
+  - sign-in identity sync bounded by `IDENTITY_SYNC_TIMEOUT` + a hanging-`logIn` test (mutation-checked)
+  - `loadAd` session guard + a test
+  - `rememberPremiumConfirmed` moved to `ui/billing/` (out of the non-UI singleton file)
+  - stale KDoc / spec / tasks / design / proposal references to `SessionInvalidator`-as-consumer and per-account wording fixed
+  - design D3 reworded (the guard is anonymous-only); new risks: sheet-open session death, restore/transfer behavior, alert continuity
 
 ## 7. Gates + verification
 

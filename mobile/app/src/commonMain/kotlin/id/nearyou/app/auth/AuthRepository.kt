@@ -7,8 +7,13 @@ import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.LocalDate
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+
+/** Upper bound on the sign-in RevenueCat identity bind (premium-entitlement-lifecycle) — sign-in never waits longer. */
+internal val IDENTITY_SYNC_TIMEOUT = 3.seconds
 
 /**
  * The auth orchestration contract consumed by `SignInScreen` / `AgeGateScreen` / `RootRouterScreen`.
@@ -75,6 +80,15 @@ class AuthRepository(
     private val signInMutex = Mutex()
     private val signUpMutex = Mutex()
 
+    /**
+     * Bind RevenueCat to the just-signed-in user, but never let a slow vendor call hold sign-in: bounded by
+     * [IDENTITY_SYNC_TIMEOUT]. A timed-out call is healed by the app-root resume sync and, decisively, the
+     * pre-purchase sync (which refuses to purchase unless identified).
+     */
+    private suspend fun bindBillingIdentity() {
+        premiumEntitlement?.let { session -> withTimeoutOrNull(IDENTITY_SYNC_TIMEOUT) { session.syncIdentity() } }
+    }
+
     override suspend fun signInWithGoogle(): SignInOutcome {
         if (!signInMutex.tryLock()) {
             // A sign-in is already in flight — reject the concurrent invocation silently
@@ -119,7 +133,7 @@ class AuthRepository(
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
                 decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
-                premiumEntitlement?.syncIdentity()
+                bindBillingIdentity()
                 SignInOutcome.Success
             }
             is SignInApiResult.NetworkError -> {
@@ -208,7 +222,7 @@ class AuthRepository(
                 // mobile-amplitude-analytics — emit signup_completed (consent-gated downstream); the user
                 // id is the just-issued token's `sub`.
                 sub?.let { analytics.track("signup_completed", it) }
-                premiumEntitlement?.syncIdentity()
+                bindBillingIdentity()
                 SignUpOutcome.Success
             }
             is SignInApiResult.NetworkError -> {

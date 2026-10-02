@@ -30,7 +30,6 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
-import id.nearyou.app.billing.rememberPremiumConfirmed
 import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportReasonCategory
@@ -42,6 +41,7 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
+import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState

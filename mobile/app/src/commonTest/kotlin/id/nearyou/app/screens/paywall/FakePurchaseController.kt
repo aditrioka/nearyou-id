@@ -33,6 +33,9 @@ class FakePurchaseController(
     /** When set, the identity calls throw it — proves callers never let a vendor hiccup escape. */
     var identityFailure: Throwable? = null
 
+    /** When set, [logIn] suspends until it completes — models a hanging vendor call. */
+    var logInGate: CompletableDeferred<Unit>? = null
+
     override suspend fun fetchOfferings(): OfferingsResult = offerings
 
     override suspend fun purchase(pkg: PaywallPackage): PurchaseResult {
@@ -49,6 +52,7 @@ class FakePurchaseController(
     override suspend fun logIn(appUserId: String): Boolean {
         identityFailure?.let { throw it }
         loggedInIds += appUserId
+        logInGate?.await()
         return logInResult
     }
 
