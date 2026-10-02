@@ -1,5 +1,7 @@
 package id.nearyou.app.ads
 
+import id.nearyou.app.billing.MutableSelfUserId
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.data.ads.AdsConfigFlow
 import id.nearyou.app.data.ads.AdsConfigOutcome
 import id.nearyou.app.data.consent.ConsentSnapshot
@@ -8,6 +10,7 @@ import id.nearyou.app.infra.admob.AdProvider
 import id.nearyou.app.infra.admob.AdRequestMode
 import id.nearyou.app.infra.admob.ConsentState
 import id.nearyou.app.infra.admob.NativeAdContent
+import id.nearyou.app.screens.paywall.FakePurchaseController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -221,7 +224,7 @@ class AdFeedControllerTest {
                     RecordingAdProvider(ConsentState.OBTAINED),
                     FakeConsentStore(consent(false)),
                     UNIT,
-                    currentAccountId = { "u-1" },
+                    currentSessionKey = { "u-1" },
                 )
 
             controller.prepare()
@@ -231,15 +234,19 @@ class AdFeedControllerTest {
         }
 
     @Test
-    fun `a different account re-evaluates and drops the previous account's cached ads`() =
+    fun `a different account re-evaluates and its disabled config wins`() =
         runTest {
             val config = CountingAdsConfig(AdsConfigOutcome.Enabled(6))
-            val provider = RecordingAdProvider(ConsentState.OBTAINED)
             var account: String? = "u-1"
             val controller =
-                AdFeedController(config, provider, FakeConsentStore(consent(false)), UNIT, currentAccountId = { account })
+                AdFeedController(
+                    config,
+                    RecordingAdProvider(ConsentState.OBTAINED),
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    currentSessionKey = { account },
+                )
             controller.prepare()
-            controller.loadAd("ad:6")
             assertEquals(6, controller.frequency.first())
 
             account = "u-2"
@@ -248,6 +255,82 @@ class AdFeedControllerTest {
 
             assertEquals(2, config.fetches, "the second account re-fetches ads-config")
             assertNull(controller.frequency.first(), "u-2's disabled config wins; u-1's frequency is gone")
-            assertNull(controller.loadAd("ad:6"), "u-1's cached ad is not served to u-2")
+        }
+
+    @Test
+    fun `a buyer signing back in as the same account re-evaluates instead of reusing the stale frequency`() =
+        runTest {
+            // Free u-1 prepared (frequency 6) → buys → signs out → signs back in as u-1. The confirmed signal resets
+            // on sign-out, so a user-id-keyed latch would re-show the pre-purchase frequency; the session key must
+            // force a fresh ads-config read (now Disabled — the server knows u-1 is Premium).
+            val self = MutableSelfUserId("u-1")
+            val session = PremiumEntitlementSession(self, FakePurchaseController())
+            session.syncIdentity()
+            val config = CountingAdsConfig(AdsConfigOutcome.Enabled(6))
+            val controller =
+                AdFeedController(
+                    config,
+                    RecordingAdProvider(ConsentState.OBTAINED),
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    purchaseConfirmed = session.purchaseConfirmed,
+                    currentSessionKey = session::sessionKey,
+                )
+            controller.prepare()
+            assertEquals(6, controller.frequency.first())
+            session.onPurchaseConfirmed()
+            assertNull(controller.frequency.first())
+
+            self.id = null
+            session.syncIdentity() // sign-out
+            self.id = "u-1"
+            session.syncIdentity() // same account signs back in
+            config.outcome = AdsConfigOutcome.Disabled
+            controller.prepare()
+
+            assertEquals(2, config.fetches, "the new session re-reads ads-config")
+            assertNull(controller.frequency.first(), "the paying user never sees the stale pre-purchase frequency")
+        }
+
+    @Test
+    fun `the synchronous frequency seed matches the flow`() =
+        runTest {
+            val confirmed = MutableStateFlow(false)
+            val controller =
+                AdFeedController(
+                    AdsConfigFlow { AdsConfigOutcome.Enabled(6) },
+                    RecordingAdProvider(ConsentState.OBTAINED),
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    confirmed,
+                )
+            controller.prepare()
+            assertEquals(6, controller.currentFrequency)
+            confirmed.value = true
+            assertNull(controller.currentFrequency)
+        }
+
+    @Test
+    fun `a different account never gets the previous account's cached ad`() =
+        runTest {
+            // Both accounts ad-eligible, so loadAd reaches the cache: u-2 must trigger a FRESH provider load.
+            val provider = RecordingAdProvider(ConsentState.OBTAINED)
+            var account: String? = "u-1"
+            val controller =
+                AdFeedController(
+                    CountingAdsConfig(AdsConfigOutcome.Enabled(6)),
+                    provider,
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    currentSessionKey = { account },
+                )
+            controller.prepare()
+            controller.loadAd("ad:6")
+
+            account = "u-2"
+            controller.prepare()
+            controller.loadAd("ad:6")
+
+            assertEquals(2, provider.calls.count { it == "loadNativeAd" }, "u-1's cached ad was dropped, u-2 loads its own")
         }
 }

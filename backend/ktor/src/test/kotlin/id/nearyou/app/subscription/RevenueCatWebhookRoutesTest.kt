@@ -1,5 +1,8 @@
 package id.nearyou.app.subscription
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.config.SecretResolver
@@ -31,11 +34,13 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.time.LocalDate
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import ch.qos.logback.classic.Logger as LogbackLogger
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
 private fun hikari(): HikariDataSource {
@@ -449,9 +454,12 @@ class RevenueCatWebhookRoutesTest : StringSpec({
 
     // premium-entitlement-lifecycle: a non-UUID (RevenueCat anonymous) app_user_id is an unknown user, not a
     // malformed body — acked 200 so RevenueCat stops retrying (it was a 400 before #490).
-    "5.2 non-UUID (anonymous) app_user_id → 200 ignored, no writes" {
+    "5.2 non-UUID (anonymous) app_user_id → 200 ignored, no writes, WARN by rc_event_id only" {
         val u = seedUser()
         val rcId = "rc_anon_$u"
+        val logger = LoggerFactory.getLogger("id.nearyou.app.subscription.RevenueCatWebhookRoutes") as LogbackLogger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        logger.addAppender(appender)
         try {
             withApp {
                 val resp =
@@ -465,9 +473,26 @@ class RevenueCatWebhookRoutesTest : StringSpec({
             }
             countEvents(rcId) shouldBe 0
             status(u) shouldBe "free"
+            val warns = appender.list.filter { it.level == Level.WARN }.map { it.formattedMessage }
+            warns.count { it.contains("reason=non_uuid_app_user_id") && it.contains("rc_event_id=$rcId") } shouldBe 1
+            appender.list.none { it.formattedMessage.contains("RCAnonymousID") } shouldBe true // never the raw id
         } finally {
+            logger.detachAppender(appender)
+            appender.stop()
             cleanup(u)
         }
+    }
+
+    "5.2 blank app_user_id is still a malformed body → 400, no writes" {
+        val rcId = "rc_blank_${UUID.randomUUID()}"
+        withApp {
+            createClient { install(ClientCN) { json() } }.post("/internal/revenuecat-webhook") {
+                header(HttpHeaders.Authorization, "Bearer $TEST_BEARER")
+                contentType(ContentType.Application.Json)
+                setBody(eventBody("INITIAL_PURCHASE", rcId, ""))
+            }.status shouldBe HttpStatusCode.BadRequest
+        }
+        countEvents(rcId) shouldBe 0
     }
 
     "5.2 unknown event type → 200 ignored, no writes" {

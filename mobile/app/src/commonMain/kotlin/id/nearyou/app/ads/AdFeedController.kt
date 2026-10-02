@@ -44,13 +44,18 @@ class AdFeedController(
     // premium-entitlement-lifecycle: a confirmed client purchase suppresses ads (it can only REMOVE them — the
     // server ads-config remains the sole source that enables them), covering the window before the webhook.
     private val purchaseConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
-    // The signed-in account the prepare latch is keyed to, so a sign-out → sign-in re-evaluates eligibility.
-    private val currentAccountId: suspend () -> String? = { null },
+    // The signed-in SESSION the prepare latch is keyed to (PremiumEntitlementSession.sessionKey): any sign-out →
+    // sign-in — even back into the same account — re-evaluates eligibility instead of reusing a stale frequency.
+    private val currentSessionKey: suspend () -> String? = { null },
 ) {
     private val _frequency = MutableStateFlow<Int?>(null)
 
     /** The published ad frequency (null = no ads); null while a purchase is confirmed. */
     val frequency: Flow<Int?> = combine(_frequency, purchaseConfirmed) { f, confirmed -> f.takeUnless { confirmed } }
+
+    /** The current [frequency] value, read synchronously — seeds the UI collector so feed re-entry never
+     *  renders one ad-less frame before the cold [frequency] flow emits. */
+    val currentFrequency: Int? get() = _frequency.value.takeUnless { purchaseConfirmed.value }
 
     private val prepareMutex = Mutex()
     private var prepared = false
@@ -62,11 +67,11 @@ class AdFeedController(
 
     suspend fun prepare() {
         prepareMutex.withLock {
-            val account = currentAccountId()
-            if (prepared && account == preparedFor) return
-            // First prepare, or a different account since the last one: forget the previous eligibility + ads.
+            val session = currentSessionKey()
+            if (prepared && session == preparedFor) return
+            // First prepare, or a new session since the last one: forget the previous eligibility + ads.
             prepared = true
-            preparedFor = account
+            preparedFor = session
             _frequency.value = null
             loadMutex.withLock { loadedAds.clear() }
             // Premium viewers see zero ads: no SDK init, no UMP form.

@@ -1,6 +1,5 @@
 package id.nearyou.app.auth
 
-import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.channels.Channel
@@ -34,9 +33,6 @@ class SessionInvalidator(
     // mobile-crash-reporting — clear Sentry user correlation on logout. Defaults no-op so existing
     // constructions/tests are unaffected; MobileModule binds the real reporter.
     private val crashReporter: CrashReporter = NoOpCrashReporter,
-    // premium-entitlement-lifecycle (#490) — unbind the RevenueCat identity (logOut) so the next account
-    // never inherits this one's entitlement. Null (tests) skips it.
-    private val premiumEntitlement: PremiumEntitlementSession? = null,
 ) {
     // CONFLATED: never suspends on send, buffers the latest signal for a not-yet-present collector,
     // and a second invalidate before consumption coalesces (one pending re-route, not a queue).
@@ -51,7 +47,8 @@ class SessionInvalidator(
         tokenStore.clear()
         crashReporter.clearUser()
         signal.trySend(Unit)
-        // After the re-route signal so the RevenueCat round-trip never delays it.
-        premiumEntitlement?.syncIdentity()
+        // The RevenueCat identity unbind (premium-entitlement-lifecycle) deliberately does NOT run here: this
+        // executes inside TokenRefresher's single-flight critical section, which a vendor round-trip must not
+        // hold. SessionExpiryEffect performs it when it consumes this signal, after the re-route.
     }
 }

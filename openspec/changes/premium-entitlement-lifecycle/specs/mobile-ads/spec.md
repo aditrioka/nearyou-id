@@ -28,23 +28,37 @@ A confirmed client purchase SHALL also suppress ads. This is the `purchaseConfir
 
 ## ADDED Requirements
 
-### Requirement: Ad eligibility is re-evaluated per signed-in account
+### Requirement: Ad eligibility is re-evaluated per signed-in session
 
-The shared `AdFeedController`'s once-per-session `prepare()` latch (the single-flight `ads-config` fetch + SDK init + UMP gate) SHALL be scoped to the signed-in account, not the process. The account is the signed-in user id, resolved through `SelfUserIdProvider`.
+The shared `AdFeedController`'s once-per-session `prepare()` latch (the single-flight `ads-config` fetch + SDK init + UMP gate) SHALL be scoped to the signed-in session, not the process. The session is identified by `PremiumEntitlementSession.sessionKey()`: the user id plus a count of ended sessions (`mobile-premium-entitlement`).
 
-- `prepare()` for the same account it last prepared for SHALL remain a no-op.
-- `prepare()` for a different account (after a sign-out → sign-in on the same process) SHALL discard the previous account's published frequency and cached ads, then re-evaluate eligibility from a fresh `ads-config` fetch.
+- `prepare()` within the same session it last prepared for SHALL remain a no-op.
+- `prepare()` in a new session (any sign-out → sign-in on the same process, including back into the SAME account) SHALL discard the previous session's published frequency and cached ads, then re-evaluate eligibility from a fresh `ads-config` fetch.
 
-A second account therefore never inherits the first account's ad eligibility, whether ads-on for a Premium second account or ads-off for a Free one.
+So a second account never inherits the first account's ad eligibility. A buyer who signs out and back in as the same account never sees the stale pre-purchase frequency, because the confirmed-purchase signal resets on sign-out.
 
-#### Scenario: The same account stays latched
+The published frequency SHALL also be readable synchronously, so a feed re-entering composition seeds its collector with the current value instead of rendering one ad-less frame.
 
-- **GIVEN** `AdFeedController` already prepared for account `"u-1"`
-- **WHEN** `prepare()` runs again while `"u-1"` is signed in
+#### Scenario: The same session stays latched
+
+- **GIVEN** `AdFeedController` already prepared in the session for `"u-1"`
+- **WHEN** `prepare()` runs again in that session
 - **THEN** `ads-config` is not fetched a second time
 
 #### Scenario: A different account re-evaluates
 
-- **GIVEN** `AdFeedController` prepared for account `"u-1"` with a published frequency and a cached ad
+- **GIVEN** `AdFeedController` prepared for account `"u-1"` with a published frequency
 - **WHEN** account `"u-2"` is signed in and `prepare()` runs AND `ads-config` now returns disabled
-- **THEN** `ads-config` is fetched again AND the published frequency is `null` AND the `"u-1"` cached ad is not served
+- **THEN** `ads-config` is fetched again AND the published frequency is `null`
+
+#### Scenario: A different account never gets the previous account's cached ad
+
+- **GIVEN** both `"u-1"` and `"u-2"` are ad-eligible AND `"u-1"` loaded an ad for slot `"ad:6"`
+- **WHEN** `"u-2"` is signed in, `prepare()` runs, and `"u-2"` loads slot `"ad:6"`
+- **THEN** the ad provider is asked for a fresh ad (the `"u-1"` cached ad was dropped)
+
+#### Scenario: A buyer signing back in as the same account re-evaluates
+
+- **GIVEN** `"u-1"` prepared with a published frequency, then purchased (confirmed signal set), then signed out
+- **WHEN** `"u-1"` signs back in and `prepare()` runs AND `ads-config` now returns disabled
+- **THEN** `ads-config` is fetched again AND the published frequency is `null` (the stale pre-purchase frequency is never re-shown)

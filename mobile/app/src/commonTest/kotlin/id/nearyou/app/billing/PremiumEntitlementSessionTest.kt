@@ -46,6 +46,16 @@ class PremiumEntitlementSessionTest {
         }
 
     @Test
+    fun aThrowingVendorCallNeverEscapes() =
+        runTest {
+            // The token-refresh failure path + the logout wipe call this — it must hold "never throws" itself.
+            val controller = FakePurchaseController().apply { identityFailure = IllegalStateException("sdk boom") }
+
+            assertFalse(PremiumEntitlementSession(MutableSelfUserId("u-1"), controller).syncIdentity())
+            assertFalse(PremiumEntitlementSession(MutableSelfUserId(null), controller).syncIdentity())
+        }
+
+    @Test
     fun aConfirmedPurchaseSetsTheSignal() =
         runTest {
             val session = PremiumEntitlementSession(MutableSelfUserId("u-1"), FakePurchaseController())

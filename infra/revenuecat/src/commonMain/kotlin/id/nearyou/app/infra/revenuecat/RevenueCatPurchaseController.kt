@@ -6,6 +6,7 @@ import com.revenuecat.purchases.kmp.ktx.awaitLogIn
 import com.revenuecat.purchases.kmp.ktx.awaitLogOut
 import com.revenuecat.purchases.kmp.ktx.awaitOfferings
 import com.revenuecat.purchases.kmp.ktx.awaitPurchase
+import com.revenuecat.purchases.kmp.models.CacheFetchPolicy
 import com.revenuecat.purchases.kmp.models.CustomerInfo
 import com.revenuecat.purchases.kmp.models.Offering
 import com.revenuecat.purchases.kmp.models.Package
@@ -55,14 +56,9 @@ class RevenueCatPurchaseController(
             val success = Purchases.sharedInstance.awaitPurchase(packageToPurchase = rcPackage)
             PurchaseResult.Success(entitlementActive = success.customerInfo.hasActiveEntitlement())
         } catch (e: PurchasesTransactionException) {
-            // PurchasesTransactionException carries the userCancelled flag; a true cancellation is NOT
-            // an error. CancellationException (coroutine cancellation) is not a PurchasesException, so it
-            // propagates uncaught — correct.
-            when {
-                e.userCancelled -> PurchaseResult.Cancelled
-                e.code == PurchasesErrorCode.PaymentPendingError -> PurchaseResult.Pending
-                else -> PurchaseResult.Error(message = e.message)
-            }
+            // CancellationException (coroutine cancellation) is not a PurchasesException, so it propagates
+            // uncaught — correct.
+            transactionFailureResult(e.userCancelled, e.code, e.message)
         } catch (e: PurchasesException) {
             PurchaseResult.Error(message = e.message)
         }
@@ -93,7 +89,9 @@ class RevenueCatPurchaseController(
     override suspend fun isPremiumEntitlementActive(): Boolean {
         if (!Purchases.isConfigured) return false
         return try {
-            Purchases.sharedInstance.awaitCustomerInfo().hasActiveEntitlement()
+            // FETCH_CURRENT, not the default CACHED_OR_FETCHED: callers are the post-purchase / pending
+            // rechecks, which exist precisely because the cached CustomerInfo can trail the entitlement grant.
+            Purchases.sharedInstance.awaitCustomerInfo(CacheFetchPolicy.FETCH_CURRENT).hasActiveEntitlement()
         } catch (e: PurchasesException) {
             false
         }
@@ -139,3 +137,20 @@ class RevenueCatPurchaseController(
         const val DEFAULT_ENTITLEMENT_ID: String = "premium"
     }
 }
+
+/**
+ * Maps a store purchase failure to the vendor-free [PurchaseResult]: a user cancellation is NOT an error
+ * (back to the paywall), a payment-pending purchase (Play cash / convenience-store / carrier billing awaiting
+ * settlement) is [PurchaseResult.Pending], anything else is a retryable [PurchaseResult.Error]. Pure, so the
+ * mapping is unit-testable without the provisioned SDK.
+ */
+internal fun transactionFailureResult(
+    userCancelled: Boolean,
+    code: PurchasesErrorCode,
+    message: String?,
+): PurchaseResult =
+    when {
+        userCancelled -> PurchaseResult.Cancelled
+        code == PurchasesErrorCode.PaymentPendingError -> PurchaseResult.Pending
+        else -> PurchaseResult.Error(message = message)
+    }

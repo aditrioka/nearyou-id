@@ -1,12 +1,9 @@
 package id.nearyou.app.auth
 
-import id.nearyou.app.billing.PremiumEntitlementSession
-import id.nearyou.app.screens.paywall.FakePurchaseController
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -49,23 +46,6 @@ class SessionInvalidatorTest {
                 withTimeoutOrNull(200) { invalidator.sessionExpired.first() },
                 "a re-mounted observer must NOT replay the prior (consumed) invalidation",
             )
-        }
-
-    // premium-entitlement-lifecycle: involuntary invalidation unbinds the RevenueCat identity.
-    @Test
-    fun invalidateLogsRevenueCatOutAndStillDeliversTheReRouteSignal() =
-        runTest {
-            val store = InMemoryTokenStore(TokenPair(SUB_USER_123_JWT, "rt", 1L))
-            val controller = FakePurchaseController()
-            val session = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller)
-            session.syncIdentity() // bound as user-123
-            val invalidator = SessionInvalidator(store, premiumEntitlement = session)
-
-            invalidator.invalidate()
-
-            assertNull(store.read())
-            assertEquals(1, controller.logOutCount)
-            assertNotNull(withTimeoutOrNull(1_000) { invalidator.sessionExpired.first() })
         }
 
     @Test

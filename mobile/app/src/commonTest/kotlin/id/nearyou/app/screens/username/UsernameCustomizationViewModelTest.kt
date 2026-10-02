@@ -97,6 +97,28 @@ class UsernameCustomizationViewModelTest {
         }
 
     @Test
+    fun purchaseConfirmed_clearsAStaleSubmitGate() =
+        runTest(dispatcher) {
+            // The submit (PATCH) 403 gate — distinct from the probe gate.
+            val fake = FakeUsernameFlow(changeOutcome = UsernameChangeOutcome.PremiumGate)
+            val confirmed = MutableStateFlow(false)
+            val viewModel = vm(usernameFlow = fake, premiumConfirmed = confirmed)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onCandidateChange("newname")
+            advanceUntilIdle()
+            viewModel.onSubmitClick()
+            viewModel.onConfirmChange()
+            advanceUntilIdle()
+            assertEquals(UsernameStatus.PremiumGate, viewModel.uiState.value.status)
+
+            confirmed.value = true
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.status == UsernameStatus.PremiumGate, "the stale submit gate is cleared")
+        }
+
+    @Test
     fun purchaseConfirmed_clearsAStaleProbeGate_andReProbesTheCandidate() =
         runTest(dispatcher) {
             val fake =

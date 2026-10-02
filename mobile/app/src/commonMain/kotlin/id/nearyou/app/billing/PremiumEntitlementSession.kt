@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.koin.compose.getKoin
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The client Premium-entitlement lifecycle (`mobile-premium-entitlement`, issue #490). A Koin single.
@@ -35,19 +36,41 @@ class PremiumEntitlementSession(
     private val confirmed = MutableStateFlow(false)
     val purchaseConfirmed: StateFlow<Boolean> = confirmed.asStateFlow()
 
-    /** Align RevenueCat with the session; true iff identified as the signed-in user. Never throws. */
+    // Sessions that have ENDED (a bound account replaced: sign-out, or a direct account switch). Feeds
+    // [sessionKey] so a sign-out → sign-in — even as the SAME account — reads as a new session.
+    private val endedSessions = MutableStateFlow(0)
+
+    /**
+     * A key for per-session caches (the ad-eligibility latch): the signed-in user id plus how many sessions
+     * have ended, or null when signed out. A buyer who signs out and back in as the same account gets a new
+     * key, so stale pre-purchase state (an ad frequency) is never reused. Lock-free: never waits on a sync.
+     */
+    suspend fun sessionKey(): String? = selfUserIdProvider.selfUserId()?.let { "$it#${endedSessions.value}" }
+
+    /**
+     * Align RevenueCat with the session; true iff identified as the signed-in user. Never throws — enforced
+     * here, not trusted to the vendor binding: callers include the token-refresh failure path
+     * (`SessionInvalidator`) and the logout wipe, which an identity hiccup must never break.
+     */
     suspend fun syncIdentity(): Boolean =
         mutex.withLock {
-            val userId = selfUserIdProvider.selfUserId()
-            if (userId != boundUserId) {
-                confirmed.value = false
-                boundUserId = userId
-            }
-            if (userId == null) {
-                purchaseController.logOut()
-                false
-            } else {
-                purchaseController.logIn(userId)
+            try {
+                val userId = selfUserIdProvider.selfUserId()
+                if (userId != boundUserId) {
+                    if (boundUserId != null) endedSessions.value++
+                    confirmed.value = false
+                    boundUserId = userId
+                }
+                if (userId == null) {
+                    purchaseController.logOut()
+                    false
+                } else {
+                    purchaseController.logIn(userId)
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                false // the next resume / sign-in / pre-purchase sync retries
             }
         }
 

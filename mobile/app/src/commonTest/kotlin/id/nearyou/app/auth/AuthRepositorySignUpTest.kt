@@ -92,6 +92,28 @@ class AuthRepositorySignUpTest {
             assertEquals(listOf("user-123"), controller.loggedInIds)
         }
 
+    @Test
+    fun `a failed RevenueCat logIn does not block signup`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    store,
+                    premiumEntitlement =
+                        PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), FakePurchaseController(logInResult = false)),
+                ) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.Created,
+                        JSON_HEADERS,
+                    )
+                }
+
+            assertEquals(SignUpOutcome.Success, repo.signUpWithGoogle("g-id", DOB))
+            assertTrue(store.read() != null, "tokens are persisted even when the identity sync fails")
+        }
+
     // 7.4 + 7.15 — 201 persists tokens, returns Success, and reuses the carried id_token (the
     // Google ceremony is NOT re-invoked on the happy path — no second account sheet).
     @Test

@@ -18,6 +18,7 @@ import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.timeline.LocationProvider
 import id.nearyou.app.timeline.StubLocationProvider
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.test.runTest
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.core.qualifier.named
@@ -26,6 +27,8 @@ import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * premium-entitlement-lifecycle §6.11 — Koin-wiring check (mirrors `CrashReportingKoinResolutionTest`): the
@@ -58,10 +61,41 @@ class PremiumEntitlementKoinResolutionTest {
             }
         val koin = startKoin { modules(mobileModule, stubPlatform) }.koin
 
-        koin.get<PremiumEntitlementSession>()
+        val session = koin.get<PremiumEntitlementSession>()
+        assertSame(session, koin.get<PremiumEntitlementSession>(), "the session must be a single (one shared signal)")
         koin.get<SessionInvalidator>()
         koin.get<HttpClient>()
         koin.get<AuthRepository>()
         koin.get<AdFeedController>()
+    }
+
+    @Test
+    fun mobileModule_wiresTheAdControllerToTheSameSessionSignal() =
+        runTest {
+            val provider = RecordingProvider()
+            val stubPlatform =
+                module {
+                    single<TokenStore> { InMemoryTokenStore() }
+                    single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
+                    single<GoogleSignInGateway> { FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled) }
+                    single<AdProvider> { provider }
+                    single<LocationProvider>(named("deviceLocation")) { StubLocationProvider() }
+                    single<LocationPermissionController> { FakeLocationPermissionController() }
+                }
+            val koin = startKoin { modules(mobileModule, stubPlatform) }.koin
+
+            // A purchase confirmed on the session the paywall uses must reach the ads controller.
+            koin.get<PremiumEntitlementSession>().onPurchaseConfirmed()
+            koin.get<AdFeedController>().prepare()
+
+            assertTrue(provider.initializeCount == 0, "a confirmed buyer never triggers ad SDK init / UMP")
+        }
+
+    private class RecordingProvider : AdProvider by FakeAdProvider() {
+        var initializeCount = 0
+
+        override suspend fun initialize() {
+            initializeCount++
+        }
     }
 }

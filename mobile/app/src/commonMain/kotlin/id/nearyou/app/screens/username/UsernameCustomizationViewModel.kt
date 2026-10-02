@@ -70,7 +70,9 @@ class UsernameCustomizationViewModel(
         resolvePremiumOnEntry()
         viewModelScope.launch {
             premiumConfirmed.first { it }
-            // Clear any stale gate outcome + the probe memo so the current candidate is re-probed as Premium.
+            // Clear any stale gate outcome + the probe memo so the candidate is re-probed on the next edit. Not
+            // re-probed immediately: right after purchase the webhook has likely not landed, so an instant probe
+            // would 403 straight back into the gate.
             lastProbedCandidate = null
             state.update {
                 it.copy(

@@ -19,7 +19,7 @@
   - `onPurchaseConfirmed()`
 - [x] 2.2 `MobileModule`: `single { PremiumEntitlementSession(get(), get()) }`. Pass it to `AuthRepository` and `SessionInvalidator` (both new params default `null`).
 - [x] 2.3 `AuthRepository`: call `syncIdentity()` after `tokenStore.write` on sign-in AND sign-up success (before returning `Success`).
-- [x] 2.4 `SessionInvalidator.invalidate`: call `syncIdentity()` after the clear + `crashReporter.clearUser()` + `signal.trySend`.
+- [x] 2.4 Involuntary invalidation: `SessionExpiryEffect` launches `syncIdentity()` after its re-route when it consumes the session-expired signal. Revised in review round 1: NOT inside `SessionInvalidator.invalidate`, which runs within `TokenRefresher`'s single-flight critical section.
 - [x] 2.5 `SettingsViewModel`:
   - add `premiumEntitlement: PremiumEntitlementSession? = null`
   - call `syncIdentity()` inside the `NonCancellable` wipe, after `tokenStore.clear()` and `_loggedOut.value = true`
@@ -61,7 +61,7 @@
   - add `purchaseConfirmed: StateFlow<Boolean>` and `currentAccountId: suspend () -> String?` (both defaulted)
   - `frequency` = `combine(_frequency, purchaseConfirmed)` (null while confirmed)
   - `loadAd` returns null while confirmed
-  - `prepare()` is account-keyed (re-evaluates + clears cached ads on an account change) and short-circuits before SDK init/UMP while confirmed
+  - `prepare()` is session-keyed via `PremiumEntitlementSession.sessionKey` (re-evaluates + clears cached ads on any new session, incl. the same account after a sign-out — review round 1 B1) and short-circuits before SDK init/UMP while confirmed
   - `rememberTimelineAds` collects with `collectAsState(initial = null)`
   - `MobileModule` binds the session's signal (via `getOrNull`) + `SelfUserIdProvider::selfUserId`
 
@@ -103,6 +103,20 @@
 - [x] 6.10 `PaywallFlowIosTest`: add the `Success(false)` + recheck-true confirm path and the pending path on Kotlin/Native (K/N-legal test names).
 - [x] 6.11 `PremiumEntitlementKoinResolutionTest` (androidUnitTest, mirrors `CrashReportingKoinResolutionTest`): the real `mobileModule` + stub platform bindings resolve `PremiumEntitlementSession`, `SessionInvalidator`, `AuthRepository`, the `HttpClient`, and `AdFeedController`. This proves the D2/D6 wiring adds no Koin resolution cycle and satisfies the "Production binds the session as a Koin single" scenario.
 - [x] 6.12 The "unbound session degrades to never-confirmed" scenario is backed by the existing `NearbyTimelineScreenTest` / `UsernameCustomizationScreenTest` / `SearchScreenTest` / `PaywallScreenTest` / `TimelineAdsScreenTest`. None of them bind `PremiumEntitlementSession`, so they MUST stay green unmodified (no new Koin binding added to their modules).
+
+- [x] 6.13 Review round 1 fixes:
+  - `syncIdentity` catch-all + a throwing-vendor test
+  - `FETCH_CURRENT` recheck
+  - pure `transactionFailureResult` + `TransactionFailureResultTest` (`:infra:revenuecat`)
+  - same-account re-sign-in ads test
+  - non-vacuous cached-ad test
+  - synchronous frequency seed
+  - webhook WARN-log capture + blank-`app_user_id` 400 test
+  - sign-up sync-fails test
+  - Koin single + same-instance ads test
+  - paywall in-progress/double-tap, exactly-one-recheck, pending-with-session tests
+  - username submit-gate clear test
+  - `SessionExpiryEffectTest` + `BillingIdentityEffectTest` (Robolectric, Release-excluded)
 
 ## 7. Gates + verification
 

@@ -6,7 +6,7 @@ The change SHALL introduce a new KMP module `:infra:revenuecat` exposing a vendo
 
 - `suspend fun fetchOfferings(): OfferingsResult`
 - `suspend fun purchase(pkg: PaywallPackage): PurchaseResult`
-- an entitlement check (`isPremiumEntitlementActive(): Boolean`)
+- an entitlement check (`isPremiumEntitlementActive(): Boolean`), which SHALL read the CURRENT `CustomerInfo` from RevenueCat, not the SDK cache. Its callers are the post-purchase and pending rechecks, which exist because the cached `CustomerInfo` can trail the entitlement grant.
 - the identity pair (added by `premium-entitlement-lifecycle`):
   - `suspend fun logIn(appUserId: String): Boolean` binds the RevenueCat app-user id to `appUserId` (`Purchases.logIn`) and returns `true` iff identified. It is a no-op returning `true` when already identified as that id, and returns `false` when the SDK is unconfigured or the call fails.
   - `suspend fun logOut()` returns to an anonymous identity (`Purchases.logOut`). It is a no-op when unconfigured or already anonymous.
@@ -26,6 +26,11 @@ The RevenueCat Kotlin Multiplatform SDK (`purchases-kmp-core`) SHALL be imported
 
 - **WHEN** the `vendor-sdk-leakage-scan` lint runs over the change
 - **THEN** no RevenueCat SDK import appears outside `:infra:revenuecat`
+
+#### Scenario: A payment-pending store failure maps to Pending
+
+- **WHEN** the production failure mapping receives a non-cancelled `PaymentPendingError` / a user cancellation / any other store error
+- **THEN** it yields `PurchaseResult.Pending` / `PurchaseResult.Cancelled` / a retryable `PurchaseResult.Error` respectively
 
 #### Scenario: The interface carries the identity pair and the Pending result
 
