@@ -9,14 +9,19 @@ import id.nearyou.app.infra.revenuecat.PurchaseResult
  * Test double for the vendor-free [PurchaseController] seam — drives the `PaywallViewModel` / screen tests
  * without the RevenueCat SDK (mirrors `FakeSearchFlow`). Defaults to a loaded offering that purchases
  * successfully; mutators flip the offering / purchase outcome per scenario, and [purchaseInvocations]
- * records how many times [purchase] was driven.
+ * records how many times [purchase] was driven. The identity pair records [loggedInIds] / [logOutCount]
+ * and answers `logIn` with [logInResult] (premium-entitlement-lifecycle).
  */
 class FakePurchaseController(
-    private var offerings: OfferingsResult,
+    private var offerings: OfferingsResult = OfferingsResult.Unavailable,
     private var purchaseResult: PurchaseResult = PurchaseResult.Success(entitlementActive = true),
-    private var premiumActive: Boolean = false,
+    var premiumActive: Boolean = false,
+    var logInResult: Boolean = true,
 ) : PurchaseController {
     var purchaseInvocations: Int = 0
+        private set
+    val loggedInIds = mutableListOf<String>()
+    var logOutCount: Int = 0
         private set
 
     override suspend fun fetchOfferings(): OfferingsResult = offerings
@@ -27,6 +32,15 @@ class FakePurchaseController(
     }
 
     override suspend fun isPremiumEntitlementActive(): Boolean = premiumActive
+
+    override suspend fun logIn(appUserId: String): Boolean {
+        loggedInIds += appUserId
+        return logInResult
+    }
+
+    override suspend fun logOut() {
+        logOutCount++
+    }
 
     fun setOfferings(value: OfferingsResult) {
         offerings = value

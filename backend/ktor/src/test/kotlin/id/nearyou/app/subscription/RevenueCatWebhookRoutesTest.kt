@@ -447,6 +447,29 @@ class RevenueCatWebhookRoutesTest : StringSpec({
         countEvents("rc_orphan_$orphan") shouldBe 0
     }
 
+    // premium-entitlement-lifecycle: a non-UUID (RevenueCat anonymous) app_user_id is an unknown user, not a
+    // malformed body — acked 200 so RevenueCat stops retrying (it was a 400 before #490).
+    "5.2 non-UUID (anonymous) app_user_id → 200 ignored, no writes" {
+        val u = seedUser()
+        val rcId = "rc_anon_$u"
+        try {
+            withApp {
+                val resp =
+                    createClient { install(ClientCN) { json() } }.post("/internal/revenuecat-webhook") {
+                        header(HttpHeaders.Authorization, "Bearer $TEST_BEARER")
+                        contentType(ContentType.Application.Json)
+                        setBody(eventBody("INITIAL_PURCHASE", rcId, "\$RCAnonymousID:abc123"))
+                    }
+                resp.status shouldBe HttpStatusCode.OK
+                Json.parseToJsonElement(resp.bodyAsText()).jsonObject["status"]!!.jsonPrimitive.content shouldBe "ignored"
+            }
+            countEvents(rcId) shouldBe 0
+            status(u) shouldBe "free"
+        } finally {
+            cleanup(u)
+        }
+    }
+
     "5.2 unknown event type → 200 ignored, no writes" {
         val u = seedUser()
         try {

@@ -41,6 +41,6 @@ fun rememberTimelineAds(): TimelineAds {
         return remember { TimelineAds(null, null) }
     }
     LaunchedEffect(controller) { controller.prepare() }
-    val frequency by controller.frequency.collectAsState()
+    val frequency by controller.frequency.collectAsState(initial = null)
     return remember(controller, frequency) { TimelineAds(controller, frequency) }
 }

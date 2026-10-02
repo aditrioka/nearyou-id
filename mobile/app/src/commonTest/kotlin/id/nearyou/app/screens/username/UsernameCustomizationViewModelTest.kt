@@ -5,8 +5,11 @@ import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.username.FakeUsernameFlow
 import id.nearyou.app.username.UsernameChangeOutcome
 import id.nearyou.app.username.UsernameCheckOutcome
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -46,12 +49,76 @@ class UsernameCustomizationViewModelTest {
         usernameFlow: FakeUsernameFlow = FakeUsernameFlow(),
         profileOutcome: ProfileOutcome = selfProfile(),
         selfId: String? = "self-id",
+        premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
     ): UsernameCustomizationViewModel =
         UsernameCustomizationViewModel(
             flow = usernameFlow,
             profileFlow = FakeProfileFlow(profileOutcome = profileOutcome),
             selfUserIdProvider = FakeSelfUserIdProvider(selfId),
+            premiumConfirmed = premiumConfirmed,
         )
+
+    // ---- premium-entitlement-lifecycle: re-evaluate after a confirmed purchase ----
+
+    @Test
+    fun purchaseConfirmedWhileTheGateIsShown_opensTheEditor() =
+        runTest(dispatcher) {
+            val confirmed = MutableStateFlow(false)
+            val viewModel = vm(profileOutcome = selfProfile(isPremium = false), premiumConfirmed = confirmed)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertEquals(UsernameStatus.PremiumGate, viewModel.uiState.value.status)
+
+            confirmed.value = true
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.status is UsernameStatus.Editing, "status: ${viewModel.uiState.value.status}")
+        }
+
+    @Test
+    fun laggingFreeSelfRead_doesNotReGateAConfirmedBuyer() =
+        runTest(dispatcher) {
+            // The read is gated so it lands AFTER the confirmation collector (the real network ordering).
+            val gate = CompletableDeferred<Unit>()
+            val viewModel =
+                UsernameCustomizationViewModel(
+                    flow = FakeUsernameFlow(),
+                    profileFlow = FakeProfileFlow(profileOutcome = selfProfile(isPremium = false)).apply { loadGate = gate },
+                    selfUserIdProvider = FakeSelfUserIdProvider("self-id"),
+                    premiumConfirmed = MutableStateFlow(true),
+                )
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.status == UsernameStatus.PremiumGate, "a lagging Free read must not re-gate")
+        }
+
+    @Test
+    fun purchaseConfirmed_clearsAStaleProbeGate_andReProbesTheCandidate() =
+        runTest(dispatcher) {
+            val fake =
+                FakeUsernameFlow(
+                    checkOutcomes = listOf(UsernameCheckOutcome.CheckPremiumGate, UsernameCheckOutcome.Available(true)),
+                )
+            val confirmed = MutableStateFlow(false)
+            val viewModel = vm(usernameFlow = fake, premiumConfirmed = confirmed)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onCandidateChange("newname")
+            advanceUntilIdle()
+            assertEquals(UsernameStatus.PremiumGate, viewModel.uiState.value.status)
+
+            confirmed.value = true
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.status == UsernameStatus.PremiumGate, "the stale probe gate is cleared")
+
+            viewModel.onCandidateChange("newname")
+            advanceUntilIdle()
+            assertEquals(listOf("newname", "newname"), fake.checkCalls, "the candidate is re-probed, not memo-skipped")
+        }
 
     @Test
     fun onEntry_premiumSelfRead_rendersTheEditorWithTheCurrentHandle() =

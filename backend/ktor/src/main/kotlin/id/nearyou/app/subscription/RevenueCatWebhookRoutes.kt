@@ -126,7 +126,11 @@ fun Application.revenueCatWebhookRoutes(
                 try {
                     UUID.fromString(appUserId)
                 } catch (_: IllegalArgumentException) {
-                    return@post call.respond(HttpStatusCode.BadRequest, error("invalid_request"))
+                    // A non-UUID id (a RevenueCat `$RCAnonymousID:…` from a purchase made before the client
+                    // bound its identity) is well-formed but maps to no users.id → the unknown-user contract:
+                    // ack 200 so RevenueCat stops retrying. Never log the raw id.
+                    log.warn("event=revenuecat_orphan_event reason=non_uuid_app_user_id rc_event_id={}", rcEventId)
+                    return@post call.respond(HttpStatusCode.OK, mapOf("status" to "ignored"))
                 }
 
             val incoming =

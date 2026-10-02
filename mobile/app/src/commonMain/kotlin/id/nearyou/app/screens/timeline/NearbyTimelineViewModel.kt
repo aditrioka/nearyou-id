@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
@@ -67,6 +68,10 @@ class NearbyTimelineViewModel(
     private val selfUserIdProvider: SelfUserIdProvider,
     reportSubmitter: ReportSubmitter,
     blockSubmitter: BlockSubmitter,
+    // premium-entitlement-lifecycle: the client-confirmed purchase (PremiumEntitlementSession). Effective tier
+    // = self-profile isPremium OR this, so a buyer returning from the paywall (pushed atop this HomeRoute-scoped
+    // VM) unlocks the Premium radii without a cold start; the radius_premium_only 403 still backstops.
+    private val premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
 ) : ViewModel() {
     private val _outcome = MutableStateFlow<NearbyTimelineOutcome?>(null)
     val outcome: StateFlow<NearbyTimelineOutcome?> = _outcome.asStateFlow()
@@ -199,6 +204,10 @@ class NearbyTimelineViewModel(
     init {
         load(initial = true)
         resolvePremiumOnEntry()
+        viewModelScope.launch {
+            premiumConfirmed.first { it }
+            _isPremiumKnown.value = true
+        }
     }
 
     /** The card kebab's report action for [postId], or null when ineligible: the self id is unresolved
@@ -348,7 +357,8 @@ class NearbyTimelineViewModel(
             }
             _isPremiumKnown.value =
                 when (val outcome = profileFlow.loadProfile(id)) {
-                    is ProfileOutcome.Loaded -> outcome.profile.isPremium
+                    // OR the confirmed purchase: a read lagging the webhook must not re-lock a buyer.
+                    is ProfileOutcome.Loaded -> outcome.profile.isPremium || premiumConfirmed.value
                     else -> true // NotFound / NetworkError → reactive-403 backstops correctness.
                 }
         }

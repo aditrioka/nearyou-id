@@ -8,6 +8,8 @@ import id.nearyou.app.infra.admob.AdProvider
 import id.nearyou.app.infra.admob.AdRequestMode
 import id.nearyou.app.infra.admob.ConsentState
 import id.nearyou.app.infra.admob.NativeAdContent
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -69,6 +71,16 @@ private fun controller(
     adUnitId = UNIT,
 )
 
+/** A config seam that counts fetches and answers with the current [outcome] (switchable per account). */
+private class CountingAdsConfig(var outcome: AdsConfigOutcome) : AdsConfigFlow {
+    var fetches = 0
+
+    override suspend fun fetchConfig(): AdsConfigOutcome {
+        fetches++
+        return outcome
+    }
+}
+
 /** Ad-eligibility + UMP gate ordering + data-minimization coverage with a fake provider (task 5.2). */
 class AdFeedControllerTest {
     @Test
@@ -78,7 +90,7 @@ class AdFeedControllerTest {
             val controller = controller(AdsConfigOutcome.Enabled(6), provider)
 
             controller.prepare()
-            assertEquals(6, controller.frequency.value)
+            assertEquals(6, controller.frequency.first())
 
             controller.loadAd("ad:6")
             val consentIdx = provider.calls.indexOf("requestConsent")
@@ -97,7 +109,7 @@ class AdFeedControllerTest {
             val controller = controller(AdsConfigOutcome.Enabled(6), provider)
 
             controller.prepare()
-            assertNull(controller.frequency.value)
+            assertNull(controller.frequency.first())
             assertNull(controller.loadAd("ad:6"))
             assertFalse(provider.calls.contains("loadNativeAd"))
         }
@@ -109,7 +121,7 @@ class AdFeedControllerTest {
             val controller = controller(AdsConfigOutcome.Disabled, provider)
 
             controller.prepare()
-            assertNull(controller.frequency.value)
+            assertNull(controller.frequency.first())
             assertNull(controller.loadAd("ad:6"))
             assertTrue(provider.calls.isEmpty()) // no initialize, no consent, no load
         }
@@ -159,5 +171,83 @@ class AdFeedControllerTest {
             controller.loadAd("ad:6")
             controller.loadAd("ad:6")
             assertEquals(1, provider.calls.count { it == "loadNativeAd" })
+        }
+
+    // ---- premium-entitlement-lifecycle ----
+
+    @Test
+    fun `a confirmed purchase removes ad slots immediately`() =
+        runTest {
+            val provider = RecordingAdProvider(ConsentState.OBTAINED)
+            val confirmed = MutableStateFlow(false)
+            val controller =
+                AdFeedController(AdsConfigFlow { AdsConfigOutcome.Enabled(6) }, provider, FakeConsentStore(consent(false)), UNIT, confirmed)
+            controller.prepare()
+            assertEquals(6, controller.frequency.first())
+
+            confirmed.value = true
+
+            assertNull(controller.frequency.first(), "slots vanish without a cold start")
+            assertNull(controller.loadAd("ad:6"))
+            assertFalse(provider.calls.contains("loadNativeAd"), "no provider load for a confirmed buyer")
+        }
+
+    @Test
+    fun `a confirmed purchase skips SDK init and UMP on prepare`() =
+        runTest {
+            val provider = RecordingAdProvider(ConsentState.OBTAINED)
+            val controller =
+                AdFeedController(
+                    AdsConfigFlow { AdsConfigOutcome.Enabled(6) },
+                    provider,
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    purchaseConfirmed = MutableStateFlow(true),
+                )
+
+            controller.prepare()
+
+            assertTrue(provider.calls.isEmpty(), "no initialize, no consent: ${provider.calls}")
+            assertNull(controller.frequency.first())
+        }
+
+    @Test
+    fun `the same account stays latched`() =
+        runTest {
+            val config = CountingAdsConfig(AdsConfigOutcome.Enabled(6))
+            val controller =
+                AdFeedController(
+                    config,
+                    RecordingAdProvider(ConsentState.OBTAINED),
+                    FakeConsentStore(consent(false)),
+                    UNIT,
+                    currentAccountId = { "u-1" },
+                )
+
+            controller.prepare()
+            controller.prepare()
+
+            assertEquals(1, config.fetches)
+        }
+
+    @Test
+    fun `a different account re-evaluates and drops the previous account's cached ads`() =
+        runTest {
+            val config = CountingAdsConfig(AdsConfigOutcome.Enabled(6))
+            val provider = RecordingAdProvider(ConsentState.OBTAINED)
+            var account: String? = "u-1"
+            val controller =
+                AdFeedController(config, provider, FakeConsentStore(consent(false)), UNIT, currentAccountId = { account })
+            controller.prepare()
+            controller.loadAd("ad:6")
+            assertEquals(6, controller.frequency.first())
+
+            account = "u-2"
+            config.outcome = AdsConfigOutcome.Disabled
+            controller.prepare()
+
+            assertEquals(2, config.fetches, "the second account re-fetches ads-config")
+            assertNull(controller.frequency.first(), "u-2's disabled config wins; u-1's frequency is gone")
+            assertNull(controller.loadAd("ad:6"), "u-1's cached ad is not served to u-2")
         }
 }

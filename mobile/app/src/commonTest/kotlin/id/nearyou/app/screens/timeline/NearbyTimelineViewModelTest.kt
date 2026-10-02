@@ -13,9 +13,12 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.RadiusChangeResult
 import id.nearyou.app.timeline.fakeNearbyPost
 import id.nearyou.distance.LatLng
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -46,7 +49,16 @@ class NearbyTimelineViewModelTest {
         flow: FakeNearbyTimelineFlow,
         likeFlow: FakeLikeFlow = FakeLikeFlow(),
         profileFlow: FakeProfileFlow = FakeProfileFlow(),
-    ) = NearbyTimelineViewModel(flow, likeFlow, profileFlow, FakeSelfUserId("self"), FakeReportSubmitter(), FakeBlockSubmitter())
+        premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
+    ) = NearbyTimelineViewModel(
+        flow,
+        likeFlow,
+        profileFlow,
+        FakeSelfUserId("self"),
+        FakeReportSubmitter(),
+        FakeBlockSubmitter(),
+        premiumConfirmed,
+    )
 
     @BeforeTest
     fun setMainDispatcher() {
@@ -423,6 +435,40 @@ class NearbyTimelineViewModelTest {
         assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium 50 km selection is adopted")
         viewModel.onLoadMore()
         assertEquals(listOf(50_000), fake.loadMoreRadii, "load-more reuses the selected 50 km radius, not the 20 km default")
+    }
+
+    // ---- premium-entitlement-lifecycle: re-evaluate after a confirmed purchase ----
+
+    @Test
+    fun purchaseConfirmedWhileAlive_unlocksThePremiumRadii() {
+        // A Free viewer (the HomeRoute VM survives the paywall push) buys → returns → selects 50 km.
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        val confirmed = MutableStateFlow(false)
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile(isPremium = false), premiumConfirmed = confirmed)
+        assertEquals(false, viewModel.isPremiumKnown.value, "the Free self-read gates first")
+
+        confirmed.value = true
+        viewModel.selectRadius(50_000)
+
+        assertEquals(true, viewModel.isPremiumKnown.value, "the confirmed purchase flips the gate without re-entry")
+        assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium radius is applied")
+        assertEquals(listOf(50_000), fake.changeRadiusCalls, "a page-1 fetch at 50 km is issued")
+        assertFalse(viewModel.radiusUpsell.value, "no upsell for a confirmed buyer")
+    }
+
+    @Test
+    fun laggingFreeSelfRead_doesNotOverrideAConfirmedPurchase() {
+        // The webhook has not landed: the self read still says Free, but the purchase is already confirmed.
+        // The read is gated so it lands AFTER the confirmation collector (the real network ordering).
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        val gate = CompletableDeferred<Unit>()
+        val profile = premiumProfile(isPremium = false).apply { loadGate = gate }
+        val viewModel = viewModelWith(fake, profileFlow = profile, premiumConfirmed = MutableStateFlow(true))
+        assertEquals(true, viewModel.isPremiumKnown.value, "the confirmed purchase resolves first")
+
+        gate.complete(Unit) // the lagging Free read lands
+
+        assertEquals(true, viewModel.isPremiumKnown.value, "a lagging Free read must not re-lock the buyer")
     }
 
     // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects

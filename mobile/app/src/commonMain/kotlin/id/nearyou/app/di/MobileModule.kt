@@ -14,6 +14,7 @@ import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.auth.TokenStoreSelfUserIdProvider
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ChatMessagesApiClient
 import id.nearyou.app.chat.ChatRepository
@@ -166,6 +167,10 @@ val mobileModule =
         // purchases-kmp SDK is fenced inside :infra:revenuecat, invariant #16). Configured at startup via
         // configureRevenueCat; until then fetchOfferings fail-softs to Unavailable (the Unconfigured paywall).
         single<PurchaseController> { RevenueCatPurchaseController() }
+        // premium-entitlement-lifecycle (#490) — binds the RevenueCat identity to users.id across the session
+        // + publishes the confirmed-purchase signal. Depends only on SelfUserIdProvider → TokenStore and the
+        // dependency-free PurchaseController, so SessionInvalidator can take it with no HttpClient cycle.
+        single { PremiumEntitlementSession(get(), get()) }
         // mobile-crash-reporting — the start/stop lifecycle, shared by startup init (initKoin) and the
         // runtime consent toggle (ConsentSettingsViewModel). Config resolved from the flavor seam.
         single {
@@ -179,7 +184,7 @@ val mobileModule =
                     ),
             )
         }
-        single { SessionInvalidator(get(), crashReporter = get()) }
+        single { SessionInvalidator(get(), crashReporter = get(), premiumEntitlement = get()) }
         // mobile-session-expiry-and-proactive-refresh (D6) — the real coordinate-free diagnostic sink the
         // timeline repositories wire (replacing their no-op default), so nearby/global network + 400
         // diagnostics are observable. mobile-crash-reporting lands the reserved "until a Sentry/OTel sink
@@ -219,6 +224,7 @@ val mobileModule =
                 // banned 403's appeal token reaches the appeal screen.
                 appealSession = get(),
                 analytics = get(),
+                premiumEntitlement = get(),
             )
         }
         // Bind the AuthFlow interface to the concrete AuthRepository so screens depend on the
@@ -417,6 +423,9 @@ val mobileModule =
                 adProvider = get(),
                 consentStore = get(),
                 adUnitId = nativeAdUnitId,
+                // premium-entitlement-lifecycle: a confirmed purchase drops ads; the latch is per account.
+                purchaseConfirmed = get<PremiumEntitlementSession>().purchaseConfirmed,
+                currentAccountId = get<SelfUserIdProvider>()::selfUserId,
             )
         }
 

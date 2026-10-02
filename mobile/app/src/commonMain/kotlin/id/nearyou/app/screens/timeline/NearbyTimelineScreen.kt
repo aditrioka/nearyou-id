@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.billing.rememberPremiumConfirmed
 import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportReasonCategory
@@ -206,9 +207,19 @@ private fun NearbyFeed(
     // timeline-card-block-kebab: the shared block seam (the SAME BlockSubmitter singleton the
     // profile/post-detail surfaces use).
     val blockSubmitter = koinInject<BlockSubmitter>()
+    // premium-entitlement-lifecycle: the confirmed-purchase signal (fail-safe: never-confirmed when unbound).
+    val premiumConfirmed = rememberPremiumConfirmed()
     val viewModel =
         viewModel {
-            NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider, reportSubmitter, blockSubmitter)
+            NearbyTimelineViewModel(
+                flow,
+                likeFlow,
+                profileFlow,
+                selfUserIdProvider,
+                reportSubmitter,
+                blockSubmitter,
+                premiumConfirmed,
+            )
         }
     // The single screen state — the nearbyTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.

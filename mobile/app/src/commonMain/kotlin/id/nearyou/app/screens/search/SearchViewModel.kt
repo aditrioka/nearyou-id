@@ -11,6 +11,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -33,6 +34,9 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 class SearchViewModel(
     private val flow: SearchFlow,
+    // premium-entitlement-lifecycle: a purchase confirmed while the 403 gate is shown (the buyer returns from
+    // the paywall pushed atop this route) re-runs the current query once; the server 403 stays authoritative.
+    premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
 ) : ViewModel() {
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -48,6 +52,13 @@ class SearchViewModel(
 
     private var searchJob: Job? = null
     private var loadMoreJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            premiumConfirmed.first { it }
+            if (_outcome.value == SearchOutcome.PremiumGate) retry()
+        }
+    }
 
     /** The text field's change handler: caps the input at 100 code points, then either schedules a
      *  debounced fetch (eligible query) or returns the screen to Idle (below the guard's minimum). */

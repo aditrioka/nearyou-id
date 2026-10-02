@@ -509,6 +509,10 @@
     <string name="paywall_unavailable_title">Premium belum tersedia</string>
     <string name="paywall_unavailable_body">Fitur Premium akan segera hadir. Coba lagi nanti.</string>
     <string name="paywall_purchase_error">Pembayaran gagal. Coba lagi.</string>
+    <!-- premium-entitlement-lifecycle: an unconfirmed / payment-pending purchase (e.g. a Play cash payment
+         awaiting settlement) — informational, never a success claim; the CTA rechecks the entitlement. -->
+    <string name="paywall_purchase_pending">Pembayaran sedang diproses. Premium aktif setelah pembayaran dikonfirmasi.</string>
+    <string name="paywall_cta_check_status">Cek status pembayaran</string>
     <!-- mobile-premium-username: the Ganti Username surface (docs/03-UX-Design.md §107-148), consuming the
          SHIPPED PATCH /api/v1/user/username + GET /api/v1/username/check. Error/session states REUSE
          signin_error_network / cta_retry / timeline_session_redirect; the Premium-gate CTA REUSES

@@ -1,63 +1,63 @@
 ## 1. `:infra:revenuecat` identity seam
 
-- [ ] 1.1 `PurchaseController`: add `suspend fun logIn(appUserId: String): Boolean` and `suspend fun logOut()` (vendor-free, KDoc'd non-throwing contract). Add `data object Pending : PurchaseResult`.
-- [ ] 1.2 `RevenueCatPurchaseController.logIn`:
+- [x] 1.1 `PurchaseController`: add `suspend fun logIn(appUserId: String): Boolean` and `suspend fun logOut()` (vendor-free, KDoc'd non-throwing contract). Add `data object Pending : PurchaseResult`.
+- [x] 1.2 `RevenueCatPurchaseController.logIn`:
   - returns `false` when unconfigured
   - no-ops to `true` when already identified as `appUserId`
   - otherwise calls `awaitLogIn`; `PurchasesException` → `false`
-- [ ] 1.3 `RevenueCatPurchaseController.logOut`: no-op when unconfigured or `isAnonymous`, else `awaitLogOut`; swallow `PurchasesException`.
-- [ ] 1.4 `RevenueCatPurchaseController.purchase`:
+- [x] 1.3 `RevenueCatPurchaseController.logOut`: no-op when unconfigured or `isAnonymous`, else `awaitLogOut`; swallow `PurchasesException`.
+- [x] 1.4 `RevenueCatPurchaseController.purchase`:
   - return `Error("identity_unavailable")` when `isAnonymous` (the D3 fail-closed guard)
   - map `PurchasesErrorCode.PaymentPendingError` → `PurchaseResult.Pending`
-- [ ] 1.5 Refresh the stale "tracked follow-on" KDoc in `RevenueCatConfig.kt` and `KoinInit.kt` (configure stays anonymous; `PremiumEntitlementSession` binds via `logIn`).
+- [x] 1.5 Refresh the stale "tracked follow-on" KDoc in `RevenueCatConfig.kt` and `KoinInit.kt` (configure stays anonymous; `PremiumEntitlementSession` binds via `logIn`).
 
 ## 2. `PremiumEntitlementSession` + session-boundary wiring
 
-- [ ] 2.1 New `mobile/app/src/commonMain/kotlin/id/nearyou/app/billing/PremiumEntitlementSession.kt`:
+- [x] 2.1 New `mobile/app/src/commonMain/kotlin/id/nearyou/app/billing/PremiumEntitlementSession.kt`:
   - `syncIdentity(): Boolean`, Mutex-serialized: resolves the id via `SelfUserIdProvider`, then `logIn`/`logOut`; resets `purchaseConfirmed` when the bound id changes
   - `purchaseConfirmed: StateFlow<Boolean>`
   - `onPurchaseConfirmed()`
-- [ ] 2.2 `MobileModule`: `single { PremiumEntitlementSession(get(), get()) }`. Pass it to `AuthRepository` and `SessionInvalidator` (both new params default `null`).
-- [ ] 2.3 `AuthRepository`: call `syncIdentity()` after `tokenStore.write` on sign-in AND sign-up success (before returning `Success`).
-- [ ] 2.4 `SessionInvalidator.invalidate`: call `syncIdentity()` after the clear + `crashReporter.clearUser()` + `signal.trySend`.
-- [ ] 2.5 `SettingsViewModel`:
+- [x] 2.2 `MobileModule`: `single { PremiumEntitlementSession(get(), get()) }`. Pass it to `AuthRepository` and `SessionInvalidator` (both new params default `null`).
+- [x] 2.3 `AuthRepository`: call `syncIdentity()` after `tokenStore.write` on sign-in AND sign-up success (before returning `Success`).
+- [x] 2.4 `SessionInvalidator.invalidate`: call `syncIdentity()` after the clear + `crashReporter.clearUser()` + `signal.trySend`.
+- [x] 2.5 `SettingsViewModel`:
   - add `premiumEntitlement: PremiumEntitlementSession? = null`
   - call `syncIdentity()` inside the `NonCancellable` wipe, after `tokenStore.clear()` and `_loggedOut.value = true`
   - `SettingsScreen` passes it via the fail-safe `getOrNull` lookup
   - Do NOT touch the Sentry `clearUser` on logout (#492, held).
-- [ ] 2.6 New app-root `BillingIdentityEffect` (`screens/routing/`, mirrors `ProactiveRefreshEffect`): on `ON_RESUME`, launch `syncIdentity()` on the app-root scope; swallow non-cancellation failures. Host it in `App.kt` next to `ProactiveRefreshEffect`, resolving the session via `getOrNull` so the app composes when it is unbound.
+- [x] 2.6 New app-root `BillingIdentityEffect` (`screens/routing/`, mirrors `ProactiveRefreshEffect`): on `ON_RESUME`, launch `syncIdentity()` on the app-root scope; swallow non-cancellation failures. Host it in `App.kt` next to `ProactiveRefreshEffect`, resolving the session via `getOrNull` so the app composes when it is unbound.
 
 ## 3. Paywall confirm / pending
 
-- [ ] 3.1 `PaywallUiState.Content`: add `purchasePending: Boolean = false`.
-- [ ] 3.2 `PaywallViewModel(purchaseController, premiumEntitlement: PremiumEntitlementSession? = null)`. `onSubscribe`:
+- [x] 3.1 `PaywallUiState.Content`: add `purchasePending: Boolean = false`.
+- [x] 3.2 `PaywallViewModel(purchaseController, premiumEntitlement: PremiumEntitlementSession? = null)`. `onSubscribe`:
   - if pending → recheck (no purchase)
   - otherwise set in-progress → `syncIdentity()` (`false` → `purchaseError`, no purchase) → `purchase`
   - map the result: `Success(true)` → confirm; `Success(false)` → one `isPremiumEntitlementActive()` recheck → confirm/pending; `Pending` → pending
   - confirm = `onPurchaseConfirmed()` + `purchaseSucceeded`
-- [ ] 3.3 `PaywallScreen`:
+- [x] 3.3 `PaywallScreen`:
   - resolve the session via `getOrNull`
   - pending renders `paywall_purchase_pending` (onSurfaceVariant, in the error-message slot)
   - the CTA label becomes `paywall_cta_check_status` while pending
-- [ ] 3.4 Add the two strings to `:shared:resources` `values/strings.xml` (Bahasa Indonesia, matching the existing paywall copy voice) plus any locale file that mirrors the paywall keys.
+- [x] 3.4 Add the two strings to `:shared:resources` `values/strings.xml` (Bahasa Indonesia, matching the existing paywall copy voice) plus any locale file that mirrors the paywall keys.
 
 ## 4. Gated-surface re-evaluation
 
-- [ ] 4.1 `NearbyTimelineViewModel`:
+- [x] 4.1 `NearbyTimelineViewModel`:
   - `premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false)` param
   - on-entry result ORs `premiumConfirmed.value`
   - a collector sets `_isPremiumKnown = true` when it flips `true`
   - `NearbyTimelineScreen` passes it via the fail-safe lookup
-- [ ] 4.2 `UsernameCustomizationViewModel`:
+- [x] 4.2 `UsernameCustomizationViewModel`:
   - same param
   - on-entry ORs the signal
   - the collector sets `isPremiumKnown = true`, clears a `CheckPremiumGate`/`PremiumGate` outcome, and resets `lastProbedCandidate`
   - `UsernameCustomizationScreen` passes it via the fail-safe lookup
-- [ ] 4.3 `SearchViewModel`:
+- [x] 4.3 `SearchViewModel`:
   - same param
   - the collector calls `retry()` once when it flips `true` while the outcome is `PremiumGate`
   - `SearchScreen` passes it via the fail-safe lookup
-- [ ] 4.4 `AdFeedController`:
+- [x] 4.4 `AdFeedController`:
   - add `purchaseConfirmed: StateFlow<Boolean>` and `currentAccountId: suspend () -> String?` (both defaulted)
   - `frequency` = `combine(_frequency, purchaseConfirmed)` (null while confirmed)
   - `loadAd` returns null while confirmed
@@ -67,41 +67,41 @@
 
 ## 5. Backend webhook
 
-- [ ] 5.1 `RevenueCatWebhookRoutes`: a non-UUID `app_user_id` → `200 {"status":"ignored"}` + WARN `event=revenuecat_orphan_event reason=non_uuid_app_user_id rc_event_id=…`. Never log the raw id. A missing/blank `app_user_id` stays `400`.
-- [ ] 5.2 `RevenueCatWebhookRoutesTest`: a non-UUID `app_user_id` (`$RCAnonymousID:abc123`) → 200 `ignored`, zero `subscription_events` rows, `subscription_status` unchanged.
+- [x] 5.1 `RevenueCatWebhookRoutes`: a non-UUID `app_user_id` → `200 {"status":"ignored"}` + WARN `event=revenuecat_orphan_event reason=non_uuid_app_user_id rc_event_id=…`. Never log the raw id. A missing/blank `app_user_id` stays `400`.
+- [x] 5.2 `RevenueCatWebhookRoutesTest`: a non-UUID `app_user_id` (`$RCAnonymousID:abc123`) → 200 `ignored`, zero `subscription_events` rows, `subscription_status` unchanged.
 
 ## 6. Tests
 
-- [ ] 6.1 `FakePurchaseController`: record `logIn` ids / `logOut` count; configurable `logInResult`; settable `premiumActive`.
-- [ ] 6.2 `PremiumEntitlementSessionTest`:
+- [x] 6.1 `FakePurchaseController`: record `logIn` ids / `logOut` count; configurable `logInResult`; settable `premiumActive`.
+- [x] 6.2 `PremiumEntitlementSessionTest`:
   - signed-in → `logIn(sub)` + `true`
   - signed-out → `logOut`
   - `logIn` failure → `false`
   - confirmed set / survives same-account resync / reset on sign-out and account switch
-- [ ] 6.3 Boundary call sites:
+- [x] 6.3 Boundary call sites:
   - `AuthRepositoryTest`: sign-in `logIn(sub)` + success despite `logIn` failure
   - `AuthRepositorySignUpTest`: sign-up `logIn(sub)`
   - `SessionInvalidatorTest`: `invalidate` → `logOut` + signal still delivered
   - `SettingsLogoutViewModelTest`: `logout` → `logOut` + wipe
-- [ ] 6.4 `PaywallViewModelTest`:
+- [x] 6.4 `PaywallViewModelTest`:
   - confirmed → `purchaseConfirmed` true
   - `Success(false)` + recheck true → success
   - `Success(false)` + recheck false → pending (no success)
   - `Pending` → pending, no error
   - CTA while pending rechecks without a second purchase
   - identity-sync failure → error, no purchase
-- [ ] 6.5 `NearbyTimelineViewModelTest`: signal flip unlocks 50 km (fetch issued, no upsell); a lagging Free self read after confirmation stays Premium.
-- [ ] 6.6 `UsernameCustomizationViewModelTest`: signal flip leaves `PremiumGate` for the editor; a stale `CheckPremiumGate` is cleared and the candidate re-probed.
-- [ ] 6.7 `SearchViewModelTest`: `PremiumGate` + signal → exactly one re-query → `Results`; a non-gate outcome + signal → no re-query.
-- [ ] 6.8 `AdFeedControllerTest`:
+- [x] 6.5 `NearbyTimelineViewModelTest`: signal flip unlocks 50 km (fetch issued, no upsell); a lagging Free self read after confirmation stays Premium.
+- [x] 6.6 `UsernameCustomizationViewModelTest`: signal flip leaves `PremiumGate` for the editor; a stale `CheckPremiumGate` is cleared and the candidate re-probed.
+- [x] 6.7 `SearchViewModelTest`: `PremiumGate` + signal → exactly one re-query → `Results`; a non-gate outcome + signal → no re-query.
+- [x] 6.8 `AdFeedControllerTest`:
   - signal flip → frequency null + `loadAd` null without a provider call
   - confirmed-before-prepare → no init/consent
   - same account latched (one config fetch)
   - account change → config re-fetched, cached ad dropped
   - update the existing `.value` reads to the Flow
-- [ ] 6.9 `PaywallScreenTest` (Robolectric, already in the Release-variant exclude): the pending state renders the pending copy + check-status CTA label and no error text.
+- [x] 6.9 `PaywallScreenTest` (Robolectric, already in the Release-variant exclude): the pending state renders the pending copy + check-status CTA label and no error text.
 - [ ] 6.10 `PaywallFlowIosTest`: add the `Success(false)` + recheck-true confirm path and the pending path on Kotlin/Native (K/N-legal test names).
-- [ ] 6.11 `PremiumEntitlementKoinResolutionTest` (androidUnitTest, mirrors `CrashReportingKoinResolutionTest`): the real `mobileModule` + stub platform bindings resolve `PremiumEntitlementSession`, `SessionInvalidator`, `AuthRepository`, the `HttpClient`, and `AdFeedController`. This proves the D2/D6 wiring adds no Koin resolution cycle and satisfies the "Production binds the session as a Koin single" scenario.
+- [x] 6.11 `PremiumEntitlementKoinResolutionTest` (androidUnitTest, mirrors `CrashReportingKoinResolutionTest`): the real `mobileModule` + stub platform bindings resolve `PremiumEntitlementSession`, `SessionInvalidator`, `AuthRepository`, the `HttpClient`, and `AdFeedController`. This proves the D2/D6 wiring adds no Koin resolution cycle and satisfies the "Production binds the session as a Koin single" scenario.
 - [ ] 6.12 The "unbound session degrades to never-confirmed" scenario is backed by the existing `NearbyTimelineScreenTest` / `UsernameCustomizationScreenTest` / `SearchScreenTest` / `PaywallScreenTest` / `TimelineAdsScreenTest`. None of them bind `PremiumEntitlementSession`, so they MUST stay green unmodified (no new Koin binding added to their modules).
 
 ## 7. Gates + verification

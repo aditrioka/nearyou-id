@@ -23,6 +23,9 @@ sealed interface PaywallUiState {
         val purchaseInProgress: Boolean = false,
         val purchaseError: Boolean = false,
         val purchaseSucceeded: Boolean = false,
+        // A payment-pending purchase, or one whose entitlement is not yet active: informational, never a
+        // success claim; the CTA rechecks the entitlement instead of re-purchasing.
+        val purchasePending: Boolean = false,
     ) : PaywallUiState
 }
 

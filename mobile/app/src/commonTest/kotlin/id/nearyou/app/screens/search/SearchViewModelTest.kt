@@ -7,6 +7,7 @@ import id.nearyou.app.search.fakeSearchHit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -50,6 +51,52 @@ class SearchViewModelTest {
 
         assertTrue(fake.calls.any { it == FakeSearchFlow.Call("jakarta", 0) }, "submit issues search(query, 0): ${fake.calls}")
         assertTrue(vm.outcome.value is SearchOutcome.Results)
+    }
+
+    // ---- premium-entitlement-lifecycle: a confirmed purchase re-runs the gated query once ----
+
+    @Test
+    fun purchaseConfirmedWhileGated_reRunsTheQueryOnce() {
+        val calls = mutableListOf<String>()
+        val flow =
+            object : SearchFlow {
+                override suspend fun search(
+                    query: String,
+                    offset: Int,
+                ): SearchOutcome {
+                    calls += query
+                    // The first call is the 403 gate; after the purchase the server lets the query through.
+                    return if (calls.size == 1) SearchOutcome.PremiumGate else SearchOutcome.Results(listOf(fakeSearchHit()), null)
+                }
+            }
+        val confirmed = MutableStateFlow(false)
+        val vm = SearchViewModel(flow, confirmed)
+        vm.onQueryChange("kopi")
+        vm.onSubmit()
+        scheduler.advanceUntilIdle()
+        assertEquals(SearchOutcome.PremiumGate, vm.outcome.value)
+
+        confirmed.value = true
+        scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("kopi", "kopi"), calls, "exactly one re-query after the purchase")
+        assertTrue(vm.outcome.value is SearchOutcome.Results)
+    }
+
+    @Test
+    fun purchaseConfirmedOutsideTheGate_issuesNoRequest() {
+        val fake = FakeSearchFlow(SearchOutcome.Results(listOf(fakeSearchHit()), null))
+        val confirmed = MutableStateFlow(false)
+        val vm = SearchViewModel(fake, confirmed)
+        vm.onQueryChange("kopi")
+        vm.onSubmit()
+        scheduler.advanceUntilIdle()
+        val before = fake.invocationCount
+
+        confirmed.value = true
+        scheduler.advanceUntilIdle()
+
+        assertEquals(before, fake.invocationCount, "no re-query when the outcome is not the Premium gate")
     }
 
     @Test

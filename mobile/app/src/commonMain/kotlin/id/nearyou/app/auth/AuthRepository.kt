@@ -1,6 +1,7 @@
 package id.nearyou.app.auth
 
 import id.nearyou.app.appeal.AppealSession
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.amplitude.AnalyticsTracker
 import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.infra.sentry.CrashReporter
@@ -67,6 +68,9 @@ class AuthRepository(
     // mobile-amplitude-analytics — consent-gated tracker for signup_completed. Defaults no-op so existing
     // constructions/tests are unaffected; MobileModule binds the real ConsentGatedAnalyticsTracker.
     private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
+    // premium-entitlement-lifecycle (#490) — binds the RevenueCat identity to the new users.id on sign-in /
+    // sign-up success. Null (tests) skips it; a failed sync never blocks sign-in (resume / pre-purchase heal).
+    private val premiumEntitlement: PremiumEntitlementSession? = null,
 ) : AuthFlow {
     private val signInMutex = Mutex()
     private val signUpMutex = Mutex()
@@ -115,6 +119,7 @@ class AuthRepository(
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
                 decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
+                premiumEntitlement?.syncIdentity()
                 SignInOutcome.Success
             }
             is SignInApiResult.NetworkError -> {
@@ -203,6 +208,7 @@ class AuthRepository(
                 // mobile-amplitude-analytics — emit signup_completed (consent-gated downstream); the user
                 // id is the just-issued token's `sub`.
                 sub?.let { analytics.track("signup_completed", it) }
+                premiumEntitlement?.syncIdentity()
                 SignUpOutcome.Success
             }
             is SignInApiResult.NetworkError -> {

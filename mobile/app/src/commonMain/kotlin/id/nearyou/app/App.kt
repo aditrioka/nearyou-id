@@ -10,6 +10,7 @@ import androidx.navigation3.ui.NavDisplay
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.network.ktor3.KtorNetworkFetcherFactory
+import id.nearyou.app.screens.routing.BillingIdentityEffect
 import id.nearyou.app.screens.routing.ProactiveRefreshEffect
 import id.nearyou.app.screens.routing.PushTapNavigationEffect
 import id.nearyou.app.screens.routing.RootRoute
@@ -55,6 +56,9 @@ fun App() {
         // async/non-blocking only when the access token is within 5 min of expiry
         // (mobile-session-expiry-and-proactive-refresh D3).
         ProactiveRefreshEffect()
+        // premium-entitlement-lifecycle: bind the RevenueCat identity to the restored session on every
+        // ON_RESUME (cold-start restore + foreground self-heal after a failed logIn).
+        BillingIdentityEffect()
         // mobile-push-message-handling: consumes the push-tap nav signal (offered by the platform tap
         // handlers) once HomeRoute is on the stack, routing via the shared notifications resolver.
         PushTapNavigationEffect(backStack)

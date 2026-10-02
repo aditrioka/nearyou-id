@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.billing.rememberPremiumConfirmed
 import id.nearyou.app.search.SearchFlow
 import id.nearyou.app.ui.components.capCountdownMinutes
 import id.nearyou.resources.generated.resources.Res
@@ -111,7 +112,9 @@ fun SearchScreen(
     onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<SearchFlow>()
-    val viewModel = viewModel { SearchViewModel(flow) }
+    // premium-entitlement-lifecycle: the confirmed-purchase signal (fail-safe: never-confirmed when unbound).
+    val premiumConfirmed = rememberPremiumConfirmed()
+    val viewModel = viewModel { SearchViewModel(flow, premiumConfirmed) }
     val query by viewModel.query.collectAsStateWithLifecycle()
     val outcome by viewModel.outcome.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()

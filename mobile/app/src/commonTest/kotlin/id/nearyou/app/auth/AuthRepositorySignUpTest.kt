@@ -1,8 +1,10 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.amplitude.AnalyticsTracker
 import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.screens.paywall.FakePurchaseController
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
@@ -42,6 +44,7 @@ class AuthRepositorySignUpTest {
         tokenStore: InMemoryTokenStore = InMemoryTokenStore(),
         diagnosticLog: (String) -> Unit = {},
         analytics: AnalyticsTracker = NoOpAnalyticsTracker,
+        premiumEntitlement: PremiumEntitlementSession? = null,
         handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
@@ -62,8 +65,32 @@ class AuthRepositorySignUpTest {
             sessionInvalidator = sessionInvalidator,
             diagnosticLog = diagnosticLog,
             analytics = analytics,
+            premiumEntitlement = premiumEntitlement,
         )
     }
+
+    // premium-entitlement-lifecycle: sign-up success binds the RevenueCat identity to the new users.id.
+    @Test
+    fun `201 signup logs RevenueCat in as the new access-token sub`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val controller = FakePurchaseController()
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    store,
+                    premiumEntitlement = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller),
+                ) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.Created,
+                        JSON_HEADERS,
+                    )
+                }
+
+            assertEquals(SignUpOutcome.Success, repo.signUpWithGoogle("g-id", DOB))
+            assertEquals(listOf("user-123"), controller.loggedInIds)
+        }
 
     // 7.4 + 7.15 — 201 persists tokens, returns Success, and reuses the carried id_token (the
     // Google ceremony is NOT re-invoked on the happy path — no second account sheet).

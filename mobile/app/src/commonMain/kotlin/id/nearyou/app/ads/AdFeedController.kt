@@ -7,9 +7,10 @@ import id.nearyou.app.infra.admob.AdProvider
 import id.nearyou.app.infra.admob.AdRequestMode
 import id.nearyou.app.infra.admob.ConsentState
 import id.nearyou.app.infra.admob.NativeAdContent
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -23,7 +24,7 @@ fun adRequestModeFor(adsPersonalization: Boolean): AdRequestMode =
 /**
  * App-singleton ad-eligibility + native-ad load controller for the timeline feeds
  * (mobile-admob-ads-foundation). Shared across Nearby/Following/Global so the SDK initializes + the UMP
- * gate runs at most once per session.
+ * gate runs at most once per signed-in account (premium-entitlement-lifecycle keys the latch per account).
  *
  * [prepare] (single-flight) fetches the server `ads-config` and, ONLY when ads are enabled for the viewer,
  * initializes the [AdProvider] + runs the UMP consent gate BEFORE any ad loads; it then publishes the
@@ -40,12 +41,20 @@ class AdFeedController(
     private val adProvider: AdProvider,
     private val consentStore: ConsentSnapshotStore,
     private val adUnitId: String,
+    // premium-entitlement-lifecycle: a confirmed client purchase suppresses ads (it can only REMOVE them — the
+    // server ads-config remains the sole source that enables them), covering the window before the webhook.
+    private val purchaseConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
+    // The signed-in account the prepare latch is keyed to, so a sign-out → sign-in re-evaluates eligibility.
+    private val currentAccountId: suspend () -> String? = { null },
 ) {
     private val _frequency = MutableStateFlow<Int?>(null)
-    val frequency: StateFlow<Int?> = _frequency.asStateFlow()
+
+    /** The published ad frequency (null = no ads); null while a purchase is confirmed. */
+    val frequency: Flow<Int?> = combine(_frequency, purchaseConfirmed) { f, confirmed -> f.takeUnless { confirmed } }
 
     private val prepareMutex = Mutex()
     private var prepared = false
+    private var preparedFor: String? = null
     private var requestMode: AdRequestMode = AdRequestMode.NON_PERSONALIZED
 
     private val loadMutex = Mutex()
@@ -53,8 +62,15 @@ class AdFeedController(
 
     suspend fun prepare() {
         prepareMutex.withLock {
-            if (prepared) return
+            val account = currentAccountId()
+            if (prepared && account == preparedFor) return
+            // First prepare, or a different account since the last one: forget the previous eligibility + ads.
             prepared = true
+            preparedFor = account
+            _frequency.value = null
+            loadMutex.withLock { loadedAds.clear() }
+            // Premium viewers see zero ads: no SDK init, no UMP form.
+            if (purchaseConfirmed.value) return
             when (val outcome = adsConfigFlow.fetchConfig()) {
                 is AdsConfigOutcome.Enabled -> {
                     adProvider.initialize()
@@ -75,7 +91,7 @@ class AdFeedController(
     }
 
     suspend fun loadAd(slotKey: String): NativeAdContent? {
-        if (_frequency.value == null) return null
+        if (_frequency.value == null || purchaseConfirmed.value) return null
         return loadMutex.withLock {
             if (loadedAds.containsKey(slotKey)) {
                 loadedAds[slotKey]
