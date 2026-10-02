@@ -202,6 +202,14 @@ kotlin {
             // Mobile #3 — Robolectric runs the Compose UI tests on the JVM (no emulator).
             implementation(libs.robolectric)
         }
+        // On-device instrumented tests (src/androidInstrumentedTest), run on Firebase Test Lab by
+        // scripts/test_android.sh and .github/workflows/instrumented-test.yml. The default
+        // instrumentedTest source-set tree keeps commonTest OFF the device APK (the JVM already runs it).
+        androidInstrumentedTest.dependencies {
+            implementation(libs.compose.ui.test)
+            implementation(libs.androidx.testExt.junit)
+            implementation(libs.androidx.testRunner)
+        }
         iosMain.dependencies {
             // Mobile #3 — Darwin engine for iOS Ktor client.
             implementation(libs.ktor.kmp.clientDarwin)
@@ -219,6 +227,7 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -388,6 +397,9 @@ androidComponents {
         val stagingDebugSigning = android.signingConfigs.findByName("stagingDebug")
         if (variant.flavorName == "staging" && stagingDebugSigning != null) {
             variant.signingConfig.setConfig(stagingDebugSigning)
+            // The instrumented-test APK must carry the app's certificate, or the device refuses to
+            // start instrumentation (Test Lab reports it only as "Infrastructure error occurred").
+            variant.androidTest?.signingConfig?.setConfig(stagingDebugSigning)
         }
     }
 }

@@ -13,6 +13,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | **`ci.yml`** | `pull_request` → `main` | none — every PR triggers it (so `merge-gate` always reports); a `changes` job computes `code=true/false` to skip heavy lanes on docs-only diffs | `changes`, `readme-sync` (warn-only), `lint`, `test`, `migrate-supabase-parity`, `merge-gate` |
 | **`deploy-staging.yml`** | `push` → `main` + `workflow_dispatch` | all main pushes | `deploy` (Docker build/push → `gcloud run deploy`, `RUN_FLYWAY_ON_STARTUP=true`) |
 | **`device-run.yml`** | `pull_request` → `main` + `workflow_dispatch` | `mobile/**`, `shared/**`, `scripts/**`, self | `device-run` (build staging-debug APK + Firebase Test Lab **Robo** crawl, posts a PR comment; opt out with the `skip-device-run` label) |
+| **`instrumented-test.yml`** | `pull_request` → `main` + `workflow_dispatch` | `mobile/**`, `shared/**`, `scripts/**`, self | `instrumented-test` (build staging-debug app + androidTest APKs, run `src/androidInstrumentedTest` on a Firebase Test Lab device via `scripts/test_android.sh`, one edited-in-place PR comment + screenshot artifact; same `skip-device-run` opt-out) |
 | **`claude.yml`** | `@claude` mentions on issue/PR events | none | not a test job |
 
 **`merge-gate`** (`needs: [changes, lint, test, migrate-supabase-parity]`, `if: always()`) is the **sole** ruleset-required status check. `changes` is in its `needs` on purpose, so a path-filter bug that silently skips every heavy lane cannot pass the gate by accident.
@@ -34,6 +35,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | `verifyBusinessModulesNoOtel` | infra/static | runs via `./gradlew check`/`test` | pre-merge | ✅ (via `check`) | no |
 | mobile JVM/Robolectric unit | mobile unit | `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (flavor-qualified) | pre-merge (in full `./gradlew test`) | ⚠️ add for mobile diffs | no |
 | device Robo crawl | mobile instrumented | `scripts/run_on_device.sh` → Firebase Test Lab Robo | pre-merge (mobile/shared paths) | ➖ via script (needs creds) | surfaced in CI; not in gate |
+| on-device instrumented | mobile instrumented | `scripts/test_android.sh` (local: adb device, else `FARM=firebase`; cloud: Firebase Test Lab) | pre-merge (mobile/shared paths) | ➖ via script (needs a device or creds) | surfaced in CI; not in gate |
 | **iOS sim / K-Native** | iOS | `:module:iosSimulatorArm64Test`, `:module:linkDebugFrameworkIosSimulatorArm64` | — | ➖ **local-only** | **never CI-gated** |
 | staging deploy + boot Flyway | staging/deploy | Docker build + `gcloud run deploy` | **post-merge** | ❌ | yes |
 
