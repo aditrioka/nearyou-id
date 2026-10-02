@@ -1,9 +1,11 @@
 package id.nearyou.app.admin.appealreview
 
+import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import java.sql.Connection
+import java.sql.Timestamp
 import java.time.Instant
 import java.util.UUID
 import javax.sql.DataSource
@@ -15,6 +17,12 @@ data class AppealQueueRow(
     val actionType: String,
     val appealText: String,
     val createdAt: Instant,
+)
+
+/** One page of the pending queue plus the cursor for the next-newer page (null = last page). */
+data class AppealQueuePage(
+    val rows: List<AppealQueueRow>,
+    val nextCursor: ActionLogCursor?,
 )
 
 /** Typed result of an appeal decision (approve / reject). */
@@ -49,40 +57,56 @@ class AppealReviewRepository(
     private val dataSource: DataSource,
     private val auditLogger: AdminAuditLogger,
 ) {
-    /** Oldest-first page of pending appeals (the `appeals_pending_created_idx` scan path). */
+    /**
+     * Oldest-first page of pending appeals (the `appeals_pending_created_idx` scan
+     * path), keyset-paginated over `(created_at, id)` ASC — reusing the
+     * [ActionLogCursor] codec, NOT a second one (the `admin-report-queue`
+     * precedent). Fetches `pageSize + 1` rows: the extra row signals "there is a
+     * newer page" and its predecessor becomes the next cursor — no `OFFSET`, no
+     * total-count query (docs/11 §3).
+     */
     fun listPending(
-        limit: Int,
-        offset: Int,
-    ): List<AppealQueueRow> =
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                SELECT id, user_id, action_type, appeal_text, created_at
-                  FROM appeals
-                 WHERE status = 'pending'
-                 ORDER BY created_at ASC
-                 LIMIT ? OFFSET ?
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setInt(1, limit)
-                ps.setInt(2, offset)
-                ps.executeQuery().use { rs ->
-                    buildList {
-                        while (rs.next()) {
-                            add(
-                                AppealQueueRow(
-                                    id = rs.getObject("id", UUID::class.java),
-                                    userId = rs.getObject("user_id", UUID::class.java),
-                                    actionType = rs.getString("action_type"),
-                                    appealText = rs.getString("appeal_text"),
-                                    createdAt = rs.getTimestamp("created_at").toInstant(),
-                                ),
-                            )
+        pageSize: Int,
+        cursor: ActionLogCursor?,
+    ): AppealQueuePage {
+        require(pageSize > 0) { "pageSize must be positive" }
+        val sql =
+            buildString {
+                append("SELECT id, user_id, action_type, appeal_text, created_at\n  FROM appeals\n WHERE status = 'pending'")
+                // Keyset "newer" predicate aligned with the ASC ordering; `id` breaks created_at ties.
+                if (cursor != null) append("\n   AND (created_at, id) > (?, ?)")
+                append("\n ORDER BY created_at ASC, id ASC\n LIMIT ?")
+            }
+        val fetched =
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(sql).use { ps ->
+                    var i = 1
+                    if (cursor != null) {
+                        ps.setTimestamp(i++, Timestamp.from(cursor.createdAt))
+                        ps.setObject(i++, cursor.id)
+                    }
+                    ps.setInt(i, pageSize + 1)
+                    ps.executeQuery().use { rs ->
+                        buildList {
+                            while (rs.next()) {
+                                add(
+                                    AppealQueueRow(
+                                        id = rs.getObject("id", UUID::class.java),
+                                        userId = rs.getObject("user_id", UUID::class.java),
+                                        actionType = rs.getString("action_type"),
+                                        appealText = rs.getString("appeal_text"),
+                                        createdAt = rs.getTimestamp("created_at").toInstant(),
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
+        val rows = fetched.take(pageSize)
+        val nextCursor = if (fetched.size > pageSize) rows.last().let { ActionLogCursor(it.createdAt, it.id) } else null
+        return AppealQueuePage(rows = rows, nextCursor = nextCursor)
+    }
 
     /**
      * Approve a pending appeal: transition `pending → approved` (+ `reviewed_by` /
