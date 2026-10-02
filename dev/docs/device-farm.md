@@ -92,7 +92,36 @@ deploy SA behind `GCP_SA_KEY` does **not** by default, so either set
 `GCP_TESTLAB_SA_KEY` (recommended) or grant the deploy SA `roles/editor`.
 
 It's quota-aware: superseded runs are cancelled and only mobile-code pushes
-trigger it, keeping within the 5-physical-runs/day free tier.
+trigger it. With `instrumented-test.yml` (below) a mobile push now spends two
+physical-device runs, both short; `nearyou-staging` is on Blaze, so that sits
+inside the 30 min/day of free physical-device time.
+
+## Screens behind sign-in: on-device instrumented tests
+
+Robo cannot get past sign-in: the "Use your sign-in for NearYouID?" account
+picker belongs to Google Play Services, outside the app, so the crawl stops
+there even with the shared keystore below. Authenticated screens get device
+evidence from instrumented tests instead:
+
+- **Tests** live in `mobile/app/src/androidInstrumentedTest/` (runner
+  `AndroidJUnitRunner`; commonTest is not compiled into the device APK). Each is a
+  render smoke: fakes bound in Koin stand in for the session and the backend, the
+  same idiom as the Robolectric `*ScreenTest`s. First one:
+  `ProfileScreenInstrumentedTest` (the self Profil tab).
+- **Why fakes, not `StagingTestLoginActivity`:** that deep link needs a JWT
+  minted with the staging RSA private key (`dev/scripts/mint-staging-jwt.sh`).
+  Giving CI that key would let any workflow mint a session for any staging user,
+  and the run would depend on api-staging being up and seeded. The deep link stays
+  the tool for a manual end-to-end check on staging.
+- **Screenshots:** a test writes PNGs to the app's external
+  `files/screenshots/` dir; `scripts/test_firebase.sh` pulls that dir off the
+  device (`--directories-to-pull`) and downloads it with the logs and video into
+  `dev/device-runs/<ts>/`.
+- **Run it:** `scripts/test_android.sh` (cloud routes to Test Lab; a local
+  session with no device uses `FARM=firebase scripts/test_android.sh`, and
+  without a key it runs as the active `gcloud auth login` account). CI:
+  `.github/workflows/instrumented-test.yml` on every mobile PR, one PR comment
+  edited in place, screenshots in the workflow artifact.
 
 ## Google Sign-In on the device: the shared staging-debug keystore
 
@@ -117,7 +146,9 @@ So cloud and CI device runs sign `stagingDebug` with one shared keystore:
   `gcloud_auth`. It writes the keystore to a 0600 temp file, exports
   `NEARYOU_STAGING_DEBUG_KEYSTORE` / `_PASSWORD`, prints the SHA-1, and the file
   is removed on exit. `mobile/app/build.gradle.kts` applies it to `stagingDebug`
-  only. Without those variables (a local build) nothing changes, and without
+  only, app and instrumented-test APK alike (instrumentation refuses to start
+  when the two certificates differ; Test Lab reports that only as
+  "Infrastructure error occurred"). Without those variables (a local build) nothing changes, and without
   Secret Manager access the scripts warn and fall back to the default keystore.
   `test_browserstack.sh` does not fetch it.
 

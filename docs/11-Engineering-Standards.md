@@ -102,6 +102,7 @@ The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **Ne
 
 - Pure state projections + repositories + ViewModels → commonTest (kotlin.test; coroutines-test `runTest`).
 - Screen behavior → Robolectric `*ScreenTest` in androidUnitTest; MUST be added to the Release-variant exclude; verify with `:mobile:app:testDevReleaseUnitTest` too. Async real-flow tests poll with `waitUntil`, not `waitForIdle`.
+- On-device evidence for a screen behind sign-in → a render smoke in `src/androidInstrumentedTest` (fakes via Koin, the `*ScreenTest` idiom; screenshots to the app's external `files/screenshots/`), run on Firebase Test Lab by `scripts/test_android.sh` / `instrumented-test.yml`. Keep it to smokes: behavior coverage stays in Robolectric.
 - iOS-specific behavior → `src/iosTest` with K/N-legal test names; `:mobile:app:iosSimulatorArm64Test`.
 - v1 `runComposeUiTest` is deprecated as of CMP 1.11 — new tests SHOULD target the v2 ComposeUiTest API (note: v2 defaults to `StandardTestDispatcher`; advance the clock or keep `waitUntil` polling). Migrating existing tests is a tracked follow-up, not drive-by churn.
 

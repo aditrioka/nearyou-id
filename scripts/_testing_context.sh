@@ -30,7 +30,7 @@ adb_device_count() {
   local adb_bin
   adb_bin="$(command -v adb 2>/dev/null || echo "${ANDROID_HOME:-}/platform-tools/adb")"
   [ -x "$adb_bin" ] || { echo 0; return; }
-  "$adb_bin" devices 2>/dev/null | grep -cE '\sdevice$' || echo 0
+  "$adb_bin" devices 2>/dev/null | grep -cE '\sdevice$' || true
 }
 
 # is_cloud_container -> exit 0 inside a Claude-Code-on-the-web container (the
