@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.appealreview.AppealQueueRow
 import id.nearyou.app.admin.appealreview.AppealReviewRepository
 import id.nearyou.app.admin.auth.AdminAuditLogger
@@ -26,13 +27,18 @@ import java.util.UUID
  * `admin-login` session middleware gates them (302 → `/admin/login` when
  * unauthenticated).
  *
+ * The WHOLE surface is owner/admin-only ([AdminRoleGate.requireOwnerOrAdmin] — spec
+ * `admin-appeal-review` § "Admin appeals-review queue"): approving an appeal lifts a
+ * permanent ban, the tier `admin-user-moderation` restricts to owner/admin, so a
+ * `moderator` / `read_only` session is 403'd at the GET queue and both POSTs
+ * (mirrors `admin-chat-message-redaction`).
+ *
  * The two POSTs are state-changing, so they follow the established admin gate order
  * (mirrors [adminReportResolution], design D6): CSRF FIRST
  * ([AdminCsrfGate.validateCsrf] — 403 + `admin_csrf_violation` on miss), THEN the
- * base write-role gate ([AdminRoleGate.requireWriteRole]), THEN the path UUID
- * (malformed → 400, no write), THEN the repository transaction. Approve/reject are
- * NOT counted by the destructive-action cap (design D6 — approve is restorative,
- * reject alters no user state).
+ * owner/admin role gate, THEN the path UUID (malformed → 400, no write), THEN the
+ * repository transaction. Approve/reject are NOT counted by the destructive-action
+ * cap (design D6 — approve is restorative, reject alters no user state).
  *
  * Post-Redirect-Get (no-JS path): every decision outcome 303-redirects back to
  * `/admin/appeals`, so the re-queried queue reflects the result (a no-op /
@@ -46,14 +52,16 @@ fun Route.adminAppealReview(
     layout: AdminLayout,
 ) {
     get("/appeals") {
-        val offset = call.request.queryParameters["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
-        val rows = repository.listPending(limit = PAGE_SIZE, offset = offset)
+        if (!AdminRoleGate.requireOwnerOrAdmin(call)) return@get
+        // A malformed/tampered cursor decodes to null → first page (never throws).
+        val cursor = ActionLogCursor.decode(call.request.queryParameters["cursor"])
+        val page = repository.listPending(pageSize = PAGE_SIZE, cursor = cursor)
         val model =
             buildMap<String, Any> {
-                put("rows", rows.map { it.toViewMap() })
-                put("hasRows", rows.isNotEmpty())
-                if (rows.size == PAGE_SIZE) put("nextOffset", offset + PAGE_SIZE)
-                if (offset > 0) put("prevOffset", (offset - PAGE_SIZE).coerceAtLeast(0))
+                put("rows", page.rows.map { it.toViewMap() })
+                put("hasRows", page.rows.isNotEmpty())
+                // base64url (no padding) is URL-safe as-is.
+                page.nextCursor?.let { put("newerUrl", "/admin/appeals?cursor=${it.encode()}") }
                 layout.putShellModel(call, this, pageTitle = "Appeals", activePath = "/admin/appeals")
             }
         call.respond(HttpStatusCode.OK, PebbleContent("appeals.peb", model))
@@ -61,7 +69,7 @@ fun Route.adminAppealReview(
 
     post("/appeals/{id}/approve") {
         if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
-        if (!AdminRoleGate.requireWriteRole(call)) return@post
+        if (!AdminRoleGate.requireOwnerOrAdmin(call)) return@post
         val appealId =
             call.parseAppealId() ?: run {
                 call.respond(HttpStatusCode.BadRequest, MSG_INVALID_ID)
@@ -83,7 +91,7 @@ fun Route.adminAppealReview(
 
     post("/appeals/{id}/reject") {
         if (!AdminCsrfGate.validateCsrf(call, auditLogger)) return@post
-        if (!AdminRoleGate.requireWriteRole(call)) return@post
+        if (!AdminRoleGate.requireOwnerOrAdmin(call)) return@post
         val body = AdminCsrfGate.formParametersAfterValidation(call)
         val appealId =
             call.parseAppealId() ?: run {

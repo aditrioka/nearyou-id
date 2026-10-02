@@ -27,7 +27,7 @@ object AdminRoleGate {
     val WRITE_ROLES: Set<String> = setOf("owner", "admin", "moderator")
 
     /** The higher-trust tier permitted to take owner/admin-only actions
-     *  (permanent ban, chat-message redaction). Excludes `moderator` +
+     *  (permanent ban, chat-message redaction, appeal review). Excludes `moderator` +
      *  `read_only`. */
     val OWNER_ADMIN_ROLES: Set<String> = setOf("owner", "admin")
 
@@ -52,7 +52,8 @@ object AdminRoleGate {
      * `admin-chat-message-redaction`, whose GET page discloses private 1:1 chat
      * content, so a `moderator`/`read_only` session is 403'd at BOTH the GET
      * page and the POST write (the content disclosure is limited to admins who
-     * can act). This is the same role-gate mechanism as [requireWriteRole] with
+     * can act) — and `admin-appeal-review`, whose approve lifts permanent
+     * bans. This is the same role-gate mechanism as [requireWriteRole] with
      * a narrower role set — NOT a new pattern. Runs AFTER
      * [AdminCsrfGate.validateCsrf] on state-changing handlers.
      */
