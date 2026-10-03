@@ -21,6 +21,7 @@ import kotlin.test.Test
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val TITLE = "NearYouID Premium"
 private const val UNAVAILABLE_TITLE = "Premium belum tersedia"
+private const val SUBHEAD_CHAT_CAP = "Kirim pesan tanpa batas" // cap-upsell-parity: paywall_subhead_chat_cap
 
 /**
  * iOS counterpart to the Robolectric [PaywallScreenTest] — the paywall run natively on the iOS simulator
@@ -71,6 +72,17 @@ class PaywallFlowIosTest {
             waitForIdle()
             onNodeWithTag(PAYWALL_UNCONFIGURED_TAG).assertExists()
             onNodeWithText(UNAVAILABLE_TITLE).assertExists()
+        }
+    }
+
+    // cap-upsell-parity: a new cap entry renders its own hero headline on Kotlin/Native too.
+    @Test
+    fun chatCapEntry_showsItsOwnHeadline() {
+        installKoin(OfferingsResult.Loaded(listOf(pkg(PaywallPeriod.MONTHLY, "Rp29.000", 29_000_000_000L))))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PaywallScreen(entry = PaywallEntry.CHAT_CAP, onClose = {}) } } }
+            waitForIdle()
+            onNodeWithText(SUBHEAD_CHAT_CAP).assertExists()
         }
     }
 

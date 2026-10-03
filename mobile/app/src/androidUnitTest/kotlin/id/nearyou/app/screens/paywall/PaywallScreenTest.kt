@@ -31,6 +31,19 @@ import kotlin.test.assertEquals
 private const val TITLE = "NearYouID Premium"
 private const val SUBHEAD_LIKE_CAP = "Like, balas & posting tanpa batas"
 private const val SUBHEAD_SEARCH = "Cari postingan di seluruh Indonesia"
+private const val SUBHEAD_DEFAULT = "Buka semua fitur Premium"
+private const val BENEFIT_NO_ADS = "Tanpa iklan · badge Premium"
+
+// cap-upsell-parity: every cap/gate entry's own hero subheadline (byte-identical to strings.xml).
+private val SUBHEAD_BY_ENTRY =
+    mapOf(
+        PaywallEntry.USERNAME to "Pilih username yang kamu mau",
+        PaywallEntry.CHAT_CAP to "Kirim pesan tanpa batas",
+        PaywallEntry.REPLY_CAP to "Balas postingan tanpa batas",
+        PaywallEntry.POST_CAP to "Posting tanpa batas setiap hari",
+        PaywallEntry.EDIT_GATE to "Edit postingan hingga 30 menit",
+        PaywallEntry.RADIUS_GATE to "Jelajahi radius hingga 100 km",
+    )
 private const val BENEFIT_UNLIMITED = "Post, balasan & like tanpa batas"
 private const val BENEFIT_RADIUS = "Radius Sekitar 10/20/50/100 km"
 private const val CTA = "Aktifkan Premium"
@@ -132,6 +145,46 @@ class PaywallScreenTest {
             setContent { KoinContext { NearYouTheme { PaywallScreen(entry = PaywallEntry.SEARCH_GATE, onClose = {}) } } }
             onNodeWithText(SUBHEAD_SEARCH).assertExists()
             onAllNodesWithText(SUBHEAD_LIKE_CAP).assertCountEquals(0)
+        }
+    }
+
+    // cap-upsell-parity (mobile-paywall § PaywallScreen): each cap/gate entry leads with its own headline —
+    // never the generic default — while the full offering still renders.
+    @Test
+    fun heroSubheadline_tailoredToEveryCapAndGateEntry() {
+        for ((entry, subhead) in SUBHEAD_BY_ENTRY) {
+            installKoin()
+            runComposeUiTest {
+                setContent { KoinContext { NearYouTheme { PaywallScreen(entry = entry, onClose = {}) } } }
+                onNodeWithText(subhead).assertExists()
+                onAllNodesWithText(SUBHEAD_DEFAULT).assertCountEquals(0)
+                onNodeWithText(BENEFIT_UNLIMITED).assertExists() // the contextual hero does not narrow the offering
+            }
+        }
+    }
+
+    // The image-attach entry deliberately keeps the generic headline: image upload is a Month-6 launch
+    // (docs/01 + docs/03 § Paywall & Premium Disclosure) — the paywall must not advertise it yet.
+    @Test
+    fun imageAttachEntry_keepsTheGenericHeadline_andAdvertisesNoImageUpload() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PaywallScreen(entry = PaywallEntry.IMAGE_ATTACH, onClose = {}) } } }
+            onNodeWithText(SUBHEAD_DEFAULT).assertExists()
+            for (term in listOf("gambar", "foto", "unggah", "upload")) {
+                onAllNodesWithText(term, substring = true, ignoreCase = true).assertCountEquals(0)
+            }
+        }
+    }
+
+    // The tenure counter is not shipped, so the benefit list makes no tenure claim.
+    @Test
+    fun benefitList_makesNoTenureClaim() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PaywallScreen(entry = PaywallEntry.LIKE_CAP, onClose = {}) } } }
+            onNodeWithText(BENEFIT_NO_ADS).assertExists()
+            onAllNodesWithText("tenure", substring = true, ignoreCase = true).assertCountEquals(0)
         }
     }
 

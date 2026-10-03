@@ -240,6 +240,28 @@ class ChatThreadViewModelTest {
             assertTrue(viewModel.rows.value.isEmpty(), "a blocked send drops the optimistic bubble")
         }
 
+    // cap-upsell-parity (mobile-chat § "A rate-limited send shows the chat cap upsell"): the 429 drops the
+    // optimistic bubble (not accepted), holds the RateLimited one-shot for the cap dialog, and
+    // clearSendOutcome() — every dialog dismissal path — clears it.
+    @Test
+    fun rateLimitedSendHoldsTheCapOutcomeDropsTheBubbleAndClears() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow =
+                FakeChatFlow(
+                    historyOutcomes = listOf(ChatThreadOutcome.Loaded(emptyList(), null)),
+                    sendOutcome = SendOutcome.RateLimited(retryAfterSeconds = 1_140),
+                )
+            val viewModel = vm(flow, sub)
+            advanceUntilIdle()
+            viewModel.send("halo")
+            advanceUntilIdle()
+            assertEquals(SendOutcome.RateLimited(retryAfterSeconds = 1_140), viewModel.sendOutcome.value)
+            assertTrue(viewModel.rows.value.isEmpty(), "a rate-limited send drops the optimistic bubble")
+            viewModel.clearSendOutcome()
+            assertEquals(null, viewModel.sendOutcome.value, "dismissing the cap dialog clears the one-shot")
+        }
+
     // --- single-uiState fold (audit #414): the content uiState delegates to the pure 3-arg projection ---
 
     @Test

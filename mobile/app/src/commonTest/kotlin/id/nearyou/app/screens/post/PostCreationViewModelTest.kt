@@ -4,6 +4,7 @@ import id.nearyou.app.image.FakeImagePicker
 import id.nearyou.app.image.FakeImageUploadRepository
 import id.nearyou.app.image.ImageUploadOutcome
 import id.nearyou.app.post.FakeCreatePostFlow
+import id.nearyou.app.post.PostCreationOutcome
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.screens.username.FakeSelfUserIdProvider
@@ -170,6 +171,24 @@ class PostCreationViewModelTest {
             vm.onSubmit()
             advanceUntilIdle()
             assertNull(createFlow.lastSubmittedImageId, "after remove, the create carries no image id (text-only)")
+        }
+
+    // ---- The post-cap dialog (cap-upsell-parity) ----
+
+    @Test
+    fun `a 429 holds RateLimited until the cap dialog is dismissed, keeping the draft`() =
+        runTest {
+            val vm = viewModel(createFlow = FakeCreatePostFlow(outcome = PostCreationOutcome.RateLimited(retryAfterSeconds = 1_140)))
+            advanceUntilIdle()
+            vm.onContentChange("halo")
+
+            vm.onSubmit()
+            advanceUntilIdle()
+            assertEquals(PostCreationOutcome.RateLimited(retryAfterSeconds = 1_140), vm.createOutcome.value)
+
+            vm.onCapDialogDismissed()
+            assertNull(vm.createOutcome.value, "dismissing the cap dialog clears the outcome")
+            assertEquals("halo", vm.content.value, "the draft survives the cap dialog")
         }
 
     // ---- The two-step submit: image_id present ONLY when attached ----

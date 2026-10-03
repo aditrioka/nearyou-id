@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.chat.ChatFlow
@@ -14,6 +15,7 @@ import id.nearyou.app.chat.ChatMessageDto
 import id.nearyou.app.chat.ChatThreadOutcome
 import id.nearyou.app.chat.FakeChatFlow
 import id.nearyou.app.chat.FakeChatRealtimeSubscriber
+import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportOutcome
@@ -24,6 +26,7 @@ import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
@@ -37,6 +40,10 @@ private const val VIEWER = "22222222-2222-2222-2222-222222222222"
 private const val OTHER = "33333333-3333-3333-3333-333333333333"
 private const val REPORT_SUCCESS = "Laporan terkirim. Tim moderasi akan meninjau."
 private const val SUBMIT = "Kirim laporan"
+
+// cap-upsell-parity: chat_cap_upsell with the cap dialog's 1140s countdown ("19 mnt").
+private const val CHAT_CAP_19M =
+    "Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam 19 mnt."
 
 /**
  * iOS counterpart to the Robolectric `ChatThreadScreenTest` chat-message-report coverage
@@ -62,12 +69,17 @@ class ChatThreadReportFlowIosTest {
         redactedAt = redactedAt,
     )
 
-    private fun installKoin(history: ChatThreadOutcome) {
+    private fun installKoin(
+        history: ChatThreadOutcome,
+        sendOutcome: SendOutcome? = null,
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
+        val flow = FakeChatFlow(historyOutcomes = listOf(history))
+        if (sendOutcome != null) flow.sendOutcome = sendOutcome
         startKoin {
             modules(
                 module {
-                    single<ChatFlow> { FakeChatFlow(historyOutcomes = listOf(history)) }
+                    single<ChatFlow> { flow }
                     single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
                     single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
                     single<ReportSubmitter> { FakeReportSubmitter(ReportOutcome.Submitted) }
@@ -98,6 +110,20 @@ class ChatThreadReportFlowIosTest {
             onNodeWithText(SUBMIT).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(REPORT_SUCCESS).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(REPORT_SUCCESS).assertExists()
+        }
+    }
+
+    // cap-upsell-parity: the Free 50/day chat cap (429) shows the shared cap dialog on Kotlin/Native.
+    @Test
+    fun rateLimitedSendShowsTheChatCapDialog() {
+        installKoin(ChatThreadOutcome.Loaded(emptyList(), null), sendOutcome = SendOutcome.RateLimited(retryAfterSeconds = 1_140))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("halo")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(CHAT_CAP_19M).assertExists()
         }
     }
 

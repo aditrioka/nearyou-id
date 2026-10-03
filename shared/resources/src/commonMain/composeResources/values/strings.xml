@@ -87,8 +87,6 @@
     <string name="post_create_error_location">Lokasi kamu di luar jangkauan layanan.</string>
     <string name="post_create_error_moderated">Konten ini mengandung kata yang tidak diperbolehkan. Silakan ubah dan coba lagi.</string>
     <string name="post_create_location_unavailable">Aktifkan lokasi untuk membuat postingan.</string>
-    <!-- 429 daily post cap (docs/05 Layer 2, 10/day free) — no retry control; resets at the daily window. -->
-    <string name="post_create_error_rate_limited">Kuota posting harian kamu habis. Coba lagi setelah reset harian.</string>
     <!-- mobile-mockup-visual-conformance (mockup frame 6): static chip label (NO live city — no
          reverse-geocoding shipped; PII discipline forbids rendering the coordinate) + the UU-PDP
          fuzzing-transparency note. "hingga ±5 km" is the canonical user-facing framing per the
@@ -259,11 +257,6 @@
     <string name="post_detail_posted_from" formatted="true">Diposting dari %1$s, %2$s</string>
     <string name="post_detail_posted_from_no_city" formatted="true">Diposting %1$s</string>
     <string name="post_detail_like_count" formatted="true">%1$d suka</string>
-    <!-- The {countdown} fragment for the cap-upsell strings' %1$s (docs/03-UX-Design.md:205). Rendered
-         as coarse integer-hours (ceil(Retry-After / 3600), min 1) for v1; the unit word stays
-         resource-backed here rather than hardcoded in the screen. A finer jam+menit countdown is the
-         deferred `mobile-timeline-relative-timestamp` duration-formatter concern. -->
-    <string name="post_detail_reset_hours" formatted="true">%1$d jam</string>
     <string name="post_detail_likes_cap_upsell" formatted="true">Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam %1$s.</string>
     <string name="post_detail_replies_empty">Belum ada balasan. Jadilah yang pertama.</string>
     <string name="post_detail_reply_placeholder">Tulis balasan…</string>
@@ -293,17 +286,19 @@
          CMP-Resources-only invariant: never a hardcoded literal/null). The post text carries the
          meaning, so a generic non-empty label suffices. FLAGGED FOR UX REVIEW. -->
     <string name="post_image_alt">Gambar pada postingan</string>
-    <!-- mobile-cap-upsell-dialog (mockup frame 18): the shared daily-cap upsell M3 AlertDialog. The
-         title is cap-GENERIC ("Batas harian tercapai") because the frame's caption declares the same
-         modal pattern for the future post/reply/chat caps; the like body REUSES
-         post_detail_likes_cap_upsell (the verbatim docs/03 §Rate Limit Communication modal copy) and
-         the secondary CTA reuses cta_close ("Tutup"). The countdown renders "X j Y mnt" (frame 18's
-         treatment) / "Y mnt" under an hour — finer than the detail banner's coarse
-         post_detail_reset_hours, which deliberately keeps its own format. -->
+    <!-- mobile-cap-upsell-dialog (mockup frame 18): the shared daily-cap upsell M3 AlertDialog — the ONE
+         surface for every Free daily cap (cap-upsell-parity #493). The title is cap-GENERIC ("Batas
+         harian tercapai"); each host supplies its body: like = post_detail_likes_cap_upsell (the verbatim
+         docs/03 §Rate Limit Communication copy), reply = post_detail_reply_cap_upsell, post =
+         post_create_cap_upsell, chat = chat_cap_upsell (all four recorded in docs/03 § Rate Limit
+         Communication). The secondary CTA reuses cta_close ("Tutup"). The countdown renders "X j Y mnt"
+         (frame 18's treatment) / "Y mnt" under an hour. -->
     <string name="cap_dialog_title">Batas harian tercapai</string>
     <string name="cta_activate_premium">Aktifkan Premium</string>
     <string name="cap_countdown_hours_minutes" formatted="true">%1$d j %2$d mnt</string>
     <string name="cap_countdown_minutes" formatted="true">%1$d mnt</string>
+    <string name="post_create_cap_upsell" formatted="true">Kamu sudah membuat 10 postingan hari ini. Upgrade ke Premium untuk posting tanpa batas, atau tunggu reset dalam %1$s.</string>
+    <string name="chat_cap_upsell" formatted="true">Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam %1$s.</string>
 
     <!-- mobile-settings-screen (mockup frame 16 "Pengaturan"). Grouped settings list: AKUN /
          PREMIUM / PRIVASI / LAINNYA. The "Privasi & data" row + the consent sub-screen REUSE
@@ -484,8 +479,10 @@
     <string name="profile_followers_open_cd">Lihat daftar pengikut</string>
     <string name="profile_following_open_cd">Lihat daftar yang diikuti</string>
     <!-- mobile-paywall-screen (frame 17). Hero title is constant; the subheadline is tailored to the
-         entry-context (PaywallEntry). Benefits = the Month-1 set, features-available-now (NO image upload
-         per docs/03 § Paywall & Premium Disclosure). The CTA reuses cta_activate_premium; the close
+         entry-context (PaywallEntry) — one key per entry; IMAGE_ATTACH deliberately uses
+         paywall_subhead_default (image upload is a Month-6 launch, docs/01 disclosure rule). Benefits =
+         the Month-1 set, features-available-now (NO image upload and NO tenure counter — neither ships
+         yet, docs/03 § Paywall & Premium Disclosure). The CTA reuses cta_activate_premium; the close
          affordance + error/unavailable retry reuse cta_close / cta_retry. The disclosure clause is the
          verbatim docs/01-Business.md § Pricing & Payment line. Savings takes a pre-formatted "27%" string
          (sidesteps the cross-platform %%-literal gotcha); per-day takes the formatted price. -->
@@ -493,12 +490,18 @@
     <string name="paywall_subhead_like_cap">Like, balas &amp; posting tanpa batas</string>
     <string name="paywall_subhead_search">Cari postingan di seluruh Indonesia</string>
     <string name="paywall_subhead_default">Buka semua fitur Premium</string>
+    <string name="paywall_subhead_username">Pilih username yang kamu mau</string>
+    <string name="paywall_subhead_chat_cap">Kirim pesan tanpa batas</string>
+    <string name="paywall_subhead_reply_cap">Balas postingan tanpa batas</string>
+    <string name="paywall_subhead_post_cap">Posting tanpa batas setiap hari</string>
+    <string name="paywall_subhead_edit">Edit postingan hingga 30 menit</string>
+    <string name="paywall_subhead_radius">Jelajahi radius hingga 100 km</string>
     <string name="paywall_benefit_unlimited">Post, balasan &amp; like tanpa batas</string>
     <string name="paywall_benefit_radius">Radius Sekitar 10/20/50/100 km</string>
     <string name="paywall_benefit_hide_distance">Sembunyikan jarak (nama kota tetap tampil)</string>
     <string name="paywall_benefit_username">Username kustom · 1× per 30 hari</string>
     <string name="paywall_benefit_search_edit">Pencarian postingan · edit post 30 menit</string>
-    <string name="paywall_benefit_no_ads">Tanpa iklan · badge + tenure Premium</string>
+    <string name="paywall_benefit_no_ads">Tanpa iklan · badge Premium</string>
     <string name="paywall_period_weekly">Mingguan</string>
     <string name="paywall_period_monthly">Bulanan</string>
     <string name="paywall_period_yearly">Tahunan</string>

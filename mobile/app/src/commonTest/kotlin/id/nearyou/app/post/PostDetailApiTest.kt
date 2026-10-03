@@ -308,7 +308,7 @@ class PostDetailApiTest {
     fun `like 429 with a non-numeric Retry-After yields a null retry-after`() =
         runTest {
             // An HTTP-date-format Retry-After (or any non-integer) must parse to null, not crash — the
-            // repository then maps it to RateLimited(0) → the "1 jam" floor.
+            // repository then maps it to RateLimited(0) → the cap dialog's one-minute floor.
             val api =
                 likeApi {
                     respond(

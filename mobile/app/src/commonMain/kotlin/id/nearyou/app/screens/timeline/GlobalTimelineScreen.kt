@@ -14,6 +14,7 @@ import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
@@ -82,7 +83,7 @@ fun GlobalTimelineScreen(
     onOpenPost: (GlobalTimelinePost) -> Unit = {},
     onOpenPostReply: (GlobalTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
-    onActivatePremium: () -> Unit = {},
+    onActivatePremium: (PaywallEntry) -> Unit = {},
 ) {
     val flow = koinInject<GlobalTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -160,7 +161,7 @@ fun GlobalTimelineScreen(
             // mobile-paywall-screen (#235): dismiss the dialog AND push PaywallRoute(LIKE_CAP) via the host.
             onActivatePremium = {
                 viewModel.onLikeCapDialogDismissed()
-                onActivatePremium()
+                onActivatePremium(PaywallEntry.LIKE_CAP)
             },
         )
     }

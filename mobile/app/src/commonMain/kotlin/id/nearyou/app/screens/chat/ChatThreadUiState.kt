@@ -190,6 +190,8 @@ fun chatThreadUiState(
  *  - `Blocked` ⇒ [Blocked] (the canonical block banner);
  *  - `TooLong` ⇒ [TooLong] (inline over-limit hint — defensive; the client gate already blocks it);
  *  - `NetworkError`/`Error` ⇒ [NetworkRetry] (retry the send);
+ *  - `RateLimited` ⇒ [Idle] (the Free 50/day cap is surfaced by the chat cap dialog, not the bar — the bar
+ *    stays usable; cap-upsell-parity);
  *  - `SessionExpired` ⇒ [Idle] (the `SessionInvalidator` re-route owns the transition; no send chrome);
  *  - otherwise ⇒ [Idle].
  */
@@ -215,6 +217,7 @@ fun sendBarState(
         SendOutcome.Blocked -> SendBarState.Blocked
         SendOutcome.TooLong -> SendBarState.TooLong
         SendOutcome.NetworkError, SendOutcome.Error -> SendBarState.NetworkRetry
+        is SendOutcome.RateLimited -> SendBarState.Idle
     }
 }
 

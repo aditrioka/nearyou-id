@@ -187,6 +187,10 @@ Toggle "Tampilkan preview pesan chat di notifikasi", default OFF; ON then body =
 - **In-app modal countdown**: personalized per user, realtime to the reset moment
 - **Response header** `X-RateLimit-Reset`: user-specific reset timestamp
 - **Free like-cap modal** (10/day cap hit): "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam {countdown}." CTA: "Aktifkan Premium" primary, "Tutup" secondary.
+- **Free reply-cap modal** (20/day): "Kamu sudah menggunakan 20 balasan hari ini. Upgrade ke Premium untuk balas tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
+- **Free post-cap modal** (10/day): "Kamu sudah membuat 10 postingan hari ini. Upgrade ke Premium untuk posting tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
+- **Free chat-cap modal** (50/day, chat thread + share-to-chat): "Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
+- All four caps share ONE modal (the `mobile-cap-upsell-dialog` component, mockup frame 18) — never an inline banner. "Aktifkan Premium" opens the paywall with the cap's entry-context so the hero leads with the matching benefit.
 
 ---
 

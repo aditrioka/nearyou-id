@@ -56,9 +56,11 @@ import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
+import id.nearyou.resources.generated.resources.chat_cap_upsell
 import id.nearyou.resources.generated.resources.chat_message_redacted
 import id.nearyou.resources.generated.resources.chat_send
 import id.nearyou.resources.generated.resources.chat_send_blocked
@@ -114,6 +116,9 @@ const val CHAT_REPORT_DIALOG_TAG: String = "chatReportDialog"
  *  - a bottom input bar (`chat_thread_input_placeholder` + send; the 2000-code-point client guard
  *    disables send on empty/whitespace/over-limit BEFORE any request);
  *  - a send-blocked banner (`chat_send_blocked`) on a `Blocked` send; a network-retry hint otherwise;
+ *  - the shared frame-18 cap dialog (`chat_cap_upsell` + a live countdown) on a `RateLimited` send — the
+ *    Free 50/day cap. The bubble drops (the message was not accepted) but the typed input is kept; the
+ *    "Aktifkan Premium" CTA invokes [onActivatePremium] (the host pushes `PaywallRoute(CHAT_CAP)`);
  *  - the initial-load skeleton vs a usable thread (no double indicator).
  *
  * On the first successful send (per-process one-shot via [NotificationPromptOneShot]) it shows the
@@ -128,6 +133,8 @@ fun ChatThreadScreen(
     // The host builds the PostDetailRoute from the snapshot's display fields (the same nav-arg pattern
     // a feed-card tap uses); a deleted-source card is not tappable so this never fires for it.
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit = { _, _ -> },
+    // cap-upsell-parity: the chat cap dialog's "Aktifkan Premium" — the host pushes PaywallRoute(CHAT_CAP).
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<ChatFlow>()
     val subscriber = koinInject<ChatRealtimeSubscriber>()
@@ -204,6 +211,21 @@ fun ChatThreadScreen(
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+        )
+    }
+
+    // cap-upsell-parity: the Free 50/day cap (frame 18). Shown while the one-shot sendOutcome is RateLimited;
+    // every dismissal path clears it via clearSendOutcome(). The input was never cleared (only Sent clears
+    // it), so the user keeps the text they typed.
+    (sendOutcome as? SendOutcome.RateLimited)?.let { rateLimited ->
+        DailyCapUpsellDialog(
+            retryAfterSeconds = rateLimited.retryAfterSeconds,
+            body = { countdown -> stringResource(Res.string.chat_cap_upsell, countdown) },
+            onDismiss = viewModel::clearSendOutcome,
+            onActivatePremium = {
+                viewModel.clearSendOutcome()
+                onActivatePremium()
+            },
         )
     }
 

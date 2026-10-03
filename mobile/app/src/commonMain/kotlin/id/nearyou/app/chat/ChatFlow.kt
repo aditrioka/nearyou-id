@@ -52,9 +52,10 @@ sealed interface ChatThreadOutcome {
 
 /**
  * A send maps to EXACTLY one member. `403` → [Blocked] (the canonical block banner), `400` → [TooLong]
- * (the client gate already blocks empty/over-limit, so a 400 is the over-limit/empty edge), other
- * non-2xx → [Error], 5xx/transport → [NetworkError], terminal `401` → [SessionExpired]. `201` →
- * [Sent] with the inserted message (the optimistic row reconciles to its server id).
+ * (the client gate already blocks empty/over-limit, so a 400 is the over-limit/empty edge), `429` →
+ * [RateLimited] (the Free 50/day cap — Premium skips the limiter), other non-2xx → [Error],
+ * 5xx/transport → [NetworkError], terminal `401` → [SessionExpired]. `201` → [Sent] with the inserted
+ * message (the optimistic row reconciles to its server id).
  */
 sealed interface SendOutcome {
     data class Sent(val message: ChatMessageDto) : SendOutcome
@@ -62,6 +63,9 @@ sealed interface SendOutcome {
     data object Blocked : SendOutcome
 
     data object TooLong : SendOutcome
+
+    /** `429` — the Free 50/day cap; [retryAfterSeconds] drives the cap dialog's countdown (0 = header absent). */
+    data class RateLimited(val retryAfterSeconds: Long) : SendOutcome
 
     data object NetworkError : SendOutcome
 

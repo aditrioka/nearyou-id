@@ -184,6 +184,8 @@ class ChatThreadUiStateTest {
         assertEquals(SendBarState.TooLong, sendBarState(SendOutcome.TooLong, inFlight = false))
         assertEquals(SendBarState.NetworkRetry, sendBarState(SendOutcome.NetworkError, inFlight = false))
         assertEquals(SendBarState.NetworkRetry, sendBarState(SendOutcome.Error, inFlight = false))
+        // cap-upsell-parity: the 50/day cap is surfaced by the cap dialog, so the bar stays Idle (usable).
+        assertEquals(SendBarState.Idle, sendBarState(SendOutcome.RateLimited(retryAfterSeconds = 60), inFlight = false))
         // Sent + SessionExpired both project to Idle (no send chrome).
         assertEquals(SendBarState.Idle, sendBarState(SendOutcome.SessionExpired, inFlight = false))
     }

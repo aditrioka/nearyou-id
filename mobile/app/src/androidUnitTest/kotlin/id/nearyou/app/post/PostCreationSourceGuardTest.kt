@@ -44,6 +44,18 @@ class PostCreationSourceGuardTest {
 
     // ---- 7.6: no hardcoded UI strings; logging never widened ----
 
+    // cap-upsell-parity (mobile-post-creation § "The retired rate-limit banner key is gone"): the 429 daily
+    // cap is the shared cap dialog — the inline rate-limit banner and its string are removed.
+    @Test
+    fun retiredRateLimitBanner_isGone_andTheCapDialogIsUsed() {
+        val uiState = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post/PostCreationUiState.kt")
+        assertFalse(uiState.contains("RATE_LIMITED"), "PostCreationBanner must declare no rate-limit member")
+        val strings = rawSource("shared/resources/src/commonMain/composeResources/values/strings.xml")
+        assertFalse(strings.contains("name=\"post_create_error_rate_limited\""), "the retired banner key must be gone")
+        assertTrue(strings.contains("name=\"post_create_cap_upsell\""), "the post cap dialog body must be declared")
+        assertTrue(screen.contains("DailyCapUpsellDialog("), "the composer surfaces its cap via the shared cap dialog")
+    }
+
     @Test
     fun postCreationScreen_hasNoHardcodedUiStringLiterals() {
         // Every UI-string-bearing call site sources its text via stringResource — so no `Text("…")`,

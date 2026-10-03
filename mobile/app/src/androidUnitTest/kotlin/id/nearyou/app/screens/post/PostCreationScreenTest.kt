@@ -1,16 +1,21 @@
 package id.nearyou.app.screens.post
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
@@ -18,6 +23,8 @@ import id.nearyou.app.image.FakeImagePicker
 import id.nearyou.app.image.FakeImageUploadRepository
 import id.nearyou.app.image.ImagePicker
 import id.nearyou.app.image.ImageUploader
+import id.nearyou.app.infra.revenuecat.OfferingsResult
+import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
@@ -30,9 +37,17 @@ import id.nearyou.app.post.PostCreationOutcome
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.screens.paywall.FakePurchaseController
+import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.screens.routing.PaywallRoute
+import id.nearyou.app.screens.routing.PostCreationRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.StubLocationProvider
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_post
 import id.nearyou.resources.generated.resources.post_create_content_placeholder
@@ -76,6 +91,10 @@ private const val LOC_UNAVAILABLE = "Aktifkan lokasi untuk membuat postingan."
 private const val OPEN_SETTINGS = "Buka Pengaturan"
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val RETRY = "Coba lagi"
+
+// cap-upsell-parity: post_create_cap_upsell with the cap dialog's 1140s countdown ("19 mnt").
+private const val POST_CAP_19M =
+    "Kamu sudah membuat 10 postingan hari ini. Upgrade ke Premium untuk posting tanpa batas, atau tunggu reset dalam 19 mnt."
 
 // mobile-mockup-visual-conformance (mockup frame 6): the static chip label + privacy note.
 private const val LOCATION_CHIP = "Lokasi saat ini"
@@ -135,6 +154,8 @@ class PostCreationScreenTest {
                     single { uploader }
                     single<ProfileFlow> { FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(profile)) }
                     single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
+                    // The host-push test navigates onward to PaywallRoute (Unconfigured fail-soft state).
+                    single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
                 },
             )
         }
@@ -384,18 +405,75 @@ class PostCreationScreenTest {
     fun freeViewer_tappingAttach_isUpsold_andPickerNotInvoked() {
         val picker = FakeImagePicker()
         installKoin(FakeCreatePostFlow(), isPremium = false, imagePicker = picker)
-        var activatedPremium = 0
+        val activated = mutableListOf<PaywallEntry>()
         runComposeUiTest {
             setContent {
                 KoinContext {
-                    NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activatedPremium++ }) }
+                    NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activated += it }) }
                 }
             }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_ATTACH_IMAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_ATTACH_IMAGE_TAG).performScrollTo().performClick()
             waitForIdle()
             assertEquals(0, picker.pickInvocationCount, "a Free viewer's attach must NOT invoke the picker")
-            assertEquals(1, activatedPremium, "a Free viewer is routed to the shared paywall")
+            assertEquals(listOf(PaywallEntry.IMAGE_ATTACH), activated, "a Free viewer is routed to the paywall as IMAGE_ATTACH")
+        }
+    }
+
+    // ---- cap-upsell-parity: the Free 10/day post cap (429) → the shared frame-18 cap dialog ----
+
+    @Test
+    fun rateLimitedOutcome_showsPostCapDialog_noBanner_andKeepsTheDraft() {
+        installKoin(FakeCreatePostFlow(outcome = PostCreationOutcome.RateLimited(retryAfterSeconds = 1_140)))
+        val activated = mutableListOf<PaywallEntry>()
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activated += it }) } }
+            }
+            onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
+            onNodeWithText(CTA_POST).performClick()
+            waitForIdle()
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertExists()
+            // The body renders ONCE — inside the dialog — so there is no parallel inline banner.
+            onAllNodesWithText(POST_CAP_19M).assertCountEquals(1)
+            onNodeWithTag(POST_CONTENT_FIELD_TAG).assertTextEquals("halo", includeEditableText = true)
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitForIdle()
+            assertEquals(listOf(PaywallEntry.POST_CAP), activated, "the post cap names POST_CAP")
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun postCapDialog_tutupDismissesWithoutOpeningThePaywall() {
+        installKoin(FakeCreatePostFlow(outcome = PostCreationOutcome.RateLimited(retryAfterSeconds = 1_140)))
+        var activated = 0
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activated++ }) } } }
+            onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
+            onNodeWithText(CTA_POST).performClick()
+            waitForIdle()
+            onNodeWithTag(DAILY_CAP_DIALOG_CLOSE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+            assertEquals(0, activated, "Tutup only dismisses")
+        }
+    }
+
+    // The host-push half under the REAL appEntryProvider: the post cap CTA pushes PaywallRoute(POST_CAP).
+    @Test
+    fun postCapCta_underHost_pushesPaywallRoutePostCap() {
+        installKoin(FakeCreatePostFlow(outcome = PostCreationOutcome.RateLimited(retryAfterSeconds = 1_140)))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(PostCreationRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CONTENT_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
+            onNodeWithText(CTA_POST).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            assertEquals(PaywallRoute(PaywallEntry.POST_CAP), backStack.last())
         }
     }
 

@@ -27,6 +27,7 @@ import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.screens.home.HomeScreen
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -429,6 +430,23 @@ class NearbyTimelineScreenTest {
         }
     }
 
+    // cap-upsell-parity (mobile-nearby-radius-slider § Free tier): the radius upsell's CTA names its OWN
+    // entry — RADIUS_GATE, never the like cap's LIKE_CAP — and dismisses the dialog.
+    @Test
+    fun radiusUpsellCta_invokesOnActivatePremiumWithRadiusGate() {
+        installKoin(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "X")), null, null), isPremium = false)
+        val activated = mutableListOf<PaywallEntry>()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onActivatePremium = { activated += it }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_RADIUS_SLIDER_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(NEARBY_RADIUS_SLIDER_TAG).performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(RADIUS_UPSELL_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(RADIUS_UPSELL_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(RADIUS_UPSELL_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+            assertEquals(listOf(PaywallEntry.RADIUS_GATE), activated)
+        }
+    }
+
     // ---- mobile-inline-post-actions: inline like + the Free like-cap dialog + the reply shortcut ----
 
     // The verbatim docs/03:187 modal body with the frame-18 "14 j 19 mnt" countdown (51 540 s).
@@ -479,8 +497,8 @@ class NearbyTimelineScreenTest {
             likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 1_140),
         )
         runComposeUiTest {
-            var activated = 0
-            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onActivatePremium = { activated++ }) } } }
+            val activated = mutableListOf<PaywallEntry>()
+            setContent { KoinContext { NearYouTheme { NearbyTimelineScreen(onActivatePremium = { activated += it }) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
@@ -489,7 +507,11 @@ class NearbyTimelineScreenTest {
             // (entry<HomeRoute>, via HomeScreen/AppShellScreen) pushes PaywallRoute(LIKE_CAP).
             onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
-            assertEquals(1, activated, "the cap-dialog Premium CTA invokes the hoisted onActivatePremium exactly once")
+            assertEquals(
+                listOf(PaywallEntry.LIKE_CAP),
+                activated,
+                "the cap-dialog Premium CTA invokes the hoisted onActivatePremium exactly once, naming LIKE_CAP",
+            )
             onNodeWithTag(NEARBY_TIMELINE_LIST_TAG).assertExists()
         }
     }

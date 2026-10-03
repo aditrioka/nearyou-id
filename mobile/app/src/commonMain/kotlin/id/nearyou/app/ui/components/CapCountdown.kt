@@ -15,7 +15,7 @@ data class CapCountdown(
  * `Retry-After` seconds → remaining whole minutes, rounded **up** (the countdown never shows a
  * zero-minute value while time remains) and **floored to 1**: the shipped client maps a 429 whose
  * `Retry-After` is absent/stripped/unparseable to `RateLimited(0)`, and an unfloored zero would
- * flash-dismiss the dialog on entry (the shipped detail banner's 0→"1 jam" floor precedent). Pure +
+ * flash-dismiss the dialog on entry. Pure +
  * deterministic — no wall clock.
  */
 fun capCountdownMinutes(retryAfterSeconds: Long): Int {

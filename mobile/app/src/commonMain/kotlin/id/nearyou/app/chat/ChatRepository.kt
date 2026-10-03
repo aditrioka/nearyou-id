@@ -51,7 +51,10 @@ class ChatRepository(
                     result.status == 401 -> SendOutcome.SessionExpired
                     result.status == 403 -> SendOutcome.Blocked
                     result.status == 400 -> SendOutcome.TooLong
-                    // 404 unknown conversation / 429 rate-limit / other non-2xx — retryable, logged.
+                    // The Free 50/day cap — mapped once here so every send caller (thread + share picker)
+                    // surfaces the cap dialog, never the retryable fallthrough.
+                    result.status == 429 -> SendOutcome.RateLimited(result.retryAfterSeconds ?: 0L)
+                    // 404 unknown conversation / other non-2xx — retryable, logged.
                     result.status in 500..599 -> SendOutcome.NetworkError
                     else -> {
                         diagnosticLog(result.status)

@@ -223,10 +223,27 @@ class CreatePostRepositoryTest {
                     respond(
                         """{"error":{"code":"rate_limited","message":"Too many posts today."}}""",
                         HttpStatusCode.TooManyRequests,
+                        headersOf("Content-Type" to listOf("application/json"), "Retry-After" to listOf("51540")),
+                    )
+                }
+            // cap-upsell-parity: the Retry-After seconds ride the outcome (they drive the cap dialog countdown).
+            assertEquals(PostCreationOutcome.RateLimited(retryAfterSeconds = 51_540), repo.submit("halo"))
+        }
+
+    @Test
+    fun `429 without a Retry-After header maps to RateLimited(0)`() =
+        runTest {
+            val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+            val repo =
+                repository(controller, CountingLocationProvider()) {
+                    respond(
+                        """{"error":{"code":"rate_limited","message":"Too many posts today."}}""",
+                        HttpStatusCode.TooManyRequests,
                         JSON_HEADERS,
                     )
                 }
-            assertEquals(PostCreationOutcome.RateLimited, repo.submit("halo"))
+            // The cap dialog floors 0 to one minute, so a proxy-stripped header never flash-dismisses.
+            assertEquals(PostCreationOutcome.RateLimited(retryAfterSeconds = 0), repo.submit("halo"))
         }
 
     @Test

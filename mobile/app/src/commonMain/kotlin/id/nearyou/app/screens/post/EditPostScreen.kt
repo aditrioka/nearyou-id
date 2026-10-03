@@ -65,7 +65,8 @@ const val EDIT_POST_PREMIUM_CTA_TAG: String = "editPostPremiumCta"
  * prefilled content-only editor (NO location control) with a live `N/280` Unicode-code-point counter and a
  * "Simpan" action; on a `200` it invokes [onPostEdited] with the updated content (the caller pops to detail
  * + refreshes). Reactive premium gate (design D2): a `403 premium_required` raises the "Aktifkan Premium"
- * upsell — no client premium flag is read. Every other failure ([EditPostError]) shows an inline banner with
+ * upsell — no client premium flag is read; its CTA dismisses AND invokes the hoisted [onActivatePremium]
+ * (the host pushes `PaywallRoute(EDIT_GATE)`, cap-upsell-parity). Every other failure ([EditPostError]) shows an inline banner with
  * the editor text preserved. All copy via `stringResource` (zero literals); no PII rendered or logged.
  */
 @Composable
@@ -73,6 +74,7 @@ fun EditPostScreen(
     route: EditPostRoute,
     onBack: () -> Unit,
     onPostEdited: (newContent: String) -> Unit,
+    onActivatePremium: () -> Unit = {},
 ) {
     val flow = koinInject<PostEditFlow>()
     val viewModel = viewModel { EditPostViewModel(flow, route.postId, route.initialContent) }
@@ -86,8 +88,10 @@ fun EditPostScreen(
     if (uiState.showPremiumUpsell) {
         EditPremiumUpsellDialog(
             onDismiss = viewModel::onPremiumUpsellDismissed,
-            // v1: no paywall yet — the CTA dismisses (mirrors the search PremiumGate + timeline cap upsell).
-            onActivatePremium = viewModel::onPremiumUpsellDismissed,
+            onActivatePremium = {
+                viewModel.onPremiumUpsellDismissed()
+                onActivatePremium()
+            },
         )
     }
 
@@ -168,7 +172,7 @@ private fun EditTopBar(
 }
 
 /** The reactive `403 premium_required` upsell — an "Aktifkan Premium" CTA (reuses the shared
- *  `cta_activate_premium` string; v1 has no paywall, so both buttons dismiss). */
+ *  `cta_activate_premium` string) that routes to the paywall via the host; the cancel button only dismisses. */
 @Composable
 private fun EditPremiumUpsellDialog(
     onDismiss: () -> Unit,

@@ -44,6 +44,8 @@ import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.PostCreationOutcome
 import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_post
 import id.nearyou.resources.generated.resources.cta_retry
@@ -54,12 +56,12 @@ import id.nearyou.resources.generated.resources.ic_privacy_shield
 import id.nearyou.resources.generated.resources.location_open_settings
 import id.nearyou.resources.generated.resources.post_create_attach_image
 import id.nearyou.resources.generated.resources.post_create_attach_image_cd
+import id.nearyou.resources.generated.resources.post_create_cap_upsell
 import id.nearyou.resources.generated.resources.post_create_char_counter
 import id.nearyou.resources.generated.resources.post_create_content_placeholder
 import id.nearyou.resources.generated.resources.post_create_error_empty
 import id.nearyou.resources.generated.resources.post_create_error_location
 import id.nearyou.resources.generated.resources.post_create_error_moderated
-import id.nearyou.resources.generated.resources.post_create_error_rate_limited
 import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_image_error_feature_disabled
 import id.nearyou.resources.generated.resources.post_create_image_error_moderation_rejected
@@ -118,8 +120,10 @@ const val POST_IMAGE_REMOVE_TAG: String = "postImageRemove"
  * coordinate-entry field, or place search (design D1 / #144).
  *
  * Gating (mobile-image-attachment): the attach affordance routes a Premium viewer to the OS picker and a
- * Free viewer to the shared paywall (the hoisted [onActivatePremium], wired by `appEntryProvider` to
- * `PaywallRoute(IMAGE_ATTACH)`) — the picker is NEVER invoked for a Free viewer. No Firebase Remote Config
+ * Free viewer to the shared paywall (the hoisted [onActivatePremium] with `IMAGE_ATTACH`; `appEntryProvider`
+ * pushes `PaywallRoute(entry)`) — the picker is NEVER invoked for a Free viewer. The Free 10/day post cap
+ * (a `429`) shows the shared frame-18 cap dialog with a live countdown, the draft kept; its CTA invokes
+ * [onActivatePremium] with `POST_CAP` (cap-upsell-parity). No Firebase Remote Config
  * client is introduced; the backend stays the authority on the `image_upload_enabled` flag (a
  * `FeatureDisabled` upload outcome renders the "not available yet" state).
  *
@@ -130,7 +134,7 @@ const val POST_IMAGE_REMOVE_TAG: String = "postImageRemove"
 @Composable
 fun PostCreationScreen(
     onPostCreated: () -> Unit,
-    onActivatePremium: () -> Unit = {},
+    onActivatePremium: (PaywallEntry) -> Unit = {},
 ) {
     val flow = koinInject<CreatePostFlow>()
     val imagePicker = koinInject<ImagePicker>()
@@ -172,9 +176,23 @@ fun PostCreationScreen(
     // clear the flag. Mirrors the timeline cap dialog's onActivatePremium hand-off.
     LaunchedEffect(routeToPaywall) {
         if (routeToPaywall) {
-            onActivatePremium()
+            onActivatePremium(PaywallEntry.IMAGE_ATTACH)
             viewModel.onPaywallRouted()
         }
+    }
+
+    // The Free 10/day post cap (cap-upsell-parity, frame 18): shown while the VM's outcome is RateLimited;
+    // every dismissal path clears it (onCapDialogDismissed). The content field is untouched.
+    (outcome as? PostCreationOutcome.RateLimited)?.let { rateLimited ->
+        DailyCapUpsellDialog(
+            retryAfterSeconds = rateLimited.retryAfterSeconds,
+            body = { countdown -> stringResource(Res.string.post_create_cap_upsell, countdown) },
+            onDismiss = viewModel::onCapDialogDismissed,
+            onActivatePremium = {
+                viewModel.onCapDialogDismissed()
+                onActivatePremium(PaywallEntry.POST_CAP)
+            },
+        )
     }
 
     val ctaText =
@@ -193,7 +211,6 @@ fun PostCreationScreen(
                 PostCreationBanner.CONTENT_REJECTED -> stringResource(Res.string.post_create_error_moderated)
                 PostCreationBanner.LOCATION_UNAVAILABLE -> stringResource(Res.string.post_create_location_unavailable)
                 PostCreationBanner.NETWORK -> stringResource(Res.string.signin_error_network)
-                PostCreationBanner.RATE_LIMITED -> stringResource(Res.string.post_create_error_rate_limited)
             }
         }
 

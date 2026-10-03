@@ -173,4 +173,10 @@ class PostCreationViewModel(
     fun onPaywallRouted() {
         _routeToPaywall.value = false
     }
+
+    /** The post-cap dialog consumer (cap-upsell-parity): clears a `RateLimited` [createOutcome] when the
+     *  dialog is dismissed or its CTA routes to the paywall. The typed [content] is untouched. */
+    fun onCapDialogDismissed() {
+        if (_createOutcome.value is PostCreationOutcome.RateLimited) _createOutcome.value = null
+    }
 }

@@ -42,6 +42,7 @@ import id.nearyou.app.screens.home.HomeScreen
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.notifications.NotificationsScreen
 import id.nearyou.app.screens.profile.ProfileScreen
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.app_name
 import id.nearyou.resources.generated.resources.chat_open_action
@@ -124,7 +125,7 @@ fun AppShellScreen(
     onOpenSearch: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
-    onActivatePremium: () -> Unit = {},
+    onActivatePremium: (PaywallEntry) -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }

@@ -32,9 +32,6 @@ enum class PostCreationBanner {
 
     /** `signin_error_network` + a retry control — `NetworkError` / retryable `Error`. */
     NETWORK,
-
-    /** `post_create_error_rate_limited` — 429 daily cap; no retry control (resets daily). */
-    RATE_LIMITED,
 }
 
 /**
@@ -66,7 +63,8 @@ data class PostCreationUiState(
  *   is blocked until the upload resolves to a terminal `ImageUploadOutcome`).
  * - `inFlight` ⇒ [loading] (submit disabled, no banner — the in-flight phase supersedes any prior
  *   outcome).
- * - otherwise the [outcome] derives [success] / the per-error [banner].
+ * - otherwise the [outcome] derives [success] / the per-error [banner] — except `RateLimited` (the 429 daily
+ *   cap), which projects NO banner: the composer surfaces it as the shared cap dialog (cap-upsell-parity).
  */
 fun postCreationUiState(
     content: String,
@@ -96,9 +94,8 @@ fun postCreationUiState(
             PostCreationOutcome.LocationOutOfBounds -> PostCreationBanner.LOCATION_OUT_OF_BOUNDS
             PostCreationOutcome.ContentRejected -> PostCreationBanner.CONTENT_REJECTED
             PostCreationOutcome.LocationUnavailable -> PostCreationBanner.LOCATION_UNAVAILABLE
-            PostCreationOutcome.RateLimited -> PostCreationBanner.RATE_LIMITED
             PostCreationOutcome.NetworkError, PostCreationOutcome.Error -> PostCreationBanner.NETWORK
-            is PostCreationOutcome.Success, null -> null
+            is PostCreationOutcome.RateLimited, is PostCreationOutcome.Success, null -> null
         }
     return PostCreationUiState(
         charCount = charCount,

@@ -38,6 +38,7 @@ import id.nearyou.app.location.LocationConsentModal
 import id.nearyou.app.location.LocationGateUiState
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
@@ -130,7 +131,7 @@ fun NearbyTimelineScreen(
     onOpenPost: (NearbyTimelinePost) -> Unit = {},
     onOpenPostReply: (NearbyTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
-    onActivatePremium: () -> Unit = {},
+    onActivatePremium: (PaywallEntry) -> Unit = {},
 ) {
     val controller = koinInject<LocationPermissionController>()
     // HomeRoute-scoped (audit 05-#12): resolved against the same NavEntry store as the feed VM, so the gate
@@ -189,7 +190,7 @@ private fun NearbyFeed(
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onOpenPostReply: (NearbyTimelinePost) -> Unit,
     onOpenProfile: (authorUserId: String) -> Unit,
-    onActivatePremium: () -> Unit,
+    onActivatePremium: (PaywallEntry) -> Unit,
 ) {
     val flow = koinInject<NearbyTimelineFlow>()
     // The extracted cross-surface like seam (mobile-inline-post-actions D1) — the SAME
@@ -295,7 +296,7 @@ private fun NearbyFeed(
             // mobile-paywall-screen (#235): dismiss the dialog AND push PaywallRoute(LIKE_CAP) via the host.
             onActivatePremium = {
                 viewModel.onLikeCapDialogDismissed()
-                onActivatePremium()
+                onActivatePremium(PaywallEntry.LIKE_CAP)
             },
         )
     }
@@ -308,7 +309,8 @@ private fun NearbyFeed(
             onDismiss = viewModel::onRadiusUpsellShown,
             onActivatePremium = {
                 viewModel.onRadiusUpsellShown()
-                onActivatePremium()
+                // cap-upsell-parity: the radius gate names its OWN entry (the paywall leads with radius).
+                onActivatePremium(PaywallEntry.RADIUS_GATE)
             },
         )
     }

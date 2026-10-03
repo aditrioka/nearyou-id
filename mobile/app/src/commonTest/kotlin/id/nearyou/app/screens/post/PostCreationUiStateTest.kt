@@ -88,6 +88,16 @@ class PostCreationUiStateTest {
         assertNull(loadingOverOutcome.banner)
     }
 
+    // cap-upsell-parity (mobile-post-creation § Pure projection): the 429 daily cap is the shared cap dialog,
+    // never a second inline surface — RateLimited projects NO banner and leaves the CTA enabled.
+    @Test
+    fun `RateLimited projects no banner and keeps the CTA enabled`() {
+        val state = postCreationUiState("halo", PostCreationOutcome.RateLimited(retryAfterSeconds = 60), inFlight = false)
+        assertNull(state.banner)
+        assertFalse(state.success)
+        assertTrue(state.submitEnabled, "valid content stays submittable (the cap may reset / the user may upgrade)")
+    }
+
     @Test
     fun `each outcome maps to its success or error-banner state`() {
         assertTrue(postCreationUiState("halo", PostCreationOutcome.Success("p1"), false).success)
@@ -100,7 +110,6 @@ class PostCreationUiStateTest {
             postCreationUiState("halo", PostCreationOutcome.LocationOutOfBounds, false).banner,
         )
         assertEquals(PostCreationBanner.CONTENT_REJECTED, postCreationUiState("halo", PostCreationOutcome.ContentRejected, false).banner)
-        assertEquals(PostCreationBanner.RATE_LIMITED, postCreationUiState("halo", PostCreationOutcome.RateLimited, false).banner)
         assertEquals(
             PostCreationBanner.LOCATION_UNAVAILABLE,
             postCreationUiState("halo", PostCreationOutcome.LocationUnavailable, false).banner,

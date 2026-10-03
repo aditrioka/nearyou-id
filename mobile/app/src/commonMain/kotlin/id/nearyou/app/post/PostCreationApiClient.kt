@@ -73,8 +73,13 @@ sealed interface PostCreationApiResult {
     data class Success(val id: String) : PostCreationApiResult
 
     /** Non-2xx response. [errorCode] is the parsed `error.code` when the envelope decodes, else null
-     *  (e.g. a 5xx with an empty/non-JSON body); the repository keys 400 outcomes on it. */
-    data class HttpError(val status: Int, val errorCode: String?) : PostCreationApiResult
+     *  (e.g. a 5xx with an empty/non-JSON body); the repository keys 400 outcomes on it. [retryAfterSeconds]
+     *  is the parsed `Retry-After` (present on the daily-cap `429`), else null. */
+    data class HttpError(
+        val status: Int,
+        val errorCode: String?,
+        val retryAfterSeconds: Long? = null,
+    ) : PostCreationApiResult
 
     /** Transport-level failure (IOException, timeout, host unreachable). */
     data class NetworkError(val cause: Throwable) : PostCreationApiResult
@@ -136,6 +141,10 @@ class PostCreationApiClient(
             } catch (_: Throwable) {
                 null
             }
-        return PostCreationApiResult.HttpError(status = response.status.value, errorCode = errorCode)
+        return PostCreationApiResult.HttpError(
+            status = response.status.value,
+            errorCode = errorCode,
+            retryAfterSeconds = response.retryAfterSeconds(),
+        )
     }
 }

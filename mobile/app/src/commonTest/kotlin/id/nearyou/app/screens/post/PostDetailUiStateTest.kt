@@ -151,8 +151,9 @@ class PostDetailUiStateTest {
     // ---- banners (exhaustive over the outcomes) ----
 
     @Test
-    fun `like banner maps RateLimited to LikeCap and gone-or-network to Network and happy-or-null to none`() {
-        assertEquals(PostDetailBanner.LikeCap(resetHours = 1), likeBanner(LikeOutcome.RateLimited(retryAfterSeconds = 3600)))
+    fun `like banner maps gone-or-network to a banner and RateLimited-happy-or-null to none`() {
+        // cap-upsell-parity: the like cap is the shared cap dialog, never a banner.
+        assertNull(likeBanner(LikeOutcome.RateLimited(retryAfterSeconds = 3600)))
         assertEquals(PostDetailBanner.PostGone, likeBanner(LikeOutcome.PostGone))
         assertEquals(PostDetailBanner.Network, likeBanner(LikeOutcome.NetworkError))
         assertNull(likeBanner(LikeOutcome.Liked))
@@ -161,21 +162,13 @@ class PostDetailUiStateTest {
     }
 
     @Test
-    fun `reply banner maps RateLimited to ReplyCap and gone-invalid-network to Network and success-or-null to none`() {
-        assertEquals(PostDetailBanner.ReplyCap(resetHours = 1), replyBanner(ReplyPostOutcome.RateLimited(retryAfterSeconds = 3600)))
+    fun `reply banner maps gone-invalid-network to a banner and RateLimited-success-or-null to none`() {
+        // cap-upsell-parity: the reply cap is the shared cap dialog, never a banner.
+        assertNull(replyBanner(ReplyPostOutcome.RateLimited(retryAfterSeconds = 3600)))
         assertEquals(PostDetailBanner.PostGone, replyBanner(ReplyPostOutcome.PostGone))
         assertEquals(PostDetailBanner.Network, replyBanner(ReplyPostOutcome.InvalidContent))
         assertEquals(PostDetailBanner.Network, replyBanner(ReplyPostOutcome.NetworkError))
         assertNull(replyBanner(ReplyPostOutcome.Success(fakeReply())))
         assertNull(replyBanner(null))
-    }
-
-    @Test
-    fun `reset hours rounds up with a floor of one`() {
-        assertEquals(1, resetHours(3600), "exactly 1h → 1")
-        assertEquals(2, resetHours(7200), "exactly 2h → 2")
-        assertEquals(1, resetHours(1800), "30m rounds up to 1")
-        assertEquals(1, resetHours(0), "0/absent → floor of 1, never 0 jam")
-        assertEquals(24, resetHours(86_400), "a full WIB-day cap → 24")
     }
 }
