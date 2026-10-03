@@ -133,8 +133,8 @@ jobs:
       # AND on inventory drift (catches NEW files added without an
       # SHA256SUMS entry). Pinned per admin-panel-ktor-htmx-bootstrap
       # design.md Decision 2 "Vendored file provenance" + Security lens
-      # finding N4 (PR #115 step-8 review). HTMX is not a JVM dep so
-      # Dependabot doesn't see it; advisories tracked via
+      # finding N4 (PR #115 step-8 review). HTMX is not a JVM dep, so a
+      # dependency bot (none configured yet) would not see it; advisories tracked via
       # bigskysoftware/htmx GitHub releases watch.
       # No untrusted input — static checks against checked-in files.
       - name: Verify vendored static-asset integrity + inventory
