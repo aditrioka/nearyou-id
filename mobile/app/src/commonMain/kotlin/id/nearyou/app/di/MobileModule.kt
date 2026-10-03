@@ -172,7 +172,7 @@ val mobileModule =
         // dependency-free PurchaseController, so any consumer can take it with no HttpClient cycle.
         single { PremiumEntitlementSession(get(), get()) }
         // mobile-crash-reporting — the start/stop lifecycle, shared by startup init (initKoin) and the
-        // runtime consent toggle (ConsentSettingsViewModel). Config resolved from the flavor seam.
+        // consent submits (ConsentViewModel + ConsentSettingsViewModel). Config resolved from the flavor seam.
         single {
             CrashReportingController(
                 crashReporter = get(),
@@ -219,6 +219,8 @@ val mobileModule =
                 authApiClient = get(),
                 tokenStore = get(),
                 sessionInvalidator = get(),
+                // #492: sign-in/sign-up diagnostics reach the real sink (Sentry breadcrumbs), not the no-op default.
+                diagnosticLog = get<DiagnosticSink>()::log,
                 crashReporter = get(),
                 // content-moderation-appeal: the shared AppealSession holder (declared below) so a
                 // banned 403's appeal token reaches the appeal screen.

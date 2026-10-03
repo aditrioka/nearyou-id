@@ -67,7 +67,7 @@ private fun configureRevenueCatBilling() {
  * mobile-crash-reporting — initialize crash reporting once Koin is up (called from [initKoin] right
  * after `startKoin`, so it runs at process startup before app code can crash). Opt-out default ON; a
  * last-known crash DECLINE in the [ConsentSnapshotStore] closes the session (docs/06 § Enforcement). A
- * blank DSN makes init a safe no-op. User correlation is set on the next sign-in (`AuthRepository`).
+ * blank DSN makes init a safe no-op. User correlation is set on sign-in and session restore (`AuthRepository`).
  */
 private fun startCrashReporting() {
     val koin = KoinPlatformTools.defaultContext().get()

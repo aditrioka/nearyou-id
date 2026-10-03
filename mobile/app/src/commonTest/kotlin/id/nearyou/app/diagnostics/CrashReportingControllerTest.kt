@@ -46,6 +46,18 @@ class CrashReportingControllerTest {
         assertEquals(1, fake.closeCount)
     }
 
+    @Test
+    fun applyConsentOnWhileStartedDoesNotReInit() {
+        // #492: a consent save that keeps crash ON (onboarding default, Settings re-save) must not re-init the
+        // live SDK — Sentry.init replaces the hub and would drop the signed-in user's scope.
+        val fake = FakeCrashReporter()
+        val controller = CrashReportingController(fake, config)
+        controller.applyStartupConsent(lastKnownCrash = null)
+        controller.applyConsent(crashConsent = true)
+        assertEquals(1, fake.initCount)
+        assertEquals(0, fake.closeCount)
+    }
+
     // ----- cold-start gate (initKoin#startCrashReporting delegates here) -----
 
     @Test

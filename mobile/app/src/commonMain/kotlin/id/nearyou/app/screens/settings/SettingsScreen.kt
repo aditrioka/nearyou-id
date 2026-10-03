@@ -35,6 +35,7 @@ import id.nearyou.app.data.accountdeletion.deletionDateLabel
 import id.nearyou.app.data.dataexport.DataExportFlow
 import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.NotificationContentPreference
@@ -154,6 +155,7 @@ fun SettingsScreen(
     val notificationContentPreference = remember(koin) { koin.getOrNull<NotificationContentPreference>() }
     // premium-entitlement-lifecycle: same fail-safe resolution for the RevenueCat identity unbind on logout.
     val premiumEntitlement = remember(koin) { koin.getOrNull<PremiumEntitlementSession>() }
+    val crashReporter = remember(koin) { koin.getOrNull<CrashReporter>() }
     val viewModel =
         viewModel {
             SettingsViewModel(
@@ -164,6 +166,7 @@ fun SettingsScreen(
                 logoutFcmTokenProvider,
                 notificationContentPreference,
                 premiumEntitlement,
+                crashReporter,
             )
         }
     val loggedOut by viewModel.loggedOut.collectAsStateWithLifecycle()
