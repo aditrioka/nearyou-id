@@ -4,13 +4,13 @@
 
 `OtelForbiddenAttributeRule` SHALL run a PSI-context-restricted Mode A check. This check fires only on a Kotlin string literal (`KtStringTemplateExpression`) that sits in an **attribute-key position** (AKP). The project runs the syntactic `detekt` task with no type resolution, so the check uses Kotlin PSI only.
 
-**Attribute-key positions.** A key expression K is in an AKP when any of the following holds. Each shape also defines the **paired value** that checks 2 and 5 inspect:
+**Attribute-key positions.** A key expression K is in an AKP when any of the following holds. Each shape also defines the **paired value** that checks 2, 5 and 6 inspect:
 
 - **P1 — `setAttribute`.** K is the key argument of a call whose callee short name is `setAttribute`.
   - Key argument: the one named `key`; otherwise the unnamed argument at position 0.
   - Paired value: the argument named `value`; otherwise the unnamed argument at position 1.
 - **P2 — `AttributeKey` factory.** K is the first argument of a call to `stringKey`, `booleanKey`, `longKey`, `doubleKey`, `stringArrayKey`, `booleanArrayKey`, `longArrayKey` or `doubleArrayKey`. The call is either unqualified, or its receiver text ends in `AttributeKey`.
-  - Paired value: when the factory call is itself argument 0 of a `setAttribute(...)` / `put(...)` call, argument 1 of that call. When it is an even-indexed argument of `Attributes.of(...)`, the argument that follows it. Otherwise there is no paired value, and checks 2 and 5 do not apply.
+  - Paired value: when the factory call is itself argument 0 of a `setAttribute(...)` / `put(...)` call, argument 1 of that call. When it is an even-indexed argument of `Attributes.of(...)`, the argument that follows it. Otherwise there is no paired value, and checks 2, 5 and 6 do not apply.
 - **P3 — `AttributesBuilder.put`.** K is argument 0 of a two-argument `put(...)` call whose receiver is *builder-evidenced*. Paired value: argument 1.
   - Builder-evidenced means either: the receiver chain text contains `Attributes.builder()` or `.toBuilder()`; or the receiver is a simple name declared in the same file with type `AttributesBuilder`, or with an initializer containing `Attributes.builder()`.
   - NOT builder-evidenced (do not match): a generic `Map.put`, an unqualified `put` inside `buildJsonObject { }`, and Ktor's `call.attributes.put(...)`.
@@ -47,7 +47,7 @@ The path allowlist and the `@AllowForbiddenSpanAttribute("<non-blank reason>")` 
 - Maps built in another file, through `buildMap { }`, or composed with `+`.
 - An unqualified `put` inside `Attributes.builder().apply { }`.
 - Key constants declared in another file.
-- A standalone hoisted `AttributeKey` value: there is no paired value, so the alias and claim checks are skipped. Key-name checks still apply.
+- A standalone hoisted `AttributeKey` value: there is no paired value, so the alias, claim and client-IP checks are skipped. Key-name checks still apply.
 - Dynamic key concatenation, and semconv constants (`ClientAttributes.CLIENT_ADDRESS`, `UrlAttributes.URL_QUERY`) that carry no literal.
 - Identifiers embedded in a multi-entry string template (`"user:$userId"`) — only single-entry templates are peeled.
 - Unseparated all-lowercase compound keys (`refreshtoken`, `userid`, `actuallocation`) — tokenization needs a separator or case boundary.
@@ -178,7 +178,7 @@ This requirement is enforced via three defense-in-depth layers:
 1. **Runtime stripping** at the SDK export pipeline via `ForbiddenAttributeStripper.kt`. This covers auto-instrumentation peer-identity attrs the developer didn't write.
 2. **Compile-time lint** at developer-written call sites via `OtelForbiddenAttributeRule`:
    - anywhere-firing Tier 1 keys, Tier 2 value patterns and IP-axis shapes (§ "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes");
-   - attribute-key-position checks for `user_id`, user-identity aliases, location keys, credential keys and raw JWT-claim values (§ "`OtelForbiddenAttributeRule` checks attribute-key positions").
+   - attribute-key-position checks for `user_id`, user-identity aliases, location keys, credential keys, raw JWT-claim values and raw client-IP values (§ "`OtelForbiddenAttributeRule` checks attribute-key positions").
 3. **Integration-test sentinel-string regression** at staging, for end-to-end coverage of the high-velocity categories (post content, chat content, peer-IP, raw-IP-in-Lua-key, bearer token, JWT claim, search query, Redis password) — see the per-category scenarios below.
 
 #### Scenario: Setting raw user_id on a span is a code-review blocker
@@ -419,8 +419,8 @@ Prefix-less opaque secrets cannot be matched by any value regex. These are proje
 18. **User-identity alias value-awareness**:
     - Fires on:
       - V1 UUID literal (also triple-quoted);
-      - V2 `UUID.randomUUID()` / `fromString` / `java.util.UUID.nameUUIDFromBytes`, Kotlin `Uuid.random()`, `UuidV7.next().toJavaUuid()`;
-      - V3 same-file `UUID`-typed parameter, nullable `UUID` property via a `"$x"` template, V2-initialized local, V4-initialized local;
+      - V2 `UUID.randomUUID()` / `fromString` / `java.util.UUID.nameUUIDFromBytes`, Kotlin `Uuid.random()` / `kotlin.uuid.Uuid.parse(…)`, `UuidV7.next().toJavaUuid()`, `UUID.randomUUID().toKotlinUuid()`;
+      - V3 same-file `UUID`-typed parameter, Kotlin `Uuid`-typed parameter, nullable `UUID` property via a `"$x"` template, V2-initialized local, V4-initialized local;
       - V4 `*UserId`, `user.id`, `userId`, `!!`-peeled `currentUser!!.id`, and elvis-peeled `principal?.userId?.toString() ?: "anon"`;
       - P2 nested in `setAttribute` and inside `Attributes.of` (paired value);
       - a hoisted alias key whose LATER use carries a raw identifier.

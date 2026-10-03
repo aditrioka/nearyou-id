@@ -24,7 +24,7 @@ A literal is in an *attribute-key position* when it is one of:
 - (P3) the key argument of a two-argument `put(...)` whose receiver is evidenced as an OTel `AttributesBuilder`. A generic `Map.put`, `buildJsonObject { put(...) }`, or Ktor `call.attributes.put` does not count;
 - (P4) a map-entry key inside a `mapOf(...)` passed as the `attributes` argument of `withSpan(...)`, either directly or through a `val` in the same file.
 
-A key literal hoisted into a same-file `const val` / `val` is checked at the place where that constant is used as a key.
+A key literal hoisted into a same-file `const val` / `val` is checked at EVERY place where that constant is used as a key; an `@AllowForbiddenSpanAttribute`-annotated use site is sanctioned there.
 
 Each position also defines its paired value. In that position, the rule runs six checks:
 

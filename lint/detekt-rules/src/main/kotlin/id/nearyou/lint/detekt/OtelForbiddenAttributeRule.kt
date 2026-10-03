@@ -178,10 +178,7 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
         if (isAllowedPath(file)) return
         if (expression.isInsideAllowedAnnotation()) return
 
-        val unquoted =
-            expression.text
-                .removeSurrounding("\"\"\"")
-                .removeSurrounding("\"")
+        val unquoted = expression.unquoted()
 
         val firesTier1 = unquoted in TIER_1_FORBIDDEN_KEYS
         val firesTier2 = TIER_2_PATTERNS.any { it.containsMatchIn(unquoted) }
@@ -200,7 +197,7 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
     /**
      * Attribute-key-position checks (spec § "`OtelForbiddenAttributeRule` checks
      * attribute-key positions"). Fires only when [literal] is an OTel attribute key —
-     * see [attributeKeySite] — so the same text elsewhere (SQL column, `@SerialName`,
+     * see [attributeKeySites] — so the same text elsewhere (SQL column, `@SerialName`,
      * route param, JSON builder key) stays silent.
      */
     private fun firesAsAttributeKey(
@@ -359,10 +356,12 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
     private fun isRawClientIp(value: KtExpression): Boolean = peel(value).terminalName() == CLIENT_IP_ACCESSOR
 
     /**
-     * Raw-identifier evidence on a peeled value (spec V1–V4): UUID-shaped literal,
-     * `UUID.randomUUID()` / `fromString` / `nameUUIDFromBytes`, a name declared `UUID` (or
+     * Raw-identifier evidence on a peeled value (spec V1–V4): UUID-shaped literal, a
+     * UUID factory (`UUID.randomUUID()` / `fromString` / `nameUUIDFromBytes`, Kotlin
+     * `Uuid.random()` / `parse`, `UuidV7.next()`), a name declared `UUID` / `Uuid` (or
      * initialized from V1/V2/V4) in the same file, or the domain naming convention
-     * (`userId` / `*UserId` / `user.id`). Hashed values (`UserIdHasher.hash(...)`) match none.
+     * (`userId` / `*UserId` / `user.id`, excluding `hash`-named values). Hashed values
+     * (`UserIdHasher.hash(...)`, `hashedUserId`) match none.
      */
     private fun isRawIdentifier(value: KtExpression): Boolean {
         if (isUuidLiteralOrFactory(value)) return true
@@ -669,7 +668,7 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
 
         /**
          * Tier 2 — sensitive-value regex patterns (11). Each is a high-confidence marker:
-         * a structural shape (PEM / JWT / JWKS / credentialed Redis URI) or a vendor prefix
+         * a structural shape (PEM / JWT / JWKS / credentialed Redis / Postgres URI) or a vendor prefix
          * plus a long token-alphabet body for the secrets this backend actually holds.
          * Prefix-less opaque secrets (project-issued refresh tokens, webhook / HMAC / AES
          * secrets) have no recognizable value shape — the attribute-key credential check

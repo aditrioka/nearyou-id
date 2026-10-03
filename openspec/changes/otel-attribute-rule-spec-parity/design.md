@@ -190,7 +190,7 @@ A temporary probe file (`setAttribute("user_id"/"geo.lat"/"principal"+userId)`) 
 
 The operator chose "should-fix + cheap fixes". Each change below refines Decisions 2–5; the spec delta carries the normative text.
 
-- **Hoisted keys are checked at EVERY reference.** Each reference contributes its own paired value, and the literal fires when the checks match at any of them. The previous `firstNotNullOf` only checked the first use. All three code lenses flagged this.
+- **Hoisted keys are checked at EVERY reference.** Each reference contributes its own paired value, and the literal fires when the checks match at any of them. The previous `firstNotNullOfOrNull` only checked the first use. All three code lenses flagged this.
 - **An annotated use site is sanctioned there.** Annotating the constant itself sanctions every use.
 - **New check 6: raw `clientIp` value under any key.** It mirrors the raw-claim check. `clientIp` is the canonical accessor named by the client-IP invariant. `IpHasher.hash(call.clientIp)` is a call, so it passes.
 - **Evidence refinements:**

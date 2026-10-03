@@ -173,7 +173,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.3 — Tier 1 Group B positive-fail (8) — underscore typo-defensive variants
+    // Item 2 — Tier 1 Group B positive-fail (8) — underscore typo-defensive variants
     // ============================================================
 
     "Tier 1 Group B: client_address (underscore variant) fires" {
@@ -257,7 +257,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.4 — Tier 1 Group C positive-fail (3) — JWT-claim keys
+    // Item 3 — Tier 1 Group C positive-fail (3) — JWT-claim keys
     // ============================================================
 
     "Tier 1 Group C: jwt.sub literal fires" {
@@ -371,7 +371,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.7 — Sanctioned `UserIdHasher.hash` consumption positive-pass
+    // Item 7 — Sanctioned `UserIdHasher.hash` consumption positive-pass
     // ============================================================
 
     "sanctioned UserIdHasher.hash consumption: setAttribute(\"user.id\", hashed) does NOT fire" {
@@ -393,7 +393,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.8 — IP-axis Mode B positive-fail: IPv4 hoisted-to-val
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B positive-fail: IPv4 hoisted-to-val
     // ============================================================
 
     "Mode B IP-axis: raw IPv4 in val-hoisted literal fires (canonical hoist shape)" {
@@ -410,7 +410,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.9 — IP-axis Mode B IPv6 positive-fail
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B IPv6 positive-fail
     // ============================================================
 
     "Mode B IP-axis: raw IPv6 literal fires" {
@@ -424,7 +424,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.10 — IP-axis Mode B canonical positive-pass
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B canonical positive-pass
     // ============================================================
 
     "Mode B IP-axis: canonical 16-hex lowercase passes" {
@@ -438,7 +438,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.11 — IP-axis Mode B simple-name interpolation positive-pass
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B simple-name interpolation positive-pass
     // ============================================================
 
     "Mode B IP-axis: simple-name template interpolation passes (canonical production shape)" {
@@ -455,7 +455,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.12 — IP-axis Mode B block-form interpolation positive-pass
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B block-form interpolation positive-pass
     // ============================================================
 
     "Mode B IP-axis: block-form template interpolation passes" {
@@ -474,7 +474,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.13 — IP-axis Mode B off-canonical hex positive-fail (3 tests)
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B off-canonical hex positive-fail (3 tests)
     // ============================================================
 
     "Mode B IP-axis: 15-hex value (one short) fires" {
@@ -508,7 +508,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.14 — IP-axis Mode B no-op on non-IP-axis key
+    // Mode B (rate-limit-infrastructure spec) — IP-axis Mode B no-op on non-IP-axis key
     // ============================================================
 
     "Mode B IP-axis: non-IP-axis key (no {ip:...} segment) does NOT fire on IP-axis check" {
@@ -527,7 +527,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.15 — Annotation bypass with non-empty reason on function
+    // Item 9 — Annotation bypass with non-empty reason on function
     // ============================================================
 
     "annotation bypass: @AllowForbiddenSpanAttribute on function with non-empty reason suppresses" {
@@ -546,7 +546,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.16 — Annotation bypass on enclosing class
+    // Item 9 — Annotation bypass on enclosing class
     // ============================================================
 
     "annotation bypass: @AllowForbiddenSpanAttribute on enclosing class suppresses nested function" {
@@ -565,7 +565,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.17 — Annotation bypass empty-reason still fires (3 cases)
+    // Item 10 — Annotation bypass empty-reason still fires (3 cases)
     // ============================================================
 
     "annotation bypass: empty-string reason still fires (isNotBlank() rejection)" {
@@ -614,7 +614,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.18 — Annotation single-non-blank-char positive-pass
+    // Item 9 — Annotation single-non-blank-char positive-pass
     // ============================================================
 
     "annotation bypass: single non-blank char reason passes (rule requires reason exists, not its quality)" {
@@ -633,7 +633,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.19 — Path allowlist tests (4)
+    // Items 4/8 — Path allowlist tests (4)
     // ============================================================
 
     "path allowlist: file under /src/test/ does NOT fire on Tier 1 / Tier 2 / IP-axis literals" {
@@ -706,7 +706,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.20 — Synthetic-file-harness package-FQN fallback
+    // Item 12 — Synthetic-file-harness package-FQN fallback
     // ============================================================
 
     "synthetic-file harness: package id.nearyou.lint.detekt.* treated as allowlisted" {
@@ -726,7 +726,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.21 — Composition with CoordinateJitterRule (independent findings)
+    // Item 13 — Composition with CoordinateJitterRule (independent findings)
     // ============================================================
 
     "composition: fixture with actual_location + client.address fires exactly 1 finding per rule (no cross-suppression)" {
@@ -745,7 +745,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.22 — Composition with RedisHashTagRule two-way
+    // Item 13 — Composition with RedisHashTagRule two-way
     // ============================================================
 
     "composition with RedisHashTagRule: legacy non-hash-tagged key (no {ip:}) fires only RedisHashTagRule" {
@@ -777,7 +777,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.23 — Unrelated string literal positive-pass
+    // Item 14 — Unrelated string literal positive-pass
     // ============================================================
 
     "unrelated literal: \"Processing request\" does NOT fire" {
@@ -811,7 +811,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.24 — NearYouRuleSetProvider registration positive-pass
+    // Item 15 — NearYouRuleSetProvider registration positive-pass
     // ============================================================
 
     "rule registered in NearYouRuleSetProvider" {
@@ -1005,6 +1005,11 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         "elvis-peeled *UserId on principal" to
             """fun f(span: Span, principal: P?) { span.setAttribute("principal", principal?.userId?.toString() ?: "anon") }""",
         "V2 kotlin Uuid.random on owner" to """fun f(span: Span) { span.setAttribute("owner", Uuid.random().toString()) }""",
+        "V2 kotlin.uuid.Uuid.parse on subject" to
+            """fun f(span: Span, raw: String) { span.setAttribute("subject", kotlin.uuid.Uuid.parse(raw).toString()) }""",
+        "V3 kotlin Uuid-typed parameter on owner" to """fun f(span: Span, ref: Uuid) { span.setAttribute("owner", ref.toString()) }""",
+        "V2 toKotlinUuid-peeled factory on actor" to
+            """fun f(span: Span) { span.setAttribute("actor", UUID.randomUUID().toKotlinUuid().toString()) }""",
         "V2 UuidV7.next + toJavaUuid on actor" to
             """fun f(span: Span) { span.setAttribute("actor", UuidV7.next().toJavaUuid().toString()) }""",
         "V1 triple-quoted UUID literal on owner" to
@@ -1117,7 +1122,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         rule.lint(fixture(body)) shouldHaveSize 1
     }
 
-    // Spec check 6 — raw client IP value under any key; the hashed form passes.
+    // Item 23 — spec check 6: raw client IP value under any key; the hashed form passes.
     "raw call.clientIp value fires under a neutral key" {
         val body = """fun f(span: Span, call: ApplicationCall) { span.setAttribute("net.client", call.clientIp) }"""
         rule.lint(fixture(body)) shouldHaveSize 1
@@ -1127,7 +1132,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         rule.lint(fixture(body)).shouldBeEmpty()
     }
 
-    // Hoisted key constants: EVERY use is value-checked; an annotated use site is sanctioned.
+    // Items 18/24 — hoisted key constants: EVERY use is value-checked; an annotated use site is sanctioned.
     "hoisted alias key fires when a LATER use carries a raw identifier" {
         val body =
             "const val K = \"principal\"\n" +

@@ -113,3 +113,11 @@
   - 3 duplicates removed and stale labels corrected.
   - Result: `OtelForbiddenAttributeLintTest` 192 tests / 0 failed (module 341 / 0); ktlint clean; repo-wide detekt re-run with 17 fresh reports, **0 findings**.
 - [x] 8.4 Deferred and recorded as non-blocking in the PR body: splitting the rule file (~700 lines vs the ~500 soft cap), semconv-constant tokenization, multi-entry template scanning, value pairing for hoisted `AttributeKey` vals.
+- [x] 8.5 Round 2 (the cap), a regression scan of the round-1 commit. No blocking findings; no production false positives from the new checks. Applied:
+  - spec "checks 2 and 5" → "checks 2, 5 and 6" in 4 places;
+  - tests for the Kotlin `Uuid`-typed V3 and `toKotlinUuid` peeling, plus `Uuid.parse`;
+  - stale KDoc link and Tier 2 KDoc text; `unquoted()` reused in `visitStringTemplateExpression`;
+  - old "Task 2.N" test headers relabeled to this change's spec items;
+  - proposal hoisted-key wording.
+
+  Result: 195 tests / 0 failed (module 344 / 0); ktlint clean; repo-wide detekt 0 findings. Review closed at 2 rounds.
