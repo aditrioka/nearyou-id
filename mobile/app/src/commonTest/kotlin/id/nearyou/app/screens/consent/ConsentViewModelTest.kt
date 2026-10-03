@@ -104,6 +104,45 @@ class ConsentViewModelTest {
             assertFalse(viewModel.uiState.value.done, "the one-shot clears")
         }
 
+    // #492 — "On decline the app MUST stop reporting for the session": the onboarding (and RootRouter
+    // re-gate) submit applies the crash consent, not only the Settings path.
+    @Test
+    fun success_appliesTheSubmittedCrashConsent() =
+        runTest(dispatcher) {
+            val applied = mutableListOf<Boolean>()
+            val viewModel =
+                ConsentViewModel(
+                    FakeConsentFlow(outcome = ConsentOutcome.Success),
+                    InMemoryConsentSnapshotStore(),
+                    onCrashConsentChanged = { applied += it },
+                )
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onCrashChange(false)
+            viewModel.onContinueClick()
+            advanceUntilIdle()
+            assertEquals(listOf(false), applied, "a decline is applied (→ CrashReportingController.stop)")
+        }
+
+    @Test
+    fun failedSubmit_appliesNoCrashConsent() =
+        runTest(dispatcher) {
+            // Mirrors the snapshot: nothing is recorded, so the current session keeps its startup gate.
+            val applied = mutableListOf<Boolean>()
+            val viewModel =
+                ConsentViewModel(
+                    FakeConsentFlow(outcome = ConsentOutcome.RetryableError),
+                    InMemoryConsentSnapshotStore(),
+                    onCrashConsentChanged = { applied += it },
+                )
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onCrashChange(false)
+            viewModel.onContinueClick()
+            advanceUntilIdle()
+            assertTrue(applied.isEmpty())
+        }
+
     @Test
     fun doubleTap_issuesExactlyOnePatch() =
         runTest(dispatcher) {

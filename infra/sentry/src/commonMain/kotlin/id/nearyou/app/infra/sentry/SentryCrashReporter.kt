@@ -22,6 +22,10 @@ import io.sentry.kotlin.multiplatform.protocol.Breadcrumb as SentryBreadcrumb
  * the upstream contract, not `beforeSend`, that protects the crash path.
  */
 class SentryCrashReporter : CrashReporter {
+    // The opaque user id, re-applied after [init]: `Sentry.init` builds a fresh scope, so a re-consent
+    // (decline → re-enable) would otherwise report uncorrelated until the next sign-in / cold start.
+    private var userId: String? = null
+
     override fun init(config: CrashReporterConfig) {
         if (config.dsn.isBlank()) return // blank DSN no-ops init safely (spec: "Blank DSN no-ops safely")
         Sentry.init { options ->
@@ -37,6 +41,7 @@ class SentryCrashReporter : CrashReporter {
                 event
             }
         }
+        userId?.let(::applyUser)
     }
 
     override fun captureException(
@@ -54,11 +59,17 @@ class SentryCrashReporter : CrashReporter {
     }
 
     override fun setUser(id: String) {
-        Sentry.setUser(User().apply { this.id = id })
+        userId = id
+        applyUser(id)
     }
 
     override fun clearUser() {
+        userId = null
         Sentry.configureScope { scope -> scope.user = null }
+    }
+
+    private fun applyUser(id: String) {
+        Sentry.setUser(User().apply { this.id = id })
     }
 
     override fun addBreadcrumb(breadcrumb: Breadcrumb) {

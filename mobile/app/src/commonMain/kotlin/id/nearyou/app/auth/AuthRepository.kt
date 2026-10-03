@@ -1,13 +1,19 @@
 package id.nearyou.app.auth
 
 import id.nearyou.app.appeal.AppealSession
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.amplitude.AnalyticsTracker
 import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.LocalDate
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+
+/** Upper bound on the sign-in RevenueCat identity bind (premium-entitlement-lifecycle) — sign-in never waits longer. */
+internal val IDENTITY_SYNC_TIMEOUT = 3.seconds
 
 /**
  * The auth orchestration contract consumed by `SignInScreen` / `AgeGateScreen` / `RootRouterScreen`.
@@ -53,8 +59,8 @@ class AuthRepository(
     private val tokenStore: TokenStore,
     private val sessionInvalidator: SessionInvalidator,
     // Diagnostic sink for non-user-facing error detail (Google ceremony Failed message,
-    // network cause). Wired to Sentry / OTel when that lands; no-op for now. MUST NOT carry
-    // tokens (none are passed here).
+    // network cause). MobileModule wires the real DiagnosticSink (→ Sentry breadcrumbs); defaults
+    // no-op for tests. MUST NOT carry tokens (none are passed here).
     private val diagnosticLog: (String) -> Unit = {},
     // mobile-crash-reporting — correlate crashes to the signed-in user (opaque JWT `sub` only) on a
     // successful sign-in/signup. Defaults no-op so existing constructions/tests are unaffected;
@@ -67,9 +73,21 @@ class AuthRepository(
     // mobile-amplitude-analytics — consent-gated tracker for signup_completed. Defaults no-op so existing
     // constructions/tests are unaffected; MobileModule binds the real ConsentGatedAnalyticsTracker.
     private val analytics: AnalyticsTracker = NoOpAnalyticsTracker,
+    // premium-entitlement-lifecycle (#490) — binds the RevenueCat identity to the new users.id on sign-in /
+    // sign-up success. Null (tests) skips it; a failed sync never blocks sign-in (resume / pre-purchase heal).
+    private val premiumEntitlement: PremiumEntitlementSession? = null,
 ) : AuthFlow {
     private val signInMutex = Mutex()
     private val signUpMutex = Mutex()
+
+    /**
+     * Bind RevenueCat to the just-signed-in user, but never let a slow vendor call hold sign-in: bounded by
+     * [IDENTITY_SYNC_TIMEOUT]. A timed-out call is healed by the app-root resume sync and, decisively, the
+     * pre-purchase sync (which refuses to purchase unless identified).
+     */
+    private suspend fun bindBillingIdentity() {
+        premiumEntitlement?.let { session -> withTimeoutOrNull(IDENTITY_SYNC_TIMEOUT) { session.syncIdentity() } }
+    }
 
     override suspend fun signInWithGoogle(): SignInOutcome {
         if (!signInMutex.tryLock()) {
@@ -90,7 +108,13 @@ class AuthRepository(
      *  next launch reads `null` here. (We do not track the refresh-token expiry client-side;
      *  the strictly-future access-expiry comparison the spec mentions is the Auth plugin's
      *  `loadTokens` concern, not a routing gate.) */
-    override suspend fun isAuthenticated(): Boolean = tokenStore.read() != null
+    override suspend fun isAuthenticated(): Boolean {
+        val tokens = tokenStore.read() ?: return false
+        // Session restore (cold start, RootRouter): sign-in does not re-run, so re-correlate crashes to the
+        // persisted user here (mobile-crash-reporting, #492).
+        decodeJwtSubject(tokens.accessToken)?.let(crashReporter::setUser)
+        return true
+    }
 
     // handleTerminal401 was removed by the 2026-06-10 audit (finding 05-#8): it had no
     // production caller and its KDoc claimed a re-route responsibility that has been
@@ -115,6 +139,7 @@ class AuthRepository(
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
                 decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
+                bindBillingIdentity()
                 SignInOutcome.Success
             }
             is SignInApiResult.NetworkError -> {
@@ -203,6 +228,7 @@ class AuthRepository(
                 // mobile-amplitude-analytics — emit signup_completed (consent-gated downstream); the user
                 // id is the just-issued token's `sub`.
                 sub?.let { analytics.track("signup_completed", it) }
+                bindBillingIdentity()
                 SignUpOutcome.Success
             }
             is SignInApiResult.NetworkError -> {

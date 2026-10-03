@@ -481,6 +481,8 @@ tasks.withType<Test>().configureEach {
             "**/UsernameCustomizationScreenTest*",
             "**/ReferralScreenTest*",
             "**/NearYouLoaderTest*",
+            "**/SessionExpiryEffectTest*",
+            "**/BillingIdentityEffectTest*",
         )
     }
 }

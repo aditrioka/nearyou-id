@@ -50,6 +50,9 @@ class ConsentViewModel(
     initialAnalytics: Boolean = false,
     initialCrash: Boolean = true,
     initialAdsPersonalization: Boolean = false,
+    // mobile-crash-reporting (#492) — apply the submitted `crash` consent immediately (close on decline), the
+    // same seam ConsentSettingsViewModel uses; the screen passes `CrashReportingController::applyConsent`.
+    private val onCrashConsentChanged: (Boolean) -> Unit = {},
 ) : ViewModel() {
     private data class VmState(
         val analytics: Boolean,
@@ -102,6 +105,7 @@ class ConsentViewModel(
                 snapshotStore.write(
                     ConsentSnapshot(analytics = current.analytics, crash = current.crash, adsPersonalization = current.ads),
                 )
+                onCrashConsentChanged(current.crash)
             }
             applyOutcome(result)
         }

@@ -42,6 +42,7 @@ import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
+import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -207,9 +208,19 @@ private fun NearbyFeed(
     // timeline-card-block-kebab: the shared block seam (the SAME BlockSubmitter singleton the
     // profile/post-detail surfaces use).
     val blockSubmitter = koinInject<BlockSubmitter>()
+    // premium-entitlement-lifecycle: the confirmed-purchase signal (fail-safe: never-confirmed when unbound).
+    val premiumConfirmed = rememberPremiumConfirmed()
     val viewModel =
         viewModel {
-            NearbyTimelineViewModel(flow, likeFlow, profileFlow, selfUserIdProvider, reportSubmitter, blockSubmitter)
+            NearbyTimelineViewModel(
+                flow,
+                likeFlow,
+                profileFlow,
+                selfUserIdProvider,
+                reportSubmitter,
+                blockSubmitter,
+                premiumConfirmed,
+            )
         }
     // The single screen state — the nearbyTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.

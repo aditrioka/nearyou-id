@@ -3,7 +3,6 @@
 ## Purpose
 The `:mobile:app` + `:infra:admob` ad-serving surface — the Free-tier monetization pillar's first vertical slice. It defines the vendor-SDK-fenced `AdProvider` seam (Google Mobile Ads + UMP fenced in `:infra:admob` per invariant #16, with Android Gradle + iOS cocoapods-cinterop actuals at full parity), the UMP consent gate that runs before any ad load, the stored `ads_personalization` → personalized/non-personalized request mapping (`npa` fallback), the timeline native-ad placement interleaved every `timeline_frequency` posts into Nearby/Following/Global via the canonical `PostFeedList<T>` seam (the "Bersponsor" card reusing PostCard geometry), premium suppression, and data minimization (no precise location on any ad request) — all gated by the server `ads-config` read and failing safe to no ads, never error chrome. It also owns the explicit deferral guards: chat thread never shows ads (permanent), and interstitials (#442), profile-banner/chat-list placements (#443), and AppLovin MAX mediation (#444) are out of this slice.
 ## Requirements
-
 ### Requirement: Vendor-SDK-fenced `:infra:admob` ad-provider seam
 
 Ad serving SHALL be exposed to `:mobile:app` through a vendor-SDK-free commonMain `AdProvider` interface (initialize, request UMP consent + report consent state, load a native ad as a vendor-free `NativeAdContent`, dispose) living in a new root-level KMP module `:infra:admob`, alongside the single Google Mobile Ads + UMP SDK implementation. `:mobile:app` SHALL depend on the interface only; the Google Mobile Ads / UMP SDK SHALL NOT appear on the `:mobile:app` compile classpath (invariant #16, the `vendor-sdk-leakage-scan` contract). This follows the established vendor-SDK `:infra` seam (docs/11 §2.6, `:infra:supabase-realtime` / `:infra:revenuecat`) — it SHALL NOT introduce a parallel pattern.
@@ -67,12 +66,29 @@ When ads are enabled for the viewer, native ads SHALL be interleaved into the Ne
 
 ### Requirement: Premium viewers see zero ads
 
-A viewer the server reports as premium (via the `ads-config` `ads_enabled = false` for premium, the single server-authoritative source — no client-only premium flag) SHALL see no ads anywhere: no SDK initialization for ad serving, no UMP form, and no ad slots interleaved into any feed.
+A viewer the server reports as premium SHALL see no ads anywhere: no SDK initialization for ad serving, no UMP form, and no ad slots interleaved into any feed. The server report is the `ads-config` `ads_enabled = false` for premium, which remains the single server-authoritative source that can ENABLE ads.
+
+A confirmed client purchase SHALL also suppress ads. This is the `purchaseConfirmed` signal from the `mobile-premium-entitlement` capability. The signal can only REMOVE ads (the fail-safe direction) and never enables them, so it covers the window before the webhook flips the server tier:
+
+- When `purchaseConfirmed` becomes `true`, the shared `AdFeedController` SHALL stop publishing an ad frequency immediately (any interleaved slots disappear without a cold start), and `loadAd` SHALL return no ad.
+- A `prepare()` while `purchaseConfirmed` is `true` SHALL NOT initialize the ad SDK or request UMP consent.
 
 #### Scenario: Premium viewer has no ad slots
 
 - **WHEN** a premium viewer (whose `ads-config` returns `ads_enabled = false`) browses any feed
 - **THEN** no native-ad slot appears and no UMP consent form is shown
+
+#### Scenario: A confirmed purchase removes ad slots immediately
+
+- **GIVEN** `AdFeedController` prepared with `ads-config` enabled (a non-null frequency published) AND a `purchaseConfirmed` flow that is `false`
+- **WHEN** `purchaseConfirmed` becomes `true`
+- **THEN** the published frequency becomes `null` AND `loadAd(...)` returns `null` without calling the ad provider
+
+#### Scenario: A confirmed purchase skips SDK init and UMP on prepare
+
+- **GIVEN** a `purchaseConfirmed` flow that is `true` before the first `prepare()`
+- **WHEN** `prepare()` runs
+- **THEN** the ad provider is not initialized AND consent is not requested AND the published frequency is `null`
 
 ### Requirement: Ad serving is gated by the server `ads_enabled` flag and fails safe
 
@@ -142,3 +158,39 @@ Ad requests SHALL go directly to Google AdMob with no mediation adapter; AppLovi
 
 - **WHEN** the `:infra:admob` implementation requests an ad
 - **THEN** it requests from AdMob directly with no third-party mediation adapter configured
+
+### Requirement: Ad eligibility is re-evaluated per signed-in session
+
+The shared `AdFeedController`'s once-per-session `prepare()` latch (the single-flight `ads-config` fetch + SDK init + UMP gate) SHALL be scoped to the signed-in session, not the process. The session is identified by `PremiumEntitlementSession.sessionKey()`: the user id plus a count of ended sessions (`mobile-premium-entitlement`).
+
+- `prepare()` within the same session it last prepared for SHALL remain a no-op.
+- `prepare()` in a new session (any sign-out → sign-in on the same process, including back into the SAME account) SHALL discard the previous session's published frequency and cached ads, then re-evaluate eligibility from a fresh `ads-config` fetch.
+
+So a second account never inherits the first account's ad eligibility. A buyer who signs out and back in as the same account never sees the stale pre-purchase frequency, because the confirmed-purchase signal resets on sign-out.
+
+The published frequency SHALL also be readable synchronously, so a feed re-entering composition seeds its collector with the current value instead of rendering one ad-less frame.
+
+#### Scenario: The same session stays latched
+
+- **GIVEN** `AdFeedController` already prepared in the session for `"u-1"`
+- **WHEN** `prepare()` runs again in that session
+- **THEN** `ads-config` is not fetched a second time
+
+#### Scenario: A different account re-evaluates
+
+- **GIVEN** `AdFeedController` prepared for account `"u-1"` with a published frequency
+- **WHEN** account `"u-2"` is signed in and `prepare()` runs AND `ads-config` now returns disabled
+- **THEN** `ads-config` is fetched again AND the published frequency is `null`
+
+#### Scenario: A different account never gets the previous account's cached ad
+
+- **GIVEN** both `"u-1"` and `"u-2"` are ad-eligible AND `"u-1"` loaded an ad for slot `"ad:6"`
+- **WHEN** `"u-2"` is signed in, `prepare()` runs, and `"u-2"` loads slot `"ad:6"`
+- **THEN** the ad provider is asked for a fresh ad (the `"u-1"` cached ad was dropped)
+
+#### Scenario: A buyer signing back in as the same account re-evaluates
+
+- **GIVEN** `"u-1"` prepared with a published frequency, then purchased (confirmed signal set), then signed out
+- **WHEN** `"u-1"` signs back in and `prepare()` runs AND `ads-config` now returns disabled
+- **THEN** `ads-config` is fetched again AND the published frequency is `null` (the stale pre-purchase frequency is never re-shown)
+

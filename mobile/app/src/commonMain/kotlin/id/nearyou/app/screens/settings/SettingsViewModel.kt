@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.NotificationContentPreference
@@ -61,6 +63,11 @@ class SettingsViewModel(
     private val fcmTokenProvider: FcmTokenProvider? = null,
     // mobile-notification-preview-toggle: nullable so tests (and a DI gap) degrade to an inert OFF row.
     private val notificationContentPreference: NotificationContentPreference? = null,
+    // premium-entitlement-lifecycle (#490): unbind the RevenueCat identity on logout. Null (tests / DI gap)
+    // skips it — the next app-root resume sync then logs RevenueCat out.
+    private val premiumEntitlement: PremiumEntitlementSession? = null,
+    // mobile-crash-reporting (#492): clear the Sentry user on logout. Null (tests / DI gap) skips it.
+    private val crashReporter: CrashReporter? = null,
 ) : ViewModel() {
     private val _loggedOut = MutableStateFlow(false)
     val loggedOut: StateFlow<Boolean> = _loggedOut.asStateFlow()
@@ -137,7 +144,10 @@ class SettingsViewModel(
                 // wipe — the server may already have revoked the refresh token.
                 withContext(NonCancellable) {
                     tokenStore.clear()
+                    crashReporter?.clearUser()
                     _loggedOut.value = true
+                    // After the route flip so the RevenueCat logOut round-trip never delays sign-in routing.
+                    premiumEntitlement?.syncIdentity()
                 }
             }
         }

@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.revenuecat.PaywallPeriod
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.screens.routing.PaywallEntry
@@ -52,12 +54,14 @@ import id.nearyou.resources.generated.resources.paywall_benefit_search_edit
 import id.nearyou.resources.generated.resources.paywall_benefit_unlimited
 import id.nearyou.resources.generated.resources.paywall_benefit_username
 import id.nearyou.resources.generated.resources.paywall_best_value
+import id.nearyou.resources.generated.resources.paywall_cta_check_status
 import id.nearyou.resources.generated.resources.paywall_disclosure
 import id.nearyou.resources.generated.resources.paywall_per_day
 import id.nearyou.resources.generated.resources.paywall_period_monthly
 import id.nearyou.resources.generated.resources.paywall_period_weekly
 import id.nearyou.resources.generated.resources.paywall_period_yearly
 import id.nearyou.resources.generated.resources.paywall_purchase_error
+import id.nearyou.resources.generated.resources.paywall_purchase_pending
 import id.nearyou.resources.generated.resources.paywall_savings
 import id.nearyou.resources.generated.resources.paywall_subhead_chat_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_default
@@ -74,6 +78,7 @@ import id.nearyou.resources.generated.resources.username_premium_gate_body
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /** Test tags for the Robolectric screen test. */
@@ -81,6 +86,7 @@ const val PAYWALL_SCREEN_TAG: String = "paywall_screen"
 const val PAYWALL_CTA_TAG: String = "paywall_cta"
 const val PAYWALL_CLOSE_TAG: String = "paywall_close"
 const val PAYWALL_UNCONFIGURED_TAG: String = "paywall_unconfigured"
+const val PAYWALL_PENDING_TAG: String = "paywall_pending"
 
 /**
  * The Premium paywall (mockup frame 17, the `mobile-paywall` capability). Navigation-free: it holds no
@@ -97,7 +103,11 @@ fun PaywallScreen(
     onPurchaseComplete: () -> Unit = onClose,
 ) {
     val controller = koinInject<PurchaseController>()
-    val viewModel = viewModel { PaywallViewModel(controller) }
+    // premium-entitlement-lifecycle: fail-safe resolution (the TimelineAds getOrNull idiom) so screen tests
+    // that bind only the PurchaseController still compose.
+    val koin = getKoin()
+    val premiumEntitlement = remember(koin) { koin.getOrNull<PremiumEntitlementSession>() }
+    val viewModel = viewModel { PaywallViewModel(controller, premiumEntitlement) }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     // One-shot return: when the purchase is confirmed, consume the flag and let the host pop.
@@ -200,6 +210,15 @@ private fun PaywallContent(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                 textAlign = TextAlign.Center,
             )
+        } else if (content.purchasePending) {
+            // Informational, not an error: the payment is processing / the entitlement is not active yet.
+            Text(
+                text = stringResource(Res.string.paywall_purchase_pending),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag(PAYWALL_PENDING_TAG),
+                textAlign = TextAlign.Center,
+            )
         }
         Button(
             onClick = onSubscribe,
@@ -209,7 +228,13 @@ private fun PaywallContent(
             if (content.purchaseInProgress) {
                 CircularProgressIndicator(modifier = Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary)
             } else {
-                Text(text = stringResource(Res.string.cta_activate_premium), fontWeight = FontWeight.SemiBold)
+                val label =
+                    if (content.purchasePending) {
+                        stringResource(Res.string.paywall_cta_check_status)
+                    } else {
+                        stringResource(Res.string.cta_activate_premium)
+                    }
+                Text(text = label, fontWeight = FontWeight.SemiBold)
             }
         }
         Spacer(Modifier.height(12.dp))

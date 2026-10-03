@@ -15,6 +15,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -39,6 +40,9 @@ class UsernameCustomizationViewModel(
     private val flow: UsernameFlow,
     private val profileFlow: ProfileFlow,
     private val selfUserIdProvider: SelfUserIdProvider,
+    // premium-entitlement-lifecycle: the client-confirmed purchase. Effective status = self-read isPremium OR
+    // this, so a buyer returning from the paywall pushed atop this route leaves the gate without re-entry.
+    private val premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
 ) : ViewModel() {
     private data class VmState(
         val currentUsername: String = "",
@@ -64,6 +68,20 @@ class UsernameCustomizationViewModel(
 
     init {
         resolvePremiumOnEntry()
+        viewModelScope.launch {
+            premiumConfirmed.first { it }
+            // Clear any stale gate outcome + the probe memo so the candidate is re-probed on the next edit. Not
+            // re-probed immediately: right after purchase the webhook has likely not landed, so an instant probe
+            // would 403 straight back into the gate.
+            lastProbedCandidate = null
+            state.update {
+                it.copy(
+                    isPremiumKnown = true,
+                    checkOutcome = it.checkOutcome.takeUnless { o -> o == UsernameCheckOutcome.CheckPremiumGate },
+                    changeOutcome = it.changeOutcome.takeUnless { o -> o == UsernameChangeOutcome.PremiumGate },
+                )
+            }
+        }
     }
 
     private fun VmState.toUiState(): UsernameUiState =
@@ -90,7 +108,9 @@ class UsernameCustomizationViewModel(
             when (val outcome = profileFlow.loadProfile(id)) {
                 is ProfileOutcome.Loaded ->
                     state.update {
-                        it.copy(currentUsername = outcome.profile.username, isPremiumKnown = outcome.profile.isPremium)
+                        // OR the confirmed purchase: a read lagging the webhook must not re-gate a buyer.
+                        val premium = outcome.profile.isPremium || premiumConfirmed.value
+                        it.copy(currentUsername = outcome.profile.username, isPremiumKnown = premium)
                     }
                 // NotFound / NetworkError on the self read → editor (reactive 403 backstops correctness).
                 else -> state.update { it.copy(isPremiumKnown = true) }

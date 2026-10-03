@@ -2,10 +2,14 @@ package id.nearyou.app.screens.routing
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.billing.PremiumEntitlementSession
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /**
@@ -26,6 +30,9 @@ import org.koin.compose.koinInject
 fun SessionExpiryEffect(backStack: NavBackStack<NavKey>) {
     val sessionInvalidator = koinInject<SessionInvalidator>()
     val pendingReturnDestination = koinInject<PendingReturnDestination>()
+    // premium-entitlement-lifecycle: resolved fail-safe (the TimelineAds getOrNull idiom).
+    val koin = getKoin()
+    val premiumEntitlement = remember(koin) { koin.getOrNull<PremiumEntitlementSession>() }
     LaunchedEffect(Unit) {
         // `collect` (not `collectLatest`): the body is a synchronous capture + `replaceAll` with no
         // suspension, so there is no in-flight work to cancel — plain sequential collection is the fit.
@@ -35,6 +42,10 @@ fun SessionExpiryEffect(backStack: NavBackStack<NavKey>) {
             val top = backStack.lastOrNull()
             pendingReturnDestination.capture(if (top == null || top.isAuthRoute()) null else top)
             backStack.replaceAll(SignInRoute)
+            // Unbind the RevenueCat identity AFTER the re-route and off the token-refresh critical section
+            // (SessionInvalidator runs inside it), so the next account never inherits this one's entitlement.
+            // Launched so a slow vendor round-trip never stalls the collector; syncIdentity never throws.
+            premiumEntitlement?.let { session -> launch { session.syncIdentity() } }
         }
     }
 }

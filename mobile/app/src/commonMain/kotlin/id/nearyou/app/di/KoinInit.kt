@@ -53,8 +53,8 @@ fun initKoin(additionalConfig: KoinAppDeclaration? = null) {
  * mobile-paywall-screen — configure the RevenueCat SDK once at startup with the per-flavor publishable
  * client key ([revenueCatPublicKey]). A blank key (not yet provisioned for the flavor) leaves `Purchases`
  * unconfigured, so the paywall fail-softs to its Unconfigured state. `appUserId` is anonymous at startup;
- * aligning it to `users.id` for the #291 webhook resolution (`Purchases.logIn` on sign-in) is a tracked
- * follow-on. Safe no-op if already configured (idempotent in `configureRevenueCat`).
+ * `PremiumEntitlementSession.syncIdentity` binds it to `users.id` (sign-in / resume / pre-purchase) for
+ * the #291 webhook resolution. Safe no-op if already configured (idempotent in `configureRevenueCat`).
  */
 private fun configureRevenueCatBilling() {
     val key = revenueCatPublicKey
@@ -67,7 +67,7 @@ private fun configureRevenueCatBilling() {
  * mobile-crash-reporting — initialize crash reporting once Koin is up (called from [initKoin] right
  * after `startKoin`, so it runs at process startup before app code can crash). Opt-out default ON; a
  * last-known crash DECLINE in the [ConsentSnapshotStore] closes the session (docs/06 § Enforcement). A
- * blank DSN makes init a safe no-op. User correlation is set on the next sign-in (`AuthRepository`).
+ * blank DSN makes init a safe no-op. User correlation is set on sign-in and session restore (`AuthRepository`).
  */
 private fun startCrashReporting() {
     val koin = KoinPlatformTools.defaultContext().get()

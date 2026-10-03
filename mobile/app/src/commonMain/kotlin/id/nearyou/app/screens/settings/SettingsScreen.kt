@@ -29,11 +29,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.deletionDateLabel
 import id.nearyou.app.data.dataexport.DataExportFlow
 import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
+import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.NotificationContentPreference
@@ -151,6 +153,9 @@ fun SettingsScreen(
     // mobile-notification-preview-toggle: same fail-safe resolution — a test not wiring the
     // preference gets an inert OFF row, never a resolution crash.
     val notificationContentPreference = remember(koin) { koin.getOrNull<NotificationContentPreference>() }
+    // premium-entitlement-lifecycle: same fail-safe resolution for the RevenueCat identity unbind on logout.
+    val premiumEntitlement = remember(koin) { koin.getOrNull<PremiumEntitlementSession>() }
+    val crashReporter = remember(koin) { koin.getOrNull<CrashReporter>() }
     val viewModel =
         viewModel {
             SettingsViewModel(
@@ -160,6 +165,8 @@ fun SettingsScreen(
                 logoutAuthApi,
                 logoutFcmTokenProvider,
                 notificationContentPreference,
+                premiumEntitlement,
+                crashReporter,
             )
         }
     val loggedOut by viewModel.loggedOut.collectAsStateWithLifecycle()

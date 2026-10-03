@@ -44,6 +44,8 @@ sealed interface OfferingsResult {
  * updates independently via the `subscription-billing-webhook`, design D5). [Cancelled] is the user
  * dismissing the store purchase sheet (return to the paywall, no error chrome). [Error] is any
  * non-cancellation failure (store / network / SDK) — surface a retryable error, never a false success.
+ * [Pending] is the store's payment-pending outcome (a Play cash / convenience-store / carrier-billing
+ * payment awaiting settlement) — neither success nor failure; the entitlement lands when it settles.
  */
 sealed interface PurchaseResult {
     data class Success(val entitlementActive: Boolean) : PurchaseResult
@@ -51,6 +53,8 @@ sealed interface PurchaseResult {
     data object Cancelled : PurchaseResult
 
     data class Error(val message: String?) : PurchaseResult
+
+    data object Pending : PurchaseResult
 }
 
 /**
@@ -78,4 +82,14 @@ interface PurchaseController {
      * client-side premium signal used to confirm a purchase and re-evaluate gated state on return.
      */
     suspend fun isPremiumEntitlementActive(): Boolean
+
+    /**
+     * Bind the RevenueCat app-user id to [appUserId] (the signed-in `users.id`) so purchases and webhook
+     * events resolve to that user. True iff now identified as [appUserId] (a no-op `true` when already);
+     * false when the SDK is unconfigured or the call fails.
+     */
+    suspend fun logIn(appUserId: String): Boolean
+
+    /** Return to an anonymous identity (sign-out). No-op when unconfigured or already anonymous. */
+    suspend fun logOut()
 }
