@@ -11,6 +11,7 @@ import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +55,9 @@ class ProfileViewModel(
     /** The resolved target id (the route id, or the self id once decoded) — the action target. */
     private var resolvedUserId: String? = targetUserId
 
+    /** The running [refresh] re-read, if any (dedupes overlapping resumes; cancelled by a follow tap). */
+    private var refreshJob: Job? = null
+
     val uiState: StateFlow<ProfileUiState> =
         state
             .map { it.toUiState() }
@@ -86,18 +90,19 @@ class ProfileViewModel(
     /** Silent re-read driven by the screen on every `ON_RESUME` (the `LocationGateViewModel.refresh` idiom),
      *  so a return from another screen — e.g. a username change in Settings — shows fresh data (#498). Keeps
      *  the current phase mounted (no Loading flash); a failed re-read changes nothing. No-op during the
-     *  initial load (the first resume lands while it is in flight). An in-flight follow keeps its optimistic
-     *  value — its own result settles the toggle. */
+     *  initial load (the first resume lands while it is in flight), an in-flight follow, or a refresh already
+     *  running; a follow tap cancels a running one — so a re-read never overlaps a follow and a stale GET can
+     *  never undo a just-settled toggle. */
     fun refresh() {
-        if (state.value.isInitialLoad) return
+        val current = state.value
+        if (current.isInitialLoad || current.isFollowInFlight || refreshJob?.isActive == true) return
         val id = resolvedUserId ?: return
-        viewModelScope.launch {
-            val outcome = flow.loadProfile(id)
-            if (outcome == ProfileOutcome.NetworkError) return@launch
-            state.update { s ->
-                s.copy(outcome = outcome, optimisticFollowed = s.optimisticFollowed.takeIf { s.isFollowInFlight })
+        refreshJob =
+            viewModelScope.launch {
+                val outcome = flow.loadProfile(id)
+                if (outcome == ProfileOutcome.NetworkError) return@launch
+                state.update { it.copy(outcome = outcome, optimisticFollowed = null) }
             }
-        }
     }
 
     /** Follow/unfollow toggle (other-user only): optimistic flip, revert on failure; 429 → revert +
@@ -110,6 +115,7 @@ class ProfileViewModel(
         val id = resolvedUserId ?: return
         val currentlyFollowed = current.optimisticFollowed ?: profile.followedByViewer
         val wantFollow = !currentlyFollowed
+        refreshJob?.cancel()
         state.update { it.copy(optimisticFollowed = wantFollow, isFollowInFlight = true) }
         viewModelScope.launch {
             val outcome = if (wantFollow) flow.follow(id) else flow.unfollow(id)

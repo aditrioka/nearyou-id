@@ -2,6 +2,9 @@ package id.nearyou.app.screens.profile
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -379,4 +382,23 @@ class ProfileScreenTest {
             onNodeWithText("@raka.jkt").assertDoesNotExist()
         }
     }
+
+    // #498 — the production path back from Settings: the pushed SettingsRoute takes the Profil section out of
+    // composition; popping re-composes ProfileScreen under the already-RESUMED owner, whose observer catch-up
+    // delivers ON_RESUME to the retained VM (the store owner outlives the composition).
+    @Test
+    fun selfProfile_reReadsWhenRecomposedUnderAResumedOwner() =
+        runComposeUiTest {
+            val self = FakeProfileFlow.sampleProfile("self-1", isSelf = true)
+            val fake = installKoin(ProfileOutcome.Loaded(self), selfId = "self-1")
+            var shown by mutableStateOf(true)
+            setContent { KoinContext { NearYouTheme { if (shown) ProfileScreen(targetUserId = null, onBack = null) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@raka.jkt").fetchSemanticsNodes().isNotEmpty() }
+
+            shown = false
+            waitForIdle()
+            fake.profileOutcome = ProfileOutcome.Loaded(self.copy(username = "newhandle"))
+            shown = true
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@newhandle").fetchSemanticsNodes().isNotEmpty() }
+        }
 }

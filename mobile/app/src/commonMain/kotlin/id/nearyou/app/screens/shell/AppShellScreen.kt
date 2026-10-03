@@ -93,9 +93,10 @@ import org.koin.compose.koinInject
  * its body composes **directly** under the `HomeRoute` `NavEntry` (no intermediate `NavDisplay`), so every
  * `viewModel { }` inside — this shell's own [AppShellViewModel], the Home feeds' VMs, AND the notifications
  * VM — resolves to the `HomeRoute` store and survives **section switches** (and configuration changes)
- * without re-fetch (design D3/D7), exactly as the feed tabs survive tab switches. `selectedSection` is a
- * `@Serializable` [Section] in `rememberSaveable` (iOS-safe; default [Section.Home]). There is **no**
- * per-section `NavDisplay` and **no** section-root `NavKey`.
+ * without re-fetch (design D3/D7), exactly as the feed tabs survive tab switches — except the self profile,
+ * whose VM survives but does one silent re-read on each resume, so a returning Profil section is fresh (#498).
+ * `selectedSection` is a `@Serializable` [Section] in `rememberSaveable` (iOS-safe; default [Section.Home]).
+ * There is **no** per-section `NavDisplay` and **no** section-root `NavKey`.
  *
  * The composer FAB stays inside [HomeScreen] (the Home section), so it shows on Home only — never on the
  * Notifikasi / Profil sections. [onOpenComposer], [onOpenPost], and [onOpenPostReply] are forwarded to

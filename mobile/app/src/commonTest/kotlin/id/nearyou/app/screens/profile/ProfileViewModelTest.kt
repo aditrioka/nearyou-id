@@ -340,6 +340,65 @@ class ProfileViewModelTest {
             assertEquals(false, viewModel.uiState.value.isFollowInFlight)
         }
 
+    @Test
+    fun `a follow tap cancels a running refresh so a stale read cannot undo it`() =
+        runTest {
+            val flow = FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(followedByViewer = false)))
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            val gate = CompletableDeferred<Unit>()
+            flow.loadGate = gate
+            viewModel.refresh()
+            viewModel.refresh()
+            assertEquals(2, flow.loadCalls, "a second resume while a re-read runs is deduped")
+            viewModel.onToggleFollow()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.followedByViewer)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.followedByViewer, "the pre-follow read must not land after the follow")
+        }
+
+    @Test
+    fun `refresh after a settled follow adopts the server's follow state`() =
+        runTest {
+            val flow = FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(followedByViewer = false)))
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            viewModel.onToggleFollow()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.followedByViewer)
+            // Unfollowed elsewhere (another device) — the re-read is the truth once no follow is in flight.
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertEquals(false, viewModel.uiState.value.followedByViewer)
+        }
+
+    @Test
+    fun `refresh recovers from the error state`() =
+        runTest {
+            val flow = FakeProfileFlow(profileOutcome = ProfileOutcome.NetworkError)
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            assertIs<ProfilePhase.Error>(viewModel.uiState.value.phase)
+            flow.profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile())
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertIs<ProfilePhase.Content>(viewModel.uiState.value.phase)
+        }
+
+    @Test
+    fun `refresh NotFound replaces the content`() =
+        runTest {
+            val flow = FakeProfileFlow()
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            flow.profileOutcome = ProfileOutcome.NotFound
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertIs<ProfilePhase.NotFound>(viewModel.uiState.value.phase)
+        }
+
     // profile-send-message — "Kirim pesan" create-or-return.
 
     @Test
