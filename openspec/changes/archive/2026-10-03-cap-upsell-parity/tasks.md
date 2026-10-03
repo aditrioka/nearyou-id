@@ -131,4 +131,4 @@
   - radius → paywall with the radius headline.
 
   Screenshots go in the PR body (docs/11 §5 DoD)
-- [ ] 9.4 PR title/body current at each phase boundary; body ends with `Closes #493`; archive via `/opsx:archive`. At archive, hand-edit the now-stale `## Purpose` of `mobile-cap-upsell-dialog` ("its only consumer today…") and `mobile-paywall` ("reachable from LIKE_CAP, SEARCH_GATE, USERNAME"), since deltas cannot modify Purpose
+- [x] 9.4 PR title/body current at each phase boundary; body ends with `Closes #493`; archive via `/opsx:archive`. At archive, hand-edit the now-stale `## Purpose` of `mobile-cap-upsell-dialog` ("its only consumer today…") and `mobile-paywall` ("reachable from LIKE_CAP, SEARCH_GATE, USERNAME"), since deltas cannot modify Purpose
