@@ -47,5 +47,8 @@ class SessionInvalidator(
         tokenStore.clear()
         crashReporter.clearUser()
         signal.trySend(Unit)
+        // The RevenueCat identity unbind (premium-entitlement-lifecycle) deliberately does NOT run here: this
+        // executes inside TokenRefresher's single-flight critical section, which a vendor round-trip must not
+        // hold. SessionExpiryEffect performs it when it consumes this signal, after the re-route.
     }
 }

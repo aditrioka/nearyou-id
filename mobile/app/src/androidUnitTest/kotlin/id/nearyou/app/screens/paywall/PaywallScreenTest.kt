@@ -39,6 +39,9 @@ private const val UNAVAILABLE_TITLE = "Premium belum tersedia"
 private const val PRICE_WEEKLY = "Rp9.900"
 private const val PRICE_MONTHLY = "Rp29.000"
 private const val PRICE_YEARLY = "Rp249.000"
+private const val PENDING = "Pembayaran sedang diproses. Premium aktif setelah pembayaran dikonfirmasi."
+private const val CHECK_STATUS = "Cek status pembayaran"
+private const val PURCHASE_ERROR = "Pembayaran gagal. Coba lagi."
 
 /**
  * Render + behavior coverage of `PaywallScreen` (frame 17) via the Robolectric-backed CMP runner, driven
@@ -146,6 +149,30 @@ class PaywallScreenTest {
             onNodeWithTag(PAYWALL_CTA_TAG).performScrollTo().performClick()
             waitUntil(timeoutMillis = 5_000) { fake.purchaseInvocations == 1 }
             assertEquals(1, fake.purchaseInvocations, "the subscribe CTA drives PurchaseController.purchase exactly once")
+        }
+    }
+
+    // premium-entitlement-lifecycle: a payment-pending purchase renders the informational pending copy + the
+    // check-status CTA label — never the error text, never a success return.
+    @Test
+    fun pendingPurchase_rendersPendingCopyAndCheckStatusCta() {
+        installKoin(purchaseResult = PurchaseResult.Pending)
+        runComposeUiTest {
+            var completed = 0
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PaywallScreen(entry = PaywallEntry.LIKE_CAP, onClose = {}, onPurchaseComplete = { completed++ })
+                    }
+                }
+            }
+            onNodeWithTag(PAYWALL_CTA_TAG).performScrollTo().performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PENDING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PAYWALL_PENDING_TAG).assertExists()
+            onNodeWithText(CHECK_STATUS).assertExists()
+            onAllNodesWithText(PURCHASE_ERROR).assertCountEquals(0)
+            onAllNodesWithText(CTA).assertCountEquals(0)
+            assertEquals(0, completed, "pending never signals the purchase-complete return")
         }
     }
 

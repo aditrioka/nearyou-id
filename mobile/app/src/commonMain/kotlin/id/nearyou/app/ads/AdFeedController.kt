@@ -7,9 +7,10 @@ import id.nearyou.app.infra.admob.AdProvider
 import id.nearyou.app.infra.admob.AdRequestMode
 import id.nearyou.app.infra.admob.ConsentState
 import id.nearyou.app.infra.admob.NativeAdContent
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -23,7 +24,8 @@ fun adRequestModeFor(adsPersonalization: Boolean): AdRequestMode =
 /**
  * App-singleton ad-eligibility + native-ad load controller for the timeline feeds
  * (mobile-admob-ads-foundation). Shared across Nearby/Following/Global so the SDK initializes + the UMP
- * gate runs at most once per session.
+ * gate runs at most once per signed-in session (premium-entitlement-lifecycle keys the latch on
+ * `PremiumEntitlementSession.sessionKey`, so even a sign-out → sign-in into the same account re-evaluates).
  *
  * [prepare] (single-flight) fetches the server `ads-config` and, ONLY when ads are enabled for the viewer,
  * initializes the [AdProvider] + runs the UMP consent gate BEFORE any ad loads; it then publishes the
@@ -40,12 +42,25 @@ class AdFeedController(
     private val adProvider: AdProvider,
     private val consentStore: ConsentSnapshotStore,
     private val adUnitId: String,
+    // premium-entitlement-lifecycle: a confirmed client purchase suppresses ads (it can only REMOVE them — the
+    // server ads-config remains the sole source that enables them), covering the window before the webhook.
+    private val purchaseConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
+    // The signed-in SESSION the prepare latch is keyed to (PremiumEntitlementSession.sessionKey): any sign-out →
+    // sign-in — even back into the same account — re-evaluates eligibility instead of reusing a stale frequency.
+    private val currentSessionKey: suspend () -> String? = { null },
 ) {
     private val _frequency = MutableStateFlow<Int?>(null)
-    val frequency: StateFlow<Int?> = _frequency.asStateFlow()
+
+    /** The published ad frequency (null = no ads); null while a purchase is confirmed. */
+    val frequency: Flow<Int?> = combine(_frequency, purchaseConfirmed) { f, confirmed -> f.takeUnless { confirmed } }
+
+    /** The current [frequency] value, read synchronously — seeds the UI collector so feed re-entry never
+     *  renders one ad-less frame before the cold [frequency] flow emits. */
+    val currentFrequency: Int? get() = _frequency.value.takeUnless { purchaseConfirmed.value }
 
     private val prepareMutex = Mutex()
     private var prepared = false
+    private var preparedFor: String? = null
     private var requestMode: AdRequestMode = AdRequestMode.NON_PERSONALIZED
 
     private val loadMutex = Mutex()
@@ -53,8 +68,15 @@ class AdFeedController(
 
     suspend fun prepare() {
         prepareMutex.withLock {
-            if (prepared) return
+            val session = currentSessionKey()
+            if (prepared && session == preparedFor) return
+            // First prepare, or a new session since the last one: forget the previous eligibility + ads.
             prepared = true
+            preparedFor = session
+            _frequency.value = null
+            loadMutex.withLock { loadedAds.clear() }
+            // Premium viewers see zero ads: no SDK init, no UMP form.
+            if (purchaseConfirmed.value) return
             when (val outcome = adsConfigFlow.fetchConfig()) {
                 is AdsConfigOutcome.Enabled -> {
                     adProvider.initialize()
@@ -75,7 +97,10 @@ class AdFeedController(
     }
 
     suspend fun loadAd(slotKey: String): NativeAdContent? {
-        if (_frequency.value == null) return null
+        if (_frequency.value == null || purchaseConfirmed.value) return null
+        // A slot rendered in the gap before a NEW session's prepare() must not load on the previous session's
+        // eligibility (e.g. a Premium account seeing the prior Free account's frequency for a frame).
+        if (currentSessionKey() != preparedFor) return null
         return loadMutex.withLock {
             if (loadedAds.containsKey(slotKey)) {
                 loadedAds[slotKey]

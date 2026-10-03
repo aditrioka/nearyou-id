@@ -2,10 +2,14 @@ package id.nearyou.app.screens.settings
 
 import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SUB_USER_123_JWT
 import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
+import id.nearyou.app.auth.TokenStoreSelfUserIdProvider
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.network.HttpClientFactory
 import id.nearyou.app.push.FakeFcmTokenProvider
+import id.nearyou.app.screens.paywall.FakePurchaseController
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -137,6 +141,31 @@ class SettingsLogoutViewModelTest {
             vm.loggedOut.first { it }
 
             assertNull(store.read(), "offline logout must still wipe locally")
+        }
+
+    // premium-entitlement-lifecycle: voluntary logout unbinds the RevenueCat identity, even when the server
+    // revoke fails (the wipe is unconditional).
+    @Test
+    fun confirmLogout_logsRevenueCatOutAfterTheWipe() =
+        runTest {
+            val store = InMemoryTokenStore(TokenPair(SUB_USER_123_JWT, "rt-5", FUTURE_EPOCH))
+            val controller = FakePurchaseController()
+            val session = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller)
+            session.syncIdentity() // bound as user-123
+            val http = client(store) { throw RuntimeException("network down") }
+            val vm =
+                SettingsViewModel(
+                    tokenStore = store,
+                    authApi = AuthApiClient(http),
+                    fcmTokenProvider = FakeFcmTokenProvider(token = null),
+                    premiumEntitlement = session,
+                )
+
+            vm.confirmLogout()
+            vm.loggedOut.first { it }
+
+            assertNull(store.read())
+            assertEquals(1, controller.logOutCount)
         }
 
     @Test

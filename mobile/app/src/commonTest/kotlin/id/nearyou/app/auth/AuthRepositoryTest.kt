@@ -1,15 +1,18 @@
 package id.nearyou.app.auth
 
 import id.nearyou.app.appeal.AppealSession
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.diagnostics.FakeCrashReporter
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.infra.sentry.NoOpCrashReporter
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.screens.paywall.FakePurchaseController
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -37,6 +40,7 @@ class AuthRepositoryTest {
         diagnosticLog: (String) -> Unit = {},
         crashReporter: CrashReporter = NoOpCrashReporter,
         appealSession: AppealSession = AppealSession(),
+        premiumEntitlement: PremiumEntitlementSession? = null,
         handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
@@ -58,6 +62,7 @@ class AuthRepositoryTest {
             diagnosticLog = diagnosticLog,
             crashReporter = crashReporter,
             appealSession = appealSession,
+            premiumEntitlement = premiumEntitlement,
         )
     }
 
@@ -424,4 +429,79 @@ class AuthRepositoryTest {
             SessionInvalidator(store, crashReporter = crash).invalidate()
             assertEquals(1, crash.clearUserCount)
         }
+
+    // ----- premium-entitlement-lifecycle: RevenueCat identity follows the session -----
+
+    @Test
+    fun `successful sign-in logs RevenueCat in as the access-token sub`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val controller = FakePurchaseController()
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", "Test User", "test@example.com")),
+                    store,
+                    premiumEntitlement = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller),
+                ) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+
+            assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
+            assertEquals(listOf("user-123"), controller.loggedInIds)
+        }
+
+    @Test
+    fun `a failed RevenueCat logIn does not block sign-in`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val controller = FakePurchaseController(logInResult = false)
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", "Test User", "test@example.com")),
+                    store,
+                    premiumEntitlement = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller),
+                ) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+
+            assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
+            assertNotNull(store.read(), "tokens are persisted even when the identity sync fails")
+        }
+
+    @Test
+    fun `a hanging RevenueCat logIn does not hold sign-in past the bound`() =
+        runTest {
+            val store = InMemoryTokenStore()
+            val controller = FakePurchaseController().apply { logInGate = CompletableDeferred() } // never completes
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", "Test User", "test@example.com")),
+                    store,
+                    premiumEntitlement = PremiumEntitlementSession(TokenStoreSelfUserIdProvider(store), controller),
+                ) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+
+            val started = testScheduler.currentTime
+            assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
+            assertTrue(
+                testScheduler.currentTime - started <= IDENTITY_SYNC_TIMEOUT.inWholeMilliseconds,
+                "sign-in returned within the identity-sync bound despite a hung logIn",
+            )
+        }
 }
+
+/** Access token whose base64url payload is {"sub":"user-123"}. */
+internal const val SUB_USER_123_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEyMyJ9.sig"

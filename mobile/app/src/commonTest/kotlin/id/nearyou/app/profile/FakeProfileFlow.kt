@@ -3,6 +3,7 @@ package id.nearyou.app.profile
 import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * commonTest double for [ProfileFlow] — drives the `ProfileViewModel` + screen tests with configurable
@@ -23,8 +24,12 @@ class FakeProfileFlow(
     var lastReportCategory: ReportReasonCategory? = null
     var lastReportNote: String? = null
 
+    /** When set, [loadProfile] suspends until it completes — lets a test land the read AFTER other work. */
+    var loadGate: CompletableDeferred<Unit>? = null
+
     override suspend fun loadProfile(userId: String): ProfileOutcome {
         loadedUserId = userId
+        loadGate?.await()
         return profileOutcome
     }
 

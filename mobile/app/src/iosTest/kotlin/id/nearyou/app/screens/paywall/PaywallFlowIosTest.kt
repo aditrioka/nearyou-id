@@ -1,13 +1,19 @@
 package id.nearyou.app.screens.paywall
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.billing.MutableSelfUserId
+import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PaywallPackage
 import id.nearyou.app.infra.revenuecat.PaywallPeriod
 import id.nearyou.app.infra.revenuecat.PurchaseController
+import id.nearyou.app.infra.revenuecat.PurchaseResult
 import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
@@ -17,10 +23,14 @@ import org.koin.dsl.module
 import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val TITLE = "NearYouID Premium"
 private const val UNAVAILABLE_TITLE = "Premium belum tersedia"
+private const val PENDING = "Pembayaran sedang diproses. Premium aktif setelah pembayaran dikonfirmasi."
 
 /**
  * iOS counterpart to the Robolectric [PaywallScreenTest] — the paywall run natively on the iOS simulator
@@ -33,11 +43,76 @@ private const val UNAVAILABLE_TITLE = "Premium belum tersedia"
 @Suppress("DEPRECATION")
 @OptIn(ExperimentalTestApi::class)
 class PaywallFlowIosTest {
-    private fun installKoin(offerings: OfferingsResult) {
+    private fun installKoin(
+        offerings: OfferingsResult,
+        purchaseResult: PurchaseResult = PurchaseResult.Success(entitlementActive = true),
+        premiumActive: Boolean = false,
+    ): PremiumEntitlementSession {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        val fake = FakePurchaseController(offerings = offerings)
-        startKoin { modules(module { single<PurchaseController> { fake } }) }
+        val fake = FakePurchaseController(offerings = offerings, purchaseResult = purchaseResult, premiumActive = premiumActive)
+        val session = PremiumEntitlementSession(MutableSelfUserId("u-1"), fake)
+        startKoin {
+            modules(
+                module {
+                    single<PurchaseController> { fake }
+                    single { session }
+                },
+            )
+        }
+        return session
     }
+
+    // premium-entitlement-lifecycle: an inactive entitlement that confirms on the recheck returns + publishes
+    // the confirmed signal, on Kotlin/Native.
+    @Test
+    fun inactiveEntitlementConfirmedOnRecheck_returnsAndPublishesTheSignal() {
+        val session =
+            installKoin(loadedOfferings(), purchaseResult = PurchaseResult.Success(entitlementActive = false), premiumActive = true)
+        runComposeUiTest {
+            var completed = 0
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PaywallScreen(entry = PaywallEntry.LIKE_CAP, onClose = {}, onPurchaseComplete = { completed++ })
+                    }
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(PAYWALL_CTA_TAG).performScrollTo().performClick()
+            waitUntil(timeoutMillis = 5_000) { completed == 1 }
+            assertTrue(session.purchaseConfirmed.value)
+        }
+    }
+
+    @Test
+    fun paymentPendingPurchase_showsThePendingCopyWithoutReturning() {
+        val session = installKoin(loadedOfferings(), purchaseResult = PurchaseResult.Pending)
+        runComposeUiTest {
+            var completed = 0
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PaywallScreen(entry = PaywallEntry.LIKE_CAP, onClose = {}, onPurchaseComplete = { completed++ })
+                    }
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(PAYWALL_CTA_TAG).performScrollTo().performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(PENDING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PAYWALL_PENDING_TAG).assertExists()
+            assertEquals(0, completed)
+            assertFalse(session.purchaseConfirmed.value)
+        }
+    }
+
+    private fun loadedOfferings(): OfferingsResult.Loaded =
+        OfferingsResult.Loaded(
+            listOf(
+                pkg(PaywallPeriod.WEEKLY, "Rp9.900", 9_900_000_000L),
+                pkg(PaywallPeriod.MONTHLY, "Rp29.000", 29_000_000_000L),
+                pkg(PaywallPeriod.YEARLY, "Rp249.000", 249_000_000_000L),
+            ),
+        )
 
     @AfterTest
     fun tearDown() {

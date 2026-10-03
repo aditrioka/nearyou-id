@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.username.UsernameFlow
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_activate_premium
@@ -97,7 +98,9 @@ fun UsernameCustomizationScreen(
     val flow = koinInject<UsernameFlow>()
     val profileFlow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
-    val viewModel = viewModel { UsernameCustomizationViewModel(flow, profileFlow, selfUserIdProvider) }
+    // premium-entitlement-lifecycle: the confirmed-purchase signal (fail-safe: never-confirmed when unbound).
+    val premiumConfirmed = rememberPremiumConfirmed()
+    val viewModel = viewModel { UsernameCustomizationViewModel(flow, profileFlow, selfUserIdProvider, premiumConfirmed) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
