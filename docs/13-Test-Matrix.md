@@ -36,7 +36,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | mobile JVM/Robolectric unit | mobile unit | `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (flavor-qualified) | pre-merge (in full `./gradlew test`) | ⚠️ add for mobile diffs | no |
 | device Robo crawl | mobile instrumented | `scripts/run_on_device.sh` → Firebase Test Lab Robo | pre-merge (mobile/shared paths) | ➖ via script (needs creds) | surfaced in CI; not in gate |
 | on-device instrumented | mobile instrumented | `scripts/test_android.sh` (local: adb device, else `FARM=firebase`; cloud: Firebase Test Lab) | pre-merge (mobile/shared paths) | ➖ via script (needs a device or creds) | surfaced in CI; not in gate |
-| **iOS sim / K-Native** | iOS | `:module:iosSimulatorArm64Test`, `:module:linkDebugFrameworkIosSimulatorArm64` | — | ➖ **local-only** | **never CI-gated** |
+| **iOS sim / K-Native** | iOS | `:module:iosSimulatorArm64Test`, `:module:linkDebugFrameworkIosSimulatorArm64` | pre-merge (planned) | ➖ **local-only today** | **not yet CI-gated** — a free macOS lane (link + `iosSimulatorArm64Test` once #348 is green) is specified in `docs/08` § Pre-Launch #8 and stays in scope under the Android-first sequencing (iOS is in the "100 %" gate; `docs/08` Open Decision #37) |
 | staging deploy + boot Flyway | staging/deploy | Docker build + `gcloud run deploy` | **post-merge** | ❌ | yes |
 
 Legend: ✅ in gate · ❌ not in gate · ⚠️ in gate with caveat · ➖ not gate-shaped.
@@ -75,7 +75,7 @@ CI runs **more** than this. The gate does **not** cover (each has bitten `main` 
 2. **admin static-asset SHA256SUMS + inventory** — editing `backend/ktor/.../admin/static/*` without re-pinning the manifest fails CI's lint lane only ([#290](https://github.com/aditrioka/nearyou-id/pull/290); memory `reference_admin_static_asset_sha256_ci_check`). `shasum -a 256 -c htmx.min.js.SHA256SUMS` + refresh `admin.css` on every CSS edit.
 3. **supabase-parity Flyway migrate** — Docker-based; catches migrations relying on un-established Supabase state.
 4. **full `./gradlew test`** runs every `infra:*` + mobile JVM suite; the gate names only `:backend:ktor:test` + `:lint:detekt-rules:test`.
-5. **iOS** is never CI-gated (the mobile CI lane is an Android device-run). iOS specs drift red on `main` undetected ([#348](https://github.com/aditrioka/nearyou-id/issues/348)/[#318](https://github.com/aditrioka/nearyou-id/issues/318)). Run `:module:iosSimulatorArm64Test` + `linkDebugFrameworkIosSimulatorArm64` locally when touching `:shared` actuals or iOS source.
+5. **iOS** is not yet CI-gated (the mobile CI lane is an Android device-run; the macOS link+test lane of `docs/08` § Pre-Launch #8 is pending and free on the public repo). iOS specs drift red on `main` undetected ([#348](https://github.com/aditrioka/nearyou-id/issues/348)/[#318](https://github.com/aditrioka/nearyou-id/issues/318)). Run `:module:iosSimulatorArm64Test` + `linkDebugFrameworkIosSimulatorArm64` locally when touching `:shared` actuals or iOS source.
 
 ---
 

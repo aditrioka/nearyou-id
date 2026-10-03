@@ -52,6 +52,10 @@ If you cannot write the negative-guard scenario, the layer is not actually separ
 
 ---
 
+### 3.1 Sanctioned deferred layer: the iOS apple-paid lane (2026-10-03)
+
+Per `docs/08` Open Decision #37, the iOS half of a capability that needs the paid Apple Developer Program (Sign in with Apple, APNs push + NSE, App Attest, StoreKit Restore Purchases, App Store distribution) is a **pre-sanctioned deferred layer**: the change still ships the backend + admin + Android slice and an iOS actual that compiles and links (NoOp / null-returning), and declares the iOS behaviour as an explicit deferred requirement (positive + negative-guard) so the apple-paid lane can later `MODIFY` it. Everything else on iOS is **not** deferrable under this rule — it is verified on the simulator / a Personal-Team device like any other layer.
+
 ## 4. Wire-contract documentation (MUST when adding/altering a response field)
 
 Wire shapes are a contract, not an implementation detail, and they have drifted from their specs before (project memory `reference_timeline_dto_camelcase_wire`: the timeline DTOs are mixed-case on the wire while the specs show stale snake_case; client DTOs generated from the spec silently fail to parse — [#128](https://github.com/aditrioka/nearyou-id/pull/128)).

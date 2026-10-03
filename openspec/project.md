@@ -21,16 +21,16 @@ Full principle statement + cross-file reference map: [`docs/00-README.md`](../do
 
 | Layer | Choice |
 |---|---|
-| Mobile | Kotlin Multiplatform + Compose Multiplatform (Android + iOS) |
+| Mobile | Kotlin Multiplatform + Compose Multiplatform (Android + iOS). **Release sequencing (2026-10-03): Android first; the iOS target stays compile/link/test-green for free, the iOS *release* follows the apple-paid lane** (§ Priority below) |
 | Backend | Ktor on Google Cloud Run (Jakarta) |
 | Admin Panel | Ktor server-side + Pebble/Freemarker + HTMX (stateful, NOT an SPA) |
 | DB | Supabase Pro (PostgreSQL + PostGIS), Flyway migrations via Cloud Run Jobs |
-| Auth | Google Sign-In + Apple Sign-In → Ktor RS256 JWT (REST) + HS256 (Supabase Realtime WSS) |
+| Auth | Google Sign-In (+ Apple Sign-In in the **apple-paid lane** — the backend already accepts `provider: "apple"`, the iOS client half is deferred) → Ktor RS256 JWT (REST) + HS256 (Supabase Realtime WSS) |
 | Realtime chat | Supabase Realtime Broadcast (Months 1–14) → Ktor WebSocket + Upstash Redis Streams (Month 15+) behind `ChatRealtimeClient` |
 | Cache / rate limit | Upstash Redis |
 | Media | Cloudflare R2 (non-image, zero egress) + Cloudflare Images (`img.nearyou.id`) + CF CSAM Scanning Tool |
-| Push | FCM (Android data-only; iOS alert + NSE) |
-| Attestation | Play Integrity + App Attest |
+| Push | FCM (Android data-only — shipped; iOS alert + NSE — **apple-paid lane**, needs the APNs key) |
+| Attestation | Play Integrity (`warn` mode before the Android release) + App Attest (**apple-paid lane**) — DESIGN, see `docs/06` § Device Attestation |
 | Subscription | RevenueCat |
 | Feature flags | Firebase Remote Config |
 | Email | Resend (transactional only) |
@@ -99,6 +99,15 @@ Rule: **no vendor SDK import outside `:infra:*`**. Domain/data code depends only
 ---
 
 ## Mobile-First to Full-Demo Priority — phase complete, now Balanced (as of 2026-06-14)
+
+> **Current direction (operator decision, 2026-10-03) — Feature-complete on staging BEFORE any production spend; Android-first release; only the "apple-paid" lane is deferred.** This paragraph supersedes the cadence rules below where they conflict; the rest of this section is retained as history. Full rationale, cost arithmetic and the doc inventory: [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 15–18.
+>
+> 1. **Gate.** Nothing that bills for production is provisioned until the **"100 %" checklist** is green on staging: production GCP project / Supabase Pro / Upstash paid / Cloud Run `--min-instances=1`, external LB + IAP, Supabase PITR, production alerting, legal/DPO engagement. The checklist is the union of the open `follow-up` issues, the "Unspecced product surface" table in `dev/audits/2026-09-25-mobile-admin-review/REPORT.md`, and the code items of `docs/08` § Pre-Launch — minus the apple-paid lane. It lives as a GitHub issue/milestone once the operator approves the audit's proposals (§ 11).
+> 2. **Bucket rule.** Classify work by *"does it cost money or need an external account?"*, not by whether it sounds like ops: trust-boundary hardening, Scheduler jobs for the nine `/internal/*` workers, the backup job + restore drill, Cloudflare proxied DNS for staging, keep-warm pings, header/limiter/trigger/REVOKE work are all **Bucket 1 — do now on staging Free tiers**. Only the items in (1) are **Bucket 2 — deferred**.
+> 3. **Android-first.** The first store release is Android (Google Play **organization** account — exempt from the 12-tester/14-day closed-test rule that applies to personal accounts created after 2023-11-13). Tier-0 spend allowed before the gate: the legal entity + Google Play (US$25 one-time).
+> 4. **iOS stays in the gate, the apple-paid lane does not.** A free Apple ID (Personal Team) covers Xcode, the simulator and on-device dev builds, and `iosApp` already builds that way (no entitlements, Automatic signing). So iOS UI/nav/chat/paywall (RevenueCat Test Store)/ads/consent/etc. are verified for free and count toward "100 %"; `docs/11` § 5 DoD #2 (`iosSimulatorArm64Test` for iosMain changes) is **not** loosened. Deferred to the **apple-paid lane** (needs the US$99/yr Apple Developer Program, paid once, right before the iOS release): Sign in with Apple, APNs push + NSE (#258/#430/#495), App Attest, TestFlight / App Store Connect / `PrivacyInfo.xcprivacy` validator, Restore Purchases via real StoreKit. Their iOS actuals ship as explicit NoOp/null-returning actuals with an `apple-paid` issue and a deferred requirement in the spec (`docs/12` § 3) — the module must still link on iOS.
+> 5. **Lanes for `/next-change` / `/issue-burndown`.** The three balanced lanes below (admin, Phase 4 / premium, mobile follow-ups) remain, plus a **staging-proof** lane (Bucket 1 ops work). Pick from the "100 %" checklist; never from the apple-paid lane or from Bucket 2 until the gate is green.
+
 
 > Supersedes the 2026-05-12 **"Mobile + Admin Scaffolding Priority"** (this section's prior name; retained so existing `§ Mobile + Admin Scaffolding Priority` cross-references still resolve — the historical scaffold menu lives under "Scaffold menu (historical)" below).
 

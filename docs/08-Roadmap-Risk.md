@@ -32,7 +32,7 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 22. UU ITE content wordlist seed (AI + manual review, 1 day)
 23. **Reserved usernames seed list** drafted (admin, support, moderator, system, nearyou, staff, official, akun_dihapus, all 1-2 char strings) for `reserved_usernames` Flyway insert
 24. Google Cloud Console OAuth client setup (Android + iOS + Web)
-25. Apple Developer account + "Sign in with Apple" capability + App Attest setup + S2S endpoint registration + APNs `.p8` key generation
+25. Apple Developer account + "Sign in with Apple" capability + App Attest setup + S2S endpoint registration + APNs `.p8` key generation — **apple-paid lane (deferred until just before the iOS release; Open Decision #37)**
 26. Play Integrity API setup in Google Cloud + public key fetch
 27. Supabase project setup + shared HS256 JWT secret in GCP Secret Manager
 28. **Scoped `admin_app` DB role** created in Supabase (row-level access to operational tables, no DDL, no UPDATE/DELETE on `admin_actions_log`) + connection string stored in GCP Secret Manager (`admin-app-db-connection-string`)
@@ -138,6 +138,8 @@ Development phases, dev tooling with CI lint rules, risk register. Related files
 
 ### Phase 3: Mobile App Android + iOS (Weeks 7-10)
 
+> **Status 2026-10-03:** the shared app shipped for both targets (`openspec/project.md` § Priority). **Release sequencing: Android first.** The iOS target stays compile/link/test-green on a free Apple ID; the iOS *release* and every item marked **apple-paid lane** below wait for Open Decision #37.
+
 KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 
 **Shared (KMP)**:
@@ -161,7 +163,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 - Amplitude tracker via `:infra:amplitude` (event taxonomy, consent-aware)
 - Compose Multiplatform Resources strings via `:shared:resources`
 
-**iOS-specific**:
+**iOS-specific** (items needing the paid Apple Developer Program — Sign in with Apple, APNs/NSE, App Attest, `PrivacyInfo` validator, TestFlight/App Store, StoreKit Restore Purchases — are the **apple-paid lane**, Open Decision #37; the rest is verified on the simulator / Personal Team for free):
 - **`PrivacyInfo.xcprivacy` finalized** with merged SDK declarations (Sentry, Amplitude, RevenueCat, FCM, AdMob)
 - Keychain token storage (~2 days)
 - Core Location bridge (~2 days)
@@ -272,12 +274,14 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 
 ### Pre-Launch (Weeks 17-19)
 
+> **Sequencing (operator decision, 2026-10-03 — Open Decision #36):** items in this section that **bill for production** (Supabase Pro, Cloud Run `--min-instances=1`, the production GCP project, LB + IAP, PITR, production alerting, legal/DPO engagement) are gated behind the "100 %" feature-complete-on-staging checklist (`openspec/project.md` § Priority). Items that are code or free staging work (schedulers, backup job + restore drill, Cloudflare proxied DNS, trust-boundary hardening, admin headers/login throttle) are done **now**. Apple-dependent items follow the apple-paid lane (#37).
+
 1. Soft launch with 500 seed users (Supabase Pro engaged at this point to avoid Free-tier idle auto-pause on a live user base)
 2. Privacy policy + ToS live (chat admin-readable disclosure + image launch timeline disclosure + 18+ age policy + third-party processor disclosure + analytics consent + block feature disclosure + report feature disclosure)
 3. DPO appointment + RoPA documentation
 4. Stress test + final bug fix
 5. **Security review checklist**:
-   - Attestation working (reject emulator, pass legit device) + bypass whitelist functional
+   - Attestation in **`warn` mode** (Play Integrity; verdicts recorded, nothing rejected) + bypass whitelist functional before the Android release; `enforce` is data-triggered and App Attest is apple-paid lane (Open Decision #37; `docs/06` § Device Attestation)
    - Refresh token reuse detection tested (simulate attack)
    - Shadow ban views complete (CI lint passes, `FROM posts` / `FROM users` / `FROM post_replies` audit)
    - Block feature CI lint passes + symmetric test (posts + replies + chat + profile + search)
@@ -343,7 +347,7 @@ KMP code is ~70% shared; iOS incremental ~1.3-1.5x.
 
 ### Public Launch (Week 20)
 
-Go live on App Store + Play Store. Monitor density metrics before expanding to a second city. `image_upload_enabled = FALSE` (flipped in Month 6 after the dogfood period).
+Go live on **Play Store** (Android-first, 2026-10-03); the App Store release follows once the apple-paid lane (Open Decision #37) is done. Monitor density metrics before expanding to a second city. `image_upload_enabled = FALSE` (flipped in Month 6 after the dogfood period).
 
 ---
 
@@ -385,7 +389,7 @@ Go live on App Store + Play Store. Monitor density metrics before expanding to a
 | Username collision at scale | Degraded UX | Dataset 600×600 + 3-part fallback = 36M combinations + atomic UNIQUE constraint + retry + `reserved_usernames` pre-check |
 | Slow spatial query in dense Jakarta | Missed response time target | Composite index + partial index, CTE batching mandatory in Phase 2, backup migration to Neon/Railway |
 | Google Play Billing policy change | Revenue impact | Monitor changelog; Indonesia fee stable until Sep 2027 |
-| iOS App Store rejection | Launch delay | Restore Purchases button, Sign in with Apple + S2S notifications, PrivacyInfo.xcprivacy finalized, compliance upfront |
+| iOS App Store rejection | Launch delay (iOS release only — apple-paid lane, Open Decision #37) | Restore Purchases button, Sign in with Apple + S2S notifications, PrivacyInfo.xcprivacy finalized, compliance upfront |
 | Supabase DB size cap | Budget + availability miss | Monitor in Month 3, disk upgrade (separate from compute add-on), snapshot compression |
 | Cloudflare Images cost abuse | Budget miss | Hard limit + single variant + stricter lazy-load + anomaly detection + human-in-the-loop + feature flag kill switch |
 | Attestation false-positive blocks legitimate user | Conversion loss | Manual review path via support, tolerance threshold in Remote Config + bypass whitelist for QA |
@@ -663,3 +667,11 @@ Batching strategy (decide at change time): (a) debounce-on-send — delay each p
 ### 35. Moderation-List Cache Invalidation Endpoint
 
 **Defer until Month 3+ operational data shows the 5-min TTL is too stale** (that is the trigger to act; otherwise the TTL stands indefinitely). The moderation list loader uses a 5-minute Redis TTL with NO push-based invalidation (`content-moderation-keyword-lists` design D4): a Remote Config wordlist edit propagates within 5 min max (TTL elapse + next loader call) — well within tolerance for moderation, since legal-advisor review is quarterly per `06-Security-Privacy.md`. If operators report it too stale, introduce an OIDC-authed `POST /internal/moderation-list-bust` endpoint that deletes the cache keys (open shape: clears all 3 keys, or per-list `?list=profanity`), under a new change `text-moderation-cache-invalidation-endpoint` only if needed. _(Migrated from `FOLLOW_UPS.md` in the 2026-06-09 triage sweep — was `content-moderation-cache-invalidation-endpoint`.)_
+
+### 36. Production Spend Gate ("100 % feature-complete on staging first")
+
+**Decided 2026-10-03 (operator):** no component that bills for production is provisioned before the "100 %" checklist is green on staging — production GCP project, Supabase Pro (and PITR), Upstash paid plan, Cloud Run `--min-instances=1 --no-cpu-throttling`, external LB + IAP for the admin host, production alerting, legal/DPO engagement. Rationale: recurring cost must not start before the code is proven; the 2026-10-03 audit priced the mandated Cloud Run posture alone at ≈US$112/month (Jakarta, Tier 2, instance-based) against the Rp2M/month burn ceiling in `01-Business.md`. **Bucket rule:** classify by "costs money / needs an external account" — schedulers, the backup job + restore drill, Cloudflare proxied DNS, keep-warm, trust-boundary hardening are Bucket 1 (now, staging Free). **Tier-0 spend allowed before the gate:** legal entity + Google Play organization account (US$25). **Trigger to open Bucket 2:** checklist green; first steps then are the cost re-baseline of `01-Business.md` (Cloud Run `--cpu=1` vs `2` benchmark, Upstash Fixed plan, RPO decision daily-backup vs PITR), then the production environment. Full analysis: `dev/audits/2026-10-03-architecture-review/REPORT.md` § 9, § 15.
+
+### 37. Apple-Paid Lane Timing (Sign in with Apple, APNs/NSE, App Attest, App Store)
+
+**Decided 2026-10-03 (operator):** the first release is **Android-only**. The iOS target stays compile/link/test-green on a free Apple ID (Personal Team: Xcode, simulator, on-device dev builds — `iosApp` already uses Automatic signing with no entitlements), so iOS UI/nav/chat/paywall (RevenueCat Test Store)/ads/consent are verified for free and count toward the "100 %" checklist. Only capabilities that need the paid Apple Developer Program (US$99/yr) are deferred as the **apple-paid lane**: Sign in with Apple (App Store Review 4.8 applies only at iOS submission), APNs push + NSE (#258/#430/#495), App Attest, TestFlight / App Store Connect / `PrivacyInfo.xcprivacy` validator, Restore Purchases via real StoreKit. Their iOS actuals ship as explicit NoOp/null actuals with an `apple-paid` issue + a deferred requirement in the spec (`12-Integration-Contracts.md` § 3). **Trigger:** checklist green for Android + iOS-minus-lane → pay the program fee once → run the lane → iOS release. Market context: StatCounter Indonesia 2026-09 Android 79.2 % / iOS 20.8 %; the `01-Business.md` forecast assumes 3 % iOS conversion and must be re-run Android-only for the first release (Open Decision #36 re-baseline).
