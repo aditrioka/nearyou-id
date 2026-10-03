@@ -2,6 +2,7 @@ package id.nearyou.app.screens.notifications
 
 import id.nearyou.app.notifications.NotificationDto
 import id.nearyou.app.notifications.NotificationsOutcome
+import id.nearyou.app.ui.components.localDateLabel
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,7 +14,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * type-keyed `stringResource` copy), a [read] flag derived from `read_at`, and an optional non-PII
  * [excerpt] pulled from `body_data`. There is deliberately NO `actorUserId` and NO `targetId`, so the
  * rendered state STRUCTURALLY cannot leak either UUID (design D4). [flipDeadlineDate] is set ONLY for
- * `privacy_flip_warning` rows (follow-up #343): the date portion of `body_data.privacy_flip_scheduled_at`,
+ * `privacy_flip_warning` rows (follow-up #343): the device-local date of `body_data.privacy_flip_scheduled_at`,
  * rendered into the type copy so the 72h privacy-downgrade deadline is explicit.
  */
 data class NotificationRow(
@@ -39,10 +40,9 @@ private fun extractExcerpt(bodyData: JsonElement): String? {
     return null
 }
 
-/** `privacy_flip_warning` only: the DATE portion of `body_data.privacy_flip_scheduled_at` (the bare
- *  `substringBefore('T')` shape `postDateLabel` / `deletionDateLabel` use — no kotlinx-datetime parse on
- *  the render path). Null for every other type and for an absent/non-string/blank value, in which case
- *  the row falls back to the dateless `notif_privacy_flip_warning_soon` copy (no crash). */
+/** `privacy_flip_warning` only: the device-local date of `body_data.privacy_flip_scheduled_at`, via the
+ *  shared [localDateLabel]. Null for every other type and for an absent/non-string/blank value, in which
+ *  case the row falls back to the dateless `notif_privacy_flip_warning_soon` copy (no crash). */
 private fun extractFlipDeadlineDate(
     type: String,
     bodyData: JsonElement,
@@ -50,7 +50,7 @@ private fun extractFlipDeadlineDate(
     if (type != "privacy_flip_warning") return null
     val primitive = (bodyData as? JsonObject)?.get("privacy_flip_scheduled_at") as? JsonPrimitive ?: return null
     if (!primitive.isString) return null
-    return primitive.content.substringBefore('T').takeIf { it.isNotBlank() }
+    return localDateLabel(primitive.content).takeIf { it.isNotBlank() }
 }
 
 private fun NotificationDto.toRow(): NotificationRow =

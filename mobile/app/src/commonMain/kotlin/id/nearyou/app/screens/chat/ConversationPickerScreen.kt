@@ -35,7 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ConversationsFlow
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
-import id.nearyou.app.ui.components.postDateLabel
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_cap_upsell
@@ -179,7 +179,7 @@ private fun PickerRows(
                 )
                 row.lastMessageAtIso?.let { iso ->
                     Text(
-                        text = postDateLabel(iso),
+                        text = localDateLabel(iso),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp),

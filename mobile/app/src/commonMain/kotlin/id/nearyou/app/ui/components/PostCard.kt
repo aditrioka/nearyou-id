@@ -120,7 +120,7 @@ data class PostCardModel(
  *   `post_card_handle` @-handle (single-line, ellipsized) + the middot separator + the time label
  *   as plain TEXT — the clock glyph is gone (mobile-design-system § Material-icons delta; the
  *   relative "5 mnt" treatment stays deferred to `mobile-timeline-relative-timestamp`, so the
- *   value is still [postDateLabel]).
+ *   value is still [localDateLabel]).
  * - Content (bodyLarge).
  * - Location meta row: coral `locationPin` pin + `city_name` (when non-empty) + the distance via
  *   `DistanceRenderer.render` (when [PostCardModel.distanceM] is non-null). The whole row
@@ -384,7 +384,7 @@ private fun IdentityText(model: PostCardModel) {
             Text(
                 // The post date (ISO date portion); relative formatting is the
                 // deferred mobile-timeline-relative-timestamp change.
-                text = postDateLabel(model.createdAt),
+                text = localDateLabel(model.createdAt),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -442,6 +442,3 @@ private fun PostCardKebab(
         }
     }
 }
-
-/** ISO-8601 `createdAt` → its date portion ("2026-05-31"). Pure + deterministic (no wall clock). */
-fun postDateLabel(createdAt: String): String = createdAt.substringBefore('T')

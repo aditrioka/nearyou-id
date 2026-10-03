@@ -73,7 +73,7 @@ import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.app.ui.components.ReportDialog
-import id.nearyou.app.ui.components.postDateLabel
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_share_to_chat_action
 import id.nearyou.resources.generated.resources.cta_close
@@ -822,9 +822,9 @@ private fun PostHeader(
         }
         val postedFrom =
             if (cityName.isEmpty()) {
-                stringResource(Res.string.post_detail_posted_from_no_city, postDateLabel(createdAtIso))
+                stringResource(Res.string.post_detail_posted_from_no_city, localDateLabel(createdAtIso))
             } else {
-                stringResource(Res.string.post_detail_posted_from, cityName, postDateLabel(createdAtIso))
+                stringResource(Res.string.post_detail_posted_from, cityName, localDateLabel(createdAtIso))
             }
         Text(
             text = postedFrom,
@@ -836,7 +836,7 @@ private fun PostHeader(
         // reports an edit (editedAt present); tapping opens the "Riwayat edit" history overlay.
         if (editedAtIso != null) {
             Text(
-                text = stringResource(Res.string.post_edit_edited_label, postDateLabel(editedAtIso)),
+                text = stringResource(Res.string.post_edit_edited_label, localDateLabel(editedAtIso)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier =
@@ -980,7 +980,7 @@ private fun ReplyCard(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = postDateLabel(reply.createdAt),
+                    text = localDateLabel(reply.createdAt),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),

@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ConversationsFlow
-import id.nearyou.app.ui.components.postDateLabel
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_list_empty
@@ -173,7 +173,7 @@ private fun ConversationRowItem(
         )
         row.lastMessageAtIso?.let { iso ->
             Text(
-                text = postDateLabel(iso),
+                text = localDateLabel(iso),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp),

@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import id.nearyou.app.post.EditHistoryOutcome
 import id.nearyou.app.post.EditVersionDto
 import id.nearyou.app.post.PostEditFlow
-import id.nearyou.app.ui.components.postDateLabel
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
@@ -130,7 +130,7 @@ private fun VersionCard(version: EditVersionDto) {
                 modifier = Modifier.padding(top = 4.dp),
             )
             Text(
-                text = postDateLabel(version.editedAt),
+                text = localDateLabel(version.editedAt),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
