@@ -133,7 +133,7 @@
 - [x] 7.2 `./gradlew :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest :infra:revenuecat:ktlintCheck` green (named explicitly — the root aggregate is not trusted for mobile).
 - [x] 7.3 `./gradlew :mobile:app:iosSimulatorArm64Test` (K/N — the paywall flow test + the new commonMain code) and `:mobile:app:linkDebugFrameworkIosSimulatorArm64` (the `:infra:revenuecat` `awaitLogIn`/`awaitLogOut` iOS link). The known pre-existing `AppShellFlowIosTest` red (#348) is confirmed by stash-rerun, not attributed to this change.
 - [x] 7.4 Manual UI verification (docs/11 §5 DoD): render the paywall pending state and the post-confirmation radius unlock on the Android emulator (verify-loop §B), with screenshots in the PR body.
-- [ ] 7.5 **HUMAN-REQUIRED (operator):** the staging sandbox purchase end-to-end. Staging uses the RevenueCat **Test Store** (project `9d323c42`), so no Play license tester is needed; any device or emulator running a `stagingDebug` build carrying the Test Store key (`-PstagingRevenueCatPublicKey`, value from Secret Manager `staging-revenuecat-test-api-key`) works.
+- [x] 7.5 **HUMAN-REQUIRED (operator):** the staging sandbox purchase end-to-end. Staging uses the RevenueCat **Test Store** (project `9d323c42`), so no Play license tester is needed; any device or emulator running a `stagingDebug` build carrying the Test Store key (`-PstagingRevenueCatPublicKey`, value from Secret Manager `staging-revenuecat-test-api-key`) works.
   - Prerequisite: the RevenueCat dashboard webhook is registered (Integrations → Webhooks → `https://api-staging.nearyou.id/internal/revenuecat-webhook` with the `staging-revenuecat-webhook-secret` Bearer).
   - Sign in on the `stagingDebug` build.
   - Confirm in the RevenueCat dashboard that the customer id = the account's `users.id` (not `$RCAnonymousID`).
@@ -143,3 +143,13 @@
   - Sign out and confirm RevenueCat returns to an anonymous customer.
 
   The real `RevenueCatPurchaseController` cannot be unit-tested without the provisioned SDK/store (covered app-side via `FakePurchaseController`), so this is an explicit, non-skip-rationalized manual boundary.
+
+  **Done 2026-10-03.** Operator confirmed the webhook registration ("Send test event" → 200); the agent ran the purchase with operator approval:
+  - `stagingDebug` + Test Store key on the `verify36` emulator; `smoketest_adi` signed in via the staging test-login deep link (exercises the session-restore bind).
+  - RevenueCat's stored app-user id = `986142e3-…` (`users.id`).
+  - Paywall → **TEST VALID PURCHASE** (Monthly): the paywall confirmed and popped itself.
+  - Supabase: `subscription_status` free → `premium_active` + one `initial_purchase` event (`source=paid`, `platform=test_store`). Proves the webhook resolved the purchase to `users.id`.
+  - On return: the profile shows the Premium badge; search runs instead of gating. The instant post-confirm search re-run still hit the gate (the accepted webhook-lag window).
+  - Sign-out → RevenueCat's stored id = `$RCAnonymousID:…`.
+  - The live 50 km check was not repeated, because the emulator had location off. It was verified via the harness run (7.4) and the server tier.
+  - Frames: `evidence/premium-entitlement-lifecycle` `75-*.png`.
