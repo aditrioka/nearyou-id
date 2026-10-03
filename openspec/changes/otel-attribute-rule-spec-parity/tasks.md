@@ -79,7 +79,7 @@
 ## 5. Validation + gate
 
 - [x] 5.1 `openspec validate otel-attribute-rule-spec-parity --strict` green.
-- [ ] 5.2 Pre-push gate `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`. Use a throwaway Postgres on a free port if :5433 is dirty (docs/13 §5).
+- [x] 5.2 Pre-push gate `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`. Use a throwaway Postgres on a free port if :5433 is dirty (docs/13 §5). _Green 2026-10-03 against a throwaway `postgis/postgis:16-3.4` on :5438 (`--no-daemon`, `:backend:ktor:test --rerun`, `:lint:detekt-rules:test --rerun`): backend 2632 tests / 0 failed, lint 317 / 0 failed, ktlint + detekt clean._
 
 ## 6. Pre-archive smoke (N/A for lint-only change)
 
