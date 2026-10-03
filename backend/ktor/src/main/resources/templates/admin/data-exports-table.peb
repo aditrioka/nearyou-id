@@ -1,3 +1,4 @@
+{% import "icons.peb" %}
 {# Swappable data-export-queue fragment. Rendered standalone for HTMX requests
    (HX-Request: true) and {% include %}d by data-exports.peb for full-page navigation.
    The #data-exports-table id is the hx-target swapped in place.
@@ -63,7 +64,7 @@
                           hx-confirm="Re-run this export through the producer pipeline now? Use this only when the scheduler failed or stalled.">
                         <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
                         <input type="text" name="reason" maxlength="200" placeholder="Reason (required)" required aria-label="Trigger reason">
-                        <button type="submit" class="btn tonal sm"><span class="ms">play_arrow</span>Trigger job</button>
+                        <button type="submit" class="btn tonal sm">{{ icon("play_arrow") }}Trigger job</button>
                     </form>
                 {% else %}
                     —

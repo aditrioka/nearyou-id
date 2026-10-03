@@ -3,6 +3,7 @@
 {% block title %}Hard Delete Queue — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>Hard Delete Queue</h2>
 <p class="pg-sub">deletion_requests — accounts awaiting scheduled hard-delete (UU PDP right-to-erasure). Expedite advances the deadline so the next daily worker run erases the account; the hard delete is IRREVERSIBLE (cascade per the retention matrix).</p>
 
@@ -44,7 +45,7 @@
 {% include "deletion-requests-table.peb" %}
 
 <div class="banner warn">
-    <span class="ms">warning</span>
+    {{ icon("warning") }}
     <span>Expedite requires a reason and a confirmation, and writes an audit-log row. Hard delete is irreversible: it cascades per the retention matrix (the reporter's reports are removed too; the user already holds a copy via Data Export before deletion).</span>
 </div>
 {% endblock %}

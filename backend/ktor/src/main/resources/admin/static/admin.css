@@ -210,7 +210,8 @@ form.filters {
 form.filters input,
 form.filters select,
 .rc-actions select,
-.user-state input[type='text'] {
+.user-state input[type='text'],
+.action-tile input[type='text'] {
   height: 34px;
   min-width: 130px;
   padding: 0 12px;
@@ -222,7 +223,8 @@ form.filters select,
   color: var(--on-surface);
 }
 form.filters input::placeholder,
-.user-state input::placeholder { color: var(--outline); }
+.user-state input::placeholder,
+.action-tile input::placeholder { color: var(--outline); }
 .field-wide input { min-width: 340px; }
 
 /* ---- buttons ------------------------------------------------------------ */
@@ -344,6 +346,8 @@ table.tbl code {
 .st.err { background: var(--error-container); color: var(--on-error-container); }
 .st.info { background: var(--primary-container); color: var(--on-primary-container); }
 .st.reason { background: var(--pin-container); color: var(--on-pin-container); }
+.st.prem { background: var(--premium-container); color: var(--on-premium-container); }
+.st .ic { width: 12px; height: 12px; }
 
 /* ---- cards, kv, banners, outcome, empty --------------------------------- */
 .cardlet {
@@ -357,6 +361,7 @@ table.tbl code {
 }
 .cardlet h3,
 .cardlet h4 { font-size: 13.5px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+.cardlet h4 .ic { width: 17px; height: 17px; color: var(--on-surface-variant); }
 a.cardlet:hover { text-decoration: none; border-color: var(--primary); }
 a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px; font-weight: 400; }
 .card-grid {
@@ -552,6 +557,62 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 .user-state form .field { margin-top: 8px; }
 .user-state form input[type='text'] { width: 100%; min-width: 0; }
 .user-state form button { margin-top: 10px; }
+
+/* ---- user profile (frame 6 page head / Actions / History, frame 7 table) - */
+.pg-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+.pg-row .grow { flex: 1; min-width: 0; }
+.pg-row h2 .st { vertical-align: 2px; white-space: normal; }
+.pg-row h2 .handle { font-size: 13.5px; font-weight: 600; color: var(--on-surface-variant); }
+.quota {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--sc);
+  border: 1px solid var(--outline-variant);
+  border-radius: 100px;
+  padding: 4px 12px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+.quota .ic { width: 13px; height: 13px; }
+.quota b { font-weight: 900; }
+/* each action keeps its audit-only reason field, so the board's button row
+   becomes a grid of tiles (stacks naturally, frame 4b) */
+.three-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.action-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--sc-low);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.action-tile h4 { font-size: 12.5px; }
+.action-tile .field { align-self: stretch; }
+.action-tile input[type='text'] { width: 100%; min-width: 0; }
+.action-tile .hint { margin-top: 0; }
+.user-history .tbl-wrap { margin-top: 10px; }
+.statebox {
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--on-surface-variant);
+  background: var(--sc);
+  border-radius: 6px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 420px;
+}
 
 /* ---- login (frame 1) ----------------------------------------------------- */
 body.bare > main {
@@ -758,3 +819,5 @@ body.bare > main {
 /* warn banner — the owner/admin + atomic-write notice on the redaction panel.
    Mirrors .banner.info shape with the error-container tint frame 9 uses. */
 .banner.warn { margin-top: 12px; background: var(--error-container); color: var(--on-error-container); }
+/* error banner — the CSAM "no Kominfo filing yet" pending signal (frame 13 .banner.err) */
+.banner.err { margin-top: 14px; background: var(--error-container); color: var(--on-error-container); }
