@@ -1,65 +1,71 @@
 ## ADDED Requirements
 
-### Requirement: `OtelForbiddenAttributeRule` checks attribute-key positions (PSI-context-restricted Mode A)
+### Requirement: `OtelForbiddenAttributeRule` checks attribute-key positions
 
-`OtelForbiddenAttributeRule` SHALL run a second, PSI-context-restricted check. It fires only on a Kotlin string literal (`KtStringTemplateExpression`) that is in an **attribute-key position** (AKP). The check uses Kotlin PSI only: the project runs the syntactic `detekt` task, so no type resolution is available.
+`OtelForbiddenAttributeRule` SHALL run a PSI-context-restricted Mode A check. This check fires only on a Kotlin string literal (`KtStringTemplateExpression`) that sits in an **attribute-key position** (AKP). The project runs the syntactic `detekt` task with no type resolution, so the check uses Kotlin PSI only.
 
-A literal L is in an AKP when any one of the following holds:
+**Attribute-key positions.** A key expression K is in an AKP when any of the following holds. Each shape also defines the **paired value** that checks 2 and 5 inspect:
 
-- **P1 — `setAttribute`**: L is the key argument of a call whose callee short name is `setAttribute`. The key argument is the one named `key`; if no argument is named, it is the first positional argument.
-- **P2 — `AttributeKey` factory**: L is the first argument of a call to `stringKey`, `booleanKey`, `longKey`, `doubleKey`, `stringArrayKey`, `booleanArrayKey`, `longArrayKey` or `doubleArrayKey`. The call is either unqualified, or its receiver text ends in `AttributeKey`.
-- **P3 — `AttributesBuilder.put`**: L is the first argument of a two-argument `put(...)` call whose receiver is *builder-evidenced*. The receiver is builder-evidenced when either:
-  - the receiver chain text contains `Attributes.builder()` or `.toBuilder()`; or
-  - the receiver is a simple name declared in the same file with type `AttributesBuilder`, or with an initializer containing `Attributes.builder()`.
-  
-  The following are NOT builder-evidenced and do not fire: a generic `Map.put`, an unqualified `put` inside `buildJsonObject { }`, and Ktor's `call.attributes.put(...)`.
-- **P4 — `withSpan` attribute map**: L is the key of a map entry inside a direct argument of a `mapOf` / `mutableMapOf` / `hashMapOf` / `linkedMapOf` call M. The key is the left operand of infix `to`, or the first argument of `Pair(...)`. In addition, one of the following holds:
-  - (a) M is the `attributes` argument of a `withSpan(...)` call — passed as the named argument `attributes`, or at positional index 1 when no argument is named; or
+- **P1 — `setAttribute`.** K is the key argument of a call whose callee short name is `setAttribute`.
+  - Key argument: the one named `key`; otherwise the unnamed argument at position 0.
+  - Paired value: the argument named `value`; otherwise the unnamed argument at position 1.
+- **P2 — `AttributeKey` factory.** K is the first argument of a call to `stringKey`, `booleanKey`, `longKey`, `doubleKey`, `stringArrayKey`, `booleanArrayKey`, `longArrayKey` or `doubleArrayKey`. The call is either unqualified, or its receiver text ends in `AttributeKey`.
+  - Paired value: when the factory call is itself argument 0 of a `setAttribute(...)` / `put(...)` call, argument 1 of that call. When it is an even-indexed argument of `Attributes.of(...)`, the argument that follows it. Otherwise there is no paired value, and checks 2 and 5 do not apply.
+- **P3 — `AttributesBuilder.put`.** K is argument 0 of a two-argument `put(...)` call whose receiver is *builder-evidenced*. Paired value: argument 1.
+  - Builder-evidenced means either: the receiver chain text contains `Attributes.builder()` or `.toBuilder()`; or the receiver is a simple name declared in the same file with type `AttributesBuilder`, or with an initializer containing `Attributes.builder()`.
+  - NOT builder-evidenced (do not match): a generic `Map.put`, an unqualified `put` inside `buildJsonObject { }`, and Ktor's `call.attributes.put(...)`.
+- **P4 — `withSpan` attribute map.** K is the key of a map entry — the left operand of infix `to`, or argument 0 of `Pair(...)` — inside a direct argument of a `mapOf` / `mutableMapOf` / `hashMapOf` / `linkedMapOf` call M. Paired value: the right operand of `to`, or argument 1 of `Pair`. In addition, one of these holds:
+  - (a) M is the `attributes` argument of a `withSpan(...)` call — named `attributes =`, or the unnamed argument at position 1; or
   - (b) M initializes a property or variable, and a `withSpan(...)` call in the same file passes that variable's simple name as its `attributes` argument.
 
-**Key tokenization.** Before token matching, a key is split into tokens on `.`, `_`, `-`, whitespace and lower→upper camelCase boundaries, then lowercased. For example, `geo.userLat` becomes `[geo, user, lat]`.
+**Hoisted key literals.** A string literal that initializes a property (e.g. `const val K = "user_id"`) is treated as being in an AKP when a same-file reference to that property — a simple name, or the selector of a qualified expression — is in an AKP. The literal then takes that reference's paired value.
+
+**Tokenization.** Before token matching, a key is split into tokens on `.`, `_`, `-`, whitespace and lower→upper camelCase boundaries, then lowercased. For example, `geo.userLat` becomes `[geo, user, lat]`.
+
+**Peeling.** Before evidence matching, a value expression is peeled: parentheses, `!!`, a trailing no-argument `.toString()`, and a single-entry string template (`"$x"` / `"${x}"`) are removed.
 
 In an AKP the rule SHALL fire when any of these checks matches:
 
-1. **Context-restricted forbidden key** — the key equals `user_id`. It fires regardless of the value. This is the `ForbiddenAttributeStripper.FORBIDDEN_KEYS` entry that is too common in non-OTel code to enforce anywhere.
-2. **User-identity alias with a raw identifier**:
-   - The key's tokens include `user`, `enduser`, `principal`, `actor`, `subject`, `owner` or `account`.
-   - AND the value argument is *raw-identifier-evidenced*.
-   
-   To decide that, the rule first peels the value expression: it strips parentheses, `!!`, a trailing no-argument `.toString()`, and a single-entry string template (`"$x"` / `"${x}"`). The value is raw-identifier-evidenced when the peeled expression is any of:
+1. **Context-restricted forbidden key.** The key equals `user_id`. It fires regardless of the value. This is the one `ForbiddenAttributeStripper.FORBIDDEN_KEYS` entry that is too common in non-OTel code to enforce anywhere.
+2. **User-identity alias with a raw identifier.** The key's tokens include `user`, `enduser`, `principal`, `actor`, `subject`, `owner` or `account`, AND the peeled paired value is raw-identifier-evidenced:
    - (V1) a non-interpolated string literal matching `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`;
-   - (V2) a `UUID.randomUUID()` / `UUID.fromString(…)` / `UUID.nameUUIDFromBytes(…)` call;
-   - (V3) a simple name whose same-file parameter or property declaration has type `UUID` / `java.util.UUID` (nullable allowed), or an initializer satisfying V1 or V2;
-   - (V4) an expression whose terminal identifier is `userId`, ends in `UserId`, or is `sub` (raw JWT/OIDC subject); or `<x>.id` where `x`'s terminal identifier is `user` or ends in `User`.
-   
-   Hashed values such as `UserIdHasher.hash(…)` and `ServiceAccountIdHasher.hash(…)`, role or name strings, and UUIDs under non-alias keys (e.g. `conversation_id`) SHALL NOT fire.
-3. **Location key** — a token is one of `location`, `locations`, `geolocation`, `lat`, `lats`, `latitude`, `latitudes`, `lng`, `lon`, `longitude`, `longitudes`, `latlng`, `latlon`, `coord`, `coords`, `coordinate`, `coordinates`.
-   - Exception: a key whose **first token is `display`** (`display_location`, `display_lat`, `display_lng`, …) is the explicitly sanctioned fuzzed-coordinate family and SHALL NOT fire.
-4. **Credential key** — a token is one of `password`, `passwd`, `secret`, `secrets`, `bearer`, `authorization` or `apikey`, OR adjacent tokens form `refresh token`, `access token`, `api key` or `service role`.
+   - (V2) a `UUID.randomUUID()` / `UUID.fromString(…)` / `UUID.nameUUIDFromBytes(…)` call (receiver `UUID` or `java.util.UUID`);
+   - (V3) a simple name whose same-file parameter or property declaration has type `UUID` / `java.util.UUID` (nullable allowed), or an initializer satisfying V1, V2 or V4;
+   - (V4) a name or property reference — not a call — whose terminal identifier is `userId` or ends in `UserId`; or `<x>.id` where `x`'s peeled terminal identifier is `user` or ends in `User`.
 
-The path allowlist and the `@AllowForbiddenSpanAttribute("<non-blank reason>")` bypass (§ "Allowlist for `OtelForbiddenAttributeRule`") SHALL apply to these checks unchanged. A literal SHALL be reported at most once, even when several checks match it.
+   The following SHALL NOT fire: hashed values (`UserIdHasher.hash(…)`, `ServiceAccountIdHasher.hash(…)`), role or name strings, call selectors such as `getUserId()`, and UUIDs under non-alias keys (e.g. `conversation_id`).
+3. **Location key.** A token is one of `location`, `locations`, `geolocation`, `lat`, `lats`, `latitude`, `latitudes`, `lng`, `lon`, `longitude`, `longitudes`, `latlng`, `latlon`, `latlong`, `coord`, `coords`, `coordinate`, `coordinates`, `geohash`, `geom`, `geometry`, `geography`, `wkt`.
+   - Exception: the **exact key `display_location`** (tokens exactly `[display, location]`, so `display.location` and `displayLocation` too) is the one sanctioned location key and SHALL NOT fire.
+   - Every other location key fires, including `display_lat` (which could carry a raw viewer coordinate) and `display_actual_location`.
+4. **Credential key.** A token is one of `password`, `passwd`, `secret`, `secrets`, `bearer`, `authorization`, `apikey` or `cookie`; OR adjacent tokens form `refresh token`, `access token`, `id token`, `api key`, `private key` or `service role`.
+5. **Raw JWT / OIDC claim value, any key.** The peeled paired value is a name or property reference whose terminal identifier is `sub`, or `subject` whose receiver's terminal identifier is `payload`, `decoded`, `claims` or `jwt`. A bare `.subject` (`email.subject`) is not evidence.
 
-Known limits of the PSI-only approach, documented in the rule KDoc:
-- Maps built in another file, through `buildMap { }`, or composed with `+` are not traced.
-- Key names built dynamically are invisible to the check.
-- User-referencing keys outside the alias token set (e.g. `author_id`) are not value-checked.
+The path allowlist and the `@AllowForbiddenSpanAttribute("<non-blank reason>")` bypass (§ "Allowlist for `OtelForbiddenAttributeRule`") SHALL apply to these checks unchanged. A literal SHALL be reported at most once, however many checks match it.
 
-The runtime stripper, the sentinel scenarios and code review remain the backstop for these cases.
+**Known limits** (documented in the rule KDoc). The runtime stripper, the sentinel scenarios and code review remain the backstop for each of these:
+- Maps built in another file, through `buildMap { }`, or composed with `+`.
+- An unqualified `put` inside `Attributes.builder().apply { }`.
+- Key constants declared in another file.
+- A standalone hoisted `AttributeKey` value: there is no paired value, so the alias and claim checks are skipped. Key-name checks still apply.
+- Dynamic key concatenation.
+- User-referencing keys outside the alias token set (e.g. `author_id`).
+- P3/P4(b)/V3 resolve names across the whole file, not by lexical scope, so a same-named declaration can over-match.
 
 #### Scenario: `setAttribute("user_id", …)` fires
-- **WHEN** a non-allowlisted Kotlin file contains `span.setAttribute("user_id", hashed)`
+- **WHEN** a non-allowlisted Kotlin file contains `span.setAttribute("user_id", hashed)` OR `span.setAttribute("user_id", value = hashed)`
 - **THEN** the rule reports a code smell on the `"user_id"` literal
 
 #### Scenario: `user_id` as an `AttributeKey` / `AttributesBuilder.put` key fires
-- **WHEN** a non-allowlisted file contains `AttributeKey.stringKey("user_id")` OR `Attributes.builder().put("user_id", v)` OR `val b = Attributes.builder(); b.put("user_id", v)`
+- **WHEN** a non-allowlisted file contains `AttributeKey.stringKey("user_id")`, an unqualified `stringKey("user_id")`, `Attributes.builder().put("user_id", v)`, `base.toBuilder().put("user_id", v)`, OR `val b = Attributes.builder(); b.put("user_id", v)`
 - **THEN** the rule fires on each `"user_id"` literal
 
 #### Scenario: `user_id` in a `withSpan` attribute map fires, directly or via a same-file `val`
-- **WHEN** a non-allowlisted file contains any of:
-  - `withSpan("op", mapOf("user_id" to v)) { }`
-  - `withSpan(name = "op", attributes = mapOf("user_id" to v)) { }`
-  - `val attrs = mapOf("user_id" to v)` followed by `withSpan("op", attrs) { }`
+- **WHEN** a non-allowlisted file contains `withSpan("op", mapOf("user_id" to v)) { }`, OR `withSpan(name = "op", attributes = mapOf("user_id" to v)) { }`, OR `withSpan("op", mutableMapOf(Pair("user_id", v))) { }`, OR `val attrs = mapOf("user_id" to v)` followed by `withSpan("op", attrs) { }`
 - **THEN** the rule fires on the `"user_id"` literal in each case
+
+#### Scenario: A hoisted key constant used as an attribute key fires
+- **WHEN** a non-allowlisted file contains `const val K = "user_id"` AND `span.setAttribute(K, v)`
+- **THEN** the rule fires on the `"user_id"` literal AND does NOT fire when the same constant is only concatenated into SQL text
 
 #### Scenario: `user_id` outside an attribute-key position does NOT fire
 - **WHEN** a non-allowlisted file contains any of:
@@ -80,9 +86,13 @@ The runtime stripper, the sentinel scenarios and code review remain the backstop
   - `span.setAttribute("owner", "550e8400-e29b-41d4-a716-446655440000")`
   - `fun f(id: UUID) { span.setAttribute("subject", id.toString()) }`
   - `span.setAttribute("user.id", user.id.toString())`
-  - `span.setAttribute("principal", call.principal.userId.toString())`
-  - `withSpan("op", mapOf("actor" to claims.sub)) { }`
+  - `span.setAttribute("principal", call.principal.targetUserId.toString())`
+  - `val viewer = principal.userId` followed by `span.setAttribute("principal", viewer.toString())`
 - **THEN** the rule fires on the key literal in each case
+
+#### Scenario: A raw JWT / OIDC claim value fires under any key
+- **WHEN** a non-allowlisted file contains `span.setAttribute("service.account.id", claims.sub)` OR `withSpan("op", mapOf("actor" to claims.sub)) { }` OR `span.setAttribute("auth.identity", credential.payload.subject)`
+- **THEN** the rule fires on the key literal AND does NOT fire on `span.setAttribute("email.subject", mail.subject)`
 
 #### Scenario: Sanctioned hashed identity and non-alias UUID keys do NOT fire
 - **WHEN** a non-allowlisted file contains any of:
@@ -92,29 +102,32 @@ The runtime stripper, the sentinel scenarios and code review remain the backstop
 - **THEN** the rule does NOT fire
 
 #### Scenario: Location key fires
-- **WHEN** a non-allowlisted file contains `span.setAttribute("geo.lat", lat)` OR `span.setAttribute("actual_location", wkt)` OR `withSpan("op", mapOf("userCoords" to c)) { }`
+- **WHEN** a non-allowlisted file contains any of:
+  - `span.setAttribute("geo.lat", lat)`
+  - `span.setAttribute("actual_location", wkt)`
+  - `span.setAttribute("display_lat", lat)`
+  - `span.setAttribute("display_actual_location", v)`
+  - `withSpan("op", mapOf("userCoords" to c)) { }`
 - **THEN** the rule fires on each key literal
 
-#### Scenario: `display_*` location keys are sanctioned
-- **WHEN** a non-allowlisted file contains `span.setAttribute("display_location", fuzzed)` OR `span.setAttribute("display_lat", lat)`
+#### Scenario: Only the exact `display_location` key is sanctioned
+- **WHEN** a non-allowlisted file contains `span.setAttribute("display_location", fuzzed)` OR `span.setAttribute("displayLocation", fuzzed)`
 - **THEN** the rule does NOT fire
 
 #### Scenario: Look-alike keys and non-key location words do NOT fire
-- **WHEN** a non-allowlisted file contains:
-  - `span.setAttribute("latency_ms", ms)`, `span.setAttribute("cloud.platform", p)` or `span.setAttribute("memory.allocation", a)`;
-  - OR non-AKP literals `"SELECT ST_Y(display_location::geometry) AS lat"`, `"latitude"`, `"actual_lat"`
+- **WHEN** a non-allowlisted file contains `span.setAttribute("latency_ms", ms)`, `span.setAttribute("cloud.platform", p)`, `span.setAttribute("memory.allocation", a)` or `span.setAttribute("coordinator", c)`, OR the non-AKP literals `"SELECT ST_Y(display_location::geometry) AS lat"`, `"latitude"`, `"actual_lat"`
 - **THEN** the rule does NOT fire
 
 #### Scenario: Credential key fires
-- **WHEN** a non-allowlisted file contains `span.setAttribute("client_secret", s)` OR `span.setAttribute("http.request.header.authorization", h)` OR `span.setAttribute("refreshToken", t)` OR `span.setAttribute("db.password", p)`
-- **THEN** the rule fires on each key literal
+- **WHEN** a non-allowlisted file contains `span.setAttribute(k, v)` with `k` one of `"client_secret"`, `"http.request.header.authorization"`, `"http.request.header.cookie"`, `"refreshToken"`, `"id_token"`, `"private_key"`, `"db.password"`
+- **THEN** the rule fires on each key literal AND does NOT fire for `"gen_ai.usage.input_tokens"` or `"credential.type"`
 
 #### Scenario: Location key composes with `CoordinateJitterRule`
 - **WHEN** a non-allowlisted file contains `span.setAttribute("actual_location", v)`
 - **THEN** `OtelForbiddenAttributeRule` reports exactly 1 finding AND `CoordinateJitterRule` reports exactly 1 finding (independent, no cross-suppression)
 
-#### Scenario: Annotation bypass and test-path allowlist apply to attribute-key checks
-- **WHEN** a function annotated `@AllowForbiddenSpanAttribute("legacy admin trace")` contains `span.setAttribute("user_id", v)`, OR a file under `/src/test/` contains the same call
+#### Scenario: Annotation bypass and path allowlist apply to attribute-key checks
+- **WHEN** a function annotated `@AllowForbiddenSpanAttribute("legacy admin trace")` contains `span.setAttribute("user_id", v)`, OR a file under `/src/test/`, `/infra/otel/src/main/` or `/lint/detekt-rules/src/main/` contains the same call
 - **THEN** the rule does NOT fire
 
 ## MODIFIED Requirements
@@ -125,7 +138,7 @@ NO span produced by `:backend:ktor` SHALL ever carry these attribute keys or val
 - **Raw `user_id` UUID** — in any attribute, including custom names like `user_uuid`, `principal`, `actor`, etc. Use `UserIdHasher.hash(...)` instead.
   - The keys `user_id`, `user_uuid` and `user.uuid` are forbidden outright.
   - A key whose tokens include `user`, `enduser`, `principal`, `actor`, `subject`, `owner` or `account` MUST NOT carry a raw identifier (a raw UUID or a raw JWT/OIDC `sub`).
-  - Other user-referencing keys (e.g. `author_id`, `sender_id`) carrying a raw UUID are equally forbidden. These are defended by layers 1 and 3 plus code review only — the compile-time lint value-checks the enumerated alias token set (see § "`OtelForbiddenAttributeRule` checks attribute-key positions").
+  - Other user-referencing keys (e.g. `author_id`, `sender_id`) carrying a raw UUID are equally forbidden. These are defended by code review only, plus the layer-3 JWT-claim sentinel where it applies — layer 1 strips only the `FORBIDDEN_KEYS` key names, never values. The compile-time lint value-checks the enumerated alias token set (see § "`OtelForbiddenAttributeRule` checks attribute-key positions").
 - **Raw client IP** read from `CF-Connecting-IP` or `X-Forwarded-For`.
   - The sanctioned anonymization shape is `IpHasher.hash(ip)` (16-hex truncated SHA-256, exported from `:infra:otel`). IP-axis rate-limit Redis keys use it per [`rate-limit-infrastructure/spec.md`](/openspec/specs/rate-limit-infrastructure/spec.md).
   - Embedding the raw IP directly in any span attribute, log field or Redis key segment is forbidden. The hashed form is the only sanctioned way for IP-derived values to surface in telemetry.
@@ -135,12 +148,13 @@ NO span produced by `:backend:ktor` SHALL ever carry these attribute keys or val
   
   The OTel Java 2.x instrumentation migrated to the new HTTP semconv (verified at staging soak: `opentelemetry-ktor-3.0:2.25.0-alpha` emits `network.peer.address`). Both name sets MUST be stripped to handle BOM upgrades and instrumentation alternates. Behind Cloudflare these attributes would carry the Cloudflare-edge peer IP (NOT the real client IP, which comes from `CF-Connecting-IP`). On the Cloud Run direct URL they carry the internal load-balancer link-local IP. Neither shape is acceptable per project posture. The implementation MUST suppress these keys via the SDK pipeline. The canonical mechanism is a `SpanExporter` decorator that strips forbidden keys before delegate export — see [`infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt`](/infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt).
 - **Raw secrets** — raw JWT tokens, raw refresh tokens, raw API bearer tokens, raw OAuth client secrets, JWKS contents, raw Supabase service role key.
-  - **Values with a stable marker** are compile-time-enforced by `OtelForbiddenAttributeRule` Tier 2 (§ "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes"): JWT shape, PEM private key, JWKS RSA, Google OAuth `GOCSPX-` client secrets / `ya29.` access tokens / `1//` refresh tokens, Supabase `sb_secret_` keys, Grafana Cloud `glc_` tokens, OpenAI `sk-proj-` / `sk-svcacct-` / `sk-admin-` keys, RevenueCat / Stripe-style `sk_` keys.
-  - **Prefix-less opaque secrets** have no value shape any regex can recognise: project-issued refresh tokens (`SecureRandom` base64url), Supabase GoTrue refresh tokens, operator-generated webhook / HMAC / AES secrets, Cloudflare API tokens. Their values are defended by layers 1 and 3 plus code review. The attribute KEYS that would carry them (`refresh_token`, `client_secret`, `authorization`, …) are compile-time-enforced by the credential-key check.
-- **Raw JWT claims** (`sub`, `aud`, `iss`, custom claims). The truncated SHA-256 token correlation id pattern from [`internal-endpoint-auth/spec.md:18`](/openspec/specs/internal-endpoint-auth/spec.md) is the only sanctioned anonymization shape for token-related identifiers.
+  - **Values with a stable marker** are compile-time-enforced by `OtelForbiddenAttributeRule` Tier 2 (§ "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes"): JWT shape, PEM private key, JWKS RSA, Google OAuth `GOCSPX-` client secrets / `ya29.` access tokens / `1//` refresh tokens, Supabase `sb_secret_` keys, raw Grafana Cloud `glc_` tokens, OpenAI keys (`sk-proj-` / `sk-svcacct-` / `sk-admin-`, or the `T3BlbkFJ` marker), RevenueCat / Stripe-style `sk_` keys. These cover the vendor secret formats in this stack's footprint.
+  - **Prefix-less opaque secrets** have no value shape any regex can recognise: project-issued refresh tokens (`SecureRandom` base64url), Supabase GoTrue refresh tokens, operator-generated webhook / HMAC / AES secrets, Cloudflare API tokens, and the stored OTLP exporter credential (`otel-grafana-otlp-token` is a base64 Basic-auth wrapping, so its `glc_` prefix is not visible). Their values are defended by code review only, plus the layer-3 bearer-token sentinel for the `Authorization` header — layer 1 never inspects values. The attribute KEYS that would carry them (`refresh_token`, `client_secret`, `authorization`, …) are compile-time-enforced by the credential-key check.
+- **Raw JWT claims** (`sub`, `aud`, `iss`, custom claims). The truncated SHA-256 token correlation id pattern from [`internal-endpoint-auth/spec.md:18`](/openspec/specs/internal-endpoint-auth/spec.md) is the only sanctioned anonymization shape for token-related identifiers. The compile-time lint forbids the `jwt.sub` / `jwt.aud` / `jwt.iss` keys anywhere, AND a raw claim value (`.sub`, or `.subject` read off a token `payload` / `decoded` / `claims` / `jwt`) under ANY attribute key.
 - **Raw `actual_location` GIS coordinates** from `posts`.
   - Forbid any attribute key whose tokens include a location token (`location`, `lat`, `latitude`, `lng`, `lon`, `longitude`, `coord`, `coordinate`, and their plural / compound forms enumerated in § "`OtelForbiddenAttributeRule` checks attribute-key positions") unless explicitly sanctioned.
-  - **The one explicit sanction is the `display_*` family**: `display_location` and keys derived from it such as `display_lat` / `display_lng`. Their value is the HMAC-fuzzed coordinate that every non-admin read path already returns to API clients, so emitting it on a span exposes nothing new. The spatial-fuzzing invariant — non-admin paths use `display_location`, never `actual_location` — is unchanged.
+  - **The one explicit sanction is the exact key `display_location`**, carrying the post's `display_location` column value: the HMAC-fuzzed coordinate that every non-admin post read path already returns to API clients. Derived or look-alike keys (`display_lat`, `display_lng`, `display_actual_location`) are NOT sanctioned — they could carry an unfuzzed viewer coordinate. The spatial-fuzzing invariant (non-admin paths use `display_location`, never `actual_location`) is unchanged.
+  - The change that adds the first `display_location` span-attribute writer MUST also amend the Grafana Cloud processor disclosure in [`docs/06-Security-Privacy.md`](/docs/06-Security-Privacy.md) § Consent Flow (today: "hashed user IDs, parameterized SQL, route patterns") to name fuzzed post location, in the same PR. No writer exists today.
   - (Amended by `otel-attribute-rule-spec-parity`; previously even `display_location`-derived numbers were unsanctioned.)
 - **Raw user-private content** — raw post `content`, raw chat message `content`, raw search query strings (e.g. the `q` query parameter on the search endpoint). The span attribute surface is observable to operators with read access, and these surfaces are user-private content. Their values have no recognizable shape; they are defended by layer 3 plus code review.
 - **Plaintext password fields** — defensive: none are accepted by the current API, but the rule preempts a future regression. Attribute keys with a `password` / `passwd` / `secret` token are compile-time-enforced by the credential-key check.
@@ -152,7 +166,7 @@ This requirement is enforced via three defense-in-depth layers:
 1. **Runtime stripping** at the SDK export pipeline via `ForbiddenAttributeStripper.kt`. This covers auto-instrumentation peer-identity attrs the developer didn't write.
 2. **Compile-time lint** at developer-written call sites via `OtelForbiddenAttributeRule`:
    - anywhere-firing Tier 1 keys, Tier 2 value patterns and IP-axis shapes (§ "`OtelForbiddenAttributeRule` fences forbidden span-attribute writes");
-   - attribute-key-position checks for `user_id`, user-identity aliases, location keys and credential keys (§ "`OtelForbiddenAttributeRule` checks attribute-key positions").
+   - attribute-key-position checks for `user_id`, user-identity aliases, location keys, credential keys and raw JWT-claim values (§ "`OtelForbiddenAttributeRule` checks attribute-key positions").
 3. **Integration-test sentinel-string regression** at staging, for end-to-end coverage of the high-velocity categories (post content, chat content, peer-IP, raw-IP-in-Lua-key, bearer token, JWT claim, search query, Redis password) — see the per-category scenarios below.
 
 #### Scenario: Setting raw user_id on a span is a code-review blocker
@@ -163,7 +177,7 @@ This requirement is enforced via three defense-in-depth layers:
 #### Scenario: `display_location` is the sanctioned location attribute key
 - **GIVEN** a hypothetical PR adds `Span.setAttribute("display_location", fuzzedWkt)` where the value comes from the `display_location` column
 - **WHEN** a reviewer applies this requirement
-- **THEN** the change is acceptable (the `display_*` family is explicitly sanctioned) AND an equivalent write under `actual_location` / `geo.lat` / any other location-token key is rejected
+- **THEN** the change is acceptable only if the same PR amends the Grafana Cloud processor disclosure in `docs/06-Security-Privacy.md` § Consent Flow AND an equivalent write under `display_lat` / `actual_location` / `geo.lat` / any other location-token key is rejected
 
 #### Scenario: No raw post content appears in any span
 - **GIVEN** a `POST /api/v1/posts` request whose body content is `"sentinel-post-content-DO-NOT-LEAK"` AND a test that captures all spans emitted during the request
@@ -253,11 +267,11 @@ The rule MUST fire on any string literal matching one of these high-confidence s
 - `ya29\.[A-Za-z0-9_\-]{20,}` — Google OAuth / metadata-server access token.
 - `(?<![A-Za-z0-9/])1//[A-Za-z0-9_\-]{20,}` — Google OAuth refresh token.
 - `sb_secret_[A-Za-z0-9_\-]{20,}` — Supabase secret API key.
-- `glc_[A-Za-z0-9+/=_\-]{20,}` — Grafana Cloud access-policy token (the OTLP exporter token).
-- `sk-(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{20,}` — OpenAI API key.
+- `glc_[A-Za-z0-9+/=_\-]{20,}` — Grafana Cloud access-policy token, raw form (the stored OTLP credential is base64-wrapped and therefore prefix-less).
+- `sk-(?:(?:proj|svcacct|admin)-[A-Za-z0-9_\-]{20,}|[A-Za-z0-9_\-]{8,}T3BlbkFJ[A-Za-z0-9_\-]{8,})` — OpenAI API key (typed prefix, or the `T3BlbkFJ` marker that legacy and project keys embed).
 - `(?<![A-Za-z0-9])sk_(?:live_|test_)?[A-Za-z0-9]{24,}` — RevenueCat / Stripe-style secret API key.
 
-Prefix-less opaque secrets cannot be matched by any value regex. These are project-issued refresh tokens, Supabase GoTrue refresh tokens, and operator-generated webhook / HMAC / AES secrets. They are covered as specified in § "Forbidden span attributes".
+Prefix-less opaque secrets cannot be matched by any value regex. These are project-issued refresh tokens, Supabase GoTrue refresh tokens, operator-generated webhook / HMAC / AES secrets, and the base64-wrapped stored OTLP credential. They are covered as specified in § "Forbidden span attributes".
 
 #### Scenario: Group A Tier 1 key literal fires (exact mirror of FORBIDDEN_KEYS)
 - **WHEN** a non-allowlisted Kotlin file contains the literal `"client.address"` (e.g., as `span.setAttribute("client.address", ...)`)
@@ -342,21 +356,21 @@ Prefix-less opaque secrets cannot be matched by any value regex. These are proje
 5. **Tier 2 positive-fail**: each of the 11 Tier 2 regex patterns fires from a synthetic non-allowlisted file:
    - PEM marker (labelled AND label-less);
    - JWT three-segment shape;
-   - Redis URI with credentials (`redis://user:pw@`, `rediss://user:pw@`, `redis://:pw@`);
+   - Redis URI with credentials (`redis://` user + password, TLS `rediss://` user + password, user-less `redis://:` password form);
    - JWKS RSA shape;
    - Google `GOCSPX-` / `ya29.` / `1//`;
    - Supabase `sb_secret_`;
    - Grafana `glc_`;
-   - OpenAI `sk-proj-`;
+   - OpenAI `sk-proj-` AND the `T3BlbkFJ`-marker form;
    - RevenueCat `sk_`.
-   
-   All secret fixtures are synthetic.
+
+   All secret fixtures are synthetic. They are assembled at test runtime and interpolated into the fixture source as ONE complete literal, so the committed test source never contains a scanner-matching token. A concatenation inside the fixture would be two short literals and would never fire.
 6. **Tier 2 false-positive negative tests**: legitimate strings that look near a Tier 2 pattern but should NOT fire:
    - `"eyJfoo"` alone (single segment, not JWT);
    - `"redis://host:6379/0"` / `"rediss://host:6380/0"` (no userinfo);
    - `"-----BEGIN PUBLIC KEY-----"` (PUBLIC, not PRIVATE);
-   - bare / short vendor prefixes (`"GOCSPX-"`, `"ya29.short"`, `"sb_secret_"`);
-   - `"https://host/1//"`;
+   - bare / short vendor prefixes (`"GOCSPX-"`, `"ya29.short"`, `"sb_secret_"`, `"sk_short"`);
+   - a `/`-preceded `1//` followed by a full-length token body (exercises the lookbehind);
    - `"risk_assessment_threshold_value_x"`, `"re_threshold"`, `"sk-learn"`.
 7. **Sanctioned `UserIdHasher.hash` consumption positive-pass**: `span.setAttribute("user.id", UserIdHasher.hash(userId))` does NOT fire.
 8. **Allowlist by path**: no fire on Tier 1 / Tier 2 / attribute-key-position literals under `:infra:otel/src/main/`, `:lint:detekt-rules/src/main/` or `/src/test/`. An arbitrary `:backend:ktor/src/main/` path fires.
@@ -371,30 +385,47 @@ Prefix-less opaque secrets cannot be matched by any value regex. These are proje
 14. **Unrelated string literals**: a non-allowlisted file containing `"Processing request"` / `"INSERT INTO posts ..."` / `"SELECT * FROM users WHERE id = ?"` does NOT fire.
 15. **NearYouRuleSetProvider registration**: explicit fixture asserting the rule appears in the returned `RuleSet`.
 16. **Attribute-key-position shapes**: `"user_id"` fires as:
-    - (P1) a `setAttribute` key, both positional and named `key =`;
-    - (P2) an `AttributeKey.stringKey(...)` argument;
-    - (P3) an `Attributes.builder().put(...)` key, and a key on a same-file `AttributesBuilder`-typed / `Attributes.builder()`-initialized variable;
-    - (P4) a `withSpan` `mapOf` key — positional, named `attributes =`, `Pair(...)` form, and the same-file hoisted-`val` form.
+    - (P1) a `setAttribute` key — positional, named `key =`, and positional key with named `value =`;
+    - (P2) an `AttributeKey.stringKey(...)` argument and an unqualified `stringKey(...)` argument;
+    - (P3) a key on `Attributes.builder().put(...)`, on `.toBuilder().put(...)`, and on a same-file `AttributesBuilder`-typed / `Attributes.builder()`-initialized variable;
+    - (P4) a `withSpan` map key — `mapOf` positional, named `attributes =`, `Pair(...)` form, `mutableMapOf` / `hashMapOf` / `linkedMapOf`, and the same-file hoisted-`val` form;
+    - a hoisted same-file key constant used as a `setAttribute` key and as an `AttributeKey.stringKey(...)` argument.
 17. **Non-AKP regression fixtures** (one test per real production shape) do NOT fire:
     - `rs.getObject("user_id", UUID::class.java)`;
     - `@SerialName("user_id")`;
     - `call.parameters["user_id"]`;
     - `buildJsonObject { put("user_id", JsonPrimitive(...)) }`;
     - `mutableMapOf<String, Any>().put("user_id", id)`;
-    - a `mapOf("user_id" to id)` not passed to `withSpan`.
+    - Ktor `call.attributes.put(...)`;
+    - a `mapOf("user_id" to id)` not passed to `withSpan`;
+    - a key constant used only in SQL concatenation;
+    - the production `AttributesBuilder.put` writers' safe keys (`error_code`, `event`, `error.type`).
 18. **User-identity alias value-awareness**:
-    - Fires on a UUID literal (V1), a `UUID.randomUUID()` / `fromString` call (V2), a same-file `UUID`-typed parameter (V3), and `userId` / `*UserId` / `user.id` / `.sub` naming (V4).
-    - Passes on role/name strings (`"system"`), on `UserIdHasher.hash(...)` / `ServiceAccountIdHasher.hash(...)`, on a `String`-typed non-convention name, and on UUID values under non-alias keys (`conversation_id`).
-    - Exercised across `principal`, `actor`, `subject`, `owner`, `user.id`, `enduser.id`, `service.account.id`.
-19. **Location key tokens**:
-    - Fire: `geo.lat`, `actual_location`, `userCoords` (camelCase), `latitude`, `lng`, `coordinates`.
-    - Pass via the `display_*` sanction: `display_location`, `display_lat`.
+    - Fires on:
+      - V1 UUID literal;
+      - V2 `UUID.randomUUID()` / `fromString` / `java.util.UUID.nameUUIDFromBytes`;
+      - V3 same-file `UUID`-typed parameter, nullable `UUID` property via a `"$x"` template, V2-initialized local, V4-initialized local;
+      - V4 `*UserId`, `user.id`, `userId`, and `!!`-peeled `currentUser!!.id`;
+      - P2 nested in `setAttribute` and inside `Attributes.of` (paired value).
+    - Passes on:
+      - role/name strings (`"system"`);
+      - `UserIdHasher.hash(...)` / `ServiceAccountIdHasher.hash(...)`;
+      - a `String`-typed non-convention name;
+      - UUID values under non-alias keys (`conversation_id`);
+      - `user_agent.original`, `email.subject`;
+      - a call selector (`p.getUserId()`);
+      - a standalone hoisted `AttributeKey` (no paired value).
+    - Exercised across `principal`, `actor`, `subject`, `owner`, `user.id`, `enduser.id`, `account`, `service.account.id`.
+19. **Raw JWT / OIDC claim value under any key**: `claims.sub` (on `service.account.id` and in a `withSpan` map), `credential.payload.subject` and `decoded.subject` on neutral keys all fire.
+20. **Location key tokens**:
+    - Fire: `geo.lat`, `actual_location`, `userCoords` (camelCase), `latitude`, `lng`, `coordinates`, `geohash`, `display_lat`, `display_actual_location`.
+    - Pass via the exact-key sanction: `display_location`, `displayLocation`.
     - Pass as look-alikes: `latency_ms`, `cloud.platform`, `memory.allocation`, `coordinator`.
-    - Pass as non-AKP location words: SQL text, `"latitude"` request-param literal.
-20. **Credential key tokens**:
-    - Fire: `client_secret`, `http.request.header.authorization`, `refreshToken`, `db.password`, `supabase.service_role_key`, `api_key`.
+    - Pass as non-AKP location words: SQL text, a `"latitude"` request-param literal, an `"actual_lat"` export-map key.
+21. **Credential key tokens**:
+    - Fire: `client_secret`, `http.request.header.authorization`, `http.request.header.cookie`, `refreshToken`, `db.password`, `supabase.service_role_key`, `api_key`, `id_token`, `private_key`.
     - Pass: `gen_ai.usage.input_tokens`, `credential.type`.
-21. **Single report per literal**: a literal matching several checks (e.g. `setAttribute("secret_location", v)` — credential AND location) produces exactly 1 finding.
+22. **Single report per literal**: a literal matching several checks (e.g. `setAttribute("secret_location", v)` — credential AND location) produces exactly 1 finding.
 
 #### Scenario: Test class exists and passes
 - **WHEN** running `./gradlew :lint:detekt-rules:test`
@@ -417,7 +448,10 @@ The implementation MUST audit:
 - Production `withSpan(name, mapOf(...))` writers (today: 2):
   - `ChatRoutes.kt` — safe keys `conversation_id`, `message_id`, `supabase.realtime.channel`;
   - `FcmDispatcher.kt` — safe keys `messaging.system`, plus `user.id` via `UserIdHasher.hash`.
-- Production `AttributesBuilder.put(...)` writers (today: in `:infra:otel/src/main/`, allowlisted by path).
+- Production `AttributesBuilder.put(...)` writers. Today:
+  - `:infra:otel/src/main/` internals — allowlisted by path;
+  - `ChatRoutes.kt` — the `chat_realtime_publish_failed` event, fluent `Attributes.builder().put("event", …).put("error.type", …)`, safe keys;
+  - `FcmDispatcher.kt` — `attrsBuilder.put("event", …)` / `put("error_code", …)`, safe keys.
 - Production `tryAcquireByKey(...)` first-arg literals (today: 1 — `HealthRoutes.kt`, sanctioned via `IpHasher.hash`).
 - Production `"user_id"` literals (today: ~30 SQL-column / `@SerialName` / route-param / `buildJsonObject` uses). None is in an attribute-key position, so the rule MUST NOT fire on any of them.
 
