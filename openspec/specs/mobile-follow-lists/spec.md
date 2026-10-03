@@ -211,12 +211,12 @@ The rendered row count is **independent of** the profile's `followerCount` / `fo
 
 ### Requirement: All follow-list copy is sourced via shared resources
 
-Every user-facing string on the follow-list surface (the two tab labels Pengikut / Mengikuti, the overlay back-bar title, the two empty-state messages, the loading / error / retry copy, the row handle format reuse, any count/section labels) SHALL be sourced via `:shared:resources` `stringResource(Res.string.<name>)` in single-language Bahasa Indonesia. No hardcoded UI string literal SHALL appear in the follow-list source. `SharedStringsCatalogTest` SHALL reference each new accessor and bump its declared-count assertion.
+Every user-facing string on the follow-list surface (the two tab labels Pengikut / Mengikuti, the overlay back-bar title, the two empty-state messages, the loading / error / retry copy, the row handle format reuse, any count/section labels) SHALL be sourced via `:shared:resources` `stringResource(Res.string.<name>)` in single-language Bahasa Indonesia. No hardcoded UI string literal SHALL appear in the follow-list source. Each new key SHALL be covered by `SharedStringsCatalogTest`, which parses the declared keys from `strings.xml` and asserts they match the generated `Res.allStringResources` key set 1:1 (no per-change list or count edit).
 
 #### Scenario: No hardcoded UI strings on the follow-list surface
 
 - **WHEN** the `screens/followlist/` + `followlist/` sources are inspected
-- **THEN** no hardcoded UI string literal appears AND every user-facing string resolves from a `Res.string` accessor AND `SharedStringsCatalogTest` references the new keys with an updated count
+- **THEN** no hardcoded UI string literal appears AND every user-facing string resolves from a `Res.string` accessor AND `SharedStringsCatalogTest` passes (each new key is declared in `strings.xml` with a generated `Res.string` accessor)
 
 ### Requirement: Follow-list rendering carries no PII and does not widen logging
 
