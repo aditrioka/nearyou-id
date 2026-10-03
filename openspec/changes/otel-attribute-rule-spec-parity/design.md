@@ -180,11 +180,44 @@ After the rule change, `./gradlew detekt` runs over every scanned module. Any ne
 
 The rule is never loosened.
 
-**Result:** zero findings across all 17 detekt reports.
-- None of the ~33 `"user_id"` literals is in an AKP.
+**Result:** zero findings across all 17 detekt reports (the 16 custom-ruleset modules — `:backend:ktor`, 13 `:infra:*`, 2 `:core:*` — plus `:mobile:app`, whose config activates only `TestLoginIsolationRule`).
+- None of the ~30 `"user_id"` literals is in an AKP.
 - All 6 writer sites use sanctioned keys or helpers.
 
 A temporary probe file (`setAttribute("user_id"/"geo.lat"/"principal"+userId)`) confirmed that the real `:backend:ktor:detekt` task flags all three. The probe was removed before commit.
+
+### Decision 9: Final-review round 1 (four sub-agent lenses; qodo unavailable — subscription inactive)
+
+The operator chose "should-fix + cheap fixes". Each change below refines Decisions 2–5; the spec delta carries the normative text.
+
+- **Hoisted keys are checked at EVERY reference.** Each reference contributes its own paired value, and the literal fires when the checks match at any of them. The previous `firstNotNullOf` only checked the first use. All three code lenses flagged this.
+- **An annotated use site is sanctioned there.** Annotating the constant itself sanctions every use.
+- **New check 6: raw `clientIp` value under any key.** It mirrors the raw-claim check. `clientIp` is the canonical accessor named by the client-IP invariant. `IpHasher.hash(call.clientIp)` is a call, so it passes.
+- **Evidence refinements:**
+  - V4 ignores `hash`-named values (`hashedUserId`), so already-hashed locals stop false-positive firing.
+  - V3 resolves parameters and properties only. A same-name function's return type no longer counts.
+  - V2 adds the Kotlin `Uuid` factories and `UuidV7.next()`; production uses the latter.
+  - Peeling adds the left side of `?:` and `.toJavaUuid()` / `.toKotlinUuid()`.
+  - The claim receiver is peeled (`decoded!!.subject`).
+  - Triple-quoted UUID literals now match.
+  - `user_id` matching is case-insensitive.
+- **Tokenizer gains an acronym boundary** (`IDToken` → `[id, token]`, `JWTSecret`, `userGPSLocation`).
+- **Tier 2 changes:**
+  - `ya29.` admits `.`, which covers the metadata-server `ya29.c.` form.
+  - The credentialed-URI pattern covers `postgres(ql)://` (the admin DB connection-string slot).
+  - Resend `re_…` is declared prefix-less in the spec rather than silently omitted.
+- **Recorded as Known limits, not fixed:**
+  - semconv constants (they carry no literal);
+  - multi-entry templates (`"user:$userId"`);
+  - all-lowercase compounds (`refreshtoken`);
+  - the value of a hoisted `AttributeKey` val.
+
+  These are the larger items the operator deferred. The rule-file split suggested by the general lens (~700 lines vs the ~500 soft cap) is likewise deferred; the file stays navigable as one rule.
+- **Test-suite fixes:**
+  - The `call.attributes.put` fixture now actually exercises the receiver check; it previously passed for the wrong reason.
+  - New fixtures cover the `sk_` lookbehind, the `withSpan` location key, and the Tier-1-in-`withSpan` scenario.
+  - Three duplicate loop entries are removed and stale labels corrected.
+  - Result: 192 tests, 0 failed. Repo-wide detekt still reports 0 findings.
 
 ## Risks / Trade-offs
 

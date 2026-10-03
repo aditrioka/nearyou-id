@@ -26,14 +26,15 @@ A literal is in an *attribute-key position* when it is one of:
 
 A key literal hoisted into a same-file `const val` / `val` is checked at the place where that constant is used as a key.
 
-Each position also defines its paired value. In that position, the rule runs five checks:
+Each position also defines its paired value. In that position, the rule runs six checks:
 
-- **`"user_id"` is enforced again.** It matches on the key alone, whatever the value. The Group A carve-out is removed. The ~33 existing SQL-column, `@SerialName`, route-param and `buildJsonObject` uses stay quiet because none of them is in an attribute-key position.
+- **`"user_id"` is enforced again.** It matches on the key alone, whatever the value. The Group A carve-out is removed. The ~30 existing SQL-column, `@SerialName`, route-param and `buildJsonObject` uses stay quiet because none of them is in an attribute-key position.
 - **User-identity aliases fire only on a raw identifier (#177).**
   - Applies to keys whose tokens include `user`, `enduser`, `principal`, `actor`, `subject`, `owner` or `account`.
   - Fires only when the value is *raw-identifier-evidenced*: a UUID-shaped literal; a `UUID.randomUUID()` / `fromString()` / `nameUUIDFromBytes()` call; a name declared in the same file as `UUID`, or initialized from one of these; or a name following the domain convention (`userId`, `*UserId`, `user.id`).
   - `setAttribute("principal", "system")` and `setAttribute("user.id", UserIdHasher.hash(...))` do NOT fire.
 - **Raw JWT / OIDC claim values fire under any key.** Covers `.sub`, and `.subject` read from a token `payload` / `decoded` / `claims` / `jwt` object. The spec forbids raw claims under every key; until now only the `jwt.*` key names were enforced.
+- **A raw client IP value fires under any key.** `setAttribute("net.client", call.clientIp)` fires; `IpHasher.hash(call.clientIp)` passes. `clientIp` is the canonical accessor named by the client-IP invariant (added in final-review round 1).
 - **Location keys, matched by token (#178).**
   - A key fires when any of its tokens is a location token, e.g. `location`, `lat`, `latitude`, `lng`, `lon`, `longitude`, `coord(s)`, `geohash`, `wkt`. The full set is enumerated in the spec.
   - The **exact key `display_location`** is the one sanctioned exception. It is the HMAC-fuzzed post coordinate that every non-admin read already returns. `display_lat` (which could carry a raw viewer coordinate) and `display_actual_location` still fire.
@@ -45,12 +46,12 @@ Each position also defines its paired value. In that position, the rule runs fiv
 ### Tier 2 value regexes extended for opaque secrets (#179, value side; still fire anywhere)
 
 - **New prefix-anchored patterns** for the vendor secret formats in this stack:
-  - Google OAuth client secret `GOCSPX-…`, access token `ya29.…`, refresh token `1//…`;
+  - Google OAuth client secret `GOCSPX-…`, access token `ya29.…` (incl. the metadata-server `ya29.c.…` form), refresh token `1//…`;
   - Supabase secret API key `sb_secret_…`;
   - raw Grafana Cloud token `glc_…`;
   - OpenAI key — `sk-proj-` / `sk-svcacct-` / `sk-admin-`, or the `T3BlbkFJ` marker;
   - RevenueCat / Stripe-style secret key `sk_…`.
-- **Redis URI with password, widened** to `rediss://` (TLS, the Upstash shape) and to the user-less `redis://:password@` form.
+- **Connection URI with password, widened** to `rediss://` (TLS, the Upstash shape), to the user-less `redis://:password@` form, and to `postgres(ql)://` (the admin DB connection-string slot).
 - **Two spec-text corrections so the spec matches the shipped code** (no behavior change):
   - The PEM regex in the spec becomes `[A-Z ]*`, as in the code. The spec's `+` would miss the label-less PKCS#8 `BEGIN PRIVATE KEY` used by GCP service-account JSON.
   - Tier 1 matching is described as "exactly equals" (the code), not "contains".

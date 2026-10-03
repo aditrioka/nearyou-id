@@ -70,7 +70,7 @@
   - `withSpan`: `ChatRoutes`, `FcmDispatcher`
   - `AttributesBuilder.put`: `ChatRoutes` publish-failure event, `FcmDispatcher` `attrsBuilder`
   - `tryAcquireByKey`: `HealthRoutes`
-  - the ~33 `"user_id"` literals
+  - the ~30 `"user_id"` literals
 
 ## 4. Docs
 
@@ -91,3 +91,25 @@
   - `openspec validate --specs observability-otel-foundation --strict` green;
   - confirm no "TBD - created by archiving" Purpose.
 - [ ] 7.2 PR body current, with four separate closing keywords (`Closes #177`, `Closes #178`, `Closes #179`, `Closes #180`).
+
+## 8. Final-review round 1 (four sub-agent lenses; qodo unavailable — subscription inactive)
+
+- [x] 8.1 Operator chose "should-fix + cheap fixes". Rule changes:
+  - hoisted keys are checked at EVERY reference, and an annotated use site is sanctioned there;
+  - new check 6: raw `clientIp` value under any key;
+  - V4 ignores `hash`-named values;
+  - V3 resolves parameters and properties only;
+  - V2 adds Kotlin `Uuid` and `UuidV7.next()`;
+  - peeling covers `?:` and `toJavaUuid` / `toKotlinUuid`;
+  - the claim receiver is peeled;
+  - triple-quoted UUIDs match;
+  - `user_id` matching is case-insensitive;
+  - the tokenizer gains an acronym boundary;
+  - Tier 2 `ya29.c.` and `postgres(ql)://` are covered.
+- [x] 8.2 Spec, design (Decision 9), proposal and KDoc updated. Known limits now include semconv constants, multi-entry templates, lowercase compounds and hoisted `AttributeKey` values. Resend `re_` and Cloudflare are listed as prefix-less. `display_location` value provenance = code review. Counts reconciled (~30 `user_id` literals; 17 reports = 16 custom-ruleset modules + `:mobile:app`).
+- [x] 8.3 Tests:
+  - the `call.attributes.put` fixture is fixed;
+  - new fixtures for every fix above, plus the `sk_` lookbehind, the `withSpan` location key and the Tier-1-in-`withSpan` scenario;
+  - 3 duplicates removed and stale labels corrected.
+  - Result: `OtelForbiddenAttributeLintTest` 192 tests / 0 failed (module 341 / 0); ktlint clean; repo-wide detekt re-run with 17 fresh reports, **0 findings**.
+- [x] 8.4 Deferred and recorded as non-blocking in the PR body: splitting the rule file (~700 lines vs the ~500 soft cap), semconv-constant tokenization, multi-entry template scanning, value pairing for hoisted `AttributeKey` vals.

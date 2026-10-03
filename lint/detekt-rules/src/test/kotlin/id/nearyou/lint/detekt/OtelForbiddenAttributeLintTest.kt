@@ -40,7 +40,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.2 — Tier 1 Group A positive-fail (10) + user_id carve-out positive-pass (1)
+    // Item 1 — Tier 1 Group A positive-fail (10) + the user_id pair (non-AKP passes / AKP fires)
     // ============================================================
 
     "Tier 1 Group A: client.address literal fires" {
@@ -291,7 +291,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.5 — Tier 2 positive-fail (4) — sensitive-value regex patterns
+    // Item 5 (original 4 patterns) — Tier 2 positive-fail; the new patterns are data-driven below
     // ============================================================
 
     "Tier 2: PEM RSA private-key marker fires" {
@@ -337,7 +337,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.6 — Tier 2 false-positive negative tests (3)
+    // Item 6 (original 3 near-misses) — the new near-misses are data-driven below
     // ============================================================
 
     "Tier 2 negative: single-segment eyJfoo (not JWT-shaped) does NOT fire" {
@@ -822,7 +822,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     }
 
     // ============================================================
-    // Task 2.25 — Synchronization guard test (Tier 1 Group A ⊇ FORBIDDEN_KEYS − {user_id})
+    // Item 11 — Synchronization guard (Group A ∪ CONTEXT_RESTRICTED_KEYS ⊇ FORBIDDEN_KEYS, zero carve-outs)
     // ============================================================
 
     "synchronization guard: Group A + attribute-key-position keys cover FORBIDDEN_KEYS with zero carve-outs" {
@@ -889,6 +889,8 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         "redis:// user-less password form" to "redis://" + ":" + "pw" + tokenBody.take(10) + "@cache.example:6379",
         "Google OAuth client secret" to "GOCSPX-" + tokenBody.take(28),
         "Google access token" to "ya29." + tokenBody,
+        "Google metadata-server access token (ya29.c.)" to "ya29." + "c." + tokenBody,
+        "postgresql:// with user + password" to "postgresql://" + "app:" + "pw" + tokenBody.take(10) + "@db.example:5432/nearyou",
         "Google refresh token" to "1//0g" + tokenBody,
         "Supabase secret key" to "sb_secret_" + tokenBody.take(32),
         "Grafana Cloud token" to "glc_" + tokenBody,
@@ -910,6 +912,9 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         // `/`-preceded `1//` exercises the lookbehind
         "https://host/1//" + tokenBody,
         "risk_assessment_threshold_value_x",
+        // An alnum-preceded `sk_` + full body exercises the `sk_` lookbehind.
+        "disk_" + tokenBody.take(32),
+        "jdbc:postgresql://db.internal:5432/nearyou",
         "re_threshold",
         "sk-learn",
         "sk_" + "short",
@@ -922,7 +927,6 @@ class OtelForbiddenAttributeLintTest : StringSpec({
 
     // Item 16 — attribute-key-position shape matrix: "user_id" fires in every AKP.
     listOf(
-        "P1 setAttribute positional" to """fun f(span: Span, v: String) { span.setAttribute("user_id", v) }""",
         "P1 setAttribute named key" to """fun f(span: Span, v: String) { span.setAttribute(key = "user_id", value = v) }""",
         "P1 setAttribute positional key + named value" to """fun f(span: Span, v: String) { span.setAttribute("user_id", value = v) }""",
         "P2 AttributeKey.stringKey" to """val k = AttributeKey.stringKey("user_id")""",
@@ -941,6 +945,9 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         "hoisted key const used as setAttribute key" to
             "const val K = \"user_id\"\nfun f(span: Span, v: String) { span.setAttribute(K, v) }",
         "hoisted key const used via AttributeKey" to "private const val K = \"user_id\"\nval k = AttributeKey.stringKey(K)",
+        "hoisted key const via a qualified selector" to
+            "object Keys { const val K = \"user_id\" }\nfun f(span: Span, v: String) { span.setAttribute(Keys.K, v) }",
+        "uppercase USER_ID key" to """fun f(span: Span, v: String) { span.setAttribute("USER_ID", v) }""",
     ).forEach { (label, body) ->
         "AKP $label: \"user_id\" fires" {
             rule.lint(fixture(body)) shouldHaveSize 1
@@ -949,13 +956,16 @@ class OtelForbiddenAttributeLintTest : StringSpec({
 
     // Item 17 — "user_id" outside any AKP: the real production shapes stay silent.
     listOf(
-        "JDBC column" to """fun f(rs: java.sql.ResultSet) = rs.getObject("user_id", java.util.UUID::class.java)""",
         "@SerialName" to
             """@kotlinx.serialization.Serializable data class D(@kotlinx.serialization.SerialName("user_id") val userId: String)""",
         "route parameter" to """fun f(call: ApplicationCall) = call.parameters["user_id"]""",
         "buildJsonObject put" to """val o = buildJsonObject { put("user_id", JsonPrimitive("x")) }""",
         "MutableMap.put" to """fun f(id: String) { mutableMapOf<String, Any>().put("user_id", id) }""",
-        "Ktor call.attributes.put" to """fun f(call: ApplicationCall) { call.attributes.put(UserIdKey, "user_id") }""",
+        "Ktor call.attributes.put (not builder-evidenced)" to
+            """fun f(call: ApplicationCall, id: String) { call.attributes.put("user_id", id) }""",
+        "unqualified attributes.put (not builder-evidenced)" to """fun f(id: String) { attributes.put("user_id", id) }""",
+        "mapOf passed to a non-withSpan call" to """fun f(call: C, id: String) = call.respond(mapOf("user_id" to id))""",
+        "P2 factory on a non-AttributeKey receiver" to """val k = prefs.stringKey("user_id")""",
         "mapOf not passed to withSpan" to
             "fun f(id: String) {\n    val body = mapOf(\"user_id\" to id)\n    respond(body)\n    withSpan(\"op\", other) { }\n}",
         "key const used only in SQL" to "const val COL = \"user_id\"\nval sql = \"SELECT \" + COL + \" FROM t\"",
@@ -992,6 +1002,13 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         "V4 !! + currentUser.id on enduser.id" to
             """fun f(span: Span, currentUser: U?) { span.setAttribute("enduser.id", currentUser!!.id.toString()) }""",
         "V4 userId in withSpan map on account key" to """fun f(userId: String) = withSpan("op", mapOf("account" to userId)) { }""",
+        "elvis-peeled *UserId on principal" to
+            """fun f(span: Span, principal: P?) { span.setAttribute("principal", principal?.userId?.toString() ?: "anon") }""",
+        "V2 kotlin Uuid.random on owner" to """fun f(span: Span) { span.setAttribute("owner", Uuid.random().toString()) }""",
+        "V2 UuidV7.next + toJavaUuid on actor" to
+            """fun f(span: Span) { span.setAttribute("actor", UuidV7.next().toJavaUuid().toString()) }""",
+        "V1 triple-quoted UUID literal on owner" to
+            "fun f(span: Span) { span.setAttribute(\"owner\", \"\"\"550e8400-e29b-41d4-a716-446655440000\"\"\") }",
         "P2 nested in setAttribute takes the sibling value" to
             """fun f(span: Span, userId: String) { span.setAttribute(AttributeKey.stringKey("principal"), userId) }""",
         "P2 inside Attributes.of takes the paired value" to
@@ -1005,7 +1022,6 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         "role string on principal" to """fun f(span: Span) { span.setAttribute("principal", "system") }""",
         "String-typed non-convention name on actor" to
             """fun f(span: Span, actorUsername: String) { span.setAttribute("actor", actorUsername) }""",
-        "UserIdHasher.hash on user.id" to """fun f(span: Span, user: U) { span.setAttribute("user.id", UserIdHasher.hash(user.id)) }""",
         "ServiceAccountIdHasher.hash on service.account.id" to
             """fun f(span: Span, claims: C) { span.setAttribute("service.account.id", ServiceAccountIdHasher.hash(claims.sub)) }""",
         "UUID on a non-alias key (conversation_id)" to
@@ -1013,29 +1029,38 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         "user_agent.original with UA text" to """fun f(span: Span, ua: String) { span.setAttribute("user_agent.original", ua) }""",
         "email.subject with text" to """fun f(span: Span, mail: M) { span.setAttribute("email.subject", mail.subject) }""",
         "call selector is not a V4 terminal name" to """fun f(span: Span, p: P) { span.setAttribute("principal", p.getUserId()) }""",
-        "standalone hoisted AttributeKey (no value in reach)" to """val K = AttributeKey.stringKey("principal")""",
+        // Documented limit: a hoisted `AttributeKey` val has no paired value in reach.
+        "hoisted AttributeKey val used with a raw id (documented limit)" to
+            "val K = AttributeKey.stringKey(\"principal\")\nfun f(span: Span, userId: String) { span.setAttribute(K, userId) }",
+        "already-hashed local named *UserId" to
+            "fun f(span: Span, id: UUID) {\n    val hashedUserId = UserIdHasher.hash(id)\n" +
+            "    span.setAttribute(\"user.id\", hashedUserId)\n}",
+        "same-name FUNCTION returning UUID is not V3 evidence" to
+            "fun ownerRef(): UUID = UUID.randomUUID()\nfun f(span: Span, ownerRef: String) { span.setAttribute(\"owner\", ownerRef) }",
     ).forEach { (label, body) ->
         "alias $label does NOT fire" {
             rule.lint(fixture(body)).shouldBeEmpty()
         }
     }
 
-    // Raw JWT / OIDC claim value under ANY key (spec check 5).
+    // Item 19 — raw JWT / OIDC claim value under ANY key (spec check 5).
     listOf(
         "claims.sub on service.account.id" to """fun f(span: Span, claims: C) { span.setAttribute("service.account.id", claims.sub) }""",
         "claims.sub in withSpan map on actor" to """fun f(claims: C) = withSpan("op", mapOf("actor" to claims.sub)) { }""",
         "payload.subject on a neutral key" to
             """fun f(span: Span, credential: Cr) { span.setAttribute("auth.identity", credential.payload.subject) }""",
         "decoded.subject on a neutral key" to """fun f(span: Span, decoded: D) { span.setAttribute("oidc.caller", decoded.subject) }""",
+        "claims.sub on a neutral key" to """fun f(span: Span, claims: C) { span.setAttribute("auth.identity", claims.sub) }""",
+        "!!-peeled decoded!!.subject" to """fun f(span: Span, decoded: D?) { span.setAttribute("oidc.caller", decoded!!.subject) }""",
     ).forEach { (label, body) ->
         "raw claim $label fires" {
             rule.lint(fixture(body)) shouldHaveSize 1
         }
     }
 
-    // Item 19 — location key tokens; only the exact `display_location` key is sanctioned.
+    // Item 20 — location key tokens; only the exact `display_location` key is sanctioned.
     listOf(
-        "geo.lat", "actual_location", "userCoords", "latitude", "lng", "coordinates", "geohash",
+        "geo.lat", "actual_location", "userCoords", "latitude", "lng", "coordinates", "geohash", "userGPSLocation",
         "display_lat", "display_actual_location",
     ).forEach { key ->
         "location key \"$key\" fires" {
@@ -1056,9 +1081,9 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         rule.lint(fixture(body)).shouldBeEmpty()
     }
 
-    // Item 20 — credential key tokens.
+    // Item 21 — credential key tokens.
     listOf(
-        "client_secret", "http.request.header.authorization", "refreshToken", "db.password",
+        "client_secret", "http.request.header.authorization", "refreshToken", "db.password", "IDToken", "JWTSecret",
         "supabase.service_role_key", "api_key", "http.request.header.cookie", "id_token", "private_key",
     ).forEach { key ->
         "credential key \"$key\" fires" {
@@ -1071,7 +1096,7 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         }
     }
 
-    // Item 21 — one literal, several matching checks → exactly one finding.
+    // Item 22 — one literal, several matching checks → exactly one finding.
     "a key matching credential AND location checks reports once" {
         rule.lint(fixture("""fun f(span: Span, v: String) { span.setAttribute("secret_location", v) }""")) shouldHaveSize 1
     }
@@ -1081,6 +1106,51 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         val code = fixture("""fun f(span: Span, v: String) { span.setAttribute("actual_location", v) }""")
         rule.lint(code) shouldHaveSize 1
         CoordinateJitterRule().lint(code) shouldHaveSize 1
+    }
+
+    // Location + Tier 1 keys through the P4 `withSpan` map position (spec scenarios).
+    "location key in a withSpan map fires" {
+        rule.lint(fixture("""fun f(c: String) = withSpan("op", mapOf("userCoords" to c)) { }""")) shouldHaveSize 1
+    }
+    "Tier 1 key in a withSpan map fires once (anywhere + attribute-key checks, single report)" {
+        val body = """fun f(clientAddr: String) = withSpan("foo", mapOf("network.peer.address" to clientAddr)) { }"""
+        rule.lint(fixture(body)) shouldHaveSize 1
+    }
+
+    // Spec check 6 — raw client IP value under any key; the hashed form passes.
+    "raw call.clientIp value fires under a neutral key" {
+        val body = """fun f(span: Span, call: ApplicationCall) { span.setAttribute("net.client", call.clientIp) }"""
+        rule.lint(fixture(body)) shouldHaveSize 1
+    }
+    "IpHasher.hash(call.clientIp) passes" {
+        val body = """fun f(span: Span, call: ApplicationCall) { span.setAttribute("client.hash", IpHasher.hash(call.clientIp)) }"""
+        rule.lint(fixture(body)).shouldBeEmpty()
+    }
+
+    // Hoisted key constants: EVERY use is value-checked; an annotated use site is sanctioned.
+    "hoisted alias key fires when a LATER use carries a raw identifier" {
+        val body =
+            "const val K = \"principal\"\n" +
+                "fun a(span: Span) { span.setAttribute(K, \"system\") }\n" +
+                "fun b(span: Span, id: UUID) { span.setAttribute(K, id.toString()) }"
+        rule.lint(fixture(body)) shouldHaveSize 1
+    }
+    "hoisted user_id key used only inside an annotated function does NOT fire" {
+        val body =
+            "annotation class AllowForbiddenSpanAttribute(val reason: String)\n" +
+                "const val K = \"user_id\"\n" +
+                "@AllowForbiddenSpanAttribute(\"legacy trace\")\n" +
+                "fun f(span: Span, v: String) { span.setAttribute(K, v) }"
+        rule.lint(fixture(body)).shouldBeEmpty()
+    }
+    "hoisted user_id key still fires when another use is NOT annotated" {
+        val body =
+            "annotation class AllowForbiddenSpanAttribute(val reason: String)\n" +
+                "const val K = \"user_id\"\n" +
+                "@AllowForbiddenSpanAttribute(\"legacy trace\")\n" +
+                "fun f(span: Span, v: String) { span.setAttribute(K, v) }\n" +
+                "fun g(span: Span, v: String) { span.setAttribute(K, v) }"
+        rule.lint(fixture(body)) shouldHaveSize 1
     }
 
     // Items 8/9 — allowlisted paths + annotation bypass also suppress attribute-key findings.

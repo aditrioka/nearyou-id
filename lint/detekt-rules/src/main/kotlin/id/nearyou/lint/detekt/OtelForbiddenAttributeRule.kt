@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
+import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtParenthesizedExpression
 import org.jetbrains.kotlin.psi.KtPostfixExpression
 import org.jetbrains.kotlin.psi.KtProperty
@@ -39,9 +40,9 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * stripping at SDK export + this commit-time lint + integration-test sentinel-string
  * regression scenarios at staging.
  *
- * ## Three enforcement modes
+ * ## Two enforcement modes (Mode A runs in two scopes)
  *
- * **Mode A — Tier 1 + Tier 2 anywhere.** Fire on any Kotlin string literal whose unquoted
+ * **Mode A, anywhere — Tier 1 + Tier 2.** Fire on any Kotlin string literal whose unquoted
  * source text either (a) exactly equals one of 21 forbidden-attribute keys (Tier 1) OR
  * (b) matches one of 11 high-confidence sensitive-value regex patterns (Tier 2). No
  * call-site context check — mirrors `RawXForwardedForRule` / `CoordinateJitterRule`.
@@ -57,17 +58,19 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  * - **Tier 1 Group C** (3): JWT-claim attribute keys forbidden by canonical spec —
  *   `jwt.sub`, `jwt.aud`, `jwt.iss`.
  * - **Tier 2** (11 regex patterns): PEM private-key marker; JWT three-segment shape;
- *   credentialed `redis://` / `rediss://` URI; JWKS RSA-key JSON shape; vendor-prefixed
- *   opaque secrets (Google OAuth client secret / access / refresh token, Supabase
- *   `sb_secret_`, Grafana Cloud `glc_`, OpenAI `sk-proj-`, RevenueCat `sk_`).
+ *   credentialed `redis://` / `rediss://` / `postgres(ql)://` URI; JWKS RSA-key JSON shape;
+ *   vendor-prefixed opaque secrets (Google OAuth client secret / access / refresh token,
+ *   Supabase `sb_secret_`, Grafana Cloud `glc_`, OpenAI `sk-proj-` / `sk-svcacct-` /
+ *   `sk-admin-` / `T3BlbkFJ` marker, RevenueCat `sk_`).
  *
- * **Mode A — attribute-key position (PSI-context-restricted).** Key-name checks too noisy
+ * **Mode A, attribute-key position (PSI-context-restricted).** Key-name checks too noisy
  * to run anywhere fire only when the literal is an OTel attribute key: a `setAttribute`
  * key, an `AttributeKey.stringKey(...)`-family argument, a `put` key on a
  * builder-evidenced `AttributesBuilder`, or a `mapOf` entry key reaching `withSpan`'s
- * `attributes` (directly or via a same-file `val`). Keys are tokenized on `.`/`_`/`-` +
- * camelCase, so `latency_ms` is NOT a location key and `userCoords` IS. Four checks:
- *  1. `"user_id"` (any value) — its ~30 SQL-column / `@SerialName` / route-param /
+ * `attributes` (directly or via a same-file `val`). Keys are tokenized on `.`/`_`/`-`,
+ * acronym and camelCase boundaries, so `latency_ms` is NOT a location key and `userCoords`
+ * IS. Six checks:
+ *  1. `"user_id"` (any value, any case) — its ~30 SQL-column / `@SerialName` / route-param /
  *     `buildJsonObject` literals are not attribute keys, so they stay silent.
  *  2. User-identity alias tokens (`user`, `enduser`, `principal`, `actor`, `subject`,
  *     `owner`, `account`) — fire only when the value is a raw identifier: UUID literal,
@@ -79,8 +82,9 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  *  4. Credential tokens (`password`, `secret`, `bearer`, `authorization`, `apikey`,
  *     `cookie`, or the pairs `refresh/access/id token`, `api/private key`, `service role`).
  *  5. Any key whose value is a raw JWT / OIDC claim (`.sub`, `payload.subject`, …).
- * A key literal hoisted into a same-file `const val` / `val` is checked at the reference
- * that uses it as a key.
+ *  6. Any key whose value is the raw client IP (`call.clientIp`, not `IpHasher.hash(...)`).
+ * A key literal hoisted into a same-file `const val` / `val` is checked at EVERY reference
+ * that uses it as a key; an annotated reference is sanctioned at that use site.
  *
  * **Mode B — IP-axis value-shape anywhere with NO call-site-context restriction.** Fire
  * on any Kotlin string literal containing `{ip:<value>}` where `<value>` is neither
@@ -123,10 +127,12 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
  *
  * Dynamic key construction (`"network." + "peer.address"`), attribute maps built in
  * another file / via `buildMap { }` / composed with `+`, an unqualified `put` inside
- * `Attributes.builder().apply { }`, key constants declared in another file, the value of a
- * standalone hoisted `AttributeKey` (no paired value — key checks only), and
- * user-referencing keys outside the alias token set (`author_id`, …) are invisible to this
- * rule. Same-file name resolution (builder variables, hoisted maps / keys, `UUID`-typed
+ * `Attributes.builder().apply { }`, key constants declared in another file, semconv
+ * constants (`ClientAttributes.CLIENT_ADDRESS` — no literal), the value of a hoisted
+ * `AttributeKey` val (no paired value — key checks only), identifiers embedded in a
+ * multi-entry template (`"user:$userId"`), unseparated all-lowercase compounds
+ * (`refreshtoken`, `userid`), and user-referencing keys outside the alias token set
+ * (`author_id`, …) are invisible to this rule. Same-file name resolution (builder variables, hoisted maps / keys, `UUID`-typed
  * names) is by name, not lexical scope. Dynamic keys are a code-review smell; the runtime
  * stripper + sentinel scenarios + review backstop the rest.
  *
@@ -153,9 +159,10 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
                 "Forbidden span-attribute key or sensitive-value pattern detected in Kotlin " +
                     "string literal. Tier 1 attribute keys (HTTP / network peer semconv, " +
                     "user-id typos, JWT claims), attribute keys for `user_id`, location " +
-                    "(except `display_location`), credentials, a raw JWT claim value, or a user-identity alias carrying a raw " +
-                    "identifier, and Tier 2 sensitive-value patterns (PEM private key, JWT shape, " +
-                    "credentialed Redis URI, JWKS RSA, vendor-prefixed secret) MUST NOT " +
+                    "(except `display_location`), credentials, a raw JWT claim or client IP value, " +
+                    "or a user-identity alias carrying a raw identifier, and Tier 2 sensitive-value " +
+                    "patterns (PEM private key, JWT shape, credentialed Redis / Postgres URI, JWKS RSA, " +
+                    "vendor-prefixed secret) MUST NOT " +
                     "appear on spans. Use `UserIdHasher.hash(...)` / `IpHasher.hash(...)` " +
                     "consumption; IP-axis Redis keys MUST use canonical 16-hex hash or Kotlin " +
                     "template interpolation. To bypass, annotate the declaration " +
@@ -200,34 +207,37 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
         literal: KtStringTemplateExpression,
         key: String,
     ): Boolean {
-        val site = attributeKeySite(literal) ?: return false
-        if (key in CONTEXT_RESTRICTED_KEYS) return true
+        val sites = attributeKeySites(literal)
+        if (sites.isEmpty()) return false
+        if (key.lowercase() in CONTEXT_RESTRICTED_KEYS) return true
         val tokens = tokenize(key)
         if (tokens != SANCTIONED_LOCATION_KEY && tokens.any { it in LOCATION_TOKENS }) return true
         if (tokens.any { it in CREDENTIAL_TOKENS } || tokens.zipWithNext().any { it in CREDENTIAL_TOKEN_PAIRS }) return true
-        val value = site.value ?: return false
-        if (isRawClaim(value)) return true
-        return tokens.any { it in USER_IDENTITY_ALIAS_TOKENS } && isRawIdentifier(value)
+        val isAlias = tokens.any { it in USER_IDENTITY_ALIAS_TOKENS }
+        return sites.any { site ->
+            val value = site.value ?: return@any false
+            isRawClaim(value) || isRawClientIp(value) || (isAlias && isRawIdentifier(value))
+        }
     }
 
     /** An attribute-key position plus its paired value expression (null when the shape has none in reach). */
     private class AttributeKeySite(val value: KtExpression?)
 
     /**
-     * The literal's own attribute-key position, or — for `const val K = "user_id"` — the
-     * position of a same-file reference to `K` used as a key.
+     * The literal's own attribute-key position, or — for `const val K = "user_id"` — EVERY
+     * same-file reference to `K` used as a key (each with its own paired value). A reference
+     * inside an `@AllowForbiddenSpanAttribute`-annotated declaration is sanctioned there and
+     * skipped; annotating the constant itself sanctions every use.
      */
-    private fun attributeKeySite(literal: KtStringTemplateExpression): AttributeKeySite? = keySite(literal) ?: hoistedKeySite(literal)
-
-    private fun hoistedKeySite(literal: KtStringTemplateExpression): AttributeKeySite? {
-        val property = literal.parent as? KtProperty ?: return null
-        if (property.initializer != literal) return null
-        val name = property.name ?: return null
+    private fun attributeKeySites(literal: KtStringTemplateExpression): List<AttributeKeySite> {
+        keySite(literal)?.let { return listOf(it) }
+        val property = literal.parent as? KtProperty ?: return emptyList()
+        if (property.initializer != literal) return emptyList()
+        val name = property.name ?: return emptyList()
         return literal.containingKtFile
             .collectDescendantsOfType<KtNameReferenceExpression> { it.getReferencedName() == name }
-            .firstNotNullOfOrNull { ref ->
-                keySite((ref.parent as? KtQualifiedExpression)?.takeIf { it.selectorExpression == ref } ?: ref)
-            }
+            .filterNot { it.isInsideAllowedAnnotation() }
+            .mapNotNull { ref -> keySite(ref.qualifiedOrSelf()) }
     }
 
     /**
@@ -286,9 +296,7 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
      * `setAttribute(key, v)` / `put(key, v)`, or the next argument of `Attributes.of(k1, v1, …)`.
      */
     private fun enclosingWriteValue(factoryCall: KtCallExpression): KtExpression? {
-        val keyExpr: KtExpression =
-            (factoryCall.parent as? KtQualifiedExpression)?.takeIf { it.selectorExpression == factoryCall } ?: factoryCall
-        val outerArg = keyExpr.parent as? KtValueArgument ?: return null
+        val outerArg = factoryCall.qualifiedOrSelf().parent as? KtValueArgument ?: return null
         val outerCall = (outerArg.parent as? KtValueArgumentList)?.parent as? KtCallExpression ?: return null
         val outerArgs = outerCall.valueArguments
         val index = outerArgs.indexOf(outerArg)
@@ -341,8 +349,14 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
         val e = peel(value)
         val name = e.terminalName() ?: return false
         if (name == "sub") return true
-        return name == "subject" && e is KtQualifiedExpression && e.receiverExpression.terminalName() in CLAIM_RECEIVERS
+        return name == "subject" && e is KtQualifiedExpression && peel(e.receiverExpression).terminalName() in CLAIM_RECEIVERS
     }
+
+    /**
+     * Raw client IP (any attribute key): the canonical `clientIp` request-context accessor
+     * read directly (`call.clientIp`). `IpHasher.hash(call.clientIp)` is a call, so it passes.
+     */
+    private fun isRawClientIp(value: KtExpression): Boolean = peel(value).terminalName() == CLIENT_IP_ACCESSOR
 
     /**
      * Raw-identifier evidence on a peeled value (spec V1–V4): UUID-shaped literal,
@@ -359,12 +373,15 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
     /** V1 / V2 only — deliberately non-recursive so V3's initializer check can't loop on `val a = b; val b = a`. */
     private fun isUuidLiteralOrFactory(value: KtExpression): Boolean =
         when (val e = peel(value)) {
-            is KtStringTemplateExpression -> !e.hasInterpolation() && UUID_PATTERN.matches(e.text.removeSurrounding("\""))
+            is KtStringTemplateExpression -> !e.hasInterpolation() && UUID_PATTERN.matches(e.unquoted())
             is KtQualifiedExpression -> isUuidFactoryCall(e)
             else -> false
         }
 
-    /** Strips `(...)`, `!!`, a trailing no-arg `.toString()`, and a single-entry `"$x"` / `"${x}"` template. */
+    /**
+     * Strips `(...)`, `!!`, the left side of `?:`, a trailing no-arg `.toString()` /
+     * `.toJavaUuid()` / `.toKotlinUuid()`, and a single-entry `"$x"` / `"${x}"` template.
+     */
     private fun peel(value: KtExpression): KtExpression {
         var e = value
         while (true) {
@@ -372,7 +389,8 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
                 when {
                     e is KtParenthesizedExpression -> e.expression ?: return e
                     e is KtPostfixExpression && e.operationReference.text == "!!" -> e.baseExpression ?: return e
-                    e is KtQualifiedExpression && e.selectorExpression.isNoArgCall("toString") -> e.receiverExpression
+                    e is KtBinaryExpression && e.operationReference.text == "?:" -> e.left ?: return e
+                    e is KtQualifiedExpression && PEELED_CONVERSIONS.any { e.selectorExpression.isNoArgCall(it) } -> e.receiverExpression
                     e is KtStringTemplateExpression && e.entries.size == 1 && e.entries[0].expression != null ->
                         e.entries[0].expression!!
                     else -> return e
@@ -382,15 +400,17 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
 
     private fun isUuidFactoryCall(e: KtQualifiedExpression): Boolean {
         val selector = e.selectorExpression as? KtCallExpression ?: return false
-        return e.receiverExpression.text in UUID_TYPES && selector.calleeExpression?.text in UUID_FACTORIES
+        return selector.calleeExpression?.text in UUID_FACTORIES[e.receiverExpression.text].orEmpty()
     }
 
     /**
      * V4 — `userId`, `*UserId`, or `<x>.id` where `x` is `user` / `*User`. A property / name
-     * reference only: a call selector (`getUserId()`) is not a terminal name.
+     * reference only: a call selector (`getUserId()`) is not a terminal name, and a name
+     * mentioning `hash` (`hashedUserId`, `userIdHash`) is an already-hashed value.
      */
     private fun hasIdentifierName(e: KtExpression): Boolean {
         val name = e.terminalName() ?: return false
+        if (name.contains("hash", ignoreCase = true)) return false
         if (name == "userId" || name.endsWith("UserId")) return true
         if (name != "id" || e !is KtQualifiedExpression) return false
         val owner = peel(e.receiverExpression).terminalName() ?: return false
@@ -413,7 +433,8 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
     private fun sameFileDeclarations(
         anchor: KtElement,
         name: String,
-    ): List<KtCallableDeclaration> = anchor.containingKtFile.collectDescendantsOfType { it.name == name }
+    ): List<KtCallableDeclaration> =
+        anchor.containingKtFile.collectDescendantsOfType { (it is KtParameter || it is KtProperty) && it.name == name }
 
     private fun namedOrPositional(
         call: KtCallExpression,
@@ -427,6 +448,12 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
 
     private fun KtCallExpression.receiver(): KtExpression? =
         (parent as? KtQualifiedExpression)?.takeIf { it.selectorExpression == this }?.receiverExpression
+
+    /** `a.b` for the selector `b`, else the expression itself. */
+    private fun KtExpression.qualifiedOrSelf(): KtExpression =
+        (parent as? KtQualifiedExpression)?.takeIf { it.selectorExpression == this } ?: this
+
+    private fun KtStringTemplateExpression.unquoted(): String = text.removeSurrounding("\"\"\"").removeSurrounding("\"")
 
     private fun KtExpression?.isNoArgCall(name: String): Boolean =
         this is KtCallExpression && calleeExpression?.text == name && valueArguments.isEmpty()
@@ -448,7 +475,7 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
         return false
     }
 
-    private fun KtStringTemplateExpression.isInsideAllowedAnnotation(): Boolean {
+    private fun KtElement.isInsideAllowedAnnotation(): Boolean {
         var ancestor: KtAnnotated? = getParentOfType<KtAnnotated>(strict = true)
         while (ancestor != null) {
             for (entry in ancestor.annotationEntries) {
@@ -604,17 +631,38 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
         private val ATTRIBUTES_BUILDER_TYPES: Set<String> =
             setOf("AttributesBuilder", "io.opentelemetry.api.common.AttributesBuilder")
 
-        private val UUID_TYPES: Set<String> = setOf("UUID", "java.util.UUID")
-        private val UUID_FACTORIES: Set<String> = setOf("randomUUID", "fromString", "nameUUIDFromBytes")
+        /** Declared types that make a same-file name raw-identifier evidence (V3). */
+        private val UUID_TYPES: Set<String> = setOf("UUID", "java.util.UUID", "Uuid", "kotlin.uuid.Uuid")
+
+        /** V2 — receiver → UUID-producing factories (`UuidV7.next()` returns a `kotlin.uuid.Uuid`). */
+        private val UUID_FACTORIES: Map<String, Set<String>> =
+            mapOf(
+                "UUID" to setOf("randomUUID", "fromString", "nameUUIDFromBytes"),
+                "java.util.UUID" to setOf("randomUUID", "fromString", "nameUUIDFromBytes"),
+                "Uuid" to setOf("random", "parse", "parseHex", "fromLongs"),
+                "kotlin.uuid.Uuid" to setOf("random", "parse", "parseHex", "fromLongs"),
+                "UuidV7" to setOf("next"),
+            )
+
+        /** No-arg conversions peeled off a value before evidence matching. */
+        private val PEELED_CONVERSIONS: List<String> = listOf("toString", "toJavaUuid", "toKotlinUuid")
+
+        /** The canonical raw client-IP request-context accessor (`call.clientIp`). */
+        private const val CLIENT_IP_ACCESSOR = "clientIp"
         private val UUID_PATTERN: Regex =
             Regex("""[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}""")
 
+        private val ACRONYM_BOUNDARY = Regex("([A-Z]+)([A-Z][a-z])")
         private val CAMEL_BOUNDARY = Regex("([a-z0-9])([A-Z])")
         private val KEY_SEPARATORS = Regex("""[._\-\s]+""")
 
-        /** `geo.userLat` → `[geo, user, lat]`: split on separators + camelCase, lowercase. */
+        /**
+         * `geo.userLat` → `[geo, user, lat]`, `IDToken` → `[id, token]`: split on separators,
+         * acronym→word and lower/digit→upper camelCase boundaries, then lowercase.
+         */
         private fun tokenize(key: String): List<String> =
-            key.replace(CAMEL_BOUNDARY, "$1 $2")
+            key.replace(ACRONYM_BOUNDARY, "$1 $2")
+                .replace(CAMEL_BOUNDARY, "$1 $2")
                 .split(KEY_SEPARATORS)
                 .filter { it.isNotEmpty() }
                 .map { it.lowercase() }
@@ -641,10 +689,11 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
                 // (base64url-encoded `{"...` JSON header start). The 10+ length floor on
                 // each segment avoids matching coincidental two-period base64 fragments.
                 Regex("""eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\."""),
-                // Redis URI with embedded credentials: `redis://` or TLS `rediss://` (Upstash),
-                // with or without a username (`redis://:<pw>@`). The `[^@/\s]+@` anchor needs an
-                // `@` before any `/`, so `redis://host:6379/0` (no userinfo) does NOT match.
-                Regex("""rediss?://[^:/@\s]*:[^@/\s]+@"""),
+                // Connection URI with embedded credentials: `redis://`, TLS `rediss://` (Upstash),
+                // or `postgres(ql)://` (the admin DB connection-string slot), with or without a
+                // username (`redis://:<pw>@`). The `[^@/\s]+@` anchor needs an `@` before any `/`,
+                // so `redis://host:6379/0` / `jdbc:postgresql://host:5432/db` do NOT match.
+                Regex("""(?:rediss?|postgres(?:ql)?)://[^:/@\s]*:[^@/\s]+@"""),
                 // JWKS RSA-key JSON shape: "kty":"RSA" followed by "n":. The `\s*,?\s*`
                 // between keys allows reordered JSON (`"kty":"RSA","n":` or with whitespace).
                 // Specific enough to avoid false-positives on legitimate JSON-with-`kty`
@@ -652,9 +701,10 @@ class OtelForbiddenAttributeRule(config: Config = Config.empty) : Rule(config) {
                 Regex(""""kty"\s*:\s*"RSA"\s*,?\s*"n"\s*:"""),
                 // Vendor-prefixed opaque secrets (prefix + 20/24+ token chars, so bare prefixes
                 // and prose don't match), covering the vendor secret formats in this stack's
-                // footprint. Google OAuth client secret / access token / refresh token.
+                // footprint. Google OAuth client secret / access token (incl. the metadata-server
+                // `ya29.c.` form, hence `.` in the body) / refresh token.
                 Regex("""GOCSPX-[A-Za-z0-9_\-]{20,}"""),
-                Regex("""ya29\.[A-Za-z0-9_\-]{20,}"""),
+                Regex("""ya29\.[A-Za-z0-9_.\-]{20,}"""),
                 Regex("""(?<![A-Za-z0-9/])1//[A-Za-z0-9_\-]{20,}"""),
                 // Supabase secret API key (`supabase-service-role-key`, new key format).
                 Regex("""sb_secret_[A-Za-z0-9_\-]{20,}"""),
