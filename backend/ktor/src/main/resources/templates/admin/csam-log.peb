@@ -11,7 +11,7 @@
    obligation, docs/06). Rendered on both the full page and the fragment so an
    HTMX swap refreshes it after a takedown/Kominfo write. #}
 {% if pendingCount > 0 %}
-<div class="banner err" style="margin-top:0;">
+<div class="banner err">
     {{ icon("gpp_maybe") }}
     <span><b>{{ pendingCount }} match{% if pendingCount != 1 %}es{% endif %} with no Kominfo filing yet.</b> Review and file immediately — SOP target: same business day. Recording a filing releases the row to the daily purge worker after its 90-day deadline.</span>
 </div>

@@ -820,4 +820,4 @@ body.bare > main {
    Mirrors .banner.info shape with the error-container tint frame 9 uses. */
 .banner.warn { margin-top: 12px; background: var(--error-container); color: var(--on-error-container); }
 /* error banner — the CSAM "no Kominfo filing yet" pending signal (frame 13 .banner.err) */
-.banner.err { margin-top: 16px; background: var(--error-container); color: var(--on-error-container); }
+.banner.err { margin-top: 14px; background: var(--error-container); color: var(--on-error-container); }

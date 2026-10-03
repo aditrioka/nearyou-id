@@ -3,6 +3,7 @@ package id.nearyou.app.admin.routes
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.request.get
@@ -25,7 +26,8 @@ import java.io.File
  * The panel's icon idiom is the inline-SVG `icon()` macro in `icons.peb`
  * (admin-panel-scaffold § Shared base layout).
  *
- * 1. Source scan: no `templates/admin` file may reintroduce `class="ms"`.
+ * 1. Source scan: no `templates/admin` file may reintroduce an `ms` class token
+ *    (`class="ms"`, `class='ms'`, `class="ms x"` …).
  * 2. Render: every template that carried the spans (plus the frame-6
  *    `user-profile.peb` redline, #282) emits the expected `data-icon` glyphs
  *    and never the `missing-<name>` sentinel the macro prints for an unknown
@@ -37,13 +39,13 @@ class AdminIconTemplateTest : StringSpec({
         val dir = File(checkNotNull(AdminIconTemplateTest::class.java.classLoader.getResource("templates/admin")).toURI())
         val templates = dir.listFiles { f -> f.extension == "peb" }.orEmpty()
         templates.map { it.name } shouldContain "icons.peb"
-        templates.filter { MS_MARKUP in it.readText() }.map { it.name }.shouldBeEmpty()
+        templates.filter { MS_CLASS.containsMatchIn(it.readText()) }.map { it.name }.shouldBeEmpty()
     }
 
     RENDER_CASES.forEach { case ->
         "${case.template} renders ${case.icons.joinToString()} via the icon() macro" {
             renderTemplate(case.template, case.model) { body ->
-                body shouldNotContain MS_MARKUP
+                MS_CLASS.containsMatchIn(body) shouldBe false
                 body shouldNotContain "data-icon=\"missing-"
                 case.icons.forEach { body shouldContain "data-icon=\"$it\"" }
             }
@@ -54,13 +56,16 @@ class AdminIconTemplateTest : StringSpec({
         renderTemplate("user-profile.peb", profileModel()) { body ->
             body shouldContain "<span class=\"st err\">user_suspended</span>"
             body shouldContain "<span class=\"st pend\">user_warned</span>"
+            body shouldContain "<span class=\"st ok\">user_unbanned</span>"
+            body shouldContain "<span class=\"st info\">some_future_action</span>"
             body shouldContain "<span class=\"st neut\">username_changed</span>"
             body shouldContain "<td>self</td>"
         }
     }
 })
 
-private const val MS_MARKUP = "class=\"ms\""
+// An `ms` token anywhere in a class attribute, either quote style.
+private val MS_CLASS = Regex("""class=["'](?:[^"']*\s)?ms(?:\s[^"']*)?["']""")
 
 private data class RenderCase(val template: String, val model: Map<String, Any>, val icons: List<String>)
 
@@ -114,6 +119,8 @@ private fun profileModel(): Map<String, Any> =
             listOf(
                 historyAction("user_suspended"),
                 historyAction("user_warned"),
+                historyAction("user_unbanned"),
+                historyAction("some_future_action"),
                 mapOf("kind" to "username", "at" to "2026-04-02T10:11:00Z", "oldUsername" to "kopibudi", "newUsername" to "budi_kopi"),
             ),
     )
