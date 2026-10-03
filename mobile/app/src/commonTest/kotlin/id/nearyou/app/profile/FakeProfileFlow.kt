@@ -23,11 +23,19 @@ class FakeProfileFlow(
     var reportedUserId: String? = null
     var lastReportCategory: ReportReasonCategory? = null
     var lastReportNote: String? = null
+    var loadCalls = 0
+    var blockCalls = 0
+    var reportCalls = 0
 
     /** When set, [loadProfile] suspends until it completes — lets a test land the read AFTER other work. */
     var loadGate: CompletableDeferred<Unit>? = null
 
+    /** When set, [follow] / [block] / [report] suspend until it completes — lets a test move the state
+     *  mid-request. */
+    var actionGate: CompletableDeferred<Unit>? = null
+
     override suspend fun loadProfile(userId: String): ProfileOutcome {
+        loadCalls++
         loadedUserId = userId
         loadGate?.await()
         return profileOutcome
@@ -35,6 +43,7 @@ class FakeProfileFlow(
 
     override suspend fun follow(userId: String): FollowToggleOutcome {
         followedUserId = userId
+        actionGate?.await()
         return followOutcome
     }
 
@@ -44,7 +53,9 @@ class FakeProfileFlow(
     }
 
     override suspend fun block(userId: String): BlockOutcome {
+        blockCalls++
         blockedUserId = userId
+        actionGate?.await()
         return blockOutcome
     }
 
@@ -56,6 +67,8 @@ class FakeProfileFlow(
         reportedUserId = userId
         lastReportCategory = reasonCategory
         lastReportNote = note
+        reportCalls++
+        actionGate?.await()
         return reportOutcome
     }
 

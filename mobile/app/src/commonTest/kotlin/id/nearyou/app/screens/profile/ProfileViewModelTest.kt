@@ -230,6 +230,116 @@ class ProfileViewModelTest {
             assertNull(viewModel.uiState.value.message)
         }
 
+    // #498 — block/report call the flow BEFORE state.update: update is a CAS loop that re-runs its lambda
+    // when the state moves mid-request (a snackbar dismissal → onMessageShown), which re-sent the POST.
+
+    /** Loads [flow] and raises a message (a follow 429), so a later onMessageShown() really moves the state. */
+    private fun TestScope.vmWithMessageShowing(flow: FakeProfileFlow): ProfileViewModel {
+        flow.followOutcome = FollowToggleOutcome.RateLimited(30L)
+        val viewModel = vm(flow)
+        advanceUntilIdle()
+        viewModel.onToggleFollow()
+        advanceUntilIdle()
+        assertEquals(ProfileMessage.FOLLOW_RATE_LIMITED, viewModel.uiState.value.message)
+        return viewModel
+    }
+
+    @Test
+    fun `block is sent once when the message is cleared mid-request`() =
+        runTest {
+            val flow = FakeProfileFlow(blockOutcome = BlockOutcome.Blocked)
+            val viewModel = vmWithMessageShowing(flow)
+            val gate = CompletableDeferred<Unit>()
+            flow.actionGate = gate
+            viewModel.onBlockConfirmed()
+            advanceUntilIdle()
+            viewModel.onMessageShown()
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, flow.blockCalls, "the block POST must not be re-sent")
+            assertEquals(ProfileMessage.BLOCK_SUCCESS, viewModel.uiState.value.message)
+            assertTrue(viewModel.uiState.value.navigateBack)
+        }
+
+    @Test
+    fun `report is sent once when the message is cleared mid-request`() =
+        runTest {
+            val flow = FakeProfileFlow(reportOutcome = ReportOutcome.Submitted)
+            val viewModel = vmWithMessageShowing(flow)
+            val gate = CompletableDeferred<Unit>()
+            flow.actionGate = gate
+            viewModel.onReportSubmitted(ReportReasonCategory.SPAM, null)
+            advanceUntilIdle()
+            viewModel.onMessageShown()
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, flow.reportCalls, "the report POST must not be re-sent")
+            assertEquals(ProfileMessage.REPORT_SUCCESS, viewModel.uiState.value.message)
+        }
+
+    // #498 — refresh(): the screen's ON_RESUME re-read (e.g. back from a username change in Settings).
+
+    @Test
+    fun `refresh re-reads the self profile so a changed username shows`() =
+        runTest {
+            val self = FakeProfileFlow.sampleProfile("self-id", isSelf = true)
+            val flow = FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(self))
+            val viewModel = vm(flow, target = null)
+            advanceUntilIdle()
+            flow.profileOutcome = ProfileOutcome.Loaded(self.copy(username = "newhandle"))
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertEquals("self-id", flow.loadedUserId)
+            val phase = assertIs<ProfilePhase.Content>(viewModel.uiState.value.phase)
+            assertEquals("newhandle", phase.profile.username)
+        }
+
+    @Test
+    fun `refresh network failure keeps the loaded content`() =
+        runTest {
+            val flow = FakeProfileFlow()
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            flow.profileOutcome = ProfileOutcome.NetworkError
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertEquals(2, flow.loadCalls)
+            assertIs<ProfilePhase.Content>(viewModel.uiState.value.phase)
+        }
+
+    @Test
+    fun `refresh during the initial load is a no-op`() =
+        runTest {
+            val flow = FakeProfileFlow().apply { loadGate = CompletableDeferred() }
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertEquals(1, flow.loadCalls, "the first resume lands while init is loading — no second read")
+            flow.loadGate?.complete(Unit)
+            advanceUntilIdle()
+            assertIs<ProfilePhase.Content>(viewModel.uiState.value.phase)
+        }
+
+    @Test
+    fun `refresh keeps an in-flight follow's optimistic value`() =
+        runTest {
+            val flow = FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(followedByViewer = false)))
+            val viewModel = vm(flow)
+            advanceUntilIdle()
+            val gate = CompletableDeferred<Unit>()
+            flow.actionGate = gate
+            viewModel.onToggleFollow()
+            advanceUntilIdle()
+            viewModel.refresh()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.followedByViewer, "a stale re-read must not snap the toggle back")
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.followedByViewer)
+            assertEquals(false, viewModel.uiState.value.isFollowInFlight)
+        }
+
     // profile-send-message — "Kirim pesan" create-or-return.
 
     @Test

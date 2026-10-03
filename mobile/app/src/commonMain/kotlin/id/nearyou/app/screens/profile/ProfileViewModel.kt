@@ -83,6 +83,23 @@ class ProfileViewModel(
         }
     }
 
+    /** Silent re-read driven by the screen on every `ON_RESUME` (the `LocationGateViewModel.refresh` idiom),
+     *  so a return from another screen — e.g. a username change in Settings — shows fresh data (#498). Keeps
+     *  the current phase mounted (no Loading flash); a failed re-read changes nothing. No-op during the
+     *  initial load (the first resume lands while it is in flight). An in-flight follow keeps its optimistic
+     *  value — its own result settles the toggle. */
+    fun refresh() {
+        if (state.value.isInitialLoad) return
+        val id = resolvedUserId ?: return
+        viewModelScope.launch {
+            val outcome = flow.loadProfile(id)
+            if (outcome == ProfileOutcome.NetworkError) return@launch
+            state.update { s ->
+                s.copy(outcome = outcome, optimisticFollowed = s.optimisticFollowed.takeIf { s.isFollowInFlight })
+            }
+        }
+    }
+
     /** Follow/unfollow toggle (other-user only): optimistic flip, revert on failure; 429 → revert +
      *  rate-limit message; the follow-`POST` constant 404 → revert + the neutral "user unavailable"
      *  message. `followerCount` is NOT mutated locally (it is a read snapshot of a raw public aggregate). */
@@ -125,8 +142,11 @@ class ProfileViewModel(
     fun onBlockConfirmed() {
         val id = resolvedUserId ?: return
         viewModelScope.launch {
+            // Call first, then update: `update` is a CAS loop that re-runs its lambda when the state moves
+            // (e.g. a concurrent onMessageShown()), so a POST inside it can be issued twice (#498).
+            val outcome = flow.block(id)
             state.update { s ->
-                when (flow.block(id)) {
+                when (outcome) {
                     BlockOutcome.Blocked -> s.copy(message = ProfileMessage.BLOCK_SUCCESS, navigateBack = true)
                     is BlockOutcome.RateLimited -> s.copy(message = ProfileMessage.BLOCK_RATE_LIMITED)
                     BlockOutcome.NetworkError -> s.copy(message = ProfileMessage.ACTION_FAILED)
@@ -142,8 +162,9 @@ class ProfileViewModel(
     ) {
         val id = resolvedUserId ?: return
         viewModelScope.launch {
+            val outcome = flow.report(id, category, note)
             state.update { s ->
-                when (flow.report(id, category, note)) {
+                when (outcome) {
                     ReportOutcome.Submitted -> s.copy(message = ProfileMessage.REPORT_SUCCESS)
                     ReportOutcome.Duplicate -> s.copy(message = ProfileMessage.REPORT_DUPLICATE)
                     is ReportOutcome.RateLimited -> s.copy(message = ProfileMessage.REPORT_RATE_LIMITED)

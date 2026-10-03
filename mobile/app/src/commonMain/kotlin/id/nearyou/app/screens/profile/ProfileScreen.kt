@@ -41,6 +41,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
@@ -142,6 +144,10 @@ fun ProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val onSendMessage: (() -> Unit)? = if (chatFlow != null) viewModel::onSendMessage else null
+
+    // Re-read on every resume (a return from Settings after a username change, a section switch, a
+    // foreground return) — the VM no-ops the first resume while its init load is in flight (#498).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     // One-shot navigate-back after a successful block (other-user overlay only).
     LaunchedEffect(uiState.navigateBack) {
