@@ -145,21 +145,31 @@ class OtelForbiddenAttributeLintTest : StringSpec({
         rule.lint(code) shouldHaveSize 1
     }
 
-    "user_id carve-out: literal does NOT fire (SQL column name use case)" {
-        // Mirrors the canonical use at JDBC repositories — `rs.getObject("user_id", UUID::class.java)`.
-        // The carve-out rationale: `user_id` appears in ~12 production paths as SQL column /
-        // @SerialName / Ktor route parameter, semantically unrelated to OTel attribute writes.
-        // The runtime ForbiddenAttributeStripper continues to handle defensively at export.
-        // See `OtelForbiddenAttributeRule` KDoc § "user_id carve-out".
+    "user_id outside an attribute-key position does NOT fire (bare / SQL column literal)" {
+        // `user_id` has ~30 non-OTel production uses (SQL column, @SerialName, route param,
+        // buildJsonObject key); it is enforced in attribute-key position only.
         val code =
             """
             package id.nearyou.app.repo
 
             class T {
                 fun read(): String = "user_id"
+                fun row(rs: java.sql.ResultSet) = rs.getObject("user_id", java.util.UUID::class.java)
             }
             """.trimIndent()
         rule.lint(code).shouldBeEmpty()
+    }
+
+    "user_id as a setAttribute key DOES fire (attribute-key position)" {
+        val code =
+            """
+            package id.nearyou.app.feature
+
+            fun apply(span: Span, v: String) {
+                span.setAttribute("user_id", v)
+            }
+            """.trimIndent()
+        rule.lint(code) shouldHaveSize 1
     }
 
     // ============================================================
@@ -375,8 +385,8 @@ class OtelForbiddenAttributeLintTest : StringSpec({
 
             class Span { fun setAttribute(k: String, v: String) {} }
 
-            fun apply(span: Span, userId: String) {
-                span.setAttribute("user.id", userId)
+            fun apply(span: Span, userId: java.util.UUID) {
+                span.setAttribute("user.id", UserIdHasher.hash(userId))
             }
             """.trimIndent()
         rule.lint(code).shouldBeEmpty()
@@ -815,25 +825,21 @@ class OtelForbiddenAttributeLintTest : StringSpec({
     // Task 2.25 — Synchronization guard test (Tier 1 Group A ⊇ FORBIDDEN_KEYS − {user_id})
     // ============================================================
 
-    "synchronization guard: Tier 1 Group A contains all of FORBIDDEN_KEYS minus the user_id carve-out" {
-        // Hardcoded snapshot of `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (the Set at
-        // `infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt:89-108`)
-        // MINUS the documented `"user_id"` carve-out. This guards the superset relationship
-        // documented in `OtelForbiddenAttributeRule` KDoc § "user_id carve-out" + spec
-        // `observability-otel-foundation/spec.md` § Tier 1 Group A.
+    "synchronization guard: Group A + attribute-key-position keys cover FORBIDDEN_KEYS with zero carve-outs" {
+        // Hardcoded snapshot of `ForbiddenAttributeStripper.FORBIDDEN_KEYS` (the Set in
+        // `infra/otel/src/main/kotlin/id/nearyou/app/infra/otel/ForbiddenAttributeStripper.kt`).
+        // Every entry must be enforced by one of the rule's two key modes — anywhere
+        // (`TIER_1_GROUP_A`) or attribute-key position (`CONTEXT_RESTRICTED_KEYS`). Spec
+        // `observability-otel-foundation` § "Detekt test coverage" item 11.
         //
         // Why hardcoded, not imported: `:lint:detekt-rules` targets JVM 17 (Detekt 1.23.x
         // runtime constraint) while `:infra:otel` targets JVM 21 (project-wide toolchain).
         // A `testImplementation(project(":infra:otel"))` would mix class-file versions in
         // the test classpath. The hardcoded snapshot is option (b) per `tasks.md` § 2.25.
         //
-        // If you are adding a NEW key to `FORBIDDEN_KEYS`:
-        //   - If it belongs in Tier 1 Group A (developer-written attr surface): add it to
-        //     this snapshot AND to `OtelForbiddenAttributeRule.TIER_1_GROUP_A`.
-        //   - If it is a similar carve-out (e.g., the new key has 10+ pre-existing
-        //     production uses as SQL column / JSON / route param): add it to
-        //     `expectedCarveouts` below with a one-line rationale comment AND to
-        //     `OtelForbiddenAttributeRule` KDoc § "user_id carve-out".
+        // If you are adding a NEW key to `FORBIDDEN_KEYS`, add it to this snapshot AND to
+        // either `TIER_1_GROUP_A` (no non-OTel uses) or `CONTEXT_RESTRICTED_KEYS` (the key
+        // also appears as SQL column / JSON / route param, like `user_id`).
         val forbiddenKeysSnapshot: Set<String> =
             setOf(
                 "client.address",
@@ -848,36 +854,264 @@ class OtelForbiddenAttributeLintTest : StringSpec({
                 "user_uuid",
                 "user.uuid",
             )
-        val expectedCarveouts: Set<String> =
-            setOf(
-                // `user_id` — ~12 pre-existing production uses as SQL column name
-                // (`rs.getObject("user_id", UUID::class.java)`), `@SerialName` JSON key,
-                // and Ktor route parameter (`call.parameters["user_id"]`) across
-                // chat / follow / block routes. Semantically unrelated to OTel attrs;
-                // runtime stripper handles defensively at export. See `OtelForbiddenAttributeRule`
-                // KDoc § "user_id carve-out" + design.md § Decision 3.
-                "user_id",
-            )
-        val expected = forbiddenKeysSnapshot - expectedCarveouts
-        val missing = expected - OtelForbiddenAttributeRule.TIER_1_GROUP_A
+        val enforced = OtelForbiddenAttributeRule.TIER_1_GROUP_A + OtelForbiddenAttributeRule.CONTEXT_RESTRICTED_KEYS
+        val missing = forbiddenKeysSnapshot - enforced
         if (missing.isNotEmpty()) {
             error(
-                "Tier 1 Group A is missing keys from FORBIDDEN_KEYS: $missing. Decide: " +
-                    "(a) add to TIER_1_GROUP_A AND this snapshot, OR " +
-                    "(b) document as a carve-out alongside `user_id` (which is carved out " +
-                    "because it appears in ~12 production paths as SQL column / @SerialName / " +
-                    "route parameter, semantically unrelated to OTel attributes). See " +
-                    "OtelForbiddenAttributeRule KDoc § \"user_id carve-out\" + design.md § " +
-                    "Decision 3.",
+                "FORBIDDEN_KEYS entries enforced by neither key mode: $missing. Add each to " +
+                    "TIER_1_GROUP_A (enforced anywhere) or CONTEXT_RESTRICTED_KEYS (enforced in " +
+                    "attribute-key position only — for keys that also appear as SQL column / " +
+                    "@SerialName / route param, like user_id). There are no carve-outs.",
             )
         }
-        // Also assert the snapshot stays in sync with the rule's published view of
-        // Group A — i.e., the snapshot doesn't include unrelated keys the rule doesn't
-        // recognize. If a key was REMOVED from FORBIDDEN_KEYS upstream, this test would
-        // catch the stale snapshot.
-        val expectedGroupA = OtelForbiddenAttributeRule.TIER_1_GROUP_A
-        val unexpectedExtra = expected - expectedGroupA
-        unexpectedExtra.shouldBeEmpty()
+        // The two modes don't overlap, so every enforced key is reachable from the snapshot —
+        // a key REMOVED upstream from FORBIDDEN_KEYS surfaces here as a stale rule entry.
+        (OtelForbiddenAttributeRule.TIER_1_GROUP_A intersect OtelForbiddenAttributeRule.CONTEXT_RESTRICTED_KEYS).shouldBeEmpty()
+        (enforced - forbiddenKeysSnapshot).shouldBeEmpty()
+    }
+
+    // ============================================================
+    // otel-attribute-rule-spec-parity — spec § "Detekt test coverage" items 5/6/8/9/13/16–21
+    // ============================================================
+
+    /** Non-allowlisted synthetic fixture: [body] under `package id.nearyou.app.feature`. */
+    fun fixture(body: String): String = "package id.nearyou.app.feature\n\n$body\n"
+
+    // Item 5 — Tier 2 positive-fail. Secret-shaped values are assembled at RUNTIME and
+    // interpolated into the fixture source, so this test file never contains a token a
+    // secret scanner (GitHub push protection) would match, while the rule still sees ONE
+    // complete literal. A `"prefix" + "body"` concatenation INSIDE the fixture would be two
+    // short literals and silently never fire — don't do that.
+    val tokenBody = "a1B2c3D4".repeat(5) // 40 token-alphabet chars
+    listOf(
+        "PEM label-less PKCS#8 marker" to "-----BEGIN " + "PRIVATE KEY-----",
+        "rediss:// with user + password" to "rediss://" + "default:" + "pw" + tokenBody.take(10) + "@cache.example:6379",
+        "redis:// user-less password form" to "redis://" + ":" + "pw" + tokenBody.take(10) + "@cache.example:6379",
+        "Google OAuth client secret" to "GOCSPX-" + tokenBody.take(28),
+        "Google access token" to "ya29." + tokenBody,
+        "Google refresh token" to "1//0g" + tokenBody,
+        "Supabase secret key" to "sb_secret_" + tokenBody.take(32),
+        "Grafana Cloud token" to "glc_" + tokenBody,
+        "OpenAI project key" to "sk-proj-" + tokenBody,
+        "OpenAI key with T3BlbkFJ marker" to "sk-" + tokenBody.take(20) + "T3BlbkFJ" + tokenBody.take(20),
+        "RevenueCat secret key" to "sk_" + tokenBody.take(32),
+    ).forEach { (label, secret) ->
+        "Tier 2: $label fires" {
+            rule.lint(fixture("val s = \"$secret\"")) shouldHaveSize 1
+        }
+    }
+
+    // Item 6 — Tier 2 near-misses (bare / short prefixes, look-alike words, no-userinfo URIs).
+    listOf(
+        "GOCSPX-",
+        "ya29.short",
+        "sb_secret_",
+        "https://host/1//",
+        // `/`-preceded `1//` exercises the lookbehind
+        "https://host/1//" + tokenBody,
+        "risk_assessment_threshold_value_x",
+        "re_threshold",
+        "sk-learn",
+        "sk_" + "short",
+        "rediss://host:6380/0",
+    ).forEach { nearMiss ->
+        "Tier 2 near-miss: \"$nearMiss\" does NOT fire" {
+            rule.lint(fixture("val s = \"$nearMiss\"")).shouldBeEmpty()
+        }
+    }
+
+    // Item 16 — attribute-key-position shape matrix: "user_id" fires in every AKP.
+    listOf(
+        "P1 setAttribute positional" to """fun f(span: Span, v: String) { span.setAttribute("user_id", v) }""",
+        "P1 setAttribute named key" to """fun f(span: Span, v: String) { span.setAttribute(key = "user_id", value = v) }""",
+        "P1 setAttribute positional key + named value" to """fun f(span: Span, v: String) { span.setAttribute("user_id", value = v) }""",
+        "P2 AttributeKey.stringKey" to """val k = AttributeKey.stringKey("user_id")""",
+        "P2 unqualified stringKey (static import)" to """val k = stringKey("user_id")""",
+        "P3 fluent Attributes.builder().put" to """val a = Attributes.builder().put("user_id", "x").build()""",
+        "P3 toBuilder().put" to """fun f(base: Attributes) = base.toBuilder().put("user_id", "x").build()""",
+        "P3 AttributesBuilder-typed variable" to """fun f(b: AttributesBuilder) { b.put("user_id", "x") }""",
+        "P3 Attributes.builder()-initialized variable" to "fun f() {\n    val b = Attributes.builder()\n    b.put(\"user_id\", \"x\")\n}",
+        "P4 withSpan positional mapOf" to """fun f(v: String) = withSpan("op", mapOf("user_id" to v)) { }""",
+        "P4 withSpan named attributes" to """fun f(v: String) = withSpan(name = "op", attributes = mapOf("user_id" to v)) { }""",
+        "P4 withSpan Pair entry" to """fun f(v: String) = withSpan("op", mapOf(Pair("user_id", v))) { }""",
+        "P4 withSpan mutableMapOf" to """fun f(v: String) = withSpan("op", mutableMapOf("user_id" to v)) { }""",
+        "P4 withSpan hashMapOf" to """fun f(v: String) = withSpan("op", hashMapOf("user_id" to v)) { }""",
+        "P4 withSpan linkedMapOf" to """fun f(v: String) = withSpan("op", linkedMapOf("user_id" to v)) { }""",
+        "P4 hoisted same-file val" to "fun f(v: String) {\n    val attrs = mapOf(\"user_id\" to v)\n    withSpan(\"op\", attrs) { }\n}",
+        "hoisted key const used as setAttribute key" to
+            "const val K = \"user_id\"\nfun f(span: Span, v: String) { span.setAttribute(K, v) }",
+        "hoisted key const used via AttributeKey" to "private const val K = \"user_id\"\nval k = AttributeKey.stringKey(K)",
+    ).forEach { (label, body) ->
+        "AKP $label: \"user_id\" fires" {
+            rule.lint(fixture(body)) shouldHaveSize 1
+        }
+    }
+
+    // Item 17 — "user_id" outside any AKP: the real production shapes stay silent.
+    listOf(
+        "JDBC column" to """fun f(rs: java.sql.ResultSet) = rs.getObject("user_id", java.util.UUID::class.java)""",
+        "@SerialName" to
+            """@kotlinx.serialization.Serializable data class D(@kotlinx.serialization.SerialName("user_id") val userId: String)""",
+        "route parameter" to """fun f(call: ApplicationCall) = call.parameters["user_id"]""",
+        "buildJsonObject put" to """val o = buildJsonObject { put("user_id", JsonPrimitive("x")) }""",
+        "MutableMap.put" to """fun f(id: String) { mutableMapOf<String, Any>().put("user_id", id) }""",
+        "Ktor call.attributes.put" to """fun f(call: ApplicationCall) { call.attributes.put(UserIdKey, "user_id") }""",
+        "mapOf not passed to withSpan" to
+            "fun f(id: String) {\n    val body = mapOf(\"user_id\" to id)\n    respond(body)\n    withSpan(\"op\", other) { }\n}",
+        "key const used only in SQL" to "const val COL = \"user_id\"\nval sql = \"SELECT \" + COL + \" FROM t\"",
+        "production AttributesBuilder.put with safe keys" to
+            "fun f(code: String) {\n    val attrsBuilder = Attributes.builder()\n    attrsBuilder.put(\"error_code\", code)\n" +
+            "    val e = Attributes.builder().put(\"event\", \"x\").put(\"error.type\", \"y\")\n}",
+    ).forEach { (label, body) ->
+        "non-AKP $label does NOT fire" {
+            rule.lint(fixture(body)).shouldBeEmpty()
+        }
+    }
+
+    // Item 18 — user-identity aliases fire only with a raw-identifier value (V1–V4).
+    listOf(
+        "V1 UUID literal on owner" to """fun f(span: Span) { span.setAttribute("owner", "550e8400-e29b-41d4-a716-446655440000") }""",
+        "V2 UUID.randomUUID on principal" to """fun f(span: Span) { span.setAttribute("principal", UUID.randomUUID().toString()) }""",
+        "V2 UUID.fromString on actor" to
+            """fun f(span: Span, raw: String) { span.setAttribute("actor", UUID.fromString(raw).toString()) }""",
+        "V2 java.util.UUID.nameUUIDFromBytes on owner" to
+            """fun f(span: Span, b: ByteArray) { span.setAttribute("owner", java.util.UUID.nameUUIDFromBytes(b).toString()) }""",
+        "V3 UUID-typed parameter on subject" to """fun f(span: Span, id: UUID) { span.setAttribute("subject", id.toString()) }""",
+        "V3 nullable UUID property via template" to
+            "class T(private val ref: java.util.UUID?) {\n    fun f(span: Span) { span.setAttribute(\"owner\", \"${'$'}ref\") }\n}",
+        "V3 V2-initialized local" to
+            "fun f(span: Span) {\n    val ownerRef = UUID.randomUUID()\n    span.setAttribute(\"owner\", ownerRef.toString())\n}",
+        "V3 V4-initialized local" to
+            "fun f(span: Span, principal: P) {\n    val viewer = principal.userId\n" +
+            "    span.setAttribute(\"principal\", viewer.toString())\n}",
+        "V4 *UserId on principal" to
+            """fun f(span: Span, call: C) { span.setAttribute("principal", call.principal.targetUserId.toString()) }""",
+        "V4 user.id on user.id key" to """fun f(span: Span, user: U) { span.setAttribute("user.id", user.id.toString()) }""",
+        "V4 userId on user.id key (spec code-review-blocker shape)" to
+            """fun f(span: Span, userId: String) { span.setAttribute("user.id", userId.toString()) }""",
+        "V4 !! + currentUser.id on enduser.id" to
+            """fun f(span: Span, currentUser: U?) { span.setAttribute("enduser.id", currentUser!!.id.toString()) }""",
+        "V4 userId in withSpan map on account key" to """fun f(userId: String) = withSpan("op", mapOf("account" to userId)) { }""",
+        "P2 nested in setAttribute takes the sibling value" to
+            """fun f(span: Span, userId: String) { span.setAttribute(AttributeKey.stringKey("principal"), userId) }""",
+        "P2 inside Attributes.of takes the paired value" to
+            """fun f(userId: String) = Attributes.of(AttributeKey.stringKey("actor"), userId)""",
+    ).forEach { (label, body) ->
+        "alias $label fires" {
+            rule.lint(fixture(body)) shouldHaveSize 1
+        }
+    }
+    listOf(
+        "role string on principal" to """fun f(span: Span) { span.setAttribute("principal", "system") }""",
+        "String-typed non-convention name on actor" to
+            """fun f(span: Span, actorUsername: String) { span.setAttribute("actor", actorUsername) }""",
+        "UserIdHasher.hash on user.id" to """fun f(span: Span, user: U) { span.setAttribute("user.id", UserIdHasher.hash(user.id)) }""",
+        "ServiceAccountIdHasher.hash on service.account.id" to
+            """fun f(span: Span, claims: C) { span.setAttribute("service.account.id", ServiceAccountIdHasher.hash(claims.sub)) }""",
+        "UUID on a non-alias key (conversation_id)" to
+            """fun f(id: UUID) = withSpan("chat.realtime.publish", mapOf("conversation_id" to id.toString())) { }""",
+        "user_agent.original with UA text" to """fun f(span: Span, ua: String) { span.setAttribute("user_agent.original", ua) }""",
+        "email.subject with text" to """fun f(span: Span, mail: M) { span.setAttribute("email.subject", mail.subject) }""",
+        "call selector is not a V4 terminal name" to """fun f(span: Span, p: P) { span.setAttribute("principal", p.getUserId()) }""",
+        "standalone hoisted AttributeKey (no value in reach)" to """val K = AttributeKey.stringKey("principal")""",
+    ).forEach { (label, body) ->
+        "alias $label does NOT fire" {
+            rule.lint(fixture(body)).shouldBeEmpty()
+        }
+    }
+
+    // Raw JWT / OIDC claim value under ANY key (spec check 5).
+    listOf(
+        "claims.sub on service.account.id" to """fun f(span: Span, claims: C) { span.setAttribute("service.account.id", claims.sub) }""",
+        "claims.sub in withSpan map on actor" to """fun f(claims: C) = withSpan("op", mapOf("actor" to claims.sub)) { }""",
+        "payload.subject on a neutral key" to
+            """fun f(span: Span, credential: Cr) { span.setAttribute("auth.identity", credential.payload.subject) }""",
+        "decoded.subject on a neutral key" to """fun f(span: Span, decoded: D) { span.setAttribute("oidc.caller", decoded.subject) }""",
+    ).forEach { (label, body) ->
+        "raw claim $label fires" {
+            rule.lint(fixture(body)) shouldHaveSize 1
+        }
+    }
+
+    // Item 19 — location key tokens; only the exact `display_location` key is sanctioned.
+    listOf(
+        "geo.lat", "actual_location", "userCoords", "latitude", "lng", "coordinates", "geohash",
+        "display_lat", "display_actual_location",
+    ).forEach { key ->
+        "location key \"$key\" fires" {
+            rule.lint(fixture("""fun f(span: Span, v: String) { span.setAttribute("$key", v) }""")) shouldHaveSize 1
+        }
+    }
+    listOf("display_location", "displayLocation", "latency_ms", "cloud.platform", "memory.allocation", "coordinator")
+        .forEach { key ->
+            "location look-alike / sanctioned key \"$key\" does NOT fire" {
+                rule.lint(fixture("""fun f(span: Span, v: String) { span.setAttribute("$key", v) }""")).shouldBeEmpty()
+            }
+        }
+    "location words outside an attribute-key position do NOT fire" {
+        val body =
+            "val q = \"SELECT ST_Y(display_location::geometry) AS lat FROM visible_posts\"\n" +
+                "fun f(call: ApplicationCall) = call.parameters[\"latitude\"]\n" +
+                "val export = mapOf(\"actual_lat\" to 1.0)"
+        rule.lint(fixture(body)).shouldBeEmpty()
+    }
+
+    // Item 20 — credential key tokens.
+    listOf(
+        "client_secret", "http.request.header.authorization", "refreshToken", "db.password",
+        "supabase.service_role_key", "api_key", "http.request.header.cookie", "id_token", "private_key",
+    ).forEach { key ->
+        "credential key \"$key\" fires" {
+            rule.lint(fixture("""fun f(span: Span, v: String) { span.setAttribute("$key", v) }""")) shouldHaveSize 1
+        }
+    }
+    listOf("gen_ai.usage.input_tokens", "credential.type").forEach { key ->
+        "credential look-alike key \"$key\" does NOT fire" {
+            rule.lint(fixture("""fun f(span: Span, v: String) { span.setAttribute("$key", v) }""")).shouldBeEmpty()
+        }
+    }
+
+    // Item 21 — one literal, several matching checks → exactly one finding.
+    "a key matching credential AND location checks reports once" {
+        rule.lint(fixture("""fun f(span: Span, v: String) { span.setAttribute("secret_location", v) }""")) shouldHaveSize 1
+    }
+
+    // Item 13 — composition with CoordinateJitterRule on an attribute key.
+    "composition: setAttribute(\"actual_location\", v) → 1 Otel finding + 1 CoordinateJitterRule finding" {
+        val code = fixture("""fun f(span: Span, v: String) { span.setAttribute("actual_location", v) }""")
+        rule.lint(code) shouldHaveSize 1
+        CoordinateJitterRule().lint(code) shouldHaveSize 1
+    }
+
+    // Items 8/9 — allowlisted paths + annotation bypass also suppress attribute-key findings.
+    listOf(
+        listOf("src", "test", "kotlin"),
+        listOf("infra", "otel", "src", "main", "kotlin"),
+        listOf("lint", "detekt-rules", "src", "main", "kotlin"),
+    ).forEach { segments ->
+        "path allowlist /${segments.dropLast(1).joinToString("/")}/ suppresses an attribute-key finding" {
+            val code =
+                """
+                package id.nearyou.app.something
+
+                fun f(span: Span, v: String) { span.setAttribute("user_id", v) }
+                """.trimIndent()
+            val path = writeKtFile("AkpFixture.kt", code, segments)
+            try {
+                rule.lint(path).shouldBeEmpty()
+            } finally {
+                var root = path
+                repeat(segments.size + 1) { root = root.parent }
+                cleanupDir(root)
+            }
+        }
+    }
+    "annotation bypass suppresses an attribute-key finding" {
+        val body =
+            "annotation class AllowForbiddenSpanAttribute(val reason: String)\n" +
+                "@AllowForbiddenSpanAttribute(\"legacy admin trace\")\n" +
+                "fun f(span: Span, v: String) { span.setAttribute(\"user_id\", v) }"
+        rule.lint(fixture(body)).shouldBeEmpty()
     }
 })
 
