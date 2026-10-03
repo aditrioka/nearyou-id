@@ -56,10 +56,9 @@ class NavKeySerializationTest {
                 // @Serializable FollowListTab payload; a missing subclass(...) registration fails here.
                 FollowListRoute("11111111-1111-1111-1111-666666666666", FollowListTab.Followers),
                 FollowListRoute("11111111-1111-1111-1111-666666666666", FollowListTab.Following),
-                // mobile-paywall-screen — the payload-carrying PaywallRoute; both entry-context variants
-                // exercise the @Serializable PaywallEntry enum payload (a missing subclass(...) fails here).
-                PaywallRoute(PaywallEntry.LIKE_CAP),
-                PaywallRoute(PaywallEntry.SEARCH_GATE),
+                // mobile-paywall-screen + cap-upsell-parity — the payload-carrying PaywallRoute, round-tripped for
+                // EVERY PaywallEntry (the @Serializable enum payload; a missing subclass(...) fails here).
+                *PaywallEntry.entries.map { PaywallRoute(it) }.toTypedArray(),
                 // chat-embedded-posts — the payload-carrying share-to-chat picker route; a missing
                 // subclass(...) registration in AppNavSerialization.kt would fail this round-trip.
                 ConversationPickerRoute("11111111-1111-1111-1111-777777777777"),
@@ -69,6 +68,26 @@ class NavKeySerializationTest {
             val decoded = json.decodeFromString(navKeySerializer, encoded)
             assertEquals(route, decoded, "route $route must round-trip via the polymorphic NavKey module")
         }
+    }
+
+    /** cap-upsell-parity — `PaywallEntry` is serialized BY NAME, so its values are append-only: this pins
+     *  the exact declared set + order (a rename/reorder would break a persisted iOS back stack). */
+    @Test
+    fun paywallEntryDeclaresExactlyTheWiredGatesInAppendOrder() {
+        assertEquals(
+            listOf(
+                "LIKE_CAP",
+                "SEARCH_GATE",
+                "USERNAME",
+                "IMAGE_ATTACH",
+                "CHAT_CAP",
+                "REPLY_CAP",
+                "POST_CAP",
+                "EDIT_GATE",
+                "RADIUS_GATE",
+            ),
+            PaywallEntry.entries.map { it.name },
+        )
     }
 
     /** 9.1 — the payload-carrying [PostDetailRoute] survives a serialized back-stack round-trip with all

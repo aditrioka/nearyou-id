@@ -63,12 +63,18 @@ import id.nearyou.resources.generated.resources.paywall_period_yearly
 import id.nearyou.resources.generated.resources.paywall_purchase_error
 import id.nearyou.resources.generated.resources.paywall_purchase_pending
 import id.nearyou.resources.generated.resources.paywall_savings
+import id.nearyou.resources.generated.resources.paywall_subhead_chat_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_default
+import id.nearyou.resources.generated.resources.paywall_subhead_edit
 import id.nearyou.resources.generated.resources.paywall_subhead_like_cap
+import id.nearyou.resources.generated.resources.paywall_subhead_post_cap
+import id.nearyou.resources.generated.resources.paywall_subhead_radius
+import id.nearyou.resources.generated.resources.paywall_subhead_reply_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_search
 import id.nearyou.resources.generated.resources.paywall_title
 import id.nearyou.resources.generated.resources.paywall_unavailable_body
 import id.nearyou.resources.generated.resources.paywall_unavailable_title
+import id.nearyou.resources.generated.resources.username_premium_gate_body
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -249,9 +255,17 @@ private fun PaywallHero(entry: PaywallEntry) {
         when (entry) {
             PaywallEntry.LIKE_CAP -> Res.string.paywall_subhead_like_cap
             PaywallEntry.SEARCH_GATE -> Res.string.paywall_subhead_search
-            // image-attached-posts: the composer image-attach gate reuses the generic Premium subhead
-            // (no image-specific hero copy — the upsell context is enough), mirroring USERNAME.
-            PaywallEntry.USERNAME, PaywallEntry.IMAGE_ATTACH -> Res.string.paywall_subhead_default
+            // docs/03 § Premium Username Customization: the paywall opens with the canonical gate copy.
+            PaywallEntry.USERNAME -> Res.string.username_premium_gate_body
+            PaywallEntry.CHAT_CAP -> Res.string.paywall_subhead_chat_cap
+            PaywallEntry.REPLY_CAP -> Res.string.paywall_subhead_reply_cap
+            PaywallEntry.POST_CAP -> Res.string.paywall_subhead_post_cap
+            PaywallEntry.EDIT_GATE -> Res.string.paywall_subhead_edit
+            PaywallEntry.RADIUS_GATE -> Res.string.paywall_subhead_radius
+            // Deliberately generic: image upload is a Month-6 launch behind image_upload_enabled
+            // (default false), and docs/01 + docs/03 § Paywall & Premium Disclosure forbid advertising it
+            // before it ships — a photo-led headline would promise a feature the buyer may not get.
+            PaywallEntry.IMAGE_ATTACH -> Res.string.paywall_subhead_default
         }
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(

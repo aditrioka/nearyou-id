@@ -34,9 +34,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.postDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
+import id.nearyou.resources.generated.resources.chat_cap_upsell
 import id.nearyou.resources.generated.resources.chat_list_loading
 import id.nearyou.resources.generated.resources.chat_picker_empty
 import id.nearyou.resources.generated.resources.chat_picker_title
@@ -63,14 +65,17 @@ const val CONVERSATION_PICKER_BACK_TAG: String = "conversationPickerBack"
  * `mobile-chat-embedded-posts`) — opened by the post-detail "Bagikan ke chat" action and overlaid on the
  * shell via the ROOT back stack. Lists the user's existing conversations (the shipped [ConversationsFlow])
  * and, on a pick, sends the post embed via [ConversationPickerViewModel.shareTo]; a successful send
- * navigates to the thread ([onSelectConversation]), a `403` surfaces a blocked snackbar, and any other
- * failure a retry snackbar — with NO thread navigation. Every string via `stringResource`.
+ * navigates to the thread ([onSelectConversation]), a `403` surfaces a blocked snackbar, a `429` (the
+ * Free 50/day chat cap — a share is a chat send) the shared frame-18 cap dialog whose "Aktifkan Premium"
+ * invokes [onActivatePremium] (the host pushes `PaywallRoute(CHAT_CAP)`), and any other failure a retry
+ * snackbar — with NO thread navigation. Every string via `stringResource`.
  */
 @Composable
 fun ConversationPickerScreen(
     postId: String,
     onBack: () -> Unit,
     onSelectConversation: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit,
+    onActivatePremium: () -> Unit = {},
 ) {
     val conversationsFlow = koinInject<ConversationsFlow>()
     val chatFlow = koinInject<ChatFlow>()
@@ -95,8 +100,21 @@ fun ConversationPickerScreen(
                 viewModel.clearShareResult()
                 snackbarHostState.showSnackbar(failedText)
             }
-            null -> Unit
+            // Left SET while the cap dialog below shows; its dismiss / CTA clears it.
+            is ChatShareResult.RateLimited, null -> Unit
         }
+    }
+
+    (shareResult as? ChatShareResult.RateLimited)?.let { rateLimited ->
+        DailyCapUpsellDialog(
+            retryAfterSeconds = rateLimited.retryAfterSeconds,
+            body = { countdown -> stringResource(Res.string.chat_cap_upsell, countdown) },
+            onDismiss = viewModel::clearShareResult,
+            onActivatePremium = {
+                viewModel.clearShareResult()
+                onActivatePremium()
+            },
+        )
     }
 
     Scaffold(

@@ -138,6 +138,34 @@ class ChatMessagesApiClientTest {
             assertEquals(500, (sendStatus(HttpStatusCode.InternalServerError) as SendMessageApiResult.HttpError).status)
         }
 
+    // cap-upsell-parity (mobile-chat § Send message): the Free 50/day cap's 429 carries Retry-After to the
+    // client result, and the shared ChatRepository maps it ONCE to SendOutcome.RateLimited — never Error.
+    @Test
+    fun `a 429 send carries Retry-After and maps to RateLimited not Error`() =
+        runTest {
+            val capped =
+                client {
+                    respond(
+                        """{"error":{"code":"rate_limited"}}""",
+                        HttpStatusCode.TooManyRequests,
+                        headersOf("Content-Type" to listOf("application/json"), "Retry-After" to listOf("3600")),
+                    )
+                }
+            val raw = ChatMessagesApiClient(capped).sendMessage("c1", "hi") as SendMessageApiResult.HttpError
+            assertEquals(429, raw.status)
+            assertEquals(3600L, raw.retryAfterSeconds)
+            val outcome = ChatRepository(ChatMessagesApiClient(capped), ConversationsApiClient(capped)).send("c1", "hi", null)
+            assertEquals(SendOutcome.RateLimited(retryAfterSeconds = 3600), outcome)
+        }
+
+    @Test
+    fun `a 429 send without Retry-After maps to RateLimited with zero seconds`() =
+        runTest {
+            val capped = client { respond("""{"error":{"code":"rate_limited"}}""", HttpStatusCode.TooManyRequests, JSON_HEADERS) }
+            val outcome = ChatRepository(ChatMessagesApiClient(capped), ConversationsApiClient(capped)).send("c1", "hi", null)
+            assertEquals(SendOutcome.RateLimited(retryAfterSeconds = 0), outcome)
+        }
+
     @Test
     fun `transport failure maps to NetworkError on both verbs`() =
         runTest {

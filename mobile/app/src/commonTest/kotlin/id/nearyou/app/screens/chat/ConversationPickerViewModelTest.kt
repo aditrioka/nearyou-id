@@ -127,6 +127,26 @@ class ConversationPickerViewModelTest {
             viewModel.tearDown()
         }
 
+    // cap-upsell-parity: a share is a chat send — the 50/day cap's 429 maps to its own RateLimited result
+    // (the screen shows the cap dialog), NOT the generic Failed snackbar, and never navigates.
+    @Test
+    fun rateLimitedSendMapsToRateLimitedResultNotFailed() =
+        test {
+            val convs = FakeConversationsFlow(outcome = ConversationListOutcome.Loaded(listOf(row()), null))
+            val chat = FakeChatFlow(sendOutcome = SendOutcome.RateLimited(retryAfterSeconds = 3_600))
+            val viewModel = vm(convs, chat)
+            advanceUntilIdle()
+            val picked = (viewModel.uiState.value as ConversationListUiState.Content).rows.single()
+
+            viewModel.shareTo(picked)
+            advanceUntilIdle()
+
+            assertEquals(ChatShareResult.RateLimited(retryAfterSeconds = 3_600), viewModel.shareResult.value)
+            viewModel.clearShareResult()
+            assertNull(viewModel.shareResult.value)
+            viewModel.tearDown()
+        }
+
     @Test
     fun failedSendMapsToFailedResult() =
         test {

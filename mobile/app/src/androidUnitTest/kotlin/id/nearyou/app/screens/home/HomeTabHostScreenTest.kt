@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.home
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -8,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeLeft
@@ -51,6 +53,7 @@ import id.nearyou.app.screens.timeline.FakeSelfUserId
 import id.nearyou.app.screens.timeline.GLOBAL_POST_CARD_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_POST_CARD_TAG
+import id.nearyou.app.screens.timeline.NEARBY_RADIUS_SLIDER_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
@@ -70,6 +73,8 @@ import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
+import id.nearyou.app.ui.components.RADIUS_UPSELL_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.RADIUS_UPSELL_DIALOG_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -435,6 +440,23 @@ class HomeTabHostScreenTest {
             val top = backStack.last()
             assertTrue(top is PaywallRoute, "the cap-dialog CTA pushes PaywallRoute (was: ${backStack.toList()})")
             assertEquals(PaywallEntry.LIKE_CAP, top.entry, "the cap-dialog entry-context is LIKE_CAP")
+        }
+    }
+
+    // cap-upsell-parity — the radius upsell on the SAME Nearby surface names its own entry: under the REAL
+    // appEntryProvider its CTA pushes PaywallRoute(RADIUS_GATE), NOT the like cap's LIKE_CAP.
+    @Test
+    fun radiusUpsellPremiumCta_pushesPaywallRouteRadiusGateOntoRootStack() {
+        installKoin() // FakeProfileFlow's default self profile is Free → the radius gate fires.
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_RADIUS_SLIDER_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(NEARBY_RADIUS_SLIDER_TAG).performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(RADIUS_UPSELL_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(RADIUS_UPSELL_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            assertEquals(PaywallRoute(PaywallEntry.RADIUS_GATE), backStack.last())
         }
     }
 

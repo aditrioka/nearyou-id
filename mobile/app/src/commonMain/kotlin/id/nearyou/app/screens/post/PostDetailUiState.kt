@@ -6,7 +6,6 @@ import id.nearyou.app.post.LikeOutcome
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyDto
 import id.nearyou.app.post.ReplyPostOutcome
-import kotlin.math.ceil
 
 /** The reply length limit — 280 code points (same cap as posts; `post-replies` content guard). The
  *  client gate counts RAW Unicode code points (no NFKC) for the live counter + submit-enable; the server
@@ -118,16 +117,11 @@ fun replyComposerUiState(
 /**
  * Which message banner (if any) shows on the detail surface. Deliberately a small sealed set of static
  * message keys — it can NEVER carry the coordinate, the `author_id`, or any PII (mirrors
- * `PostCreationBanner`). The rate-limit members carry only the coarse non-PII [resetHours] countdown
- * (filled into the cap-upsell `%1$s`). The Compose layer maps each member to a `stringResource`.
+ * `PostCreationBanner`). The Compose layer maps each member to a `stringResource`. A like / reply `429`
+ * is NOT a banner: the daily cap is surfaced by the shared frame-18 `DailyCapUpsellDialog` with its live
+ * countdown + paywall CTA (cap-upsell-parity) — one surface per cap hit.
  */
 sealed interface PostDetailBanner {
-    /** Like 429 → `post_detail_likes_cap_upsell` formatted with the reset countdown. */
-    data class LikeCap(val resetHours: Int) : PostDetailBanner
-
-    /** Reply 429 → `post_detail_reply_cap_upsell` formatted with the reset countdown. */
-    data class ReplyCap(val resetHours: Int) : PostDetailBanner
-
     /** A `404 post_not_found` (like or reply) → the terminal `post_detail_post_gone` copy with NO retry
      *  control (a retry would always re-fail — the post is gone). */
     data object PostGone : PostDetailBanner
@@ -137,32 +131,23 @@ sealed interface PostDetailBanner {
     data object Network : PostDetailBanner
 }
 
-/** Maps the last like [outcome] to its banner (null when none / a happy toggle). Exhaustive — no wildcard. */
+/** Maps the last like [outcome] to its banner (null when none / a happy toggle / the cap — the cap is the
+ *  dialog, not a banner). Exhaustive — no wildcard. */
 fun likeBanner(outcome: LikeOutcome?): PostDetailBanner? =
     when (outcome) {
-        is LikeOutcome.RateLimited -> PostDetailBanner.LikeCap(resetHours(outcome.retryAfterSeconds))
         LikeOutcome.PostGone -> PostDetailBanner.PostGone
         LikeOutcome.NetworkError -> PostDetailBanner.Network
-        LikeOutcome.Liked, LikeOutcome.Unliked, null -> null
+        is LikeOutcome.RateLimited, LikeOutcome.Liked, LikeOutcome.Unliked, null -> null
     }
 
-/** Maps the last reply-post [outcome] to its banner (null when none / a success). Exhaustive — no wildcard. */
+/** Maps the last reply-post [outcome] to its banner (null when none / a success / the cap — the cap is the
+ *  dialog, not a banner). Exhaustive — no wildcard. */
 fun replyBanner(outcome: ReplyPostOutcome?): PostDetailBanner? =
     when (outcome) {
-        is ReplyPostOutcome.RateLimited -> PostDetailBanner.ReplyCap(resetHours(outcome.retryAfterSeconds))
         ReplyPostOutcome.PostGone -> PostDetailBanner.PostGone
         ReplyPostOutcome.InvalidContent, ReplyPostOutcome.NetworkError -> PostDetailBanner.Network
-        is ReplyPostOutcome.Success, null -> null
+        is ReplyPostOutcome.RateLimited, is ReplyPostOutcome.Success, null -> null
     }
-
-/**
- * Coarse reset countdown for the cap-upsell `%1$s` (`post_detail_reset_hours` = "%1$d jam"): whole hours,
- * rounded UP, with a floor of 1 (a `Retry-After` of 0/absent still reads "1 jam", never "0 jam"). A finer
- * jam+menit countdown is the deferred `mobile-timeline-relative-timestamp` duration-formatter concern.
- */
-fun resetHours(retryAfterSeconds: Long): Int = maxOf(1, ceil(retryAfterSeconds.toDouble() / SECONDS_PER_HOUR).toInt())
-
-private const val SECONDS_PER_HOUR: Double = 3600.0
 
 /**
  * Which content the post-detail report dialog is currently targeting (mobile-content-report). A nullable

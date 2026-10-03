@@ -31,7 +31,7 @@ private const val REPLIES_EMPTY = "Belum ada balasan. Jadilah yang pertama."
 private const val CTA_REPLY = "Balas"
 private const val CTA_CLOSE = "Tutup"
 private const val LIKE_CAP_1H =
-    "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 1 jam."
+    "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 1 j 0 mnt."
 
 /**
  * iOS counterpart to the Robolectric [PostDetailScreenTest][id.nearyou.app.screens.post.PostDetailScreenTest]

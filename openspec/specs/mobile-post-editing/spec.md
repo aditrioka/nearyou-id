@@ -3,7 +3,6 @@
 ## Purpose
 
 The `mobile-post-editing` capability is the `:mobile:app` surface for the shipped premium post-editing backend (`PATCH /api/v1/posts/{post_id}` + `GET /api/v1/posts/{post_id}/edits`). On the post-detail screen it adds: an Edit affordance for the viewer's own post within the 30-minute window (gated by the server-authoritative `isAuthor` from `single-post-read`), a prefilled edit screen reusing the post-creation content editor, reactive premium gating (a `403 premium_required` raises the "Aktifkan Premium" upsell — no client-side premium flag) with the full edit error-contract mapped to Bahasa Indonesia UX, a "Diedit [relative time]" label driven by the `editedAt` projection, and a screen-local "Riwayat edit" history modal listing the chronological "Versi ke-N" content versions (no location). Post-detail reads this edit state via a `single-post-read` refresh on each resume, degrading silently on failure. The timeline-card edited badge and the chat context-card edit-history navigation are tracked follow-up work, not part of this capability.
-
 ## Requirements
 ### Requirement: The post-detail screen offers an Edit affordance on the viewer's own recent post
 
@@ -60,13 +59,37 @@ Selecting the Edit affordance SHALL open a dedicated edit destination prefilled 
 
 ### Requirement: Premium gating is reactive on the backend 403
 
-The edit flow SHALL NOT read a client-side premium flag before allowing an edit attempt; it SHALL attempt the `PATCH` and react to the response, mirroring the shipped `mobile-search` reactive-gate house pattern. When the submit returns `403 premium_required`, the flow SHALL present the shared Premium upsell ("Aktifkan Premium" CTA, reusing the existing upsell component) rather than a generic error, and the post SHALL remain unchanged in the UI.
+The edit flow SHALL NOT read a client-side premium flag before allowing an edit attempt. It SHALL attempt the `PATCH` and react to the response, mirroring the shipped `mobile-search` reactive-gate house pattern.
+
+When the submit returns `403 premium_required`, the flow SHALL present the Premium upsell ("Aktifkan Premium" CTA) rather than a generic error, and the post SHALL remain unchanged in the UI. The upsell's CTAs:
+- "Aktifkan Premium" SHALL dismiss the upsell AND invoke the edit screen's hoisted `onActivatePremium`. `appEntryProvider` wires that to push `PaywallRoute(entry = PaywallEntry.EDIT_GATE)` onto the root back stack (the `mobile-paywall` capability, frame 17).
+- The dismiss action SHALL only dismiss.
+
+The edit screen stays navigation-free (no back-stack reference). The CTA MUST NOT be a dismiss-only dead end: the paywall shipped, so the v1 "no paywall yet" placeholder is retired.
 
 #### Scenario: Free-tier user is shown the Premium upsell
 
 - **WHEN** a Free-tier viewer submits an edit and the backend returns `403 premium_required`
 - **THEN** the Premium upsell is presented (the "Aktifkan Premium" CTA), not a generic error
 - **AND** the displayed post content is unchanged
+
+#### Scenario: The upsell CTA invokes the hoisted callback
+
+- **GIVEN** `EditPostScreen` composed with a recording `onActivatePremium` over a `PostEditFlow` returning `PremiumRequired`
+- **WHEN** the viewer submits an edit and taps "Aktifkan Premium"
+- **THEN** `onActivatePremium` fires exactly once AND the upsell is dismissed
+
+#### Scenario: The edit gate opens the paywall as EDIT_GATE
+
+- **GIVEN** the edit upsell shown under the real `appEntryProvider`
+- **WHEN** "Aktifkan Premium" is tapped
+- **THEN** the root back stack's top entry is `PaywallRoute(entry = PaywallEntry.EDIT_GATE)`
+
+#### Scenario: Dismissing the upsell does not open the paywall
+
+- **GIVEN** the edit upsell shown with a recording `onActivatePremium`
+- **WHEN** the dismiss action is tapped
+- **THEN** the upsell is dismissed AND `onActivatePremium` is not invoked
 
 #### Scenario: No premium pre-check gates the attempt
 

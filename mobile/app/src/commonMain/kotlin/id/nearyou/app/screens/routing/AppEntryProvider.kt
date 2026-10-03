@@ -48,6 +48,7 @@ import org.koin.compose.koinInject
  * Adding a new screen requires only declaring its `NavKey` (NavKeys.kt) + one `entry<…>` mapping
  * here (`mobile-app-scaffold` § "Typed navigation host with start destination").
  */
+
 fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavKey> =
     entryProvider {
         entry<RootRoute> {
@@ -155,9 +156,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // tabbed list onto the root stack at the tapped count's tab. The self ProfileScreen resolves
                 // its own userId from the session and supplies it here; the route carries only userId + tab.
                 onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
-                // mobile-paywall-screen (#235): the like-cap upsell dialog's "Aktifkan Premium" CTA (threaded
-                // from the dialog → timeline screens → HomeScreen → here) pushes the paywall onto the root stack.
-                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.LIKE_CAP)) },
+                // mobile-paywall-screen (#235) + cap-upsell-parity (#493): the feed upsells' "Aktifkan Premium"
+                // (threaded dialog → timeline screens → HomeScreen → here) pushes the paywall onto the root
+                // stack with the entry the surface named — LIKE_CAP for the like cap, RADIUS_GATE for radius.
+                onActivatePremium = backStack::openPaywall,
             )
         }
         entry<AgeGateRoute> {
@@ -181,10 +183,10 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // makes PostCreationRoute the sole entry fails loudly rather than silently no-op'ing.
             PostCreationScreen(
                 onPostCreated = { backStack.removeLastOrNull() },
-                // image-attached-posts: a Free viewer tapping the image-attach affordance routes to the
-                // shared paywall (the IMAGE_ATTACH entry-context tailors the hero), the SearchScreen /
-                // username-gate mechanism. The composer holds no back-stack reference.
-                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.IMAGE_ATTACH)) },
+                // The composer's two gates name their entry: IMAGE_ATTACH (a Free viewer tapping attach,
+                // image-attached-posts) and POST_CAP (the 10/day cap dialog, cap-upsell-parity). The
+                // composer holds no back-stack reference.
+                onActivatePremium = backStack::openPaywall,
             )
         }
         entry<PostDetailRoute> { route ->
@@ -200,6 +202,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // the root stack — the same mechanism as the feed-card identity tap. The screen resolves
                 // the UUID from the freshness read / reply wire; the route payload stays UUID-free.
                 onOpenProfile = { userId -> backStack.add(ProfileRoute(userId)) },
+                // cap-upsell-parity: the like / reply cap dialogs push the paywall as LIKE_CAP / REPLY_CAP.
+                onActivatePremium = backStack::openPaywall,
             )
         }
         entry<EditPostRoute> { route ->
@@ -210,6 +214,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 route = route,
                 onBack = { backStack.removeLastOrNull() },
                 onPostEdited = { backStack.removeLastOrNull() },
+                // cap-upsell-parity: the reactive 403 premium_required upsell opens the paywall.
+                onActivatePremium = { backStack.openPaywall(PaywallEntry.EDIT_GATE) },
             )
         }
         // mobile-settings — the Settings surface + its two sub-surfaces, pushed onto the root stack above
@@ -312,6 +318,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // The PostDetailRoute is built from the immutable snapshot's display fields (the same
                 // nav-arg pattern a feed-card / search-result tap uses); the detail's /likes + /replies
                 // fetches are authoritative for the defaulted likedByViewer/replyCount/distanceM.
+                // cap-upsell-parity: the 50/day chat cap dialog opens the paywall as CHAT_CAP.
+                onActivatePremium = { backStack.openPaywall(PaywallEntry.CHAT_CAP) },
                 onOpenSharedPost = { postId, snapshot ->
                     backStack.add(
                         PostDetailRoute(
@@ -340,6 +348,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                     backStack.removeLastOrNull()
                     backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
                 },
+                // cap-upsell-parity: a share is a chat send — the same 50/day cap dialog → CHAT_CAP.
+                onActivatePremium = { backStack.openPaywall(PaywallEntry.CHAT_CAP) },
             )
         }
         entry<SearchRoute> {
@@ -352,7 +362,7 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             SearchScreen(
                 onBack = { backStack.removeLastOrNull() },
                 // mobile-paywall-screen (#254): the 403 Premium-gate CTA pushes the paywall.
-                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.SEARCH_GATE)) },
+                onActivatePremium = { backStack.openPaywall(PaywallEntry.SEARCH_GATE) },
                 onOpenPost = { hit ->
                     backStack.add(
                         PostDetailRoute(
@@ -372,8 +382,8 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
         }
         entry<PaywallRoute> { route ->
             // The Premium paywall (mobile-paywall, frame 17). `removeLastOrNull()` is size-safe:
-            // PaywallRoute is only ever appended ATOP the surface that opened it (the cap dialog, the
-            // search Premium gate, or the username gate), so popping returns there. `route.entry` tailors
+            // PaywallRoute is only ever appended ATOP the surface that opened it (a cap dialog or a
+            // Premium gate — PaywallEntry names which), so popping returns there. `route.entry` tailors
             // only the hero subheadline; on a confirmed purchase the screen pops itself (onPurchaseComplete
             // defaults to onClose) and the underlying surface re-evaluates its gate on next action (design D5).
             PaywallScreen(
@@ -394,7 +404,15 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
                 // mobile-premium-username § "The Premium gate ... routes to the paywall": the call site
                 // pushes PaywallRoute with the USERNAME entry-context — the reserved entry mobile-paywall-screen
                 // (#309) introduced for exactly this cross-change hook (fulfils that change's TODO(#309)).
-                onActivatePremium = { backStack.add(PaywallRoute(PaywallEntry.USERNAME)) },
+                onActivatePremium = { backStack.openPaywall(PaywallEntry.USERNAME) },
             )
         }
     }
+
+/**
+ * Opens the paywall for [entry] — the ONE push every upsell CTA routes through (cap-upsell-parity). A no-op
+ * when the paywall is already on top, so a same-frame double tap on a CTA cannot stack two paywalls.
+ */
+private fun NavBackStack<NavKey>.openPaywall(entry: PaywallEntry) {
+    if (lastOrNull() !is PaywallRoute) add(PaywallRoute(entry))
+}

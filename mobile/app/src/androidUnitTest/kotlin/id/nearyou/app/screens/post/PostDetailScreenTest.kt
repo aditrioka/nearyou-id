@@ -29,6 +29,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
@@ -37,6 +39,8 @@ import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.infra.revenuecat.OfferingsResult
+import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.network.HttpClientFactory
 import id.nearyou.app.post.EditHistoryOutcome
 import id.nearyou.app.post.EditVersionDto
@@ -56,9 +60,16 @@ import id.nearyou.app.post.ReplyApiClient
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.post.fakeReply
+import id.nearyou.app.screens.paywall.FakePurchaseController
+import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.screens.routing.PaywallRoute
 import id.nearyou.app.screens.routing.PostDetailRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.screens.username.FakeSelfUserIdProvider
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
 import io.ktor.client.engine.mock.MockEngine
@@ -96,11 +107,11 @@ private const val PLACEHOLDER = "Tulis balasan…" // post_detail_reply_placehol
 private const val CTA_REPLY = "Balas" // cta_reply
 private const val CTA_CLOSE = "Tutup" // cta_close (the back/close affordance)
 
-// reset countdown of 3600s → resetHours = 1 → "1 jam" fills the cap-upsell %1$s.
+// cap-upsell-parity: a 3600s Retry-After renders the cap dialog's frame-18 countdown "1 j 0 mnt" in the %1$s.
 private const val LIKE_CAP_1H =
-    "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 1 jam."
+    "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 1 j 0 mnt."
 private const val REPLY_CAP_1H =
-    "Kamu sudah menggunakan 20 balasan hari ini. Upgrade ke Premium untuk balas tanpa batas, atau tunggu reset dalam 1 jam."
+    "Kamu sudah menggunakan 20 balasan hari ini. Upgrade ke Premium untuk balas tanpa batas, atau tunggu reset dalam 1 j 0 mnt."
 private const val POST_GONE = "Postingan ini sudah tidak tersedia." // post_detail_post_gone
 
 private const val AUTHOR_UUID = "11111111-1111-1111-1111-111111111111"
@@ -154,6 +165,10 @@ class PostDetailScreenTest {
                     single { reportSubmitter }
                     single { blockSubmitter }
                     single { selfUserIdProvider }
+                    // The host-push tests navigate onward to PaywallRoute, whose screen injects a
+                    // PurchaseController (Unavailable → the fail-soft Unconfigured state; the tests assert the
+                    // route push, not paywall content).
+                    single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
                 },
             )
         }
@@ -1020,15 +1035,71 @@ class PostDetailScreenTest {
         }
     }
 
+    // cap-upsell-parity (mobile-post-detail § Like toggle): the 429 reverts the flip and raises the shared
+    // frame-18 cap dialog (live countdown) — the body renders ONCE, i.e. there is no parallel inline banner.
     @Test
-    fun like429_revertsOptimisticFlip_andShowsCapUpsell() {
+    fun like429_revertsOptimisticFlip_andShowsCapDialog() {
         installKoin(FakePostDetailFlow(toggleOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 3600)))
+        var activated: PaywallEntry? = null
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(likedByViewer = false), onBack = {}) } } }
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(route = route(likedByViewer = false), onBack = {}, onActivatePremium = { activated = it })
+                    }
+                }
+            }
             onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
             waitForIdle()
             onNodeWithTag(POST_DETAIL_LIKE_NOT_LIKED_TAG, useUnmergedTree = true).assertExists() // reverted
-            onNodeWithText(LIKE_CAP_1H).assertExists()
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertExists()
+            onAllNodesWithText(LIKE_CAP_1H).assertCountEquals(1)
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitForIdle()
+            assertEquals(PaywallEntry.LIKE_CAP, activated, "the like cap names LIKE_CAP")
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun likeCapDialog_tutupDismissesWithoutOpeningThePaywall() {
+        installKoin(FakePostDetailFlow(toggleOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 3600)))
+        var activated = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(
+                            route = route(likedByViewer = false),
+                            onBack = {},
+                            onActivatePremium = { activated++ },
+                        )
+                    }
+                }
+            }
+            onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(DAILY_CAP_DIALOG_CLOSE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+            assertEquals(0, activated, "Tutup only dismisses")
+        }
+    }
+
+    // cap-upsell-parity — the host-push half under the REAL appEntryProvider: the like cap CTA pushes
+    // PaywallRoute(LIKE_CAP) onto the root stack.
+    @Test
+    fun likeCapCta_underHost_pushesPaywallRouteLikeCap() {
+        installKoin(FakePostDetailFlow(toggleOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 3600)))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(route(likedByViewer = false), onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            assertEquals(PaywallRoute(PaywallEntry.LIKE_CAP), backStack.last())
         }
     }
 
@@ -1103,15 +1174,48 @@ class PostDetailScreenTest {
         }
     }
 
+    // cap-upsell-parity (mobile-post-detail § Reply composer): the reply 429 raises the shared cap dialog
+    // (no inline banner), the draft survives, and the CTA names REPLY_CAP.
     @Test
-    fun reply429_showsReplyCapUpsell() {
+    fun reply429_showsReplyCapDialog_andKeepsTheDraft() {
         installKoin(FakePostDetailFlow(replyOutcome = ReplyPostOutcome.RateLimited(retryAfterSeconds = 3600)))
+        var activated: PaywallEntry? = null
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            setContent {
+                KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}, onActivatePremium = { activated = it }) } }
+            }
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
             onNodeWithText(CTA_REPLY).performClick()
             waitForIdle()
-            onNodeWithText(REPLY_CAP_1H).assertExists()
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertExists()
+            onAllNodesWithText(REPLY_CAP_1H).assertCountEquals(1)
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertTextEquals("halo", includeEditableText = true)
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitForIdle()
+            assertEquals(PaywallEntry.REPLY_CAP, activated, "the reply cap names REPLY_CAP")
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+        }
+    }
+
+    // cap-upsell-parity — the host-push half: the reply cap CTA pushes PaywallRoute(REPLY_CAP).
+    @Test
+    fun replyCapCta_underHost_pushesPaywallRouteReplyCap() {
+        installKoin(FakePostDetailFlow(replyOutcome = ReplyPostOutcome.RateLimited(retryAfterSeconds = 3600)))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(route(), onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_REPLY_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
+            onNodeWithText(CTA_REPLY).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            assertEquals(PaywallRoute(PaywallEntry.REPLY_CAP), backStack.last())
+            assertEquals(1, backStack.count { it is PaywallRoute }, "exactly one paywall is pushed")
+            // Back from the paywall: the reply draft survives the round-trip, ready to resend after upgrading.
+            runOnIdle { backStack.removeLastOrNull() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_REPLY_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertTextEquals("halo", includeEditableText = true)
         }
     }
 

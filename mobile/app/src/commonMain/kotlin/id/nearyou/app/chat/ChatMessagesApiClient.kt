@@ -1,6 +1,7 @@
 package id.nearyou.app.chat
 
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
+import id.nearyou.app.post.retryAfterSeconds
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -81,7 +82,8 @@ sealed interface ChatMessagesApiResult {
 sealed interface SendMessageApiResult {
     data class Created(val message: ChatMessageDto) : SendMessageApiResult
 
-    data class HttpError(val status: Int) : SendMessageApiResult
+    /** Non-201. [retryAfterSeconds] is the parsed `Retry-After` (present on the 50/day cap `429`), else null. */
+    data class HttpError(val status: Int, val retryAfterSeconds: Long? = null) : SendMessageApiResult
 
     data class NetworkError(val cause: Throwable) : SendMessageApiResult
 }
@@ -158,6 +160,9 @@ class ChatMessagesApiClient(
                 SendMessageApiResult.NetworkError(cause)
             }
         }
-        return SendMessageApiResult.HttpError(status = response.status.value)
+        return SendMessageApiResult.HttpError(
+            status = response.status.value,
+            retryAfterSeconds = response.retryAfterSeconds(),
+        )
     }
 }

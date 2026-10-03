@@ -33,15 +33,15 @@ const val DAILY_CAP_DIALOG_CLOSE_TAG: String = "dailyCapDialogClose"
 
 /**
  * The shared daily-cap upsell dialog (`mobile-cap-upsell-dialog`, mockup frame 18, docs/11 § 2.8): an
- * M3 [AlertDialog] titled "Batas harian tercapai" with a caller-supplied [body] (the reuse seam — frame
- * 18's caption declares this same modal pattern for the future post/reply/chat caps; the like
- * instantiation passes `post_detail_likes_cap_upsell`, the verbatim docs/03:187 copy), a filled
- * "Aktifkan Premium" confirm button (hoisted [onActivatePremium] — v1 hosts wire it to dismiss only;
- * the paywall destination is the deferred requirement tracked by issue #235), and a "Tutup" text
- * dismiss button. Scrim/back dismissal behaves as "Tutup".
+ * M3 [AlertDialog] titled "Batas harian tercapai" with a caller-supplied [body] — the reuse seam: it is
+ * the ONE surface for every Free daily cap (like `post_detail_likes_cap_upsell`, reply
+ * `post_detail_reply_cap_upsell`, post `post_create_cap_upsell`, chat `chat_cap_upsell`), a filled
+ * "Aktifkan Premium" confirm button (hoisted [onActivatePremium] — each host dismisses AND pushes
+ * `PaywallRoute` with its cap's entry), and a "Tutup" text dismiss button. Scrim/back dismissal behaves
+ * as "Tutup".
  *
- * The countdown handed to [body] derives from the 429's [retryAfterSeconds] (`Retry-After` — the like
- * wire's only reset signal; ≤ 0 is floored to one minute so a proxy-stripped header never
+ * The countdown handed to [body] derives from the 429's [retryAfterSeconds] (`Retry-After` — the cap
+ * endpoints' only reset signal; ≤ 0 is floored to one minute so a proxy-stripped header never
  * flash-dismisses), renders "X j Y mnt" / "Y mnt" per frame 18, and **ticks down each minute** via
  * monotonic [delay] (docs/03:185 "realtime to the reset moment" at minute granularity — no wall-clock
  * platform API, so tests drive it with the compose test clock). Reaching zero auto-dismisses: the cap

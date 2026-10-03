@@ -16,6 +16,7 @@ import id.nearyou.resources.generated.resources.cap_countdown_hours_minutes
 import id.nearyou.resources.generated.resources.cap_countdown_minutes
 import id.nearyou.resources.generated.resources.cap_dialog_title
 import id.nearyou.resources.generated.resources.chat_account_deleted
+import id.nearyou.resources.generated.resources.chat_cap_upsell
 import id.nearyou.resources.generated.resources.chat_list_empty
 import id.nearyou.resources.generated.resources.chat_list_loading
 import id.nearyou.resources.generated.resources.chat_list_title
@@ -96,8 +97,13 @@ import id.nearyou.resources.generated.resources.paywall_period_weekly
 import id.nearyou.resources.generated.resources.paywall_period_yearly
 import id.nearyou.resources.generated.resources.paywall_purchase_error
 import id.nearyou.resources.generated.resources.paywall_savings
+import id.nearyou.resources.generated.resources.paywall_subhead_chat_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_default
+import id.nearyou.resources.generated.resources.paywall_subhead_edit
 import id.nearyou.resources.generated.resources.paywall_subhead_like_cap
+import id.nearyou.resources.generated.resources.paywall_subhead_post_cap
+import id.nearyou.resources.generated.resources.paywall_subhead_radius
+import id.nearyou.resources.generated.resources.paywall_subhead_reply_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_search
 import id.nearyou.resources.generated.resources.paywall_title
 import id.nearyou.resources.generated.resources.paywall_unavailable_body
@@ -108,12 +114,12 @@ import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.post_card_like_state_liked
 import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
 import id.nearyou.resources.generated.resources.post_card_meta_separator
+import id.nearyou.resources.generated.resources.post_create_cap_upsell
 import id.nearyou.resources.generated.resources.post_create_char_counter
 import id.nearyou.resources.generated.resources.post_create_content_placeholder
 import id.nearyou.resources.generated.resources.post_create_error_empty
 import id.nearyou.resources.generated.resources.post_create_error_location
 import id.nearyou.resources.generated.resources.post_create_error_moderated
-import id.nearyou.resources.generated.resources.post_create_error_rate_limited
 import id.nearyou.resources.generated.resources.post_create_error_too_long
 import id.nearyou.resources.generated.resources.post_create_loading
 import id.nearyou.resources.generated.resources.post_create_location_chip
@@ -129,7 +135,6 @@ import id.nearyou.resources.generated.resources.post_detail_replies_empty
 import id.nearyou.resources.generated.resources.post_detail_reply_cap_upsell
 import id.nearyou.resources.generated.resources.post_detail_reply_counter
 import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
-import id.nearyou.resources.generated.resources.post_detail_reset_hours
 import id.nearyou.resources.generated.resources.profile_action_failed
 import id.nearyou.resources.generated.resources.profile_action_user_unavailable
 import id.nearyou.resources.generated.resources.profile_actions_menu_description
@@ -373,7 +378,6 @@ class SharedStringsCatalogTest {
             Res.string.post_detail_posted_from,
             Res.string.post_detail_posted_from_no_city,
             Res.string.post_detail_like_count,
-            Res.string.post_detail_reset_hours,
             Res.string.post_detail_likes_cap_upsell,
             Res.string.post_detail_replies_empty,
             Res.string.post_detail_reply_placeholder,
@@ -443,12 +447,13 @@ class SharedStringsCatalogTest {
             Res.string.post_card_like_state_liked,
             Res.string.post_card_like_state_not_liked,
             // mobile-post-creation (429 daily-cap banner; intentionally outside the composer-string set per mobile-post-creation/spec.md)
-            Res.string.post_create_error_rate_limited,
             // mobile-cap-upsell-dialog (shared daily-cap dialog)
             Res.string.cap_dialog_title,
             Res.string.cta_activate_premium,
             Res.string.cap_countdown_hours_minutes,
             Res.string.cap_countdown_minutes,
+            Res.string.post_create_cap_upsell,
+            Res.string.chat_cap_upsell,
             // mobile-settings-screen (grouped list + block-list + logout-confirm)
             Res.string.settings_title,
             Res.string.settings_back_description,
@@ -517,6 +522,11 @@ class SharedStringsCatalogTest {
             Res.string.paywall_subhead_like_cap,
             Res.string.paywall_subhead_search,
             Res.string.paywall_subhead_default,
+            Res.string.paywall_subhead_chat_cap,
+            Res.string.paywall_subhead_reply_cap,
+            Res.string.paywall_subhead_post_cap,
+            Res.string.paywall_subhead_edit,
+            Res.string.paywall_subhead_radius,
             Res.string.paywall_benefit_unlimited,
             Res.string.paywall_benefit_radius,
             Res.string.paywall_benefit_hide_distance,
@@ -569,7 +579,7 @@ class SharedStringsCatalogTest {
         // data export ready) = 236.
         // + 1 (follow-up #433: notif_apple_relay_email_changed) = 237.
         // + 1 (profile-send-message #271: profile_send_message) = 238.
-        assertEquals(238, allDeclaredStrings.size)
+        assertEquals(243, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

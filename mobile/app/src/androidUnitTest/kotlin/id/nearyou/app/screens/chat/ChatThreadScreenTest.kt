@@ -1,8 +1,10 @@
 package id.nearyou.app.screens.chat
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -12,6 +14,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ChatMessageDto
 import id.nearyou.app.chat.ChatThreadOutcome
@@ -22,12 +26,21 @@ import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.infra.revenuecat.OfferingsResult
+import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.notifications.FakeNotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPromptOneShot
+import id.nearyou.app.screens.paywall.FakePurchaseController
 import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.screens.routing.PaywallRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -38,6 +51,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 private const val CONV = "11111111-1111-1111-1111-111111111111"
 private const val VIEWER = "22222222-2222-2222-2222-222222222222"
@@ -45,6 +59,10 @@ private const val OTHER = "33333333-3333-3333-3333-333333333333"
 private const val REDACTED = "Pesan ini telah dihapus"
 private const val BLOCKED = "Tidak dapat mengirim pesan ke user ini"
 private const val DELETED = "Akun Dihapus"
+
+// cap-upsell-parity: chat_cap_upsell with the cap dialog's 1140s countdown ("19 mnt").
+private const val CHAT_CAP_19M =
+    "Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam 19 mnt."
 
 private fun dto(
     id: String,
@@ -85,6 +103,8 @@ class ChatThreadScreenTest {
                     single<ReportSubmitter> { reportSubmitter }
                     single<NotificationPermissionController> { FakeNotificationPermissionController() }
                     single { NotificationPromptOneShot() }
+                    // The host-push test navigates onward to PaywallRoute (Unconfigured fail-soft state).
+                    single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
                 },
             )
         }
@@ -154,6 +174,83 @@ class ChatThreadScreenTest {
             onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_BLOCKED_BANNER_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(BLOCKED).assertExists()
+        }
+    }
+
+    // --- cap-upsell-parity: the Free 50/day chat cap (429) → the shared frame-18 cap dialog ---
+
+    @Test
+    fun rateLimitedSend_showsChatCapDialog_dropsTheBubble_andKeepsTheInput() {
+        installKoin(sendOutcome = SendOutcome.RateLimited(retryAfterSeconds = 1_140))
+        var activated = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ChatThreadScreen(
+                            route = route(),
+                            onBack = {},
+                            onActivatePremium = { activated++ },
+                        )
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("halo")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(CHAT_CAP_19M).assertExists()
+            // "halo" now matches ONLY the input field — the optimistic bubble was dropped, the text kept.
+            onAllNodesWithText("halo").assertCountEquals(1)
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).assertTextEquals("halo", includeEditableText = true)
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, activated, "the CTA opens the paywall via the host")
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun chatCapDialog_tutupClearsWithoutOpeningThePaywall() {
+        installKoin(sendOutcome = SendOutcome.RateLimited(retryAfterSeconds = 1_140))
+        var activated = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ChatThreadScreen(
+                            route = route(),
+                            onBack = {},
+                            onActivatePremium = { activated++ },
+                        )
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("halo")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_CLOSE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
+            assertEquals(0, activated, "Tutup only dismisses")
+        }
+    }
+
+    // The host-push half under the REAL appEntryProvider: the chat cap CTA pushes PaywallRoute(CHAT_CAP).
+    @Test
+    fun chatCapCta_underHost_pushesPaywallRouteChatCap() {
+        installKoin(sendOutcome = SendOutcome.RateLimited(retryAfterSeconds = 1_140))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(route(), onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("halo")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            assertEquals(PaywallRoute(PaywallEntry.CHAT_CAP), backStack.last())
         }
     }
 

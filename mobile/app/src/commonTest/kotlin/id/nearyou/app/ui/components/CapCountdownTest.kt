@@ -45,7 +45,7 @@ class CapCountdownTest {
     @Test
     fun zeroAndNegative_floorToOneMinute() {
         // The shipped client maps an absent/stripped/unparseable Retry-After to RateLimited(0);
-        // the floor keeps the dialog from flash-dismissing on entry (the banner's 0→"1 jam" precedent).
+        // the floor keeps the dialog from flash-dismissing on entry.
         assertEquals(1, capCountdownMinutes(0))
         assertEquals(1, capCountdownMinutes(-5))
         assertEquals(CapCountdown(hours = 0, minutes = 1), capCountdown(0))

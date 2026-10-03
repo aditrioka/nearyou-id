@@ -167,6 +167,19 @@ class PostDetailSourceGuardTest {
         assertTrue(replyApi.contains("parameter(\"cursor\""), "replies load-more must issue a cursor= request")
     }
 
+    // cap-upsell-parity (mobile-cap-upsell-dialog § "The retired banner countdown no longer exists"): the
+    // like / reply caps are the shared cap dialog — the inline cap banner + its coarse "jam" countdown are gone.
+    @Test
+    fun retiredCapBanner_isGone_andTheCapDialogIsUsed() {
+        val uiState = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post/PostDetailUiState.kt")
+        for (token in listOf("resetHours", "LikeCap", "ReplyCap")) {
+            assertFalse(uiState.contains(token), "PostDetailUiState must not declare the retired cap banner ($token)")
+        }
+        val strings = rawSource("shared/resources/src/commonMain/composeResources/values/strings.xml")
+        assertFalse(strings.contains("name=\"post_detail_reset_hours\""), "the retired banner countdown key must be gone")
+        assertTrue(screen.contains("DailyCapUpsellDialog("), "post-detail surfaces its caps via the shared cap dialog")
+    }
+
     // Note: deferral bookkeeping (block/report kebab, inline-card actions, by-id endpoint, replies
     // load-more) is tracked as GitHub issues (label `follow-up`), not in a repo file — see the
     // matching `mobile-post-detail` spec scenarios. No source-file assertion covers it here.

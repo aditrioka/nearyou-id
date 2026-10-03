@@ -21,6 +21,8 @@ import kotlin.coroutines.cancellation.CancellationException
  *  - [Navigate] (`Sent`) — carries the picked conversation's id + PII-free partner display fields so the
  *    caller can open the thread;
  *  - [Blocked] (`Blocked`, a 403 on the send) — the recipient blocked the sender (or vice versa);
+ *  - [RateLimited] (`RateLimited`, a 429) — the Free 50/day chat cap (a share is a chat send); the screen
+ *    shows the shared cap dialog, NOT the failed snackbar (cap-upsell-parity);
  *  - [Failed] (every other non-`Sent` outcome — `TooLong`/`Error`/`NetworkError`/`SessionExpired`) — a
  *    retryable failure surfaced as a neutral message (no thread navigation).
  */
@@ -32,6 +34,9 @@ sealed interface ChatShareResult {
     ) : ChatShareResult
 
     data object Blocked : ChatShareResult
+
+    /** The 50/day chat cap; [retryAfterSeconds] drives the cap dialog's countdown. */
+    data class RateLimited(val retryAfterSeconds: Long) : ChatShareResult
 
     data object Failed : ChatShareResult
 }
@@ -103,7 +108,7 @@ class ConversationPickerViewModel(
         viewModelScope.launch {
             try {
                 _shareResult.value =
-                    when (chatFlow.send(row.conversationId, content = null, embeddedPostId = postId)) {
+                    when (val outcome = chatFlow.send(row.conversationId, content = null, embeddedPostId = postId)) {
                         is SendOutcome.Sent ->
                             ChatShareResult.Navigate(
                                 conversationId = row.conversationId,
@@ -111,6 +116,7 @@ class ConversationPickerViewModel(
                                 partnerDisplayName = row.partnerDisplayName,
                             )
                         SendOutcome.Blocked -> ChatShareResult.Blocked
+                        is SendOutcome.RateLimited -> ChatShareResult.RateLimited(outcome.retryAfterSeconds)
                         SendOutcome.TooLong,
                         SendOutcome.Error,
                         SendOutcome.NetworkError,

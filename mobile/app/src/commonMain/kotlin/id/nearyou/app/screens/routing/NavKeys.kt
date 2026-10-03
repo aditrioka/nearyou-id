@@ -265,22 +265,45 @@ data class ConversationPickerRoute(
 /**
  * The gated surface that opened the paywall — drives the contextual hero headline on the
  * [id.nearyou.app.screens.paywall.PaywallScreen]. A non-PII enum carried by [PaywallRoute] (safe to
- * serialize into the iOS-persisted back stack). This change wires [LIKE_CAP] (the daily-cap upsell
- * dialog) and [SEARCH_GATE] (the search `403` Premium gate); [USERNAME] is the premium-username
- * customization gate; [IMAGE_ATTACH] (image-attached-posts) is the composer's proactive Premium
- * image-attach gate — a Free viewer who taps the attach affordance is routed here.
+ * serialize into the iOS-persisted back stack). kotlinx.serialization encodes it BY NAME, so a value must
+ * never be renamed or removed, or a persisted iOS back stack stops decoding; add new values at the end.
+ *
+ * Every Free cap / Premium gate names its own entry (`mobile-paywall`, cap-upsell-parity #493); a surface
+ * MUST NOT reuse another surface's entry.
  */
 @Serializable
 enum class PaywallEntry {
+    /** The like-cap upsell dialog (the three feeds + post-detail). */
     LIKE_CAP,
+
+    /** The search `403 premium_required` gate. */
     SEARCH_GATE,
+
+    /** The premium-username customization gate. */
     USERNAME,
+
+    /** The composer's proactive image-attach gate (a Free viewer tapping attach). */
     IMAGE_ATTACH,
+
+    /** The chat 50/day cap dialog (the chat thread + the share-to-chat picker). */
+    CHAT_CAP,
+
+    /** The reply 20/day cap dialog (post-detail). */
+    REPLY_CAP,
+
+    /** The post 10/day cap dialog (the composer). */
+    POST_CAP,
+
+    /** The post-edit `403 premium_required` upsell. */
+    EDIT_GATE,
+
+    /** The Nearby Premium-radius upsell. */
+    RADIUS_GATE,
 }
 
 /**
- * Premium paywall surface (the `mobile-paywall` capability, mockup frame 17), opened from the
- * daily-cap upsell dialog and the search Premium gate. Pushed onto the ROOT back stack (overlaying the
+ * Premium paywall surface (the `mobile-paywall` capability, mockup frame 17), opened from every Free cap
+ * dialog and Premium gate ([PaywallEntry] names which). Pushed onto the ROOT back stack (overlaying the
  * section bar — the same mechanism [PostDetailRoute] / [SearchRoute] use). A payload-carrying
  * `@Serializable data class`, so it MUST be registered in the `navSavedStateConfiguration` polymorphic
  * `SerializersModule` for the iOS-saveable back stack.

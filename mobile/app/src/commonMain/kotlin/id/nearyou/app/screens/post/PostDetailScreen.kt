@@ -65,8 +65,10 @@ import id.nearyou.app.post.PostDetailFlow
 import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.post.PostRefreshOutcome
 import id.nearyou.app.post.ReplyPostOutcome
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.ui.components.BlockConfirmDialog
+import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
@@ -92,7 +94,6 @@ import id.nearyou.resources.generated.resources.post_detail_replies_empty
 import id.nearyou.resources.generated.resources.post_detail_reply_cap_upsell
 import id.nearyou.resources.generated.resources.post_detail_reply_counter
 import id.nearyou.resources.generated.resources.post_detail_reply_placeholder
-import id.nearyou.resources.generated.resources.post_detail_reset_hours
 import id.nearyou.resources.generated.resources.post_edit_edited_label
 import id.nearyou.resources.generated.resources.post_image_alt
 import id.nearyou.resources.generated.resources.profile_action_failed
@@ -184,13 +185,14 @@ const val POST_DETAIL_REPLY_PROFILE_TAG: String = "postDetailReplyProfile"
  *    convention `""` renders without the city fragment via `post_detail_posted_from_no_city`);
  *  - a **like control** — initial state from [PostDetailRoute.likedByViewer]; the tap flips optimistically
  *    (+/- the count when available) and reverts on a non-`Liked`/`Unliked` outcome; a 429 surfaces the
- *    like-cap upsell; the numeric count comes from `likeCount()` and degrades gracefully when unavailable;
+ *    shared frame-18 like-cap dialog (live countdown + "Aktifkan Premium" → [onActivatePremium] with
+ *    `LIKE_CAP`); the numeric count comes from `likeCount()` and degrades gracefully when unavailable;
  *  - a **replies list** (loading / empty / error states; reply cards render content + the `created_at`
  *    treatment ONLY — no `author_id`);
  *  - a **reply composer** (placeholder + a live `N/280` Unicode-code-point counter + a "Balas" CTA disabled
  *    while empty / over-limit / in-flight; a 201 appends the returned reply locally + bumps the count with
- *    NO list re-fetch; a 429 surfaces the reply-cap upsell; an `InvalidContent`/network/post-gone failure
- *    shows the generic retryable banner).
+ *    NO list re-fetch; a 429 surfaces the shared reply-cap dialog (CTA → `REPLY_CAP`) with the draft kept;
+ *    an `InvalidContent`/network/post-gone failure shows the generic retryable banner).
  *
  * The screen holds NO back-stack reference (design Decision 6): its back affordance invokes the hoisted
  * [onBack] and its Edit affordance the hoisted [onEditPost]. The header content is freshened by a
@@ -210,6 +212,9 @@ fun PostDetailScreen(
     onShareToChat: (postId: String) -> Unit = {},
     // post-detail-tap-to-profile: identity taps (header + reply rows) push ProfileRoute(userId) via the host.
     onOpenProfile: (userId: String) -> Unit = {},
+    // cap-upsell-parity: the like / reply cap dialogs' "Aktifkan Premium" — the screen names the entry
+    // (LIKE_CAP / REPLY_CAP); the host pushes PaywallRoute(entry).
+    onActivatePremium: (PaywallEntry) -> Unit = {},
 ) {
     val flow = koinInject<PostDetailFlow>()
     val editFlow = koinInject<PostEditFlow>()
@@ -248,7 +253,9 @@ fun PostDetailScreen(
     LaunchedEffect(Unit) { selfUserId = selfUserIdProvider.selfUserId() }
 
     // Composer state.
-    var replyContent by remember { mutableStateOf("") }
+    // Saveable: the reply-cap CTA pushes the paywall, which takes this entry out of composition — the draft
+    // must survive that round-trip (and a config change) so the user can resend it after upgrading.
+    var replyContent by rememberSaveable { mutableStateOf("") }
     var replyInFlight by remember { mutableStateOf(false) }
     var replyOutcome by remember { mutableStateOf<ReplyPostOutcome?>(null) }
 
@@ -551,6 +558,32 @@ fun PostDetailScreen(
                     onConfirm = viewModel::onBlockConfirmed,
                     onDismiss = viewModel::onBlockDialogDismissed,
                     testTag = POST_DETAIL_BLOCK_DIALOG_TAG,
+                )
+            }
+            // cap-upsell-parity: the Free like (10/day) and reply (20/day) caps — the shared frame-18 dialog
+            // with a live countdown, never an inline banner. Visibility is the screen-local outcome; every
+            // dismissal path nulls it. The reply draft is untouched (only a Success clears it). Hosted inside
+            // the Scaffold content for the same measure-loop reason as the dialogs above.
+            (likeOutcome as? LikeOutcome.RateLimited)?.let { rateLimited ->
+                DailyCapUpsellDialog(
+                    retryAfterSeconds = rateLimited.retryAfterSeconds,
+                    body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
+                    onDismiss = { likeOutcome = null },
+                    onActivatePremium = {
+                        likeOutcome = null
+                        onActivatePremium(PaywallEntry.LIKE_CAP)
+                    },
+                )
+            }
+            (replyOutcome as? ReplyPostOutcome.RateLimited)?.let { rateLimited ->
+                DailyCapUpsellDialog(
+                    retryAfterSeconds = rateLimited.retryAfterSeconds,
+                    body = { countdown -> stringResource(Res.string.post_detail_reply_cap_upsell, countdown) },
+                    onDismiss = { replyOutcome = null },
+                    onActivatePremium = {
+                        replyOutcome = null
+                        onActivatePremium(PaywallEntry.REPLY_CAP)
+                    },
                 )
             }
         }
@@ -1104,9 +1137,8 @@ private fun ReplyComposer(
     }
 }
 
-/** Renders a [PostDetailBanner] message — the cap upsells (with the coarse reset-hours countdown filling
- *  the `%1$s`), the terminal post-gone copy, or the generic retryable network copy. Always via
- *  `stringResource` (no literals). */
+/** Renders a [PostDetailBanner] message — the terminal post-gone copy or the generic retryable network
+ *  copy (the like / reply caps are the cap dialog, not a banner). Always via `stringResource` (no literals). */
 @Composable
 private fun BannerText(
     banner: PostDetailBanner,
@@ -1114,16 +1146,6 @@ private fun BannerText(
 ) {
     val message =
         when (banner) {
-            is PostDetailBanner.LikeCap ->
-                stringResource(
-                    Res.string.post_detail_likes_cap_upsell,
-                    stringResource(Res.string.post_detail_reset_hours, banner.resetHours),
-                )
-            is PostDetailBanner.ReplyCap ->
-                stringResource(
-                    Res.string.post_detail_reply_cap_upsell,
-                    stringResource(Res.string.post_detail_reset_hours, banner.resetHours),
-                )
             PostDetailBanner.PostGone -> stringResource(Res.string.post_detail_post_gone)
             PostDetailBanner.Network -> stringResource(Res.string.signin_error_network)
         }

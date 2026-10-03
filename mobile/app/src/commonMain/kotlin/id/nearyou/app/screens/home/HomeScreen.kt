@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.timeline.FollowingTimelinePost
 import id.nearyou.app.screens.timeline.FollowingTimelineScreen
 import id.nearyou.app.screens.timeline.GlobalTimelinePost
@@ -86,7 +87,7 @@ fun HomeScreen(
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
-    onActivatePremium: () -> Unit = {},
+    onActivatePremium: (PaywallEntry) -> Unit = {},
 ) {
     // The durable selection (iOS-safe @Serializable enum) — kept in sync with the settled pager page.
     var selectedTab by rememberSaveable { mutableStateOf(Tab.Nearby) }
