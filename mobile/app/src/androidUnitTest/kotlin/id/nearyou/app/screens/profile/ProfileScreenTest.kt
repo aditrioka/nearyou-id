@@ -1,6 +1,10 @@
 package id.nearyou.app.screens.profile
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -13,6 +17,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.CreateConversationOutcome
@@ -342,5 +350,55 @@ class ProfileScreenTest {
             onNodeWithText("Raka Pratama").assertExists()
             onNodeWithTag(PROFILE_ACTIONS_MENU_TAG).assertExists()
             onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).assertDoesNotExist()
+        }
+
+    // #498 — the self profile re-reads on every ON_RESUME, so a return from Settings after a username change
+    // shows the new handle (it used to load once, in the VM's init). Drives a real LifecycleRegistry so the
+    // screen's LifecycleEventEffect(ON_RESUME) fires on re-entry (the NearbyLocationGateScreenTest idiom).
+    @Test
+    fun selfProfile_reReadsOnResume_showingAChangedUsername() {
+        val self = FakeProfileFlow.sampleProfile("self-1", isSelf = true)
+        val fake = installKoin(ProfileOutcome.Loaded(self), selfId = "self-1")
+        val owner =
+            object : LifecycleOwner {
+                val registry = LifecycleRegistry.createUnsafe(this)
+
+                override val lifecycle: Lifecycle get() = registry
+            }
+        runComposeUiTest {
+            setContent {
+                CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+                    KoinContext { NearYouTheme { ProfileScreen(targetUserId = null, onBack = null) } }
+                }
+            }
+            owner.registry.currentState = Lifecycle.State.RESUMED
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@raka.jkt").fetchSemanticsNodes().isNotEmpty() }
+
+            // The username changes in Settings (pushed atop the shell), then the user comes back.
+            fake.profileOutcome = ProfileOutcome.Loaded(self.copy(username = "newhandle"))
+            owner.registry.currentState = Lifecycle.State.CREATED
+            owner.registry.currentState = Lifecycle.State.RESUMED
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@newhandle").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("@raka.jkt").assertDoesNotExist()
+        }
+    }
+
+    // #498 — the production path back from Settings: the pushed SettingsRoute takes the Profil section out of
+    // composition; popping re-composes ProfileScreen under the already-RESUMED owner, whose observer catch-up
+    // delivers ON_RESUME to the retained VM (the store owner outlives the composition).
+    @Test
+    fun selfProfile_reReadsWhenRecomposedUnderAResumedOwner() =
+        runComposeUiTest {
+            val self = FakeProfileFlow.sampleProfile("self-1", isSelf = true)
+            val fake = installKoin(ProfileOutcome.Loaded(self), selfId = "self-1")
+            var shown by mutableStateOf(true)
+            setContent { KoinContext { NearYouTheme { if (shown) ProfileScreen(targetUserId = null, onBack = null) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@raka.jkt").fetchSemanticsNodes().isNotEmpty() }
+
+            shown = false
+            waitForIdle()
+            fake.profileOutcome = ProfileOutcome.Loaded(self.copy(username = "newhandle"))
+            shown = true
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@newhandle").fetchSemanticsNodes().isNotEmpty() }
         }
 }

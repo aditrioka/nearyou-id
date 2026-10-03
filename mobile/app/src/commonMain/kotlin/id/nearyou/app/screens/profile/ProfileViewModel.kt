@@ -11,6 +11,7 @@ import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +55,9 @@ class ProfileViewModel(
     /** The resolved target id (the route id, or the self id once decoded) — the action target. */
     private var resolvedUserId: String? = targetUserId
 
+    /** The running [refresh] re-read, if any (dedupes overlapping resumes; cancelled by a follow tap). */
+    private var refreshJob: Job? = null
+
     val uiState: StateFlow<ProfileUiState> =
         state
             .map { it.toUiState() }
@@ -83,6 +87,24 @@ class ProfileViewModel(
         }
     }
 
+    /** Silent re-read driven by the screen on every `ON_RESUME` (the `LocationGateViewModel.refresh` idiom),
+     *  so a return from another screen — e.g. a username change in Settings — shows fresh data (#498). Keeps
+     *  the current phase mounted (no Loading flash); a failed re-read changes nothing. No-op during the
+     *  initial load (the first resume lands while it is in flight), an in-flight follow, or a refresh already
+     *  running; a follow tap cancels a running one — so a re-read never overlaps a follow and a stale GET can
+     *  never undo a just-settled toggle. */
+    fun refresh() {
+        val current = state.value
+        if (current.isInitialLoad || current.isFollowInFlight || refreshJob?.isActive == true) return
+        val id = resolvedUserId ?: return
+        refreshJob =
+            viewModelScope.launch {
+                val outcome = flow.loadProfile(id)
+                if (outcome == ProfileOutcome.NetworkError) return@launch
+                state.update { it.copy(outcome = outcome, optimisticFollowed = null) }
+            }
+    }
+
     /** Follow/unfollow toggle (other-user only): optimistic flip, revert on failure; 429 → revert +
      *  rate-limit message; the follow-`POST` constant 404 → revert + the neutral "user unavailable"
      *  message. `followerCount` is NOT mutated locally (it is a read snapshot of a raw public aggregate). */
@@ -93,6 +115,7 @@ class ProfileViewModel(
         val id = resolvedUserId ?: return
         val currentlyFollowed = current.optimisticFollowed ?: profile.followedByViewer
         val wantFollow = !currentlyFollowed
+        refreshJob?.cancel()
         state.update { it.copy(optimisticFollowed = wantFollow, isFollowInFlight = true) }
         viewModelScope.launch {
             val outcome = if (wantFollow) flow.follow(id) else flow.unfollow(id)
@@ -125,8 +148,11 @@ class ProfileViewModel(
     fun onBlockConfirmed() {
         val id = resolvedUserId ?: return
         viewModelScope.launch {
+            // Call first, then update: `update` is a CAS loop that re-runs its lambda when the state moves
+            // (e.g. a concurrent onMessageShown()), so a POST inside it can be issued twice (#498).
+            val outcome = flow.block(id)
             state.update { s ->
-                when (flow.block(id)) {
+                when (outcome) {
                     BlockOutcome.Blocked -> s.copy(message = ProfileMessage.BLOCK_SUCCESS, navigateBack = true)
                     is BlockOutcome.RateLimited -> s.copy(message = ProfileMessage.BLOCK_RATE_LIMITED)
                     BlockOutcome.NetworkError -> s.copy(message = ProfileMessage.ACTION_FAILED)
@@ -142,8 +168,9 @@ class ProfileViewModel(
     ) {
         val id = resolvedUserId ?: return
         viewModelScope.launch {
+            val outcome = flow.report(id, category, note)
             state.update { s ->
-                when (flow.report(id, category, note)) {
+                when (outcome) {
                     ReportOutcome.Submitted -> s.copy(message = ProfileMessage.REPORT_SUCCESS)
                     ReportOutcome.Duplicate -> s.copy(message = ProfileMessage.REPORT_DUPLICATE)
                     is ReportOutcome.RateLimited -> s.copy(message = ProfileMessage.REPORT_RATE_LIMITED)
