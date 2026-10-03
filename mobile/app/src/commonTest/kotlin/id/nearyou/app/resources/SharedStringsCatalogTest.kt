@@ -105,7 +105,6 @@ import id.nearyou.resources.generated.resources.paywall_subhead_post_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_radius
 import id.nearyou.resources.generated.resources.paywall_subhead_reply_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_search
-import id.nearyou.resources.generated.resources.paywall_subhead_username
 import id.nearyou.resources.generated.resources.paywall_title
 import id.nearyou.resources.generated.resources.paywall_unavailable_body
 import id.nearyou.resources.generated.resources.paywall_unavailable_title
@@ -523,7 +522,6 @@ class SharedStringsCatalogTest {
             Res.string.paywall_subhead_like_cap,
             Res.string.paywall_subhead_search,
             Res.string.paywall_subhead_default,
-            Res.string.paywall_subhead_username,
             Res.string.paywall_subhead_chat_cap,
             Res.string.paywall_subhead_reply_cap,
             Res.string.paywall_subhead_post_cap,
@@ -581,7 +579,7 @@ class SharedStringsCatalogTest {
         // data export ready) = 236.
         // + 1 (follow-up #433: notif_apple_relay_email_changed) = 237.
         // + 1 (profile-send-message #271: profile_send_message) = 238.
-        assertEquals(244, allDeclaredStrings.size)
+        assertEquals(243, allDeclaredStrings.size)
         assertEquals(allDeclaredStrings.size, allDeclaredStrings.distinct().size, "no duplicate accessors")
     }
 }

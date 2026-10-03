@@ -177,7 +177,6 @@ class PostDetailSourceGuardTest {
         }
         val strings = rawSource("shared/resources/src/commonMain/composeResources/values/strings.xml")
         assertFalse(strings.contains("name=\"post_detail_reset_hours\""), "the retired banner countdown key must be gone")
-        assertTrue(strings.contains("name=\"chat_cap_upsell\""), "the chat cap dialog body must be declared")
         assertTrue(screen.contains("DailyCapUpsellDialog("), "post-detail surfaces its caps via the shared cap dialog")
     }
 

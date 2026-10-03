@@ -479,7 +479,8 @@
     <string name="profile_followers_open_cd">Lihat daftar pengikut</string>
     <string name="profile_following_open_cd">Lihat daftar yang diikuti</string>
     <!-- mobile-paywall-screen (frame 17). Hero title is constant; the subheadline is tailored to the
-         entry-context (PaywallEntry) — one key per entry; IMAGE_ATTACH deliberately uses
+         entry-context (PaywallEntry) — one key per entry (USERNAME reuses username_premium_gate_body, the
+         docs/03 § Premium Username Customization paywall copy); IMAGE_ATTACH deliberately uses
          paywall_subhead_default (image upload is a Month-6 launch, docs/01 disclosure rule). Benefits =
          the Month-1 set, features-available-now (NO image upload and NO tenure counter — neither ships
          yet, docs/03 § Paywall & Premium Disclosure). The CTA reuses cta_activate_premium; the close
@@ -490,7 +491,6 @@
     <string name="paywall_subhead_like_cap">Like, balas &amp; posting tanpa batas</string>
     <string name="paywall_subhead_search">Cari postingan di seluruh Indonesia</string>
     <string name="paywall_subhead_default">Buka semua fitur Premium</string>
-    <string name="paywall_subhead_username">Pilih username yang kamu mau</string>
     <string name="paywall_subhead_chat_cap">Kirim pesan tanpa batas</string>
     <string name="paywall_subhead_reply_cap">Balas postingan tanpa batas</string>
     <string name="paywall_subhead_post_cap">Posting tanpa batas setiap hari</string>

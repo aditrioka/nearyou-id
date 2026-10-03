@@ -37,7 +37,8 @@ private const val BENEFIT_NO_ADS = "Tanpa iklan · badge Premium"
 // cap-upsell-parity: every cap/gate entry's own hero subheadline (byte-identical to strings.xml).
 private val SUBHEAD_BY_ENTRY =
     mapOf(
-        PaywallEntry.USERNAME to "Pilih username yang kamu mau",
+        // USERNAME reuses username_premium_gate_body (the docs/03 § Premium Username Customization copy).
+        PaywallEntry.USERNAME to "Ganti username adalah fitur Premium.",
         PaywallEntry.CHAT_CAP to "Kirim pesan tanpa batas",
         PaywallEntry.REPLY_CAP to "Balas postingan tanpa batas",
         PaywallEntry.POST_CAP to "Posting tanpa batas setiap hari",

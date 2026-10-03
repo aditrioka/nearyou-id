@@ -18,6 +18,7 @@ import id.nearyou.app.data.like.LikeFlow
 import id.nearyou.app.data.report.FakeReportSubmitter
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.post.LikeOutcome
+import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineFlow
@@ -25,6 +26,7 @@ import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.timeline.UpsellDto
 import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
@@ -368,6 +370,25 @@ class FollowingTimelineScreenTest {
             onNodeWithTag(POST_CARD_LIKE_OUTLINED_TAG, useUnmergedTree = true).assertExists()
             onNodeWithTag(DAILY_CAP_DIALOG_CLOSE_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+        }
+    }
+
+    // cap-upsell-parity: the Following like-cap CTA names LIKE_CAP (the host pushes PaywallRoute(entry)).
+    @Test
+    fun capDialogPremiumCta_invokesOnActivatePremiumWithLikeCap() {
+        installKoin(
+            FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(likedByViewer = false)), null, null),
+            likeOutcome = LikeOutcome.RateLimited(retryAfterSeconds = 1_140),
+        )
+        val activated = mutableListOf<PaywallEntry>()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { FollowingTimelineScreen(onActivatePremium = { activated += it }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_CARD_LIKE_ACTION_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CARD_LIKE_ACTION_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isEmpty() }
+            assertEquals(listOf(PaywallEntry.LIKE_CAP), activated)
         }
     }
 

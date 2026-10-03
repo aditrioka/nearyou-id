@@ -51,7 +51,7 @@ The hero subheadline SHALL be tailored to the route's `PaywallEntry` while alway
 |---|---|
 | `LIKE_CAP` | `paywall_subhead_like_cap` |
 | `SEARCH_GATE` | `paywall_subhead_search` |
-| `USERNAME` | `paywall_subhead_username` |
+| `USERNAME` | `username_premium_gate_body` (the `docs/03-UX-Design.md` § Premium Username Customization paywall copy, "Ganti username adalah fitur Premium.") |
 | `CHAT_CAP` | `paywall_subhead_chat_cap` |
 | `REPLY_CAP` | `paywall_subhead_reply_cap` |
 | `POST_CAP` | `paywall_subhead_post_cap` |
@@ -81,7 +81,7 @@ The hero subheadline SHALL be tailored to the route's `PaywallEntry` while alway
 #### Scenario: Every new cap/gate entry renders its own headline
 
 - **GIVEN** `PaywallScreen` composed in the Content state for each of `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE`, and `USERNAME`
-- **THEN** each rendering shows its mapped subheadline (`paywall_subhead_chat_cap`, `paywall_subhead_reply_cap`, `paywall_subhead_post_cap`, `paywall_subhead_edit`, `paywall_subhead_radius`, `paywall_subhead_username` respectively) AND none shows `paywall_subhead_default`
+- **THEN** each rendering shows its mapped subheadline (`paywall_subhead_chat_cap`, `paywall_subhead_reply_cap`, `paywall_subhead_post_cap`, `paywall_subhead_edit`, `paywall_subhead_radius`, `username_premium_gate_body` respectively) AND none shows `paywall_subhead_default`
 
 #### Scenario: The image-attach entry does not advertise image upload
 

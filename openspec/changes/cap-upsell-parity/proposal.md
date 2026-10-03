@@ -23,10 +23,10 @@ These are the revenue loop's highest-intent moments: the user just hit the Free 
   - The `PostCreationBanner.RATE_LIMITED` banner and the `post_create_error_rate_limited` string are removed.
 - **Post-edit `403 premium_required`**: the upsell's "Aktifkan Premium" now opens the paywall instead of only dismissing.
 - **`PaywallEntry` gains** `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE`. The existing `IMAGE_ATTACH` (wired by `mobile-image-attachment` but declared in no spec) is now declared.
-  - Every entry gets a tailored hero subheadline, `USERNAME` included.
+  - Every entry gets a tailored hero subheadline. `USERNAME` reuses the docs/03 gate copy "Ganti username adalah fitur Premium.".
   - **Exception: `IMAGE_ATTACH`** keeps the generic headline. Image upload is a Month-6 feature behind the default-`false` `image_upload_enabled` flag, and docs/01 + docs/03 § Paywall & Premium Disclosure forbid advertising it.
   - Every entry round-trips in `NavKeySerializationTest`.
-- **Every gated surface names its own entry.** The hoisted `onActivatePremium` on the Home/feed path, post-detail and the composer becomes `(PaywallEntry) -> Unit`, so the radius upsell opens `RADIUS_GATE` while the like cap stays `LIKE_CAP`.
+- **Every gated surface #493 names gets its own entry.** The Free timeline read cap is a separate change ([#516](https://github.com/aditrioka/nearyou-id/issues/516)). The hoisted `onActivatePremium` on the Home/feed path, post-detail and the composer becomes `(PaywallEntry) -> Unit`, so the radius upsell opens `RADIUS_GATE` while the like cap stays `LIKE_CAP`.
 - **Paywall benefit copy** drops the unshipped tenure claim: "badge + tenure Premium" becomes "badge Premium". Only the profile Premium badge ships; the tenure counter is still deferred.
 - **docs/03 § Rate Limit Communication** gains the reply, post and chat cap modal copy alongside the like copy. Frame 18's caption already declares one pattern for all four caps.
 
@@ -66,4 +66,4 @@ None.
 - **Docs**: `docs/03-UX-Design.md` § Rate Limit Communication (cap modal copy).
 - **Sequencing**:
   - [#494](https://github.com/aditrioka/nearyou-id/issues/494) (chat NetworkRetry / TooLong send states, pull-to-refresh) is held until this merges and is **not** folded in. This change adds only the rate-limited state.
-  - Open PR [#512](https://github.com/aditrioka/nearyou-id/pull/512) edits other `mobile-paywall` requirements and `PaywallScreen.kt` / `strings.xml`. The overlap is textual; whichever lands second rebases.
+  - Open PR [#512](https://github.com/aditrioka/nearyou-id/pull/512) edits other requirements in `mobile-paywall` and `mobile-nearby-radius-slider`, plus `PaywallScreen.kt`, `NearbyTimelineScreen.kt` and `strings.xml`. The overlap is textual; whichever lands second rebases.

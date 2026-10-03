@@ -67,10 +67,10 @@ import id.nearyou.resources.generated.resources.paywall_subhead_post_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_radius
 import id.nearyou.resources.generated.resources.paywall_subhead_reply_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_search
-import id.nearyou.resources.generated.resources.paywall_subhead_username
 import id.nearyou.resources.generated.resources.paywall_title
 import id.nearyou.resources.generated.resources.paywall_unavailable_body
 import id.nearyou.resources.generated.resources.paywall_unavailable_title
+import id.nearyou.resources.generated.resources.username_premium_gate_body
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -230,7 +230,8 @@ private fun PaywallHero(entry: PaywallEntry) {
         when (entry) {
             PaywallEntry.LIKE_CAP -> Res.string.paywall_subhead_like_cap
             PaywallEntry.SEARCH_GATE -> Res.string.paywall_subhead_search
-            PaywallEntry.USERNAME -> Res.string.paywall_subhead_username
+            // docs/03 § Premium Username Customization: the paywall opens with the canonical gate copy.
+            PaywallEntry.USERNAME -> Res.string.username_premium_gate_body
             PaywallEntry.CHAT_CAP -> Res.string.paywall_subhead_chat_cap
             PaywallEntry.REPLY_CAP -> Res.string.paywall_subhead_reply_cap
             PaywallEntry.POST_CAP -> Res.string.paywall_subhead_post_cap

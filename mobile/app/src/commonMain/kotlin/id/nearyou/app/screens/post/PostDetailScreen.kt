@@ -253,7 +253,9 @@ fun PostDetailScreen(
     LaunchedEffect(Unit) { selfUserId = selfUserIdProvider.selfUserId() }
 
     // Composer state.
-    var replyContent by remember { mutableStateOf("") }
+    // Saveable: the reply-cap CTA pushes the paywall, which takes this entry out of composition — the draft
+    // must survive that round-trip (and a config change) so the user can resend it after upgrading.
+    var replyContent by rememberSaveable { mutableStateOf("") }
     var replyInFlight by remember { mutableStateOf(false) }
     var replyOutcome by remember { mutableStateOf<ReplyPostOutcome?>(null) }
 

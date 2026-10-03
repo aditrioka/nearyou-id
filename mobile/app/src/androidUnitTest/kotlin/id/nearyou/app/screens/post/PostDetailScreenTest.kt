@@ -1193,6 +1193,7 @@ class PostDetailScreenTest {
             onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
             waitForIdle()
             assertEquals(PaywallEntry.REPLY_CAP, activated, "the reply cap names REPLY_CAP")
+            onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
         }
     }
 
@@ -1210,6 +1211,11 @@ class PostDetailScreenTest {
             onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
             assertEquals(PaywallRoute(PaywallEntry.REPLY_CAP), backStack.last())
+            assertEquals(1, backStack.count { it is PaywallRoute }, "exactly one paywall is pushed")
+            // Back from the paywall: the reply draft survives the round-trip, ready to resend after upgrading.
+            runOnIdle { backStack.removeLastOrNull() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_REPLY_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertTextEquals("halo", includeEditableText = true)
         }
     }
 

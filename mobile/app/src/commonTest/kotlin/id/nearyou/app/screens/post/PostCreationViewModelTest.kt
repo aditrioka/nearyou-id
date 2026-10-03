@@ -176,7 +176,7 @@ class PostCreationViewModelTest {
     // ---- The post-cap dialog (cap-upsell-parity) ----
 
     @Test
-    fun `a 429 holds RateLimited until the cap dialog is dismissed, keeping the draft`() =
+    fun `a 429 holds RateLimited until the cap dialog is dismissed and keeps the draft`() =
         runTest {
             val vm = viewModel(createFlow = FakeCreatePostFlow(outcome = PostCreationOutcome.RateLimited(retryAfterSeconds = 1_140)))
             advanceUntilIdle()

@@ -26,6 +26,7 @@ Frame 18 (`dev/mockups/nearyou-screens-mockup.html`) declares one modal pattern 
 - An icon slot on `DailyCapUpsellDialog`. Frame 18 shows a `favorite` glyph above the title; the shipped component and its spec have none. That is a pre-existing divergence, unchanged here.
 - Advertising image upload on the paywall (Month 6, flag default `false`).
 - Making the cap numbers in the copy follow the Remote Config overrides (see Risks).
+- **The Free timeline read cap** (`timeline-read-rate-limit`: the `timeline_limit_soft` banner and the hard state). It is not in #493's list, so it is a separate change, tracked as [#516](https://github.com/aditrioka/nearyou-id/issues/516). This change covers the daily caps and the Premium gates #493 names.
 
 ## Decisions
 
@@ -87,9 +88,8 @@ New subheads (via `stringResource`):
 - `paywall_subhead_chat_cap`
 - `paywall_subhead_edit`
 - `paywall_subhead_radius`
-- `paywall_subhead_username`
 
-`LIKE_CAP` and `SEARCH_GATE` keep theirs. `IMAGE_ATTACH` deliberately keeps `paywall_subhead_default`. Image upload is a Month-6 launch behind `image_upload_enabled` (default `false`, docs/05), and docs/01 + docs/03 § Paywall & Premium Disclosure forbid mentioning image upload before it ships. A photo-led headline would promise a feature a buyer may not get. When the image launch flips the flag, a follow-up can tailor it. The spec carries this as a guard scenario.
+`USERNAME` reuses `username_premium_gate_body`, the docs/03 § Premium Username Customization copy ("Ganti username adalah fitur Premium."), so it adds no duplicate-value key. `LIKE_CAP` and `SEARCH_GATE` keep theirs. `IMAGE_ATTACH` deliberately keeps `paywall_subhead_default`. Image upload is a Month-6 launch behind `image_upload_enabled` (default `false`, docs/05), and docs/01 + docs/03 § Paywall & Premium Disclosure forbid mentioning image upload before it ships. A photo-led headline would promise a feature a buyer may not get. When the image launch flips the flag, a follow-up can tailor it. The spec carries this as a guard scenario.
 
 `PaywallEntry` values are appended, never reordered. kotlinx.serialization encodes an enum by name, so already-persisted iOS back stacks keep decoding.
 
@@ -131,7 +131,8 @@ Implementation renders both and runs `dev/scripts/mockup-measure.sh` for frame 1
 ## Risks / Trade-offs
 
 - **The like burst limiter can show a Premium user the Free like-cap dialog.** The 500/h limiter applies to both tiers. This already happens on the feeds; post-detail now matches. At 500 likes/hour it is negligible. → Accepted. A tier-aware 429 is a backend envelope change, out of scope.
-- **The cap numbers in the copy are literal (10/20/50).** The like and reply caps are Remote-Config-overridable (`premium_like_cap_override`, `premium_reply_cap_override`), so an operator override makes the copy drift. This is pre-existing for the like/reply strings, and the post and chat caps are fixed. → Accepted, flagged in the PR body.
+- **The cap numbers in the copy are literal (10/20/50).** The like, reply and chat caps are Remote-Config-overridable (`premium_like_cap_override`, `premium_reply_cap_override`, `premium_chat_send_cap_override`), so an operator override makes the copy drift. This is pre-existing for the like/reply strings; only the post cap is fixed. → Accepted, flagged in the PR body.
+- **Webhook-lag window after a purchase.** Until the RevenueCat webhook flips `subscription_status`, a re-attempted capped action still gets the Free `429`, and the dialog tells a buyer to upgrade. `mobile-paywall` accepts that a server-gated action may briefly stay gated. Telling apart "just bought" needs PR #512's `purchaseConfirmed` signal, which is not merged. → Accepted for now, tracked as [#517](https://github.com/aditrioka/nearyou-id/issues/517) (blocked on #512).
 - **PR #512 also edits `PaywallScreen.kt`, `strings.xml` and `mobile-paywall`.** The two touch different requirements, so the conflict is textual only. → Whichever merges second rebases and re-runs the paywall tests.
 - **Post-detail dialog state is composition-local, so rotation drops an open dialog.** The like/reply state is already composition-local today. → Accepted. The cap still applies, and the next tap re-raises the dialog.
 

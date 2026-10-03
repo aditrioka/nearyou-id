@@ -265,8 +265,8 @@ data class ConversationPickerRoute(
 /**
  * The gated surface that opened the paywall — drives the contextual hero headline on the
  * [id.nearyou.app.screens.paywall.PaywallScreen]. A non-PII enum carried by [PaywallRoute] (safe to
- * serialize into the iOS-persisted back stack). kotlinx.serialization encodes it BY NAME, so values are
- * append-only — never reorder or rename one, or a persisted iOS back stack stops decoding.
+ * serialize into the iOS-persisted back stack). kotlinx.serialization encodes it BY NAME, so a value must
+ * never be renamed or removed, or a persisted iOS back stack stops decoding; add new values at the end.
  *
  * Every Free cap / Premium gate names its own entry (`mobile-paywall`, cap-upsell-parity #493); a surface
  * MUST NOT reuse another surface's entry.

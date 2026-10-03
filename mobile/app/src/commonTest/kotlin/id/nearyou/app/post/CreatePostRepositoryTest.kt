@@ -231,7 +231,7 @@ class CreatePostRepositoryTest {
         }
 
     @Test
-    fun `429 without a Retry-After header maps to RateLimited(0)`() =
+    fun `429 without a Retry-After header maps to RateLimited with zero seconds`() =
         runTest {
             val controller = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
             val repo =

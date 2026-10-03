@@ -3,7 +3,7 @@
 ## 1. Paywall entries, headlines, benefit copy
 
 - [x] 1.1 `NavKeys.kt`: append `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE` to `PaywallEntry` (append-only, design D6); refresh the enum + `PaywallRoute` KDoc to list every entry and its call site
-- [x] 1.2 `:shared:resources`: add `paywall_subhead_{chat_cap,reply_cap,post_cap,edit,radius,username}`; set `paywall_benefit_no_ads` = "Tanpa iklan · badge Premium"; refresh the paywall comment block
+- [x] 1.2 `:shared:resources`: add `paywall_subhead_{chat_cap,reply_cap,post_cap,edit,radius}` (`USERNAME` reuses `username_premium_gate_body`, the docs/03 copy); set `paywall_benefit_no_ads` = "Tanpa iklan · badge Premium"; refresh the paywall comment block
 - [x] 1.3 `PaywallScreen.PaywallHero`: an exhaustive per-entry subhead `when` with no `else`; `IMAGE_ATTACH` stays on `paywall_subhead_default` with a comment citing the docs/01 disclosure rule
 - [x] 1.4 `NavKeySerializationTest`: round-trip `PaywallRoute(e)` for every `e` in `PaywallEntry.entries`, and assert the declared value list and its order
 
@@ -131,4 +131,4 @@
   - radius → paywall with the radius headline.
 
   Screenshots go in the PR body (docs/11 §5 DoD)
-- [ ] 9.4 PR title/body current at each phase boundary; body ends with `Closes #493`; archive via `/opsx:archive`
+- [ ] 9.4 PR title/body current at each phase boundary; body ends with `Closes #493`; archive via `/opsx:archive`. At archive, hand-edit the now-stale `## Purpose` of `mobile-cap-upsell-dialog` ("its only consumer today…") and `mobile-paywall` ("reachable from LIKE_CAP, SEARCH_GATE, USERNAME"), since deltas cannot modify Purpose
