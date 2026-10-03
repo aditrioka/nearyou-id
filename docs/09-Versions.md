@@ -6,14 +6,16 @@ Single source of truth for the *why* behind each library version pin in `gradle/
 
 - All third-party library and plugin versions are declared in `gradle/libs.versions.toml`; modules reference them via the typesafe `libs.*` accessor. Raw `group:artifact:version` strings are forbidden (CI lint will enforce when added).
 - Versions are **frozen** at Pre-Phase 1 baseline. Changes happen via deliberate bumps recorded in the table below — not via "latest stable" auto-resolution.
-- Patch bumps (X.Y.**Z**) follow the auto-update flow (Dependabot/Renovate, separate change). Minor (X.**Y**) and major (**X**.Y) bumps require a table row justifying the change.
+- Patch bumps (X.Y.**Z**) are meant to follow an auto-update flow (Dependabot, separate change) — **not yet configured** (no `.github/dependabot.yml` as of 2026-10-03); until it lands, patch bumps ship as manual batches. Minor (X.**Y**) and major (**X**.Y) bumps require a table row justifying the change.
 
 ## Update Cadence
 
-- **Patch**: monthly batch via Dependabot/Renovate PR (auto-merged after CI green).
+- **Patch**: monthly batch — via Dependabot PR once configured (planned); manual batch until then.
 - **Minor**: quarterly review; bump if a new minor unblocks a desired feature or fixes a CVE.
 - **Major**: case-by-case; treated as a real change (proposal + design + tasks).
 - **Security CVE**: immediate, out-of-band.
+
+**Status 2026-10-03:** the 2026-Q3 review in the table's "Next review" column slipped. Every pin was re-verified against Maven Central / Google Maven on 2026-10-03 — current-vs-latest per pin, with sources, in [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 12 (notably pgjdbc 42.7.13, OTel instrumentation 2.31.1-alpha which unblocks Ktor 3.5+, Kotlin 2.4.20, CMP 1.12.1, Flyway 13.x, HikariCP 7.x, kotest 6.x). The Q4 currency batch is pending; this table is updated when it lands.
 
 ## Version Decisions
 

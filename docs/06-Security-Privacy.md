@@ -298,8 +298,8 @@ Neither path bumps `token_version` or deletes refresh tokens — the `token_vers
 | Data | Retention |
 |------|-----------|
 | Active post + location | While the post exists |
-| Soft-deleted post (author) | 30 days then hard delete |
-| Post edit history | 1 year |
+| Soft-deleted post (author) | 30 days then hard delete — **no sweep implemented yet** (not in `/internal/cleanup`; [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 4) |
+| Post edit history | 1 year — **no sweep implemented yet** ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 4) |
 | Session trail (`login_events` — sign-in / refresh: time, IP + /24, device-fingerprint hash, identifier hash) | 90 days auto-purge (the `/internal/cleanup` worker, `login-history-tracking`) |
 | Location on app open | Not stored, request-only |
 | "Hapus Akun" user account | 30-day grace then tombstone (PII null, messages retained with "Akun Dihapus" label) |
@@ -314,7 +314,8 @@ Neither path bumps `token_version` or deletes refresh tokens — the `token_vers
 | CSAM detection archive | 90+ days minimum, until Kominfo + investigation fulfilled |
 | `rejected_identifiers` (under-18 bypass list) | Indefinite (anti-abuse, only identifier hash stored) |
 | `username_history` entries | Indefinite (audit); the `released_at > NOW()` guard enforces a 30-day claim-block window for the old handle |
-| Deletion log (R2) | 7 years (backup integrity) |
+| Data export archive (R2 ZIP, `account-data-export`) | 24 h signed URL; object removal is spec'd as an R2 bucket lifecycle rule that is **not yet provisioned** ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 4) |
+| Deletion log (R2) | 7 years (backup integrity) — **writer not implemented yet** (part of the unbuilt backup pipeline, `docs/04` § Backup Strategy) |
 | Email sent via Resend | 30-day log retention in Resend dashboard |
 | Amplitude event data | 5 years (default tier retention) |
 | Sentry error data | 90 days (default tier) |

@@ -2,7 +2,7 @@
 
 **Status: MUST-READ for every product change** (mobile + backend), at BOTH the proposal phase (`/next-change` / `openspec-propose`) and the implementation phase (`/opsx:apply`) — both skills reference this file. It is the architectural design contract that keeps changes built in different sessions fitting the same skeleton: a change that deviates from a rule here MUST either conform or amend this doc in the same PR with rationale (see § Pattern Registry).
 
-Verified against ecosystem state **2026-06-10** (dated WebSearch per `openspec/project.md` § pre-implementation re-check rules). Re-verify load-bearing claims when this stamp is >1 quarter old.
+Ecosystem-pattern claims verified against ecosystem state **2026-06-10** (dated WebSearch per `openspec/project.md` § pre-implementation re-check rules) — **that stamp is now >1 quarter old; re-verify load-bearing pattern claims at the next substrate change.** Version pins were separately re-verified **2026-10-03** ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 12).
 
 Relationship to other canon:
 - [`openspec/project.md`](../openspec/project.md) — conventions, CI lint rules, delivery workflow (the 16 code-level invariants live there).
@@ -14,7 +14,7 @@ Relationship to other canon:
 
 ## 1. Version currency policy
 
-Current pins that are **correct and current** (per the 2026-06-10 stamp above): CMP `1.11.1`, Navigation 3 (JetBrains) `1.1.1`, Koin `4.2.1`, JetBrains lifecycle `2.10.0`, compileSdk/targetSdk `36`.
+Pins that were current at the 2026-06-10 stamp: CMP `1.11.1`, Navigation 3 (JetBrains) `1.1.1`, Koin `4.2.1`, JetBrains lifecycle `2.10.0`, compileSdk/targetSdk `36`. **As of 2026-10-03 the alignment set has moved** (CMP `1.12.1`, Nav3 `1.1.2`, Koin `4.2.2`, lifecycle `2.11.0`; Kotlin `2.4.20`; plus security/bugfix patches pgjdbc `42.7.13`, OTel instrumentation `2.31.1-alpha`, Sentry `8.59.0`, Tink `1.23.0`) — the per-pin current-vs-latest table with sources is in [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 12 until the Q4 currency batch updates `docs/09`.
 
 **Bumps applied by the 2026-06 holistic audit** (rationale rows in `docs/09-Versions.md`):
 
@@ -29,7 +29,7 @@ Current pins that are **correct and current** (per the 2026-06-10 stamp above): 
 | `lettuce` | 6.5.0 → 6.8.2 | last 6.x line; 7.x is a major (deferred) |
 | `hikaricp` | 6.3.2 → 6.3.3 | last 6.x patch; 7.x deferred |
 
-**Planned upgrades (deliberate, NOT yet)** — each is a real change with its own migration pass, not a casual bump: Kotlin `2.4.0` (stable context parameters, rich-errors preview; let CMP/Koin/kotest soak first), AGP `8.13.x` then the AGP 9 migration (new DSL; legacy DSL removed in AGP 10, H2 2026), kotest `6.x` (breaking: InstancePerRoot, table-testing artifact split — 118 backend test files affected), Flyway `12.x`, HikariCP `7.x`, Lettuce `7.x`, DataStore `1.2.1` KMP (only when a multiplatform prefs need appears; tokens stay Keychain on iOS — DataStore is plaintext).
+**Planned upgrades (deliberate, NOT yet)** — each is a real change with its own migration pass, not a casual bump: Kotlin `2.4.0` (stable context parameters, rich-errors preview; let CMP/Koin/kotest soak first), AGP `8.13.x` then the AGP 9 migration (new DSL; legacy DSL removed in AGP 10, H2 2026), kotest `6.x` (breaking: InstancePerRoot, table-testing artifact split — 118 backend test files affected), Flyway `13.x` (upstream skipped straight past 12 by 2026-10), HikariCP `7.x`, Lettuce `7.x`, DataStore `1.2.1` KMP (only when a multiplatform prefs need appears; tokens stay Keychain on iOS — DataStore is plaintext).
 
 Rules:
 1. Version changes only via `gradle/libs.versions.toml`; authoritative update cadence + per-pin rationale log: [`docs/09-Versions.md`](09-Versions.md) § Pinning Policy.
