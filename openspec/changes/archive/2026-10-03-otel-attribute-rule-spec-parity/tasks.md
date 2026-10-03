@@ -87,10 +87,10 @@
 
 ## 7. Archive (same branch, same PR)
 
-- [ ] 7.1 `openspec archive otel-attribute-rule-spec-parity --yes`, then:
+- [x] 7.1 `openspec archive otel-attribute-rule-spec-parity --yes`, then:
   - `openspec validate --specs observability-otel-foundation --strict` green;
   - confirm no "TBD - created by archiving" Purpose.
-- [ ] 7.2 PR body current, with four separate closing keywords (`Closes #177`, `Closes #178`, `Closes #179`, `Closes #180`).
+- [x] 7.2 PR body current, with four separate closing keywords (`Closes #177`, `Closes #178`, `Closes #179`, `Closes #180`).
 
 ## 8. Final-review round 1 (four sub-agent lenses; qodo unavailable — subscription inactive)
 
