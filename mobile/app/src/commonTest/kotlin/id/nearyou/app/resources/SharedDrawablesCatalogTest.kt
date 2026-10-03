@@ -23,9 +23,10 @@ import kotlin.test.assertEquals
  * are accessible via CMP Resources" (mobile-home-shell-redesign task 2.1 / D4). The CMP Resources
  * codegen generates a `Res.drawable.*` accessor ONLY for a vector drawable present in
  * `composeResources/drawable/`, so a missing or renamed asset makes this file fail to COMPILE (a
- * stronger guard than a runtime check) — exactly as `SharedStringsCatalogTest` guards the string
- * catalog. Covers the bottom-nav (Home / Notifications / Profile, outlined + filled), the composer
- * action (add), the composer privacy-note shield (verified_user, mobile-mockup-visual-conformance),
+ * stronger guard than a runtime check), the same pin `SharedStringsCatalogTest` keeps for its
+ * retained-but-unrendered strings. Covers the bottom-nav (Home / Notifications / Profile, outlined +
+ * filled), the composer action (add), the composer privacy-note shield (verified_user,
+ * mobile-mockup-visual-conformance),
  * and the post-card affordances (location / like outlined + filled / reply).
  * NO feed-tab icon drawable is required — the feed tabs are text-only (D10).
  */

@@ -197,12 +197,12 @@ The mobile app SHALL model the screen state as a Compose-free `ProfileUiState` (
 
 ### Requirement: All profile copy is sourced via shared resources
 
-Every user-facing string on the profile surface (the counts labels, the Premium badge label, the follow/unfollow labels, the kebab items, the block confirmation modal copy, the report categories + note placeholder, the toasts, the not-found / error / loading copy) SHALL be sourced via `:shared:resources` `stringResource(Res.string.<name>)` in single-language Bahasa Indonesia. No hardcoded UI string literal SHALL appear in the profile source. `SharedStringsCatalogTest` SHALL reference each new accessor and bump its declared-count assertion.
+Every user-facing string on the profile surface (the counts labels, the Premium badge label, the follow/unfollow labels, the kebab items, the block confirmation modal copy, the report categories + note placeholder, the toasts, the not-found / error / loading copy) SHALL be sourced via `:shared:resources` `stringResource(Res.string.<name>)` in single-language Bahasa Indonesia. No hardcoded UI string literal SHALL appear in the profile source. Each new key SHALL be covered by `SharedStringsCatalogTest`, which parses the declared keys from `strings.xml` and asserts they match the generated `Res.allStringResources` key set 1:1 (no per-change list or count edit).
 
 #### Scenario: No hardcoded UI strings on the profile surface
 
 - **WHEN** the `screens/profile/` + `profile/` sources are inspected
-- **THEN** no hardcoded UI string literal appears AND every user-facing string resolves from a `Res.string` accessor AND `SharedStringsCatalogTest` references the new keys with an updated count
+- **THEN** no hardcoded UI string literal appears AND every user-facing string resolves from a `Res.string` accessor AND `SharedStringsCatalogTest` passes (each new key is declared in `strings.xml` with a generated `Res.string` accessor)
 
 ### Requirement: Profile Koin wiring reuses the shared client
 
