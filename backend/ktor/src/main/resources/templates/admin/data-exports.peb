@@ -3,6 +3,7 @@
 {% block title %}Data Export Queue — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>Data Export Queue</h2>
 <p class="pg-sub">data_export_requests — UU PDP data-portability export jobs. Delivery is via the in-app data_export_ready notification + Resend email. The panel orchestrates STATUS only; the archive contents, object key, and signed download URL are never shown (the export is the user's own data, delivered only to them via a short-lived signed link).</p>
 
@@ -43,7 +44,7 @@
 {% include "data-exports-table.peb" %}
 
 <div class="banner info">
-    <span class="ms">info</span>
+    {{ icon("info") }}
     <span>The download link is short-lived; an admin never sees the archive contents — only the job status. Trigger a manual re-run only when the scheduler failed or stalled: it requires a reason and a confirmation, runs the export through the producer pipeline, and writes an audit-log row.</span>
 </div>
 {% endblock %}

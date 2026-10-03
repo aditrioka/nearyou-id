@@ -1,3 +1,4 @@
+{% import "icons.peb" %}
 {# Swappable CSAM detection-log fragment. Rendered standalone for HTMX requests
    (HX-Request: true) and {% include %}d by csam-log.peb for full-page navigation.
    The #csam-log-table id is the hx-target swapped in place by the filter form, the
@@ -64,7 +65,7 @@
                           hx-confirm="Recording a Kominfo filing releases this preservation row to the purge worker after its 90-day deadline. Continue?">
                         <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
                         <input type="text" name="kominfo_report_id" maxlength="200" placeholder="Kominfo report id (required)" required aria-label="Kominfo report id">
-                        <button type="submit" class="btn dangert sm"><span class="ms">gavel</span>File Kominfo</button>
+                        <button type="submit" class="btn dangert sm">{{ icon("gavel") }}File Kominfo</button>
                     </form>
                 {% endif %}
                 </td>
@@ -83,7 +84,7 @@
                             class="btn outl sm"
                             hx-post="{{ row.decryptAction }}"
                             hx-target="#csam-meta-{{ row.id }}"
-                            hx-swap="innerHTML"><span class="ms">key</span>Decrypt metadata</button>
+                            hx-swap="innerHTML">{{ icon("key") }}Decrypt metadata</button>
                 {% else %}
                     <span class="muted">No encrypted metadata on this row.</span>
                 {% endif %}

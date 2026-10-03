@@ -1,3 +1,4 @@
+{% import "icons.peb" %}
 {# Swappable hard-delete-queue fragment. Rendered standalone for HTMX requests
    (HX-Request: true) and {% include %}d by deletion-requests.peb for full-page
    navigation. The #deletion-requests-table id is the hx-target swapped in place.
@@ -62,7 +63,7 @@
                           hx-confirm="Expedite is irreversible — this account will be hard-deleted on the next worker run (≤24h). Continue?">
                         <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
                         <input type="text" name="reason" maxlength="200" placeholder="Reason (required)" required aria-label="Expedite reason">
-                        <button type="submit" class="btn dangert sm"><span class="ms">bolt</span>Expedite now</button>
+                        <button type="submit" class="btn dangert sm">{{ icon("bolt") }}Expedite now</button>
                     </form>
                 {% endif %}
                 </td>

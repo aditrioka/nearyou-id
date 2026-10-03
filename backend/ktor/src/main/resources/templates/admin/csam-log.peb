@@ -3,6 +3,7 @@
 {% block title %}CSAM Detection Log — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>CSAM Detection Log</h2>
 <p class="pg-sub">csam_detection_archive — legal-preservation record (one row per matched image). Image content is NEVER rendered here; only the image hash + on-demand, audit-logged decrypted metadata. The takedown handler, the Kominfo filing, and every metadata decrypt require role admin+ and a valid CSRF token, and are audit-logged.</p>
 
@@ -11,7 +12,7 @@
    HTMX swap refreshes it after a takedown/Kominfo write. #}
 {% if pendingCount > 0 %}
 <div class="banner err" style="margin-top:0;">
-    <span class="ms">gpp_maybe</span>
+    {{ icon("gpp_maybe") }}
     <span><b>{{ pendingCount }} match{% if pendingCount != 1 %}es{% endif %} with no Kominfo filing yet.</b> Review and file immediately — SOP target: same business day. Recording a filing releases the row to the daily purge worker after its 90-day deadline.</span>
 </div>
 {% endif %}
@@ -21,7 +22,7 @@
    hx-confirm guards the irreversible action. The full-page (no-JS) render carries
    `csrfToken`; the HTMX-fragment render relies on the layout's configRequest hook. #}
 <div class="cardlet">
-    <h4><span class="ms">bolt</span>Admin-triggered handler (MVP path)</h4>
+    <h4>{{ icon("bolt") }}Admin-triggered handler (MVP path)</h4>
     <form class="filters" style="margin-top:8px;"
           action="/admin/csam/takedown"
           method="POST"
@@ -38,7 +39,7 @@
             <span>image_hash (from CF email)</span>
             <input type="text" name="image_hash" placeholder="matched image hash" required aria-label="image_hash">
         </label>
-        <button type="submit" class="btn danger"><span class="ms">bolt</span>Invoke takedown handler</button>
+        <button type="submit" class="btn danger">{{ icon("bolt") }}Invoke takedown handler</button>
     </form>
     <p>Runs atomically: tombstone post → permanent ban + token_version bump → cascade-tombstone the uploader's other posts → AES-256-GCM metadata archive → Kominfo report queue. Fully audit-logged (before/after state). A wrong image_id with no live upload archives only (no ban/cascade).</p>
 </div>
@@ -80,14 +81,14 @@
             <span>To (UTC)</span>
             <input type="date" name="to" value="{{ filters.to | default('') }}">
         </label>
-        <button type="submit" class="btn filled"><span class="ms">filter_alt</span>Filter</button>
+        <button type="submit" class="btn filled">{{ icon("filter_alt") }}Filter</button>
     </form>
 </div>
 
 {% include "csam-log-table.peb" %}
 
 <div class="banner info">
-    <span class="ms">info</span>
+    {{ icon("info") }}
     <span>Dedup is by <code>image_hash</code> (ON CONFLICT enriches <code>cf_match_id</code> without resetting source). Decrypt <code>encrypted_metadata</code> only via the per-row helper — role-gated, and every decrypt is recorded in the audit log. No image bytes are ever stored or rendered.</span>
 </div>
 {% endblock %}
