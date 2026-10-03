@@ -91,6 +91,7 @@ This is the shape the code actually has (2026-10-03 audit § 1: 60 of the files 
 - Prefer `interface` in commonMain + per-platform implementation bound in Koin platform modules. `expect class` is still Beta — reserve expect/actual for top-level functions (e.g., `httpClientEngine()`). [verified kotlinlang expect-actual, current]
 - Kotlin/Native: ObjC *category* members need explicit `import platform.<Framework>.<symbol>` — compile-only, Linux CI can't catch; run `linkDebugFrameworkIosSimulatorArm64` locally when touching iosMain.
 - Permissions, lifecycle bridges, and platform services live behind commonMain interfaces; androidMain/iosMain hold ONLY the actuals + platform wiring (no business logic).
+- **Apple-paid services (2026-10-03, `docs/08` Open Decision #37):** the iOS actual for a capability that needs the paid Apple Developer Program (APNs push, Sign in with Apple, App Attest) MAY ship as an explicit NoOp / null-returning actual (the `IosFcmTokenProvider` → `null` precedent) **with** an `apple-paid` issue and a deferred requirement in the spec (`docs/12` § 3). Every new `expect` still gets an iOS actual; the module must link on iOS (`linkDebugFrameworkIosSimulatorArm64`) and DoD #2 is unchanged.
 
 ### 2.6 Data layer (mobile)
 

@@ -22,7 +22,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | Image Processing & Delivery | Cloudflare Images served via custom subdomain `img.nearyou.id` under the zone |
 | CSAM Detection | Cloudflare CSAM Scanning Tool (free, enabled at zone level, covers Images delivery) |
 | Explicit Content Upfront | Google Cloud Vision Safe Search (blocks adult/violent at upload) |
-| Push Notif | Firebase Cloud Messaging (platform-specific: Android data-only, iOS alert+NSE) |
+| Push Notif | Firebase Cloud Messaging (platform-specific: Android data-only — shipped; iOS alert+NSE — **apple-paid lane**, `08-Roadmap-Risk.md` Open Decision #37) |
 | Transactional Email | Resend (data export links, admin alerts, subscription receipts) |
 | Feature Flags / Remote Config | Firebase Remote Config |
 | Connection Pool | HikariCP (built-in PgBouncer from Supabase). Max pool size 20 per Ktor instance. |
@@ -316,7 +316,7 @@ val connectionString = secretManager.access("${secretPrefix}admin-app-db-connect
 **Mobile client config**:
 - Android build flavors: `staging` (points at `api-staging.nearyou.id`, attestation bypass), `production` (points at `api.nearyou.id`, attestation enforce)
 - iOS **env × build-type build-configuration matrix** (`mobile-ios-build-config-matrix`, mirroring Android's flavor × build-type variants): `Dev Debug`, `Staging Debug`, `Prod Debug`, `Prod Release` — each a committed Xcode build configuration + shared scheme. Each config's `iosApp/Configuration/<Config>.xcconfig` `#include`s its env xcconfig (`Dev`/`Staging`/`Production.xcconfig` — bundle id, `APP_API_BASE_URL`, `ASSETCATALOG_COMPILER_APPICON_NAME`) **and** its CocoaPods-generated `Pods-iosApp.<config>.xcconfig` (debug- or release-typed), so `pod install`'s per-config mapping links the correct Pods. Resolution: `Dev Debug` → `id.nearyou.app.dev` + `localhost:8080` + `AppIcon-Dev`; `Staging Debug` → `.staging` + `api-staging.nearyou.id` + `AppIcon-Staging`; `Prod Debug`/`Prod Release` → `id.nearyou.app` + the fail-fast placeholder API + cobalt `AppIcon`. No `ASSETCATALOG_COMPILER_APPICON_NAME` is hardcoded in `project.pbxproj` (icon resolves per-config from xcconfig).
-- QA testers get the staging flavor via Firebase App Distribution / TestFlight internal; public App Store + Play Store listings ship the production flavor only
+- QA testers get the staging flavor via Firebase App Distribution (Android now) / TestFlight internal (iOS — apple-paid lane); public Play Store (first) and App Store (after the apple-paid lane) listings ship the production flavor only
 
 ### Pre-Launch Development Phase (~19-20 weeks, when staging is bootstrapping)
 
@@ -504,13 +504,13 @@ Client must re-register when: the app first opens after install; the FCM token-r
 
 Max 1 push per 10 seconds per conversation; bursts merge into a user-facing "3 pesan baru dari {username}" (count of messages queued in the window).
 
-### iOS NSE Implementation — DESIGN
+### iOS NSE Implementation — DESIGN (apple-paid lane, Open Decision #37)
 
 - NSE reads the preference from App Group shared UserDefaults (suite `group.id.nearyou.shared`)
 - Rewrites the body if the preference is ON: takes `body_full` from the data payload, truncates to 100 chars
 - Backend sends full content in the `body_full` data field (NSE-only access, not in the default alert body)
 
-### iOS NSE setup checklist (mandatory in iOS Phase 3) — DESIGN
+### iOS NSE setup checklist (mandatory before the iOS release) — DESIGN (apple-paid lane)
 
 - Xcode: App Group capability enabled in both the app target and the NSE target
 - Developer Console: App Group ID registered (`group.id.nearyou.shared`)

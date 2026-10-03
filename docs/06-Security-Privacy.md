@@ -71,7 +71,7 @@ Settings > Privasi > "Pengaturan Data" (user-facing). Toggles apply immediately 
 
 ## Device Attestation — DESIGN
 
-> **Status: DESIGN — no code today.** `:infra:attestation` is unscaffolded, signup does not invoke Play Integrity / App Attest verification, and the `attestation_mode` / `attestation_bypass_google_ids_sha256` Remote Config keys have no consumer in `SignupService.kt` yet. Intended posture for when attestation work begins (post-MVP per `docs/08-Roadmap-Risk.md`).
+> **Status: DESIGN — no code today.** `:infra:attestation` is unscaffolded, signup does not invoke Play Integrity / App Attest verification, and the `attestation_mode` / `attestation_bypass_google_ids_sha256` Remote Config keys have no consumer in `SignupService.kt` yet. **Decided sequencing (2026-10-03, `docs/08` Open Decision #36/#37):** build `:infra:attestation` before the Android release in **`warn` mode** (Play Integrity verdicts recorded, nothing rejected; false-positive data from the seed cohort before anyone is locked out), flip to `enforce` on data; App Attest is apple-paid lane. The posture below is the target `enforce` design.
 
 **Mandatory at registration + sensitive operations**:
 
@@ -105,7 +105,7 @@ Legitimate devices that fail attestation (custom ROM, LineageOS non-root, older 
 
 **Mandatory layers**:
 
-1. **Device attestation mandatory** at registration + sensitive operations (reject list, quotas, QA bypass whitelist: § Device Attestation — DESIGN).
+1. **Device attestation** at registration + sensitive operations — `warn` mode first, `enforce` data-triggered (reject list, quotas, QA bypass whitelist: § Device Attestation — DESIGN; `docs/08` Open Decision #37).
 2. **Per-identifier signup rate limit**: max 3 signup attempts per Google/Apple ID hash per 24 hours; attestation fail + signup attempt from the same identifier → permanent block via `rejected_identifiers`.
 3. **Behavioral flag for new accounts (<7 days)**: write-operation rate limit 50% of normal; attestation re-checked at post creation (lightweight assertion).
 4. **One identifier = 1 active account.** Ban is sticky at the identifier level; Google + Apple = 2 separate identifiers, 2 separate accounts (no linking by design).
@@ -452,6 +452,8 @@ All internal scheduler endpoints are served under `/internal/*` with mandatory O
 ---
 
 ## iOS App Privacy Manifest
+
+> Apple-paid lane (`docs/08` Open Decision #37): the manifest file is authored for free, but the App Store validator / submission step waits for the iOS release.
 
 File: `iosApp/PrivacyInfo.xcprivacy` (required since iOS 17 per Apple; app rejection risk if missing).
 

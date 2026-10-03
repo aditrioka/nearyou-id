@@ -38,6 +38,8 @@ Domain `nearyou.id` terdaftar di Hostinger. Langkah berikut memindah DNS managem
 
 ### 2.1 Apple Developer Program (wajib untuk iOS)
 
+> **Ditunda — apple-paid lane** (keputusan operator 2026-10-03, `08-Roadmap-Risk.md` Open Decision #37). Rilis pertama Android saja. Apple ID gratis + Personal Team sudah cukup untuk simulator dan build on-device selama development (3 device, profil 7 hari); bayar US$99 **sekali** saat lane ini dimulai, tepat sebelum rilis iOS. Item di bawah tetap valid untuk saat itu.
+
 - [ ] Signup Apple Developer account - https://developer.apple.com/programs/enroll
 - [ ] Pilih Individual enrollment (solo founder)
 - [ ] Bayar $99/tahun
@@ -54,6 +56,8 @@ Domain `nearyou.id` terdaftar di Hostinger. Langkah berikut memindah DNS managem
 - APNs `.p8` key location: _________________
 
 ### 2.2 Google Play Console
+
+> **Tier-0 (boleh sebelum gate produksi, Open Decision #36):** daftar sebagai **akun organisasi** (butuh badan usaha + D-U-N-S) — akun organisasi dikecualikan dari syarat closed testing 12 tester × 14 hari yang berlaku untuk akun personal yang dibuat setelah 13 Nov 2023 (support.google.com/googleplay/android-developer/answer/14151465, dicek 2026-10-03).
 
 - [ ] Signup Google Play Console - https://play.google.com/console/signup
 - [ ] Bayar $25 one-time fee (verify harga terkini, bisa beda)
