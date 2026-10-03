@@ -15,7 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.ui.components.LetterAvatar
-import id.nearyou.app.ui.components.postDateLabel
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.post_card_meta_separator
@@ -25,7 +25,7 @@ import org.jetbrains.compose.resources.stringResource
  * One search result card. The shipped search wire carries NO city, distance, or like/reply engagement
  * state, so this is a LIGHTER card than the shared timeline `PostCard`: the author display identity
  * (reusing the SAME `LetterAvatar` + display-name + `@handle` treatments so they cannot drift from the
- * feed card), the post `content`, and the `created_at` date treatment (the existing [postDateLabel] ISO
+ * feed card), the post `content`, and the `created_at` date treatment (the shared [localDateLabel] date
  * helper — true relative formatting stays deferred to `mobile-timeline-relative-timestamp`). NO action
  * row, NO city/distance. PII discipline: the `author_id` UUID and the `rank` score are absent from
  * [SearchHit] (the projection dropped them) so they structurally cannot be rendered. The whole card is
@@ -75,7 +75,7 @@ fun SearchResultCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = postDateLabel(hit.createdAt),
+                            text = localDateLabel(hit.createdAt),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,

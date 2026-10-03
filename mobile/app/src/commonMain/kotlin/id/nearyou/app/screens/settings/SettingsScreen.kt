@@ -31,14 +31,13 @@ import id.nearyou.app.auth.AuthApiClient
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
-import id.nearyou.app.data.accountdeletion.deletionDateLabel
 import id.nearyou.app.data.dataexport.DataExportFlow
-import id.nearyou.app.data.dataexport.exportDeadlineLabel
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.NotificationContentPreference
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
 import id.nearyou.resources.generated.resources.consent_title
@@ -293,7 +292,7 @@ fun SettingsScreen(
             // account-deletion-tombstone — non-blocking restore banner when a deletion is scheduled.
             deletionBanner?.let { banner ->
                 DeletionScheduledBanner(
-                    restoreByDate = deletionDateLabel(banner.scheduledHardDeleteAt),
+                    restoreByDate = localDateLabel(banner.scheduledHardDeleteAt),
                     onCancel = { accountDeletionVm.cancelDeletion() },
                 )
             }
@@ -303,7 +302,7 @@ fun SettingsScreen(
             // affordance (the same LocalUriHandler path the legal row uses) — never persisted, never logged.
             (dataExportState as? DataExportUiState.Ready)?.let { ready ->
                 DataExportReadyBanner(
-                    deadlineDate = exportDeadlineLabel(ready.downloadExpiresAt),
+                    deadlineDate = localDateLabel(ready.downloadExpiresAt),
                     onOpen = { uriHandler.openUri(ready.downloadUrl) },
                 )
             }

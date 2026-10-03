@@ -50,7 +50,6 @@ class SettingsSourceGuardTest {
             "src/commonMain/kotlin/id/nearyou/app/data/dataexport/DataExportApiClient.kt",
             "src/commonMain/kotlin/id/nearyou/app/data/dataexport/DataExportFlow.kt",
             "src/commonMain/kotlin/id/nearyou/app/data/dataexport/DataExportOutcome.kt",
-            "src/commonMain/kotlin/id/nearyou/app/data/dataexport/ExportDeadlineLabel.kt",
             "src/commonMain/kotlin/id/nearyou/app/screens/settings/SettingsDataExportViewModel.kt",
         )
 
