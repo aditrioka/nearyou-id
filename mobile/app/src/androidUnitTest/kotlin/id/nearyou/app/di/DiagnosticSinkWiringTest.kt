@@ -1,7 +1,13 @@
 package id.nearyou.app.di
 
+import id.nearyou.app.auth.AuthRepository
+import id.nearyou.app.auth.FakeGoogleSignInGateway
+import id.nearyou.app.auth.GoogleSignInGateway
+import id.nearyou.app.auth.GoogleSignInResult
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.diagnostics.DiagnosticSink
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
@@ -68,6 +74,8 @@ class DiagnosticSinkWiringTest {
                     single<TokenStore> { InMemoryTokenStore() }
                     single<LocationProvider>(named("deviceLocation")) { StubLocationProvider() }
                     single<LocationPermissionController> { FakeLocationPermissionController() }
+                    single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
+                    single<GoogleSignInGateway> { FakeGoogleSignInGateway(GoogleSignInResult.Failed("ceremony_failed")) }
                     // … plus overrides (allowOverride defaults on in Koin 4.x): a MockEngine client that
                     // returns 400 for the timeline fetches, and the DiagnosticSink replaced by a spy.
                     single<HttpClient> {
@@ -116,6 +124,22 @@ class DiagnosticSinkWiringTest {
             )
         }
 
+    // #492 / mobile-crash-reporting § "Repository diagnostics surface as breadcrumbs": AuthRepository was the
+    // one repository left on the no-op default, so sign-in/sign-up diagnostics never became breadcrumbs.
+    @Test
+    fun mobileModule_wiresAuthRepositoryWithTheRealSink() =
+        runTest {
+            val captured = mutableListOf<String>()
+            val koin = startGraphWithSpy(captured)
+
+            koin.get<AuthRepository>().signInWithGoogle()
+
+            assertTrue(
+                captured.any { it.contains("google_sign_in_failed") },
+                "MobileModule must wire AuthRepository with the real (graph) diagnostic sink, not the no-op default: $captured",
+            )
+        }
+
     @Test
     fun diagnosticLogCallSites_passNoCoordinateNorToken() {
         val repoRoot = findRepoRoot()
@@ -127,6 +151,8 @@ class DiagnosticSinkWiringTest {
                 // load-more diagnostics must stay coordinate-free too (mobile-nearby-timeline-infinite-scroll
                 // security review). The whole-file scan covers every diagnosticLog(...) site, incl. loadMore.
                 "mobile/app/src/commonMain/kotlin/id/nearyou/app/timeline/FollowingTimelineRepository.kt",
+                // Sign-in/sign-up handle the id + access tokens; their diagnostics carry only outcome/cause strings.
+                "mobile/app/src/commonMain/kotlin/id/nearyou/app/auth/AuthRepository.kt",
             )
         // Coordinate / token identifiers that must never reach the diagnostic sink.
         val forbidden = listOf("latitude", "longitude", "lat", "lng", "coord", "token", "Token", "location")

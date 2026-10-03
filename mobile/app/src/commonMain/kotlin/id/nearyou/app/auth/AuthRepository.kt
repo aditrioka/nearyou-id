@@ -59,8 +59,8 @@ class AuthRepository(
     private val tokenStore: TokenStore,
     private val sessionInvalidator: SessionInvalidator,
     // Diagnostic sink for non-user-facing error detail (Google ceremony Failed message,
-    // network cause). Wired to Sentry / OTel when that lands; no-op for now. MUST NOT carry
-    // tokens (none are passed here).
+    // network cause). MobileModule wires the real DiagnosticSink (→ Sentry breadcrumbs); defaults
+    // no-op for tests. MUST NOT carry tokens (none are passed here).
     private val diagnosticLog: (String) -> Unit = {},
     // mobile-crash-reporting — correlate crashes to the signed-in user (opaque JWT `sub` only) on a
     // successful sign-in/signup. Defaults no-op so existing constructions/tests are unaffected;
@@ -108,7 +108,13 @@ class AuthRepository(
      *  next launch reads `null` here. (We do not track the refresh-token expiry client-side;
      *  the strictly-future access-expiry comparison the spec mentions is the Auth plugin's
      *  `loadTokens` concern, not a routing gate.) */
-    override suspend fun isAuthenticated(): Boolean = tokenStore.read() != null
+    override suspend fun isAuthenticated(): Boolean {
+        val tokens = tokenStore.read() ?: return false
+        // Session restore (cold start, RootRouter): sign-in does not re-run, so re-correlate crashes to the
+        // persisted user here (mobile-crash-reporting, #492).
+        decodeJwtSubject(tokens.accessToken)?.let(crashReporter::setUser)
+        return true
+    }
 
     // handleTerminal401 was removed by the 2026-06-10 audit (finding 05-#8): it had no
     // production caller and its KDoc claimed a re-route responsibility that has been

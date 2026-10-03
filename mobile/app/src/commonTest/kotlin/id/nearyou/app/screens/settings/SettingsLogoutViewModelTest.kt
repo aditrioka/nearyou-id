@@ -7,6 +7,7 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStoreSelfUserIdProvider
 import id.nearyou.app.billing.PremiumEntitlementSession
+import id.nearyou.app.diagnostics.FakeCrashReporter
 import id.nearyou.app.network.HttpClientFactory
 import id.nearyou.app.push.FakeFcmTokenProvider
 import id.nearyou.app.screens.paywall.FakePurchaseController
@@ -166,6 +167,23 @@ class SettingsLogoutViewModelTest {
 
             assertNull(store.read())
             assertEquals(1, controller.logOutCount)
+        }
+
+    // #492: the voluntary "Keluar" wipe clears the crash-reporter user too (not only the involuntary
+    // SessionInvalidator path), even when the server revoke fails.
+    @Test
+    fun confirmLogout_clearsTheCrashReporterUser() =
+        runTest {
+            val store = InMemoryTokenStore(TokenPair("at", "rt-6", FUTURE_EPOCH))
+            val crash = FakeCrashReporter()
+            val http = client(store) { throw RuntimeException("network down") }
+            val vm = SettingsViewModel(tokenStore = store, authApi = AuthApiClient(http), crashReporter = crash)
+
+            vm.confirmLogout()
+            vm.loggedOut.first { it }
+
+            assertNull(store.read())
+            assertEquals(1, crash.clearUserCount)
         }
 
     @Test

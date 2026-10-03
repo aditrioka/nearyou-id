@@ -421,6 +421,32 @@ class AuthRepositoryTest {
             assertEquals("user-123", crash.lastUserId)
         }
 
+    // #492: a cold start with a persisted session never re-runs sign-in, so the restore gate re-correlates.
+    @Test
+    fun `isAuthenticated with a persisted session sets the crash-reporter user to the stored sub`() =
+        runTest {
+            val crash = FakeCrashReporter()
+            val store = InMemoryTokenStore(TokenPair(SUB_USER_123_JWT, "rt", accessExpiresAtEpochMillis = 0L))
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), store, crashReporter = crash) {
+                    respond("", HttpStatusCode.OK, JSON_HEADERS)
+                }
+            assertEquals(true, repo.isAuthenticated())
+            assertEquals("user-123", crash.lastUserId)
+        }
+
+    @Test
+    fun `isAuthenticated with no session sets no crash-reporter user`() =
+        runTest {
+            val crash = FakeCrashReporter()
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.UserCancelled), crashReporter = crash) {
+                    respond("", HttpStatusCode.OK, JSON_HEADERS)
+                }
+            assertEquals(false, repo.isAuthenticated())
+            assertNull(crash.lastUserId)
+        }
+
     @Test
     fun `session invalidation clears the crash-reporter user`() =
         runTest {

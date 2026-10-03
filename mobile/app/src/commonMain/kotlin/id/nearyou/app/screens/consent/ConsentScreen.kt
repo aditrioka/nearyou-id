@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -27,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.ConsentOutcome
 import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.diagnostics.CrashReportingController
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.consent_ads_desc
 import id.nearyou.resources.generated.resources.consent_ads_label
@@ -43,6 +45,7 @@ import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.loading
 import id.nearyou.resources.generated.resources.signin_error_token_invalid
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 
 /**
@@ -73,6 +76,9 @@ fun ConsentScreen(
 ) {
     val consentFlow = koinInject<ConsentFlow>()
     val snapshotStore = koinInject<ConsentSnapshotStore>()
+    // Fail-safe (getOrNull) so a screen test that does not bind the controller still composes.
+    val koin = getKoin()
+    val crashController = remember(koin) { koin.getOrNull<CrashReportingController>() }
 
     // Entry-scoped state holder (docs/11 §2.2): the three toggles + outcome + in-flight flag now live in
     // the ViewModel, so the toggle selections survive a configuration change and the PATCH (on
@@ -80,7 +86,14 @@ fun ConsentScreen(
     // BEFORE the `done` one-shot (reusing the handleConsentTerminalOutcome decision).
     val viewModel =
         viewModel {
-            ConsentViewModel(consentFlow, snapshotStore, initialAnalytics, initialCrash, initialAdsPersonalization)
+            ConsentViewModel(
+                consentFlow,
+                snapshotStore,
+                initialAnalytics,
+                initialCrash,
+                initialAdsPersonalization,
+                onCrashConsentChanged = { crashController?.applyConsent(it) },
+            )
         }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
