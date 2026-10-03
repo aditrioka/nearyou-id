@@ -112,18 +112,18 @@
   - `PostDetailSourceGuardTest`: `PostDetailUiState.kt` declares no `resetHours` / `LikeCap` / `ReplyCap`;
   - `PostCreationSourceGuardTest`: `PostCreationBanner` has no rate-limit member;
   - both: `strings.xml` has no `post_detail_reset_hours` / `post_create_error_rate_limited` and declares `post_create_cap_upsell` / `chat_cap_upsell`
-- [ ] 8.13 iosTest (K/N-legal test names):
+- [x] 8.13 iosTest (K/N-legal test names):
   - `ChatThreadReportFlowIosTest` (or a sibling `ChatThread*FlowIosTest`): the chat `RateLimited` cap dialog renders on K/N;
   - `PaywallFlowIosTest`: one new-entry headline (e.g. `CHAT_CAP`) renders
 
 ## 9. Verification & lifecycle
 
-- [ ] 9.1 Gate (docs/13):
+- [x] 9.1 Gate (docs/13):
   - `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
   - `:mobile:app:ktlintCheck :mobile:app:detekt :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest`
   - `:mobile:app:iosSimulatorArm64Test` (pre-existing #348 drift: compare against an `origin/main` baseline)
-- [ ] 9.2 Mockups: render frames 17 + 18 and run `dev/scripts/mockup-measure.sh dev/mockups/nearyou-screens-mockup.html 18`; confirm the new dialog instances match frame 18 (same component)
-- [ ] 9.3 Manual verify (verify-loop §B + §C, local `verify36` emulator + iOS simulator) with a temporary uncommitted Koin harness:
+- [x] 9.2 Mockups: render frames 17 + 18 and run `dev/scripts/mockup-measure.sh dev/mockups/nearyou-screens-mockup.html 18`; confirm the new dialog instances match frame 18 (same component)
+- [x] 9.3 Manual verify (verify-loop §B + §C, local `verify36` emulator + iOS simulator) with a temporary uncommitted Koin harness:
   - chat `429` → dialog → paywall headline;
   - post-detail reply `429` → dialog → paywall;
   - composer `429` → dialog;
