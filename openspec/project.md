@@ -44,37 +44,52 @@ Version pinning lives in the *Version Pinning Decisions Log* (Pre-Phase 1). Full
 
 ## Module Structure (dependency isolation)
 
-**Currently scaffolded** (canonical source: [`settings.gradle.kts`](../settings.gradle.kts)):
+**Currently scaffolded** (canonical source: [`settings.gradle.kts`](../settings.gradle.kts); one-line descriptions in [`dev/module-descriptions.txt`](../dev/module-descriptions.txt), which also generates the root README module list — 26 modules as of 2026-10-03):
 
 ```
 :core:domain              (pure Kotlin, zero vendor deps)
 :core:data                (interfaces + DTOs)
-:shared:tmp               (KMP scaffold placeholder)
+:shared:tmp               (KMP wizard placeholder — DEAD, zero consumers; removal proposed in the 2026-10-03 audit § 1)
+:shared:resources         (CMP Resources: brand colors/typography/logo + Bahasa Indonesia strings)
 :shared:distance          (renderDistance, JVM target)
 :infra:supabase           (DB, auth, realtime broadcast publish)
 :infra:redis              (Upstash rate limit + cache)
 :infra:fcm                (FCM push dispatch)
 :infra:oidc               (internal endpoint OIDC verification)
 :infra:otel               (OpenTelemetry tracing — wired 2026-05-07)
+:infra:remote-config      (Firebase Remote Config: moderation wordlists + platform-wide flags, PR #70)
+:infra:openai-moderation  (OpenAI Moderation Layer-3 client, PR #87)
+:infra:cloudflare-images  (Cloudflare Images upload via raw Ktor client, PR #325)
+:infra:cloud-vision       (Cloud Vision Safe Search `ImageModerator`, PR #325)
+:infra:r2                 (Cloudflare R2 object store + presigned URLs via aws-sdk-kotlin, PR #356)
+:infra:resend             (Resend transactional email via raw Ktor client, PR #356)
+:infra:revenuecat-api     (backend RevenueCat v1 promotional-grant client, PR #353)
+:infra:sentry-jvm         (backend Sentry Java error capture, PR #483)
+:infra:supabase-realtime  (mobile KMP Supabase Realtime SUBSCRIBE seam for chat, PR #247)
+:infra:sentry             (mobile KMP Sentry crash reporting, PR #299)
+:infra:revenuecat         (mobile KMP RevenueCat purchase seam, PR #309)
+:infra:amplitude          (mobile KMP consent-gated Amplitude HTTP tracker, PR #367)
+:infra:admob              (mobile KMP Google Mobile Ads + UMP seam, PR #422)
 :backend:ktor             (routes + Koin wiring)
-:mobile:app               (KMP mobile app — current state: see § Mobile-First to Full-Demo Priority below)
-:lint:detekt-rules        (custom Detekt rules)
+:mobile:app               (KMP mobile app — full demo loop shipped; see § Mobile-First to Full-Demo Priority below)
+:lint:detekt-rules        (10 custom Detekt rules, activation test-enforced)
 ```
 
-**Planned modules** (described in `docs/04-Architecture.md` § Dependency Isolation Pattern as future architecture; **not yet scaffolded** — do NOT `import` from these):
+**Module provenance table** (historical plan from `docs/04-Architecture.md` § Dependency Isolation Pattern; status per row — do NOT `import` from a `DESIGN` row; shipped modules not listed here appear in the block above):
 
 | Module | Status | Trigger to scaffold |
 |---|---|---|
 | `:shared:resources` | shipped | Mobile #2/#2.5: `shared-resources-moko-bootstrap` ([PR #116](https://github.com/aditrioka/nearyou-id/pull/116)) shipped Moko Resources, swapped to **Compose Multiplatform Resources** via `shared-resources-swap-to-cmp-resources` ([PR #119](https://github.com/aditrioka/nearyou-id/pull/119)). Ships `Res` codegen + `NearYouColorScheme` (light + mechanically-derived dark, 30+ M3 roles) + `NearYouColors` extension-property surface (coral location pin, amber Premium badge, semantic success/warning/link) via `LocalNearYouColors` CompositionLocal + `NearYouTypography` (Plus Jakarta Sans variable) + brand logo variants + 10 foundational Bahasa Indonesia strings |
-| `:infra:r2` + `:infra:cloudflare-images` | DESIGN | Image upload feature (Phase 2/3) |
-| `:infra:revenuecat` | DESIGN | Premium subscription billing |
-| `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27, not yet modular) |
+| `:infra:cloudflare-images` + `:infra:cloud-vision` | shipped | `premium-image-upload-pipeline` ([PR #325](https://github.com/aditrioka/nearyou-id/pull/325)) — upload + Safe Search moderation |
+| `:infra:r2` | shipped | `account-data-export` ([PR #356](https://github.com/aditrioka/nearyou-id/pull/356)) — export archives + presigned URLs; also the planned backup/deletion-log bucket |
+| `:infra:revenuecat` | shipped | `mobile-paywall-screen` ([PR #309](https://github.com/aditrioka/nearyou-id/pull/309)); backend grant client `:infra:revenuecat-api` via `referral-grant-worker` ([PR #353](https://github.com/aditrioka/nearyou-id/pull/353)) |
+| `:infra:resend` | shipped | `account-data-export` ([PR #356](https://github.com/aditrioka/nearyou-id/pull/356)) — raw Ktor client (Resend has no JVM SDK) |
 | `:infra:sentry` | SHIPPED | Mobile crash reporting via the Sentry KMP SDK — `mobile-sentry-crash-reporting` ([PR #299](https://github.com/aditrioka/nearyou-id/pull/299)); mobile-only, Android-gated |
 | `:infra:sentry-jvm` | SHIPPED | Backend error reporting via the Sentry Java SDK — `backend-sentry-error-capture` ([PR #483](https://github.com/aditrioka/nearyou-id/pull/483)); JVM, consumed by `:backend:ktor` |
-| `:infra:amplitude` | DESIGN | Consent-gated analytics |
+| `:infra:amplitude` | shipped | `mobile-amplitude-analytics` ([PR #367](https://github.com/aditrioka/nearyou-id/pull/367)) — consent-gated client-side HTTP V2 tracker |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
 | `:infra:remote-config` | SHIPPED | Firebase Remote Config wordlist + threshold delivery for `content-moderation-keyword-lists` (PR #70). DB-backed flags (`premium_*_cap_override`) remain the per-user override surface; Remote Config is the platform-wide tunable surface. |
-| `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
+| `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; backup posture = Supabase daily backups + the planned `pg_dump` job (see § Key Architectural Decisions → Backups) |
 | `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast (`SupabaseBroadcastChatClient`); Ktor WS path retired |
 
 Backend packages inside `:backend:ktor` (regenerate from `find backend/ktor/src/main/kotlin/id/nearyou/app -type d -maxdepth 1` if drift suspected): `auth`, `block`, `chat`, `common`, `config`, `dev`, `engagement`, `follow`, `guard`, `health`, `internal`, `lint`, `moderation`, `notifications`, `post`, `search`, `timeline`, `user`, `admin` (current admin-surface state: see § Mobile-First to Full-Demo Priority). Details + `ChatRealtimeClient` interface in [`docs/04-Architecture.md`](../docs/04-Architecture.md).
@@ -91,11 +106,11 @@ Rule: **no vendor SDK import outside `:infra:*`**. Domain/data code depends only
 
 **New direction (operator decision, 2026-06-14): Balanced — no single priority.** With the mobile demo loop complete, `/next-change` picks the **highest-value item by judgment each cycle** across the three live lanes — **admin** (resume the remaining surfaces, [`docs/07-Operations.md`](../docs/07-Operations.md) § Admin Panel + the admin mockup board, `docs/11` § 3.6), **Phase 4 / premium** (premium / billing / image upload — the revenue loop, [`docs/02-Product.md`](../docs/02-Product.md) + [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.md)), and **mobile follow-ups** (polish + deferred items below) — **surveying in-flight PRs first to dedup** (parallel sessions run concurrently). No lane is privileged; backend hardening stays blocker-only (security invariant gap, pre-launch test requirement, or a dependency for active work). Spec sources per mobile change: [`docs/02-Product.md`](../docs/02-Product.md), [`docs/03-UX-Design.md`](../docs/03-UX-Design.md), [`docs/04-Architecture.md`](../docs/04-Architecture.md).
 
-**Mobile (`:mobile:app`) — full demo loop shipped.** Real Compose Multiplatform app (Navigation 3 + Koin DI + Material 3 light/dark theme + `:shared:resources` CMP Resources). The authenticated core loop is now demoable end-to-end: Google sign-in → age gate → browse Nearby/Following/Global → create a post → open post detail → like/reply → view a profile → follow → see notifications → 1:1 chat → premium-gated search → settings. Built via analytics-consent ([#157](https://github.com/aditrioka/nearyou-id/pull/157)), post-detail ([#159](https://github.com/aditrioka/nearyou-id/pull/159)), bottom-nav sections + notifications ([#162](https://github.com/aditrioka/nearyou-id/pull/162) — Home/Notifikasi/Profil bottom sections, feeds as top tabs), then the five critical-path picks ([#245](https://github.com/aditrioka/nearyou-id/pull/245)–[#249](https://github.com/aditrioka/nearyou-id/pull/249), see the live menu below). **Remaining mobile work is follow-up polish, not demo-blocking** — fold in opportunistically under the balanced cadence (the polish list below + in-flight follower/following lists [#298](https://github.com/aditrioka/nearyou-id/pull/298), Sentry KMP [#299](https://github.com/aditrioka/nearyou-id/pull/299)).
+**Mobile (`:mobile:app`) — full demo loop shipped.** Real Compose Multiplatform app (Navigation 3 + Koin DI + Material 3 light/dark theme + `:shared:resources` CMP Resources). The authenticated core loop is now demoable end-to-end: Google sign-in → age gate → browse Nearby/Following/Global → create a post → open post detail → like/reply → view a profile → follow → see notifications → 1:1 chat → premium-gated search → settings. Built via analytics-consent ([#157](https://github.com/aditrioka/nearyou-id/pull/157)), post-detail ([#159](https://github.com/aditrioka/nearyou-id/pull/159)), bottom-nav sections + notifications ([#162](https://github.com/aditrioka/nearyou-id/pull/162) — Home/Notifikasi/Profil bottom sections, feeds as top tabs), then the five critical-path picks ([#245](https://github.com/aditrioka/nearyou-id/pull/245)–[#249](https://github.com/aditrioka/nearyou-id/pull/249), see the live menu below). **Remaining mobile work is follow-up polish, not demo-blocking** — fold in opportunistically under the balanced cadence (the polish list below; follower/following lists [#298](https://github.com/aditrioka/nearyou-id/pull/298) and Sentry KMP [#299](https://github.com/aditrioka/nearyou-id/pull/299) have since shipped).
 
-**Admin (`:backend:ktor` `admin` package) — active again under the balanced cadence** (no longer deferred behind mobile). The admin surface is well past scaffold: schema V16, Argon2id + TOTP login, audit-log viewer, suspend/unban, report-queue triage + in-row resolution actions (`admin-report-queue-resolution-actions` shipped + archived 2026-06-08), rejected-identifiers viewer, block registry, privacy-flip monitor; further surfaces in flight (operational dashboard [#296](https://github.com/aditrioka/nearyou-id/pull/296), reserved-usernames editor [#294](https://github.com/aditrioka/nearyou-id/pull/294), chat-message redaction [#290](https://github.com/aditrioka/nearyou-id/pull/290), feature-flag editor [#297](https://github.com/aditrioka/nearyou-id/pull/297)); UI intentionally unstyled so far. Spec source is [`docs/07-Operations.md`](../docs/07-Operations.md) § Admin Panel; the **canonical visual target for every admin surface (existing + planned) is the admin mockup board** (`dev/mockups/nearyou-admin-mockup.html`, binding rule `docs/11` § 3.6).
+**Admin (`:backend:ktor` `admin` package) — active again under the balanced cadence** (no longer deferred behind mobile). The admin surface is well past scaffold: schema V16, Argon2id + TOTP login, audit-log viewer, suspend/unban, report-queue triage + in-row resolution actions (`admin-report-queue-resolution-actions` shipped + archived 2026-06-08), rejected-identifiers viewer, block registry, privacy-flip monitor, operational dashboard ([#296](https://github.com/aditrioka/nearyou-id/pull/296)), reserved-usernames editor ([#294](https://github.com/aditrioka/nearyou-id/pull/294)), chat-message redaction ([#290](https://github.com/aditrioka/nearyou-id/pull/290)), feature-flag editor ([#297](https://github.com/aditrioka/nearyou-id/pull/297)), appeal review, data-export + hard-delete queues, referral grants, username oversight, CSAM log — 19 of the 23 board frames shipped (2026-09-25 review). The board's design language landed via `admin.css` (PRs #226/#241); surfaces built after 2026-06-14 still carry unstyled frame-specific classes ([#501](https://github.com/aditrioka/nearyou-id/issues/501), [#282](https://github.com/aditrioka/nearyou-id/issues/282)). Spec source is [`docs/07-Operations.md`](../docs/07-Operations.md) § Admin Panel; the **canonical visual target for every admin surface (existing + planned) is the admin mockup board** (`dev/mockups/nearyou-admin-mockup.html`, binding rule `docs/11` § 3.6).
 
-**Phase 4 / premium (`:backend:ktor` + `:mobile:app`) — now in scope under the balanced cadence.** The revenue loop: premium subscription status + entitlements, billing, image upload. In flight: RevenueCat subscription webhook + status backend ([#291](https://github.com/aditrioka/nearyou-id/pull/291)), premium username customization ([#301](https://github.com/aditrioka/nearyou-id/pull/301)), premium post editing ([#304](https://github.com/aditrioka/nearyou-id/pull/304)). Spec sources: [`docs/02-Product.md`](../docs/02-Product.md) (freemium/Premium feature set) + [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.md) (Phase 4 ordering + open decisions).
+**Phase 4 / premium (`:backend:ktor` + `:mobile:app`) — now in scope under the balanced cadence.** The revenue loop: premium subscription status + entitlements, billing, image upload. Shipped since: RevenueCat subscription webhook + status backend ([#291](https://github.com/aditrioka/nearyou-id/pull/291)), premium username customization ([#301](https://github.com/aditrioka/nearyou-id/pull/301)), premium post editing ([#304](https://github.com/aditrioka/nearyou-id/pull/304)), paywall ([#309](https://github.com/aditrioka/nearyou-id/pull/309)), image upload pipeline ([#325](https://github.com/aditrioka/nearyou-id/pull/325)/[#354](https://github.com/aditrioka/nearyou-id/pull/354)), entitlement lifecycle ([#512](https://github.com/aditrioka/nearyou-id/pull/512)), cap-upsell parity ([#515](https://github.com/aditrioka/nearyou-id/pull/515)). Spec sources: [`docs/02-Product.md`](../docs/02-Product.md) (freemium/Premium feature set) + [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.md) (Phase 4 ordering + open decisions).
 
 ### Mobile critical path to full-demo (COMPLETE — all 5 shipped 2026-06-13)
 
@@ -304,7 +319,7 @@ The pre-archive smoke is what makes the squash-merge safe (the `like-rate-limit`
 - **Chat write path is Ktor-authoritative**: client writes REST → Ktor persists → Ktor broadcasts. No direct Postgres Changes subscription from clients.
 - **CSAM trigger path**: Cloudflare CSAM Tool does NOT emit webhooks. MVP path is admin-triggered from the Admin Panel after CF's daily email; Phase 2 adds an optional CF Worker forwarder.
 - **18+ only + under-18 blocklist** (`rejected_identifiers`); no account recovery by design.
-- **Backups**: Supabase PITR 7-day + weekly `pg_dump` encrypted via `age` to R2 + append-only deletion log (7-year retention).
+- **Backups**: Supabase Pro **daily backups (7-day retention, included)** + weekly `pg_dump` encrypted via `age` to R2 + append-only deletion log (7-year retention). PITR is a **paid add-on** (US$100/month per 7 days, supabase.com/pricing 2026-10-03), not included — adopt only if an RPO under 24 h is required. **Status 2026-10-03: the `pg_dump`/`age`/deletion-log pipeline is designed (`docs/04` § Backup Strategy) but has zero implementation; see [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 8.**
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Status: MUST-READ for every product change** (mobile + backend), at BOTH the proposal phase (`/next-change` / `openspec-propose`) and the implementation phase (`/opsx:apply`) — both skills reference this file. It is the architectural design contract that keeps changes built in different sessions fitting the same skeleton: a change that deviates from a rule here MUST either conform or amend this doc in the same PR with rationale (see § Pattern Registry).
 
-Verified against ecosystem state **2026-06-10** (dated WebSearch per `openspec/project.md` § pre-implementation re-check rules). Re-verify load-bearing claims when this stamp is >1 quarter old.
+Ecosystem-pattern claims verified against ecosystem state **2026-06-10** (dated WebSearch per `openspec/project.md` § pre-implementation re-check rules) — **that stamp is now >1 quarter old; re-verify load-bearing pattern claims at the next substrate change.** Version pins were separately re-verified **2026-10-03** ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 12).
 
 Relationship to other canon:
 - [`openspec/project.md`](../openspec/project.md) — conventions, CI lint rules, delivery workflow (the 16 code-level invariants live there).
@@ -14,7 +14,7 @@ Relationship to other canon:
 
 ## 1. Version currency policy
 
-Current pins that are **correct and current** (per the 2026-06-10 stamp above): CMP `1.11.1`, Navigation 3 (JetBrains) `1.1.1`, Koin `4.2.1`, JetBrains lifecycle `2.10.0`, compileSdk/targetSdk `36`.
+Pins that were current at the 2026-06-10 stamp: CMP `1.11.1`, Navigation 3 (JetBrains) `1.1.1`, Koin `4.2.1`, JetBrains lifecycle `2.10.0`, compileSdk/targetSdk `36`. **As of 2026-10-03 the alignment set has moved** (CMP `1.12.1`, Nav3 `1.1.2`, Koin `4.2.2`, lifecycle `2.11.0`; Kotlin `2.4.20`; plus security/bugfix patches pgjdbc `42.7.13`, OTel instrumentation `2.31.1-alpha`, Sentry `8.59.0`, Tink `1.23.0`) — the per-pin current-vs-latest table with sources is in [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 12 until the Q4 currency batch updates `docs/09`.
 
 **Bumps applied by the 2026-06 holistic audit** (rationale rows in `docs/09-Versions.md`):
 
@@ -29,7 +29,7 @@ Current pins that are **correct and current** (per the 2026-06-10 stamp above): 
 | `lettuce` | 6.5.0 → 6.8.2 | last 6.x line; 7.x is a major (deferred) |
 | `hikaricp` | 6.3.2 → 6.3.3 | last 6.x patch; 7.x deferred |
 
-**Planned upgrades (deliberate, NOT yet)** — each is a real change with its own migration pass, not a casual bump: Kotlin `2.4.0` (stable context parameters, rich-errors preview; let CMP/Koin/kotest soak first), AGP `8.13.x` then the AGP 9 migration (new DSL; legacy DSL removed in AGP 10, H2 2026), kotest `6.x` (breaking: InstancePerRoot, table-testing artifact split — 118 backend test files affected), Flyway `12.x`, HikariCP `7.x`, Lettuce `7.x`, DataStore `1.2.1` KMP (only when a multiplatform prefs need appears; tokens stay Keychain on iOS — DataStore is plaintext).
+**Planned upgrades (deliberate, NOT yet)** — each is a real change with its own migration pass, not a casual bump: Kotlin `2.4.0` (stable context parameters, rich-errors preview; let CMP/Koin/kotest soak first), AGP `8.13.x` then the AGP 9 migration (new DSL; legacy DSL removed in AGP 10, H2 2026), kotest `6.x` (breaking: InstancePerRoot, table-testing artifact split — 118 backend test files affected), Flyway `13.x` (upstream skipped straight past 12 by 2026-10), HikariCP `7.x`, Lettuce `7.x`, DataStore `1.2.1` KMP (only when a multiplatform prefs need appears; tokens stay Keychain on iOS — DataStore is plaintext).
 
 Rules:
 1. Version changes only via `gradle/libs.versions.toml`; authoritative update cadence + per-pin rationale log: [`docs/09-Versions.md`](09-Versions.md) § Pinning Policy.
@@ -38,28 +38,30 @@ Rules:
 
 ## 2. Mobile architecture contract (`:mobile:app` + `:shared:resources`)
 
-### 2.1 Package layout (target shape)
+### 2.1 Package layout (canonical shape — amended 2026-10-03 to match the shipped code)
 
 ```
 id.nearyou.app/
-  ui/
+  screens/
     shell/          # app shell: root router, section scaffold, bottom nav, tab host
-    components/     # design-system composables shared by ≥2 screens (reuse-first: scan here BEFORE writing a new one)
+    routing/        # NavKeys (sealed interface : NavKey), AppEntryProvider, AppNavSerialization, push-tap routing
     <feature>/      # one package per screen/feature: XxxScreen.kt + XxxViewModel.kt + XxxUiState.kt
-  navigation/       # NavKeys (sealed interface : NavKey), entry provider, back-stack ext, nav serialization
-  data/
-    <feature>/      # XxxApiClient (DTOs colocated) + XxxRepository
-  auth/ location/ network/ config/ di/ diagnostics/  # cross-cutting singletons as today
+  ui/
+    components/     # design-system composables shared by ≥2 screens (reuse-first: scan here BEFORE writing a new one)
+    <concern>/      # cross-screen UI seams (ads, billing, timeline) — composables only, no screen
+  data/<feature>/   # XxxApiClient (DTOs colocated) + XxxRepository — target home for NEW data-layer code
+  <feature>/        # LEGACY data-layer packages (timeline/, search/, referral/, username/, post/, …): ApiClient + Repository live here today
+  auth/ location/ network/ config/ di/ diagnostics/ push/ consent/ analytics/  # cross-cutting singletons
 ```
 
-The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **New code MUST follow the target shape.** Existing files move only as a mechanical move (package decl + imports, zero logic edits) with the full mobile test gate green in the same commit.
+This is the shape the code actually has (2026-10-03 audit § 1: 60 of the files added since the 2026-06 audit landed under `screens/<feature>`, none under a `ui/<feature>` package; the earlier "`ui/<feature>` + `navigation/`" target was never adopted). **New screens go in `screens/<feature>/`; new data-layer code goes in `data/<feature>/`.** Legacy top-level `<feature>/` data packages move only as a mechanical move (package decl + imports, zero logic edits) with the full mobile test gate green in the same commit — never as drive-by churn.
 
 **Canonical shared list/feed primitives (`ui/components/`, audit 05-#11).** A list-bearing screen MUST reuse these rather than re-rolling private state composables (the drifting copies are how `mobile-design-system` list contracts diverged across screens): the **list-state kit** (`ListScrollableState` / `ListLoadingState` / `ListCenteredMessageState` / `ListErrorState` + `SoftLimitBanner`, in `ListStates.kt`) for the non-`Content` states, the generic **`PostFeedList<T>`** for a paginated post feed, `PostCard` + `LetterAvatar` for the card itself, and `LoadMoreFooter` / `LoadMoreOnScrollEnd` for infinite-scroll. Each non-`Content` state takes the host's `testTag` and renders inside a single-item scrollable so pull-to-refresh works from it. A screen whose state genuinely diverges (e.g. a directive empty with a CTA) composes its own content inside `ListScrollableState(testTag = …)` — it does NOT re-roll the scrollable wrapper. Adding a *second* list-state pattern for one of these concerns is a Pattern-Registry fork (§ 4) — amend that section first.
 
 ### 2.2 State management
 
-- Screen-level state holder = **androidx `ViewModel` in commonMain** (JetBrains lifecycle), obtained via `koinViewModel()`, scoped to the Nav3 entry (see 2.3). Plain `*Flow`/`*State` holder classes are legacy; do not add new ones for screens. [verified d.android.com state-production 2026-05-14; kotlinlang compose-viewmodel 2026-06-08]
-- Expose ONE `StateFlow<XxxUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)`. Collect with `collectAsStateWithLifecycle()` (works in commonMain via JetBrains lifecycle-runtime-compose).
+- Screen-level state holder = **androidx `ViewModel` in commonMain** (JetBrains lifecycle), obtained inside the Nav3 entry via **`viewModel { XxxViewModel(koinInject(), …) }`** (the shipped pattern at all 27 call sites; `koinViewModel()` is an acceptable equivalent, not a requirement) — either way the instance is scoped to the Nav3 entry by `rememberViewModelStoreNavEntryDecorator` (see 2.3) and cleared when the entry is popped. Plain `*Flow`/`*State` holder classes are legacy; do not add new ones for screens. [verified d.android.com state-production 2026-05-14; kotlinlang compose-viewmodel 2026-06-08]
+- Expose ONE `StateFlow<XxxUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)`. Collect with `collectAsStateWithLifecycle()` (works in commonMain via JetBrains lifecycle-runtime-compose). **Known debt (2026-10-03 audit § 1):** 10 of 27 ViewModels still expose several `StateFlow`s (`PostDetailViewModel` 10, `SettingsViewModel` 8, `PostCreationViewModel` 6, `SearchViewModel` 4) — consolidate when a VM is next touched; do not open standalone consolidation PRs.
 - UiState shape: `sealed interface` when states are mutually exclusive (Loading/Content/Error); `data class` when fields vary independently (e.g., list + isRefreshing + errorBanner). Initial-load vs refresh are SEPARATE fields per the `mobile-design-system` spec.
 - **One-shot events are state, not streams**: model as nullable UiState fields consumed via an `onXxxShown()` callback that clears them. `Channel`/`SharedFlow` ViewModel→UI event buses are an anti-pattern (official guidance: "ViewModel events should always result in a UI state update"). [verified d.android.com ui-layer/events 2026-05-18]
 - Business/data work never launches from composables; it goes through the ViewModel (`viewModelScope`). No `GlobalScope`, no `CoroutineScope()` ad-hoc construction in UI code.
@@ -79,7 +81,7 @@ The pre-audit flat `screens/` package (35 mixed files) is the legacy shape. **Ne
 - Strong skipping is compiler-default — never disable; don't blanket-annotate `@Stable`/`@Immutable` "for safety" (post-2.0.20 advice: annotations matter cross-module or with expensive `equals` only).
 - Lazy lists: stable `key` + `contentType` on every `items()` over domain lists.
 - Use `derivedStateOf` only to rate-limit composition reads; `snapshotFlow` for state→Flow bridges; never compute derived list state inline per recomposition.
-- List-bearing UiState fields use `kotlinx.collections.immutable` (`ImmutableList`) or are produced from stable upstream types; declare external stable types via `stabilityConfigurationFiles` (plural API — singular is deprecated) when needed.
+- List-bearing UiState fields: plain `List<T>` is acceptable under strong skipping (the shipped state — `kotlinx.collections.immutable` is not on the classpath and no recomposition problem has been measured). Adopt `ImmutableList` **only** when a recomposition issue is measured on a specific screen (Layout Inspector / `composeCompilerReports`), and declare external stable types via `stabilityConfigurationFiles` (plural API — singular is deprecated) when needed.
 - iOS: concurrent rendering is default since CMP 1.11 (no manual flags); `Modifier.preferredFrameRate(...)` may cap static screens.
 - Fonts: keep the `FontFamily.Resolver.preload()` + LaunchedEffect pattern for bundled fonts (NearYouTypography precedent).
 - Release Android builds: R8 + `proguard-android-optimize.txt`; baseline profiles are a planned (not yet wired) optimization — Benchmark KMP support is still alpha.

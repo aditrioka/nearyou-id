@@ -21,13 +21,13 @@ Internal operational tooling for NearYouID: admin panel stack, feature surface, 
 
 - Ktor server-side + Pebble/Freemarker + HTMX
 - Module `admin-panel` with routes `/admin/*`
-- Host: **separate subdomain** (`admin.nearyou.id`), NOT a path on the main service — reduces attack surface discovery
+- Host: **separate subdomain** (`admin.nearyou.id`), NOT a path on the main service — reduces attack surface discovery. **Status 2026-10-03: not yet** — `/admin/*` is served by the single Cloud Run service on the API host (`api-staging.nearyou.id/admin/*`); the separate service + IAP (Open Decision #13) is unprovisioned ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 3).
 - SSL/TLS via Cloudflare managed (zone-wide)
 - Build time estimate: 2-3 weeks for MVP
 
 ### Data Access Pattern
 
-The admin Ktor service connects to Supabase Postgres as a dedicated scoped DB role (`admin_app`), connection string in GCP Secret Manager (`admin-app-db-connection-string`), distinct from the main API's credentials:
+The admin Ktor service connects to Supabase Postgres as a dedicated scoped DB role (`admin_app`), connection string in GCP Secret Manager (`admin-app-db-connection-string`), distinct from the main API's credentials. **Status 2026-10-03: the role and its grants are provisioned on staging, but the admin package still runs on the API's `DataSource`/role at runtime** (`Application.kt` passes the main `dataSource` into `admin(...)`), so the `REVOKE UPDATE, DELETE ON admin_actions_log` below is not yet enforced for the running code — audit-log immutability is convention-only until a dedicated admin pool (or a DB trigger) lands ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 4):
 
 - Row-level read/write on operational tables (`users`, `posts`, `post_replies`, `reports`, `moderation_queue`, `admin_actions_log`, `csam_detection_archive`, etc.)
 - No DDL (schema changes only via Flyway through the dedicated migration service account)
@@ -140,12 +140,19 @@ Precedent: `health-check-endpoints` (PR #54) § 11.5 negative-smoke hit this on 
 
 Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it** — the route mounts at deploy time but nothing calls it on a cadence until the operator provisions the schedule. Each job authenticates with a **Google OIDC identity token** whose `audience` matches the internal-endpoint OIDC audience (`INTERNAL_OIDC_AUDIENCE`, the service URL); no new secret slots are required — the schedule reuses the existing OIDC audience binding.
 
-| Worker | Endpoint | Cadence |
+| Worker | Endpoint | Cadence (per spec) |
 |--------|----------|---------|
 | Suspension unban | `POST /internal/unban-worker` | daily |
 | Privacy flip | `POST /internal/privacy-flip-worker` | hourly |
 | Account hard delete | `POST /internal/account-hard-delete-worker` | daily |
 | **Retention cleanup** (`scheduled-retention-cleanup`) | `POST /internal/cleanup` | **daily** |
+| Data export (`account-data-export`) | `POST /internal/data-export-worker` | scheduler-invoked; cadence set at provisioning within the 7-day SLA |
+| Login anomaly check (`auth-login-anomaly-detection`) | `POST /internal/login-anomaly-check` | scheduler-invoked; cadence set at provisioning |
+| Orphan image cleanup (`orphan-image-cleanup`) | `POST /internal/cleanup-orphan-images` | daily |
+| Referral activity check (`referral-grant-worker`) | `POST /internal/referral-activity-check` | daily |
+| CSAM archive purge (`csam-detection`) | `POST /internal/csam-archive-purge` | daily |
+
+**Provisioning status 2026-10-03: no Cloud Scheduler job exists in any environment** (`docs/10` § GCP: `[ ] Cloud Scheduler`), so all nine workers are inert and time-based behaviour (suspension expiry, deletion grace, retention purges) has never run on a cadence outside tests. A single idempotent provisioning script for all nine is proposed in [`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 8.
 
 The **retention cleanup** job runs all three retention sweeps (refresh tokens, notifications, stale FCM tokens) on **one** daily schedule (design D2 — a single Scheduler job, not a daily+weekly split). Provision it like the sibling workers:
 

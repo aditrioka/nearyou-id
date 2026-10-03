@@ -371,7 +371,7 @@ Go live on App Store + Play Store. Monitor density metrics before expanding to a
   - Detect INSERT into `admin_sessions` without populating `csrf_token_hash` (NOT NULL column; runtime violation caught at Flyway but lint catches earlier)
   - Detect admin-user FK definitions on operational tables missing `ON DELETE SET NULL` (prevents `FROM admin_users` joins that cascade user deletes; all FKs to `admin_users` on operational tables must be `ON DELETE SET NULL`)
 - API versioning: `/api/v1/...` from the start
-- Dependency update: Dependabot or Renovate
+- Dependency update: Dependabot (planned — `.github/dependabot.yml` not yet added as of 2026-10-03; bumps are manual batches)
 - AI coding assistant: Firebender, Augment Code, Claude Code
 
 ---
@@ -417,7 +417,7 @@ Go live on App Store + Play Store. Monitor density metrics before expanding to a
 | Feature flag misflip at runtime | Production regression | Admin rate limit 5/hour + audit log + dogfood rehearsal for Month 6 |
 | Block feature leak via direct query | Harassment persists | CI lint rule + repository layer enforcement + symmetric test (includes `post_replies`) |
 | Auto-hide reporter sybil attack | Legitimate content hidden by 3 sock accounts | Account-age filter (>7 days) + unique reporter per target + admin review gate before ban |
-| Admin credentials shared with main API | Blast-radius multiplication on leak | Scoped `admin_app` role + separate connection string in GCP Secret Manager |
+| Admin credentials shared with main API | Blast-radius multiplication on leak | Scoped `admin_app` role + separate connection string in GCP Secret Manager — role provisioned on staging, **not yet used at runtime** (admin runs on the API pool; see `docs/07` § Data Access Pattern status note) |
 
 ### Medium Priority
 

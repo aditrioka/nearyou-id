@@ -39,7 +39,7 @@ System architecture, tech stack, module structure, deployment strategy, observab
 | Text Moderation | Keyword blocklist + UU ITE categories + Google Perspective API (dev Phase 2 stopgap) |
 | Serialization | kotlinx.serialization |
 
-**Version pinning**: all patch-level versions frozen in Pre-Phase 1 in the *Version Pinning Decisions Log*; auto-update policy via Dependabot/Renovate.
+**Version pinning**: all patch-level versions frozen in Pre-Phase 1 in the *Version Pinning Decisions Log* ([`docs/09-Versions.md`](09-Versions.md)); Dependabot-driven auto-updates are **planned, not yet configured** (no `.github/dependabot.yml` as of 2026-10-03 — bumps are manual batches).
 
 ---
 
@@ -106,16 +106,30 @@ Redis Streams provide: message persistence within the stream retention window; c
 ```
 :core:domain              shipped — pure Kotlin, zero vendor deps
 :core:data                shipped — interfaces + DTOs
-:shared:tmp               shipped — KMP scaffold placeholder
+:shared:tmp               shipped — KMP wizard placeholder, DEAD (zero consumers; removal proposed, 2026-10-03 audit § 1)
+:shared:resources         shipped — CMP Resources: NearYouColorScheme + NearYouTypography + logo + Bahasa Indonesia strings (PR #119)
 :shared:distance          shipped — renderDistance, JVM target + commonMain
 :infra:supabase           shipped — DB, auth, realtime broadcast publish (SupabaseBroadcastChatClient)
 :infra:redis              shipped — Upstash rate limit + cache
 :infra:fcm                shipped — FCM push dispatch (FcmDispatcher 414 LOC + tests)
 :infra:oidc               shipped — internal endpoint OIDC verification
 :infra:otel               shipped — OpenTelemetry tracing (commit f9a78f8, archive 2026-05-07-observability-otel-foundation)
+:infra:remote-config      shipped — Firebase Remote Config wordlists + platform flags (PR #70)
+:infra:openai-moderation  shipped — OpenAI Moderation Layer-3 client (PR #87)
+:infra:cloudflare-images  shipped — Cloudflare Images upload, raw Ktor client (PR #325)
+:infra:cloud-vision       shipped — Cloud Vision Safe Search ImageModerator (PR #325)
+:infra:r2                 shipped — Cloudflare R2 ObjectStore + presigned URLs, aws-sdk-kotlin (PR #356)
+:infra:resend             shipped — Resend EmailSender, raw Ktor client (PR #356)
+:infra:revenuecat-api     shipped — backend RevenueCat v1 promotional-grant client (PR #353)
+:infra:sentry-jvm         shipped — backend Sentry Java error capture (PR #483)
+:infra:supabase-realtime  shipped — mobile KMP Supabase Realtime SUBSCRIBE seam (PR #247)
+:infra:sentry             shipped — mobile KMP Sentry crash reporting (PR #299)
+:infra:revenuecat         shipped — mobile KMP RevenueCat PurchaseController (PR #309)
+:infra:amplitude          shipped — mobile KMP consent-gated Amplitude tracker (PR #367)
+:infra:admob              shipped — mobile KMP Google Mobile Ads + UMP AdProvider (PR #422)
 :backend:ktor             shipped — Ktor routes, DI wiring via Koin
-:mobile:app               shipped — Navigation 3 nav + Koin DI + Material 3 theme + HomeScreen placeholder (see § Mobile Status below)
-:lint:detekt-rules        shipped — 7 custom Detekt rules
+:mobile:app               shipped — full demo loop (auth, feeds, post detail, profile, chat, search, settings, paywall, notifications); § Mobile Status below is the scaffold-era baseline
+:lint:detekt-rules        shipped — 10 custom Detekt rules (activation test-enforced since 2026-06-11)
 ```
 
 ### Planned modules (DESIGN unless marked SCAFFOLD NEXT — do NOT `import` from `DESIGN` rows)
@@ -123,16 +137,16 @@ Redis Streams provide: message persistence within the stream retention window; c
 | Module | Status | Trigger to scaffold |
 |---|---|---|
 | `:shared:resources` | shipped | Mobile #2 / #2.5 (`shared-resources-moko-bootstrap`, [PR #116](https://github.com/aditrioka/nearyou-id/pull/116) → `shared-resources-swap-to-cmp-resources`, PR [#119](https://github.com/aditrioka/nearyou-id/pull/119)) — Compose Multiplatform Resources `Res` accessors + `NearYouColorScheme` + `NearYouTypography` + `NearYouColors` CompositionLocal extension surface + brand logos + Bahasa Indonesia strings. Consumed by `:mobile:app`'s `NearYouTheme` + `HomeScreen`. |
-| `:infra:r2` | DESIGN | Image upload feature (Phase 2/3) — Cloudflare R2 (non-image, zero egress) |
-| `:infra:cloudflare-images` | DESIGN | Image upload feature — Cloudflare Images (`img.nearyou.id`) + CSAM webhook handler |
-| `:infra:revenuecat` | DESIGN | Premium subscription billing (webhook signature verify) |
-| `:infra:resend` | DESIGN | Transactional email module-isation (project smoke-tested 2026-04-27) |
+| `:infra:r2` | shipped | `account-data-export` ([PR #356](https://github.com/aditrioka/nearyou-id/pull/356)) — export archives + presigned URLs; also the planned backup/deletion-log bucket |
+| `:infra:cloudflare-images` | shipped | `premium-image-upload-pipeline` ([PR #325](https://github.com/aditrioka/nearyou-id/pull/325)); CSAM handling lives in `:backend:ktor` `moderation/csam` (admin-triggered, Open Decision #33) |
+| `:infra:revenuecat` | shipped | `mobile-paywall-screen` ([PR #309](https://github.com/aditrioka/nearyou-id/pull/309)); the webhook verifier is backend code in `:backend:ktor`, the v1 grant client is `:infra:revenuecat-api` ([PR #353](https://github.com/aditrioka/nearyou-id/pull/353)) |
+| `:infra:resend` | shipped | `account-data-export` ([PR #356](https://github.com/aditrioka/nearyou-id/pull/356)) — raw Ktor client (Resend has no JVM SDK) |
 | `:infra:sentry` | shipped | `mobile-sentry-crash-reporting` ([PR #299](https://github.com/aditrioka/nearyou-id/pull/299)) — `CrashReporter` interface + `SentryCrashReporter` androidMain/iosMain actuals + `NoOpCrashReporter` default + `PiiScrubber`. Consumed by `:mobile:app` via Koin. |
 | `:infra:sentry-jvm` | shipped | `backend-sentry-error-capture` ([PR #483](https://github.com/aditrioka/nearyou-id/pull/483)) — backend (JVM) Sentry Java fence: vendor-free `SentryBootstrap.start(env, dsn, release)` attaches a logback `SentryAppender` at ERROR (StatusPages 500s + every `log.error`), `call_id` tag, no user, no breadcrumbs, backend `PiiScrubber`; blank DSN = no-op. Consumed by `:backend:ktor` (`Application.module()`). |
 | `:infra:amplitude` | shipped | `mobile-amplitude-analytics` ([PR #367](https://github.com/aditrioka/nearyou-id/pull/367)) — consent-gated **client-side** Amplitude HTTP V2 wrapper (mobile-only KMP module, androidTarget + iOS). Consumed by `:mobile:app` via Koin. |
 | `:infra:attestation` | DESIGN | Play Integrity + App Attest (post-MVP) |
-| `:infra:remote-config` | DECISION NEEDED | DB-backed feature flags already operational (`premium_*_cap_override`); a separate Firebase Remote Config module may be redundant or complementary — needs explicit decision before scaffolding |
-| `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; Supabase PITR is the backup posture |
+| `:infra:remote-config` | shipped | `content-moderation-keyword-lists` ([PR #70](https://github.com/aditrioka/nearyou-id/pull/70)) — decided complementary: DB-backed flags stay the per-user override surface, Remote Config is the platform-wide tunable surface |
+| `:infra:postgres-neon` | ABANDONED | Plan B scaffold not pursued; backup posture = Supabase daily backups + the planned `pg_dump` job (§ Backup Strategy) |
 | `:infra:ktor-ws` | ABANDONED | Realtime ships via Supabase Broadcast; Ktor WS swap path retired |
 
 ### Mobile Status
@@ -263,7 +277,7 @@ Parity ~90% with prod; the main gap, cross-region latency, is not replicable loc
 - **Observability**: Sentry `environment=staging` (shared project, free-tier headroom); Amplitude shared with prod via an `environment` user property (does NOT pollute prod funnels — dashboards filter); Grafana Cloud shared (tagged)
 - **Attestation**: Play Integrity + App Attest default to the `attestation_bypass_google_ids_sha256` Remote Config whitelist (QA accounts bypass enforcement)
 
-**Subdomain map**: `api-staging.nearyou.id` (Ktor API), `admin-staging.nearyou.id` (Admin Panel), `img-staging.nearyou.id` (Cloudflare Images delivery).
+**Subdomain map**: `api-staging.nearyou.id` (Ktor API **and, today, the Admin Panel at `/admin/*`** — the Cloud Run domain mapping resolves to `ghs.googlehosted.com`, i.e. not yet behind Cloudflare), `admin-staging.nearyou.id` (Admin Panel — **target**, pending the separate service + IAP per Open Decision #13; DESIGN), `img-staging.nearyou.id` (Cloudflare Images delivery).
 
 **Secret Manager namespace**: all staging secrets prefixed `staging-*` in GCP Secret Manager (e.g. `staging-ktor-rsa-private-key`, `staging-supabase-jwt-secret`, `staging-revenuecat-webhook-secret`, `staging-jitter-secret`, `staging-age-private-key`, `staging-csam-archive-aes-key`, `staging-admin-app-db-connection-string`, `staging-firebase-admin-sa`, `staging-apns-key-p8`, `staging-resend-api-key`). Production keeps the current names (e.g. `ktor-rsa-private-key`), implicitly namespaced `prod-*` going forward; a migration script renames production slots in Pre-Phase 1.
 
@@ -373,7 +387,7 @@ GCP Cloud Run (Jakarta) + Supabase (AWS Singapore) + Upstash + Cloudflare: +15-3
 
 OTel SDK in Ktor (auto-instrument: HTTP server, HTTP client, Postgres JDBC, Redis Lettuce); backend on the Grafana Cloud free tier.
 
-**Trace sampling**: head sampling 100% during the dev Phase 2 benchmark; production 10% base + 100% errors + 100% slow (p95 >500ms); tail sampling via OTel Collector if volume is high.
+**Trace sampling**: `dev`/`staging` = `alwaysOn`; `production` = `parentBased(traceIdRatioBased(0.1))` — a plain 10 % head ratio (`infra/otel/.../SamplingProfile.kt`). The originally intended "100 % errors + 100 % slow" **is not implemented**: head sampling cannot see span outcome, so it needs tail sampling via an OTel Collector ([#175](https://github.com/aditrioka/nearyou-id/issues/175)); until then errors and slow requests are sampled at the same 10 %.
 
 **Instrumentation priorities**:
 - **Mandatory spans**: HTTP request on Ktor, Supabase API calls, Redis calls, PostGIS spatial queries, CF Images calls, Resend API calls
@@ -424,7 +438,7 @@ interface CrashReporter {
 
 ### Layers
 
-1. **Supabase PITR (existing)**: 7-day Point-in-Time Recovery, automatic, included in Pro. Protects against recent user error + table corruption.
+1. **Supabase daily backups (included in Pro)**: 7 days of daily backups, automatic. **PITR is a paid add-on** (US$100/month per 7-day window, supabase.com/pricing 2026-10-03), *not* included — adopt only if an RPO under 24 h is required. **Status 2026-10-03: layers 2–5 below are designed but have zero implementation in the repo** ([`dev/audits/2026-10-03-architecture-review/REPORT.md`](../dev/audits/2026-10-03-architecture-review/REPORT.md) § 8).
 
 2. **Logical dump to R2 (weekly, encrypted)**: Cloud Scheduler (Sunday 02:00 WIB) triggers Cloud Run Jobs `nearyou-backup-weekly`: `pg_dump --format=custom --compress=9` piped through the `age` CLI (`age -r <public_key>`), uploaded to R2 via `aws s3 cp`. **Why `age` not `openssl enc -aes-256-gcm`**: `openssl enc` doesn't stream AES-GCM safely across distros (CBC/CTR stream reliably; GCM needs per-chunk IV/tag handling `enc` doesn't automate); `age` (ChaCha20-Poly1305) streams natively, handles key management cleanly, and is packaged in Alpine. Recipient public key in the backup image, private key in GCP Secret Manager (`backup-age-private-key`). Runtime limit 168 hours (vs Cloud Run HTTP 60 minutes). Retention: 12 weekly (3 months) + 12 monthly (1 year) + 5 yearly. Storage: ~1-4GB/dump at 30k MAU = 12-48GB × R2 storage rate = ~Rp5-15k/month.
 
