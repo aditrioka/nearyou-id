@@ -10,6 +10,7 @@ import id.nearyou.resources.generated.resources.signin_screen_title
 import id.nearyou.resources.generated.resources.tab_following_icon_description
 import id.nearyou.resources.generated.resources.tab_global_icon_description
 import id.nearyou.resources.generated.resources.tab_nearby_icon_description
+import id.nearyou.resources.generated.resources.timeline_global_title
 import id.nearyou.resources.generated.resources.timeline_nearby_title
 import org.w3c.dom.Element
 import java.io.File
@@ -31,7 +32,11 @@ import kotlin.test.assertTrue
  *
  * Production use sites are the compile-time guard for rendered keys (a removed/renamed key breaks
  * the screen that imports it). The few keys deliberately kept in the catalog although no screen
- * renders them have no such use site, so [retainedUnrendered] pins their accessors here.
+ * renders them have no such use site, so [retainedUnrendered] pins their accessors here. The spec
+ * "strings are declared" scenarios (every spec line "the file contains `<string>` entries for ALL
+ * of: …", e.g. shared-resources § "All Mobile #2 + #3 + #4 strings are declared") are read from
+ * `openspec/specs/` and checked against the catalog too, so a key a spec lists can't be deleted
+ * after its last screen stops using it.
  *
  * Lives in androidUnitTest (not commonTest) because it reads the repo file. The catalog is
  * platform-agnostic, so the JVM lane is enough.
@@ -44,10 +49,13 @@ class SharedStringsCatalogTest {
         (0 until nodes.length).map { (nodes.item(it) as Element).getAttribute("name") }.toSet()
     }
 
-    // Kept on purpose, rendered nowhere: shared-resources § "Foundational Bahasa Indonesia string
-    // surface" + § Nearby timeline strings (home_placeholder_* SHALL be RETAINED), mobile-auth-signin
-    // § "signin_screen_title is retained in the shared catalog", and the tab_*_icon_description keys
-    // the strings.xml mobile-home-shell-redesign (D10) note keeps after the tabs went text-only.
+    // Kept on purpose, rendered nowhere:
+    // - spec-retained: shared-resources § "Foundational Bahasa Indonesia string surface" + § Nearby
+    //   timeline strings (home_placeholder_* SHALL be RETAINED), mobile-auth-signin
+    //   § "signin_screen_title is retained in the shared catalog";
+    // - timeline_global_title: mobile-global-timeline asserts the removed header via its accessor;
+    // - tab_*_icon_description: the strings.xml mobile-home-shell-redesign (D10) note keeps them after
+    //   the tabs went text-only.
     // Rendered keys are NOT listed: their screens already pin them.
     private val retainedUnrendered =
         listOf(
@@ -60,6 +68,7 @@ class SharedStringsCatalogTest {
             Res.string.tab_nearby_icon_description,
             Res.string.tab_following_icon_description,
             Res.string.tab_global_icon_description,
+            Res.string.timeline_global_title,
         )
 
     @Test
@@ -74,8 +83,27 @@ class SharedStringsCatalogTest {
         assertEquals(emptySet(), retainedUnrendered.map { it.key }.toSet() - declaredKeys)
     }
 
+    // ponytail: openspec/specs is not a declared Test-task input, so a spec-only edit can leave this
+    // UP-TO-DATE / FROM-CACHE (a strings.xml edit still re-runs it via the regenerated Res classpath).
+    // Add `inputs.dir("openspec/specs")` to the mobile Test tasks if spec-only drift ever matters.
+    @Test
+    fun `every key a spec declared-strings scenario lists is declared`() {
+        val specKeys =
+            File(findRepoRoot(), "openspec/specs")
+                .walk()
+                .filter { it.name == "spec.md" }
+                .flatMap { it.readLines() }
+                .filter { SPEC_DECLARED_MARKER in it }
+                .flatMap { line -> KEY_IN_BACKTICKS.findAll(line.substringAfter(SPEC_DECLARED_MARKER)).map { it.groupValues[1] } }
+                .toSet()
+        assertTrue(specKeys.isNotEmpty(), "no spec line contains \"$SPEC_DECLARED_MARKER\" — the scenario wording changed")
+        assertEquals(emptySet(), specKeys - declaredKeys, "listed by a spec declared-strings scenario but missing from $STRINGS_XML")
+    }
+
     private companion object {
         const val STRINGS_XML = "shared/resources/src/commonMain/composeResources/values/strings.xml"
+        const val SPEC_DECLARED_MARKER = "entries for ALL of:"
+        val KEY_IN_BACKTICKS = Regex("`([a-z0-9_]+)`")
 
         fun findRepoRoot(): File {
             var dir: File? = File(System.getProperty("user.dir")).canonicalFile
