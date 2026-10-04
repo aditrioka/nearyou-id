@@ -36,6 +36,8 @@ Decide whether the capability is **user-facing** (a screen, action, notification
 - Does a backend capability have the **client surface** (mobile and/or admin) that makes it usable? If not, is the missing layer declared as a `docs/12` §3 deferred requirement (positive + negative-guard + tracking issue), or is it an undeclared split?
 - Does a new/changed response field thread through **every read-path** that returns the entity, and through the **client DTO(s)** that parse it? (The `imageUrl`-missing-from-notifications gap, [#388](https://github.com/aditrioka/nearyou-id/issues/388), is the canonical miss.)
 
+- **Apple-paid iOS layer (`docs/12` §3.1, `docs/08` Open Decision #37):** if the capability's iOS half needs the paid Apple Developer Program (APNs push/NSE, Sign in with Apple, App Attest, StoreKit), it is a *pre-sanctioned* deferred layer — require (a) an iOS actual that compiles/links (NoOp or null-returning), (b) an explicit deferred requirement (positive + negative-guard) in the spec, (c) an `apple-paid`-labelled tracking issue. Present → not blocking. Any OTHER iOS layer (UI, nav, data, Keychain, Realtime, Test Store paywall) is verifiable for free and is NOT deferrable under this rule.
+
 Flag any undeclared single-layer slice of a multi-layer capability as a **blocking** report entry — the fix is to either widen scope or add the §3 deferred requirement before apply.
 
 ### 3. Doc-reconciliation diff
@@ -58,7 +60,7 @@ Emit this block and have `/next-change` C.3 paste it into the PR body under a `#
 - [ ] … (or "None")
 
 ### Cross-layer cohesion (docs/12)
-- Vertical slice: <complete | deferred layer(s) declared as §3 requirements | ⚠ undeclared split — BLOCKING>
+- Vertical slice: <complete | deferred layer(s) declared as §3 requirements | apple-paid iOS layer declared per §3.1 | ⚠ undeclared split — BLOCKING>
 - Wire fields threaded to all read-paths + client DTOs: <yes | n/a | ⚠ gap: …>
 
 ### Doc reconciliation (B.3)
