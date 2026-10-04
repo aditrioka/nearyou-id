@@ -10,6 +10,15 @@
 - **Konteks baru:** review arsitektur merged (PR #526, `dev/audits/2026-10-03-architecture-review/REPORT.md`: 27 usulan issue BELUM dibuat, top-5 pre-launch di § 14, addendum § 15 "feature-complete dulu, produksi belakangan"); doc drift fix merged (#528); PR #529 open = keputusan operator Android-first + production spend gate + lane `apple-paid` (#258/#430/#495 ikut ke lane itu — konsisten dengan rencana ini). Issue baru: #522 (OTel sentinel scenario tests, lanjutan #520), #525 (kelas admin tanpa style, lanjutan #501/#282). 77 issue follow-up open.
 - **Wave 2 (disetujui untuk di-list, chip belum dibuat):** lihat § 5 Wave 2; perubahan: aturan "maks 3 sesi menyentuh strings.xml" dilonggarkan (hotspot hilang), #499 harus re-cek sisa drift setelah #528/#529, #525 masuk sebagai cadangan Wave 2 / sesi Wave 3.
 
+## Status 2026-10-04 malam (sinkronisasi kedua)
+
+- **Wave 1: 5/5 merged** (#520 #521 #523 #524 #527). **Wave 2: 3/5 merged** — W2-1 chat (#564), W2-3 cap→paywall (#560), W2-5 spec hygiene (#561; #336 ditutup duplikat, #563 lahir dari sini). **Masih open:** W2-2 = PR #559 (#173/#518; CI test/device-run/instrumented pending), W2-4 = PR #566 (#348/#400/#174/#184 + `ios-test` lane + rule Detekt `MobileHardcodedStringRule`; **CONFLICTING** di `ChatThreadReportFlowIosTest.kt` vs #564 → rebase oleh sesi W2-4). 6 issue berlabel `burning-down` = milik dua PR itu.
+- **95 issue open (60 r-t-b).** Baru: #563 (drift test/komentar admin, S, nol kontensi), #565 (pull-to-refresh chat sulit dijangkau di thread panjang, S-M, `ChatThreadScreen.kt`).
+- **Chip Wave 3 di-dismiss** atas permintaan operator untuk sinkronisasi; urutan start yang direkomendasikan di bawah.
+
+**Mulai sekarang (tidak bergantung PR open):** W3-2 #544+#545 (backend) · W3-4 #535 (skrip scheduler; SA harus sama dgn allowlist #544) · W3-1 #390 (V40; hindari `Application.kt`). Pengisi slot kapan saja: #543+#536 · #558 · #549 · #563.
+**Setelah #559 merge:** W3-5 #253+#255 (keduanya `AppEntryProvider.kt`). **Setelah #566 merge:** W3-3 #497+#242+#542 (#566 mengubah `PostDetailFlowIosTest.kt` dan menambah lane iOS yang akan menguji hasilnya) · #541 (#566 menyentuh `openspec/project.md`) · #565.
+
 ## 0. Ringkasan 1 menit
 
 | | |
