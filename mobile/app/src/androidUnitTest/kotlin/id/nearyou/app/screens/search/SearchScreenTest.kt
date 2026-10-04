@@ -3,6 +3,7 @@ package id.nearyou.app.screens.search
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -11,6 +12,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.billing.PremiumEntitlementSession
+import id.nearyou.app.billing.confirmedPremiumSession
 import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.screens.paywall.FakePurchaseController
@@ -45,6 +48,7 @@ private const val RETRY = "Coba lagi"
 private const val GATE_BODY =
     "Pencarian hanya untuk pengguna Premium. Aktifkan Premium untuk mencari postingan dan pengguna di seluruh Indonesia."
 private const val GATE_CTA = "Aktifkan Premium"
+private const val ACTIVATING = "Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya." // premium_activating_body
 private const val RATE_LIMITED_29 = "Kamu sudah mencapai batas pencarian. Reset dalam 29 menit."
 private const val RATE_LIMITED_1 = "Kamu sudah mencapai batas pencarian. Reset dalam 1 menit."
 private const val RATE_LIMIT_RESET = "Batas pencarian sudah direset. Coba cari lagi."
@@ -79,6 +83,8 @@ class SearchScreenTest {
         firstOutcome: SearchOutcome = SearchOutcome.Results(emptyList(), null),
         loadMoreOutcome: SearchOutcome? = null,
         suspendForever: Boolean = false,
+        // #517: bind a session whose purchase is confirmed (the webhook-lag window).
+        confirmedPurchase: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeSearchFlow(firstOutcome = firstOutcome, loadMoreOutcome = loadMoreOutcome, suspendForever = suspendForever)
@@ -90,6 +96,7 @@ class SearchScreenTest {
                     // PurchaseController (Unavailable → the fail-soft Unconfigured state; the test asserts the
                     // route push, not paywall content). Unused by the screen-level tests, which never push it.
                     single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
+                    if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
                 },
             )
         }
@@ -182,6 +189,27 @@ class SearchScreenTest {
             assertEquals(1, activated, "the Premium-gate CTA invokes the hoisted onActivatePremium exactly once")
             assertEquals(0, opened, "the gate CTA is not a result tap")
             onNodeWithText(GATE_BODY).assertExists()
+        }
+    }
+
+    // #517: after a confirmed purchase a 403 can only be the server tier lagging the webhook — the gate
+    // panel reads the activating notice, and its button re-runs the same query instead of opening the paywall.
+    @Test
+    fun confirmedPurchase_premiumGate_showsActivatingNotice_andRetryReRunsTheQuery() {
+        installKoin(SearchOutcome.PremiumGate, confirmedPurchase = true)
+        var activated = 0
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}, onActivatePremium = { activated++ }) } } }
+            submitQuery()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(ACTIVATING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(GATE_BODY).assertDoesNotExist()
+            onNodeWithTag(SEARCH_PREMIUM_CTA_TAG).assertDoesNotExist()
+            onNodeWithText(GATE_CTA).assertDoesNotExist()
+            val before = fake.invocationCount
+            onNodeWithTag(SEARCH_RETRY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { fake.invocationCount == before + 1 }
+            assertEquals("jakarta", fake.calls.last().query, "the retry re-runs the gated query")
+            assertEquals(0, activated, "the activating notice never opens the paywall")
         }
     }
 

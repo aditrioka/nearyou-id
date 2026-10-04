@@ -52,6 +52,7 @@ class DailyCapUpsellDialogTest {
                         body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
                         onDismiss = {},
                         onActivatePremium = {},
+                        premiumActivating = false,
                     )
                 }
             }
@@ -73,6 +74,7 @@ class DailyCapUpsellDialogTest {
                         body = { it },
                         onDismiss = { dismissed++ },
                         onActivatePremium = { premium++ },
+                        premiumActivating = false,
                     )
                 }
             }
@@ -95,6 +97,7 @@ class DailyCapUpsellDialogTest {
                         body = { it },
                         onDismiss = {},
                         onActivatePremium = {},
+                        premiumActivating = false,
                     )
                 }
             }
@@ -116,6 +119,7 @@ class DailyCapUpsellDialogTest {
                         body = { it },
                         onDismiss = { dismissed++ },
                         onActivatePremium = {},
+                        premiumActivating = false,
                     )
                 }
             }
@@ -138,6 +142,7 @@ class DailyCapUpsellDialogTest {
                         body = { it },
                         onDismiss = { dismissed++ },
                         onActivatePremium = {},
+                        premiumActivating = false,
                     )
                 }
             }
@@ -158,10 +163,39 @@ class DailyCapUpsellDialogTest {
                         body = { it },
                         onDismiss = {},
                         onActivatePremium = {},
+                        premiumActivating = false,
                     )
                 }
             }
             onNodeWithText("Batas harian tercapai").assertExists()
             onNodeWithText("19 mnt").assertExists()
+        }
+
+    // #517: during the webhook-lag window the same call renders the activating notice instead — no
+    // upgrade pitch, no countdown, and onActivatePremium is unreachable; "Tutup" is the only action.
+    @Test
+    fun premiumActivating_rendersTheActivatingNotice_withoutTheUpsell() =
+        runComposeUiTest {
+            var premium = 0
+            var dismissed = 0
+            setContent {
+                NearYouTheme(darkTheme = false) {
+                    DailyCapUpsellDialog(
+                        retryAfterSeconds = 51_540,
+                        body = { countdown -> stringResource(Res.string.post_detail_likes_cap_upsell, countdown) },
+                        onDismiss = { dismissed++ },
+                        onActivatePremium = { premium++ },
+                        premiumActivating = true,
+                    )
+                }
+            }
+            onNodeWithText("Premium sedang diaktifkan").assertExists()
+            onNodeWithText("Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya.").assertExists()
+            onNodeWithText("Batas harian tercapai").assertDoesNotExist()
+            onNodeWithText(frame18Body).assertDoesNotExist()
+            onNodeWithText("Aktifkan Premium").assertDoesNotExist()
+            onNodeWithTag(PREMIUM_ACTIVATING_DIALOG_CLOSE_TAG).performClick()
+            assertEquals(1, dismissed, "Tutup fires onDismiss exactly once")
+            assertEquals(0, premium, "the activating notice never reaches the paywall callback")
         }
 }

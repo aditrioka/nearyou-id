@@ -36,12 +36,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.username.UsernameFlow
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_nav_back
+import id.nearyou.resources.generated.resources.premium_activating_body
 import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
@@ -73,6 +75,7 @@ const val USERNAME_BACK_TAG: String = "usernameBack"
 const val USERNAME_CONFIRM_TAG: String = "usernameConfirm"
 const val USERNAME_DISMISS_TAG: String = "usernameDismiss"
 const val USERNAME_GATE_CTA_TAG: String = "usernameGateCta"
+const val USERNAME_GATE_RETRY_TAG: String = "usernameGateRetry"
 const val USERNAME_RETRY_TAG: String = "usernameRetry"
 const val USERNAME_STATUS_TAG: String = "usernameStatus"
 
@@ -121,7 +124,12 @@ fun UsernameCustomizationScreen(
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when (val status = uiState.status) {
                 UsernameStatus.Resolving -> CenteredLoading()
-                UsernameStatus.PremiumGate -> PremiumGate(onActivatePremium = onActivatePremium)
+                UsernameStatus.PremiumGate ->
+                    PremiumGate(
+                        onActivatePremium = onActivatePremium,
+                        // Clears the gate outcome, back to the editor with the candidate kept (#517).
+                        onRetry = { viewModel.onCandidateChange(uiState.candidate) },
+                    )
                 UsernameStatus.Disabled -> CenteredMessage(stringResource(Res.string.username_disabled))
                 UsernameStatus.SessionRedirect -> CenteredMessage(stringResource(Res.string.timeline_session_redirect))
                 else ->
@@ -271,21 +279,36 @@ private fun ConfirmDialog(
     )
 }
 
+/** The 403 gate. After a confirmed purchase it can only be the server tier lagging the webhook, so it shows
+ *  the activating notice and a "Coba lagi" ([onRetry], back to the editor) instead of the upgrade pitch (#517). */
 @Composable
-private fun PremiumGate(onActivatePremium: () -> Unit) {
+private fun PremiumGate(
+    onActivatePremium: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val activating = rememberPremiumActivating()
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = stringResource(Res.string.username_premium_gate_body),
+                text =
+                    stringResource(
+                        if (activating) Res.string.premium_activating_body else Res.string.username_premium_gate_body,
+                    ),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            Button(
-                onClick = onActivatePremium,
-                modifier = Modifier.padding(top = 16.dp).testTag(USERNAME_GATE_CTA_TAG),
-            ) {
-                Text(text = stringResource(Res.string.cta_activate_premium))
+            if (activating) {
+                Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp).testTag(USERNAME_GATE_RETRY_TAG)) {
+                    Text(text = stringResource(Res.string.cta_retry))
+                }
+            } else {
+                Button(
+                    onClick = onActivatePremium,
+                    modifier = Modifier.padding(top = 16.dp).testTag(USERNAME_GATE_CTA_TAG),
+                ) {
+                    Text(text = stringResource(Res.string.cta_activate_premium))
+                }
             }
         }
     }

@@ -13,6 +13,13 @@ class MutableSelfUserId(var id: String?) : SelfUserIdProvider {
     override suspend fun selfUserId(): String? = id
 }
 
+/**
+ * A session whose purchase is already confirmed while the server tier still reads Free — the webhook-lag
+ * window every upsell surface swaps to the activating notice for (#517). Screen tests bind it in Koin.
+ */
+fun confirmedPremiumSession(): PremiumEntitlementSession =
+    PremiumEntitlementSession(MutableSelfUserId("self"), FakePurchaseController()).apply { onPurchaseConfirmed() }
+
 /** `mobile-premium-entitlement` — identity binding + the account-scoped confirmed-purchase signal. */
 class PremiumEntitlementSessionTest {
     @Test

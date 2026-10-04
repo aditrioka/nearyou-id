@@ -467,6 +467,8 @@ tasks.withType<Test>().configureEach {
             "**/PostCardTest*",
             "**/ListStatesTest*",
             "**/DailyCapUpsellDialogTest*",
+            "**/PremiumActivatingDialogTest*",
+            "**/RememberPremiumActivatingTest*",
             "**/ReportDialogTest*",
             "**/SettingsScreenTest*",
             "**/BlockedUsersScreenTest*",

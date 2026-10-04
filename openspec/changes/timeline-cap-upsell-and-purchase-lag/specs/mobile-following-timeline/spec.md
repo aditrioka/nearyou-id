@@ -10,7 +10,9 @@ The screen SHALL render one of six visual states, all copy via `stringResource`,
 - **Rate-limit hard** (`Loaded`, empty posts, `upsell.hard = true`) → the shared `HardLimitState` list state: a node with `stringResource(Res.string.timeline_limit_hard)` (distinct from the empty copy) AND an "Aktifkan Premium" button (`cta_activate_premium`) that invokes the hoisted `onActivatePremium(PaywallEntry.TIMELINE_CAP)`.
 - **Rate-limit soft** (`Loaded`, non-empty posts, `upsell.soft = true`) → the post list AND, as its first item, the shared non-blocking `SoftLimitBanner`: `stringResource(Res.string.timeline_limit_soft)` AND an "Aktifkan Premium" text button (`cta_activate_premium`) that invokes the hoisted `onActivatePremium(PaywallEntry.TIMELINE_CAP)`.
 
-Both read limits are Free-only: `timeline-read-rate-limit` skips both buckets for `premium_active` and `premium_billing_retry`. So the read-cap Premium path never reaches a server-Premium caller, and the hard and soft states both carry it. The host (`appEntryProvider`'s `HomeRoute` entry, through `AppShellScreen` → `HomeScreen`) already maps `onActivatePremium(entry)` to a `PaywallRoute(entry)` push, so `TIMELINE_CAP` needs no new host wiring. During the post-purchase webhook-lag window (`purchaseConfirmed = true`, `mobile-premium-entitlement` § "Upsell surfaces show the activating notice during the webhook-lag window"), both read-cap surfaces SHALL render `premium_activating_body` in place of their limit copy and show no "Aktifkan Premium" control. The hard state stays scrollable, so pull-to-refresh still re-fetches.
+Both read limits are Free-only: `timeline-read-rate-limit` skips both buckets for `premium_active` and `premium_billing_retry`. So the read-cap Premium path never reaches a server-Premium caller, and the hard and soft states both carry it. The host (`appEntryProvider`'s `HomeRoute` entry, through `AppShellScreen` → `HomeScreen`) already maps `onActivatePremium(entry)` to a `PaywallRoute(entry)` push, so `TIMELINE_CAP` needs no new host wiring. During the post-purchase webhook-lag window (`purchaseConfirmed = true`, `mobile-premium-entitlement` § "Upsell surfaces show the activating notice during the webhook-lag window"):
+- the soft banner SHALL NOT render at all. The soft cap blocks no reading, so a buyer needs neither the pitch nor a notice;
+- the hard state SHALL render `premium_activating_body` in place of `timeline_limit_hard`, and its button SHALL become "Coba lagi" (`cta_retry`), which re-fetches page 1 through the feed's existing reload path instead of opening the paywall.
 
 The screen state SHALL be modeled as a Compose-free `FollowingTimelineUiState` data class (or sealed type) plus a pure projection (`followingTimelineUiState(outcome: FollowingTimelineOutcome?, isInitialLoad: Boolean): FollowingTimelineUiState`) — mirroring `mobile-global-timeline`'s projection — so the outcome→state mapping is deterministically unit-testable in commonTest without composing the UI. The projection SHALL map `isInitialLoad = true` to `Loading`, and otherwise map the `outcome` to its state — so that during a refresh (`isInitialLoad = false`, a previous `Loaded` retained) it returns `Content`, NOT `Loading`. The pull-to-refresh `isRefreshing` value is carried separately (passed to `PullToRefreshBox`), NOT folded into this projection. The projection MUST carry no PII (no `author_user_id`, no coordinates).
 
@@ -52,8 +54,14 @@ The screen state SHALL be modeled as a Compose-free `FollowingTimelineUiState` d
 - **WHEN** the banner's "Aktifkan Premium" control is activated
 - **THEN** the post cards AND the `timeline_limit_soft` banner are rendered AND `onActivatePremium` fires exactly once with `PaywallEntry.TIMELINE_CAP`
 
-#### Scenario: A confirmed purchase shows the activating notice on both read-cap states
+#### Scenario: After a confirmed purchase the hard state shows the activating notice and a reload
 
-- **GIVEN** the Following screen whose Koin graph binds a `PremiumEntitlementSession` on which `onPurchaseConfirmed()` has run, over a hard-limit outcome and then a soft-limit outcome
-- **WHEN** each state renders
-- **THEN** each shows `premium_activating_body` in place of its limit copy AND neither renders an "Aktifkan Premium" control
+- **GIVEN** the Following screen whose Koin graph binds a `PremiumEntitlementSession` on which `onPurchaseConfirmed()` has run, over an outcome `Loaded` with empty posts and `upsell.hard = true`
+- **WHEN** the state renders and its "Coba lagi" control is activated
+- **THEN** the tree shows `premium_activating_body` AND neither `timeline_limit_hard` nor an "Aktifkan Premium" control AND the first page is fetched a second time
+
+#### Scenario: After a confirmed purchase the soft banner is not rendered
+
+- **GIVEN** the same confirmed session over an outcome `Loaded` with posts and `upsell.soft = true`
+- **WHEN** the feed renders
+- **THEN** the post cards are rendered AND neither `timeline_limit_soft`, `premium_activating_body` nor an "Aktifkan Premium" control is in the tree

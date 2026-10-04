@@ -9,6 +9,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
+import id.nearyou.app.billing.PremiumEntitlementSession
+import id.nearyou.app.billing.confirmedPremiumSession
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
 import id.nearyou.app.data.accountdeletion.FakeAccountDeletionFlow
 import id.nearyou.app.data.dataexport.DataExportFlow
@@ -44,6 +46,7 @@ private const val PRIVATE_PROFILE_UPSELL = "Fitur Premium. Aktifkan Premium untu
 private const val PRIVATE_PROFILE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
 private const val HIDE_DISTANCE = "Sembunyikan jarak"
 private const val HIDE_DISTANCE_UPSELL = "Fitur Premium. Aktifkan Premium untuk menyembunyikan jarak."
+private const val ACTIVATING = "Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya." // premium_activating_body
 private const val HIDE_DISTANCE_ERROR = "Gagal memperbarui pengaturan. Coba lagi."
 private const val MANAGE_SUBSCRIPTION = "Kelola langganan"
 private const val GANTI_USERNAME = "Ganti username"
@@ -144,6 +147,8 @@ class SettingsScreenTest {
         privateProfile: PrivateProfileRepository = FakePrivateProfileRepository(),
         dataExport: FakeDataExportFlow = FakeDataExportFlow(),
         chatPreview: NotificationContentPreference = FakeNotificationContentPreference(),
+        // #517: bind a session whose purchase is confirmed (the webhook-lag window).
+        confirmedPurchase: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
@@ -162,6 +167,7 @@ class SettingsScreenTest {
                     single<PrivateProfileRepository> { privateProfile }
                     // mobile-notification-preview-toggle: the device-local chat-preview preference.
                     single<NotificationContentPreference> { chatPreview }
+                    if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
                 },
             )
         }
@@ -391,6 +397,23 @@ class SettingsScreenTest {
         }
     }
 
+    // #517: a buyer whose server tier still reads Free gets the activating notice, not "Aktifkan Premium untuk…".
+    @Test
+    fun hideDistance_freeToggle_afterConfirmedPurchase_showsActivatingNotice_andWritesNothing() {
+        val fake = FakeHideDistanceRepository(initial = HideDistanceState(hideDistance = false, premium = false))
+        installKoin(hideDistance = fake, confirmedPurchase = true)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(HIDE_DISTANCE).performScrollTo().performClick()
+            waitUntil { onAllNodesWithText(ACTIVATING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(HIDE_DISTANCE_UPSELL).assertDoesNotExist()
+            assertEquals(emptyList(), fake.setCalls) // still no write: the server tier has not flipped yet
+        }
+    }
+
     @Test
     fun hideDistance_failedWrite_surfacesErrorAndAttemptedOnce() {
         val fake =
@@ -504,6 +527,23 @@ class SettingsScreenTest {
             waitUntil { onAllNodesWithText(PRIVATE_PROFILE_UPSELL).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(PRIVATE_PROFILE_UPSELL).assertExists()
             assertEquals(emptyList(), fake.setCalls) // a Free caller issues NO write
+        }
+    }
+
+    // #517: a buyer whose server tier still reads Free gets the activating notice, not "Aktifkan Premium untuk…".
+    @Test
+    fun privateProfile_freeToggle_afterConfirmedPurchase_showsActivatingNotice_andWritesNothing() {
+        val fake = FakePrivateProfileRepository(initial = PrivateProfileState(privateProfile = false, premium = false))
+        installKoin(privateProfile = fake, confirmedPurchase = true)
+        runComposeUiTest {
+            setContent {
+                KoinContext { NearYouTheme { SettingsScreen(onBack = {}, onOpenBlocked = {}, onOpenConsent = {}, onLoggedOut = {}) } }
+            }
+            waitForIdle()
+            onNodeWithText(PRIVATE_PROFILE).performScrollTo().performClick()
+            waitUntil { onAllNodesWithText(ACTIVATING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(PRIVATE_PROFILE_UPSELL).assertDoesNotExist()
+            assertEquals(emptyList(), fake.setCalls) // still no write: the server tier has not flipped yet
         }
     }
 

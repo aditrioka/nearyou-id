@@ -191,6 +191,8 @@ Toggle "Tampilkan preview pesan chat di notifikasi", default OFF; ON then body =
 - **Free post-cap modal** (10/day): "Kamu sudah membuat 10 postingan hari ini. Upgrade ke Premium untuk posting tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
 - **Free chat-cap modal** (50/day, chat thread + share-to-chat): "Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
 - All four caps share ONE modal (the `mobile-cap-upsell-dialog` component, mockup frame 18) — never an inline banner. "Aktifkan Premium" opens the paywall with the cap's entry-context so the hero leads with the matching benefit.
+- **Timeline read cap** (Free 50/session soft, 150/hour hard, docs/01 § Timeline Read Limit Semantics) is a feed state, not a modal. The soft cap is a non-blocking banner over the feed, the hard cap is an empty-feed state. Each carries an "Aktifkan Premium" CTA that opens the paywall as `TIMELINE_CAP` ("Baca timeline tanpa batas").
+- **Just bought, server not caught up yet** (the RevenueCat webhook lag): no upsell may tell a buyer to upgrade or send them to buy again. Every cap modal and Premium-gate upsell shows "Premium sedang diaktifkan" / "Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya." instead, with only "Tutup" in a modal or "Coba lagi" in an inline state. The soft read-cap banner simply hides (`mobile-premium-entitlement`).
 
 ---
 

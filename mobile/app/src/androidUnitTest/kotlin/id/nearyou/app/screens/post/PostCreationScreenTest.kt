@@ -19,6 +19,8 @@ import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.SessionInvalidator
+import id.nearyou.app.billing.PremiumEntitlementSession
+import id.nearyou.app.billing.confirmedPremiumSession
 import id.nearyou.app.image.FakeImagePicker
 import id.nearyou.app.image.FakeImageUploadRepository
 import id.nearyou.app.image.ImagePicker
@@ -48,6 +50,8 @@ import id.nearyou.app.timeline.StubLocationProvider
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.PREMIUM_ACTIVATING_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.PREMIUM_ACTIVATING_DIALOG_TAG
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_post
 import id.nearyou.resources.generated.resources.post_create_content_placeholder
@@ -140,6 +144,8 @@ class PostCreationScreenTest {
         isPremium: Boolean = true,
         imagePicker: ImagePicker = FakeImagePicker(),
         uploader: ImageUploader = FakeImageUploadRepository(),
+        // #517: bind a session whose purchase is confirmed (the webhook-lag window).
+        confirmedPurchase: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fakeController = FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
@@ -156,6 +162,7 @@ class PostCreationScreenTest {
                     single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
                     // The host-push test navigates onward to PaywallRoute (Unconfigured fail-soft state).
                     single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
+                    if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
                 },
             )
         }
@@ -417,6 +424,30 @@ class PostCreationScreenTest {
             waitForIdle()
             assertEquals(0, picker.pickInvocationCount, "a Free viewer's attach must NOT invoke the picker")
             assertEquals(listOf(PaywallEntry.IMAGE_ATTACH), activated, "a Free viewer is routed to the paywall as IMAGE_ATTACH")
+        }
+    }
+
+    // #517: a buyer back from the IMAGE_ATTACH paywall whose tier still reads Free (the composer resolved it on
+    // entry) taps attach again: the activating notice shows instead of a second trip to the paywall.
+    @Test
+    fun freeViewer_tappingAttach_afterConfirmedPurchase_showsActivatingNotice_notThePaywall() {
+        val picker = FakeImagePicker()
+        installKoin(FakeCreatePostFlow(), isPremium = false, imagePicker = picker, confirmedPurchase = true)
+        val activated = mutableListOf<PaywallEntry>()
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme { PostCreationScreen(onPostCreated = {}, onActivatePremium = { activated += it }) }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_ATTACH_IMAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_ATTACH_IMAGE_TAG).performScrollTo().performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PREMIUM_ACTIVATING_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(PREMIUM_ACTIVATING_DIALOG_CLOSE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(PREMIUM_ACTIVATING_DIALOG_TAG).assertDoesNotExist()
+            assertEquals(0, picker.pickInvocationCount, "the picker stays closed")
+            assertEquals(emptyList(), activated, "a buyer is never sent to the paywall again")
         }
     }
 
