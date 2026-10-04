@@ -56,6 +56,7 @@ This skill keeps the open backlog accurate: close issues whose work silently shi
    - **"Update `<spec/doc>` § X"** → grep for the prescribed change. Present → `resolved-silently`.
    - **"… once `<change>` merges"** → check `archive/<change>/`. Archived → `resolved-silently`.
    - **Trigger-gated** ("rule of three", "when X fires", "when SDK Y ships") → verify the trigger fired. Fired → `still-valid` + likely promotable; else `still-valid-defer`.
+   - **`apple-paid`-labelled** (needs the paid Apple Developer Program — `docs/08` Open Decision #37) → `still-valid-defer` until the apple-paid lane opens; never `ready-to-burndown`. **Bucket 2 production spend** (prod env, LB/IAP, PITR, prod alerting, legal — Open Decision #36) → `still-valid-defer` + keep `deferred`; the gate is issue #556.
    - **A linked/closing PR** → `gh pr view <pr> --json mergedAt`. Merged → `resolved-silently`; else `still-valid`.
    - **Assignee OR linked open PR** → `in-progress`; leave alone.
 

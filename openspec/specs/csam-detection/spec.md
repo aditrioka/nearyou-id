@@ -3,7 +3,6 @@
 ## Purpose
 
 The csam-detection capability is the backend safety response to a Cloudflare CSAM Scanning Tool match (the tool blocks the served image with HTTP 451 and emits no webhook). It defines `POST /internal/csam-webhook` — a fixed-policy, single-transaction takedown that resolves the uploader from the `image_uploads` ledger, tombstones the affected post, permanently bans the uploader (bumping `token_version` to kick sessions), cascade-tombstones the uploader's other posts, archives the match metadata, and enqueues admin awareness — plus the `csam_detection_archive` table (plaintext Kominfo-filing essentials + AES-256-GCM-encrypted sensitive metadata, 90-day legal preservation that survives the offending account's hard-delete) and the OIDC-gated `/internal/csam-archive-purge` retention worker. It satisfies the Kominfo (Ditjen Aptika) sub-24-hour CSAM-reporting obligation and is a hard Pre-Launch security-review gate before image uploads launch. The handler authenticates on two non-OIDC paths — admin-internal session+CSRF (MVP) and Cloudflare-Worker Bearer+HMAC (Phase 2+) — and never retains image bytes.
-
 ## Requirements
 ### Requirement: `csam_detection_archive` table preserves match metadata for legal filing
 
@@ -117,11 +116,17 @@ The backend SHALL expose an OIDC-gated `POST /internal/csam-archive-purge` worke
 - **WHEN** the purge worker runs AND a row has `expires_at` in the future
 - **THEN** that row is NOT deleted regardless of `kominfo_reported_at`
 
-### Requirement: Admin CSAM review surface and the report-filing read path are deferred
+### Requirement: The admin CSAM review surface and Kominfo report filing are owned by admin-csam-detection-log
 
-This change SHALL NOT introduce the admin-facing CSAM surface: there SHALL be no admin route that lists/filters `csam_detection_archive`, no `encrypted_metadata` decrypt-read endpoint, no paste-URL admin trigger form, and no in-panel Kominfo-filing write that sets `kominfo_report_id`/`kominfo_reported_at`. Those are tracked for the follow-on admin change (`admin-csam-detection-log-viewer`). This change ships the takedown handler, the archive (write + encrypt), and the purge worker; the human review/decrypt/file workflow is the follow-up.
+The `csam-detection` capability SHALL NOT itself expose an admin **review** surface (no archive list/read, no metadata decrypt, no Kominfo filing): its own HTTP surface is `POST /internal/csam-webhook` (which keeps its admin-internal session + CSRF caller path, per § "`POST /internal/csam-webhook` executes the fixed-policy takedown") and `POST /internal/csam-archive-purge`, and neither SHALL return `csam_detection_archive` rows or decrypted `encrypted_metadata` (the webhook answers with a status, the purge worker with a purged count). The human review / decrypt / file workflow SHALL be owned by the `admin-csam-detection-log` capability (shipped by the `admin-csam-detection-log-viewer` change), mounted under the authenticated admin panel: the detection-log viewer (`GET /admin/csam`), the admin-triggered takedown (`POST /admin/csam/takedown`, which invokes this capability's `CsamDetectionService.handleDetection` in-process with `source = ADMIN_MANUAL` rather than re-implementing the fixed policy), the Kominfo filing write (`POST /admin/csam/{id}/kominfo-report`), and the audit-logged metadata decrypt (`POST /admin/csam/{id}/decrypt`). An archive row written by this capability SHALL start with `kominfo_report_id` and `kominfo_reported_at` NULL. The only writer that sets them SHALL be the `admin-csam-detection-log` Kominfo filing action, and setting them is what releases the row to this capability's purge worker once its preservation window has elapsed.
 
-#### Scenario: No admin CSAM read/decrypt/file artifacts in this change
-- **WHEN** the change diff is inspected
-- **THEN** it contains no admin route reading or decrypting `csam_detection_archive` and no endpoint writing `kominfo_report_id`/`kominfo_reported_at` (the archive starts with `kominfo_reported_at = NULL`, set later by the deferred admin surface)
+#### Scenario: csam-detection's own routes expose no archive read or decrypt
+
+- **WHEN** inspecting the `csam-detection` routes and their responses
+- **THEN** `POST /internal/csam-webhook` answers with a status only and `POST /internal/csam-archive-purge` with a `purged_count` only, neither returning `csam_detection_archive` rows or decrypted `encrypted_metadata`, AND every admin read / decrypt / file route for the archive is mounted under `/admin/csam` by `admin-csam-detection-log`
+
+#### Scenario: Kominfo filing fields are set only by the admin filing action
+
+- **WHEN** a match is archived
+- **THEN** the new archive row has `kominfo_reported_at IS NULL` AND the only code path that sets `kominfo_report_id` / `kominfo_reported_at` is the `POST /admin/csam/{id}/kominfo-report` filing action (per `admin-csam-detection-log` § "Kominfo report tracking")
 

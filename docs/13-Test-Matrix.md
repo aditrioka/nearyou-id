@@ -30,6 +30,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | backend Ktor (JVM + DB + Redis) | backend unit + backend DB | `./gradlew test -Dkotest.tags='!network'` | pre-merge | ⚠️ partial — needs local PG/Redis (auto-started in cloud sessions by `scripts/session_start.sh`) | no |
 | **Dockerfile ↔ settings module-copy guard** | infra/build | `./dev/scripts/check-dockerfile-module-copies.sh` | pre-merge (lint lane) | ❌ | **yes** |
 | **admin static-asset integrity** | admin static | `sha256sum -c htmx.min.js.SHA256SUMS` + inventory diff (in `backend/ktor/.../admin/static/`) | pre-merge (lint lane) | ❌ | **yes** |
+| **`/opsx:*` thin-wrapper guard** | tooling/static | `./dev/scripts/check-opsx-wrappers.sh` | pre-merge (lint lane) | ❌ | **yes** |
 | **supabase-parity Flyway migrate** | migration | `flyway/flyway:10 migrate` on a parity-init DB | pre-merge | ❌ (Docker) | **yes** |
 | README module sync | docs/static | `dev/scripts/sync-readme.sh --check` (warn-only) | pre-merge | ➖ manual | no |
 | `verifyBusinessModulesNoOtel` | infra/static | runs via `./gradlew check`/`test` | pre-merge | ✅ (via `check`) | no |
@@ -75,6 +76,7 @@ CI runs **more** than this. The gate does **not** cover (each has bitten `main` 
 2. **admin static-asset SHA256SUMS + inventory** — editing `backend/ktor/.../admin/static/*` without re-pinning the manifest fails CI's lint lane only ([#290](https://github.com/aditrioka/nearyou-id/pull/290); memory `reference_admin_static_asset_sha256_ci_check`). `shasum -a 256 -c htmx.min.js.SHA256SUMS` + refresh `admin.css` on every CSS edit.
 3. **supabase-parity Flyway migrate** — Docker-based; catches migrations relying on un-established Supabase state.
 4. **full `./gradlew test`** runs every `infra:*` + mobile JVM suite; the gate names only `:backend:ktor:test` + `:lint:detekt-rules:test`.
+   4b. **`/opsx:*` thin-wrapper guard** — `.claude/commands/opsx/*.md` must delegate to their `openspec-*` skill and stay ≤12 body lines (`dev/scripts/check-opsx-wrappers.sh`, lint lane only; #539).
 5. **iOS** runs in CI's `ios-test` lane (`macos-15`) on mobile-surface pushes only — it is NOT in the local gate (macOS + Xcode required). Before that lane existed the iOS flow tests drifted red on `main` undetected ([#348](https://github.com/aditrioka/nearyou-id/issues/348)/[#318](https://github.com/aditrioka/nearyou-id/issues/318)). On a Mac, run `:mobile:app:iosSimulatorArm64Test` + `linkDebugFrameworkIosSimulatorArm64` before pushing a mobile diff (else CI only finds it after the macOS lane runs); a `:shared:*` / mobile `:infra:*` iOS actual is only exercised through `:mobile:app`'s binary, so run that module's own `iosSimulatorArm64Test` locally when touching it. New iOS flow tests start Koin via the shared `startFlowTestKoin` harness (`mobile/app/src/iosTest/.../screens/FlowTestKoin.kt`) — a screen gaining a cross-screen `koinInject` adds its default fake there.
 
 ---

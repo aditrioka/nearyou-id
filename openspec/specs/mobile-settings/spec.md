@@ -1,7 +1,7 @@
 # mobile-settings Specification
 
 ## Purpose
-The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with three backed actions: **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), and **logout** (best-effort server revoke → token wipe → sign-in, per `logout-revocation`). The Premium/DESIGN rows render mockup chrome with no backend write. It owns the `SettingsRoute` root-stack contract + push semantics; the profile-screen entry gear that triggers the push is deferred to [#288](https://github.com/aditrioka/nearyou-id/issues/288). No Flyway migration; the backend logout endpoint it calls is owned by `auth-session`.
+The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It is reached from the settings gear on the self-profile section. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with these backed rows: the Premium username change (→ `mobile-premium-username`), **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), the Premium-gated **hide-distance** and **private-profile** toggles, the device-local chat-preview toggle, the legal link, and **logout** (best-effort server revoke → token wipe → sign-in, per `logout-revocation`). It also ships the off-frame **data export** and **account deletion** (30-day grace + restore) rows, and hosts the "Undang teman" referral entry (`mobile-referral`). The remaining frame-16 rows ("Edit profil", "Perjalanan Premium", "Kelola langganan") show a non-writing "Segera hadir" affordance. It owns the `SettingsRoute` root-stack contract + push semantics. No Flyway migration; each backend endpoint it calls is owned by its own capability.
 ## Requirements
 ### Requirement: SettingsRoute and its sub-routes are serializable parameterless NavKeys pushed onto the root back stack
 
@@ -20,13 +20,31 @@ The mobile app SHALL add three `@Serializable data object` NavKeys to `mobile/ap
 
 ### Requirement: mobile-settings owns the SettingsRoute contract and push semantics
 
-The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its push semantics: `SettingsScreen` is a **root**-stack overlay reached by appending `SettingsRoute` onto the root back stack (above `HomeRoute`, overlaying the bottom `NavigationBar`), with the `entry<SettingsRoute>` → `SettingsScreen` mapping owned in `AppEntryProvider`. `SettingsRoute` SHALL be `@Serializable` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack requirement). The **entry affordance** that triggers this push — a settings gear on the profile self-surface (`mobile-profile`, PR [#245](https://github.com/aditrioka/nearyou-id/pull/245)) — is NOT shipped in this change; it is deferred to follow-up [#288](https://github.com/aditrioka/nearyou-id/issues/288). Until #288 wires the gear, `SettingsRoute` is a defined, serialization-tested route with no in-app trigger (the screen + sub-surfaces are otherwise fully shipped).
+The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its push semantics: `SettingsScreen` is a **root**-stack overlay reached by appending `SettingsRoute` onto the root back stack (above `HomeRoute`, overlaying the bottom `NavigationBar`), with the `entry<SettingsRoute>` → `SettingsScreen` mapping owned in `AppEntryProvider`. `SettingsRoute` SHALL be `@Serializable` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack requirement). The in-app **entry affordance** that triggers this push SHALL be the settings gear on the **self**-profile section (`mobile-profile`'s `ProfileScreen`, which hoists it as `onSettings`): `AppShellScreen` forwards its `onOpenSettings` callback to the Profil section's `ProfileScreen.onSettings`, and the shell call site in `AppEntryProvider` wires `onOpenSettings` to `backStack.add(SettingsRoute)` — neither `ProfileScreen` nor `AppShellScreen` holds a back-stack reference. The gear SHALL render on the self-profile section only and SHALL NOT render on the other-user profile overlay. (The gear shipped in PR [#312](https://github.com/aditrioka/nearyou-id/pull/312), closing [#288](https://github.com/aditrioka/nearyou-id/issues/288).)
 
 #### Scenario: SettingsRoute is a serializable root-stack route mapped to SettingsScreen
 
 - **GIVEN** the app navigation graph
 - **WHEN** `SettingsRoute` is appended onto the root back stack
 - **THEN** `AppEntryProvider` maps it to `SettingsScreen` as a root-stack overlay AND `SettingsRoute` round-trips through the polymorphic `SerializersModule` (iOS-saveable)
+
+#### Scenario: The self-profile settings gear pushes SettingsRoute
+
+- **GIVEN** `ProfileScreen` rendered as the self-profile section with a recording `onSettings` callback
+- **WHEN** the settings gear (test tag `PROFILE_SETTINGS_TAG`) is tapped
+- **THEN** `onSettings` is invoked exactly once
+
+#### Scenario: The shell forwards the gear to onOpenSettings
+
+- **GIVEN** `AppShellScreen` composed with a recording `onOpenSettings` and the Profil section selected
+- **WHEN** the self-profile settings gear (test tag `PROFILE_SETTINGS_TAG`) is tapped
+- **THEN** `onOpenSettings` is invoked (the `AppEntryProvider` call site wires it to `backStack.add(SettingsRoute)`)
+
+#### Scenario: The settings gear is absent on the other-user profile overlay
+
+- **GIVEN** `ProfileScreen` rendered as an other-user profile overlay (a non-null `onBack`, as the `ProfileRoute` entry passes)
+- **WHEN** the loaded profile renders
+- **THEN** no settings-gear node (test tag `PROFILE_SETTINGS_TAG`) exists
 
 ### Requirement: SettingsScreen renders the frame-16 grouped list with its own Scaffold and app bar
 

@@ -136,6 +136,11 @@ jobs:
       # check, no JDK needed. Precedent: PR #247 (`:infra:supabase-realtime`).
       - name: Verify settings.gradle.kts ↔ Dockerfile module-copy parity
         run: ./dev/scripts/check-dockerfile-module-copies.sh
+      # /opsx:* slash commands must stay thin wrappers over the openspec-* skills
+      # (they drifted into a stale full copy once — audit 2026-10-03 § 10, #539).
+      # Pure bash, no JDK.
+      - name: Verify /opsx:* commands delegate to their skills
+        run: ./dev/scripts/check-opsx-wrappers.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
