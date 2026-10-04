@@ -25,17 +25,17 @@ Spec-only change: no Kotlin / SQL / template / resource edits. The "implementati
 
 - [x] 3.1 `openspec validate spec-hygiene-shipped-surfaces --strict` passes.
 - [x] 3.2 Each RENAMED FROM header byte-matches the current canonical header (checked by the delta build script).
-- [ ] 3.3 Pre-push gate (no code changed; run anyway per CLAUDE.md): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`.
+- [x] 3.3 Pre-push gate (no code changed; run anyway per CLAUDE.md): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`. _Ran with `--rerun` against a fresh throwaway PostGIS: BUILD SUCCESSFUL; backend 2641 tests / 0 failed; detekt-rules 344 / 0 failed._
 
 ## 4. Archive: sync + Purpose fixes
 
-- [ ] 4.1 Sync the 8 deltas into `openspec/specs/` (RENAMED first, then MODIFIED by new header). Grep each synced spec: every new header is present, every old FROM header is gone.
-- [ ] 4.2 Purpose fix — `mobile-notifications-list`: deep-link tap-through is wired; actor-username rendering and live unread-badge updates stay deferred.
-- [ ] 4.3 Purpose fix — `mobile-settings`: describe the shipped backed rows, and say the self-profile gear is the entry (no "#288 deferred").
-- [ ] 4.4 Purpose fix — `moderation-queue`: writers for the later triggers landed after V9; the `resolved_by` FK was backfilled by V16; readers are admin-only.
-- [ ] 4.5 Purpose fix — `admin-panel-scaffold`: the authenticated frame-2 shell (auth by `admin-login`); drop the nav stub, footer and mount-guard text.
-- [ ] 4.6 Purpose fix — `admin-feature-flags`: the full integer list, and the wordlist editor shipped (`admin-moderation-wordlist-editor`), not "deferred".
-- [ ] 4.7 Purpose fix — `mobile-post-detail`: the notifications list deep-links here (not "future"); reply rows render author identity but never `author_id`.
-- [ ] 4.8 Purpose fix — `mobile-premium-username`: #333 / #335 tracked; generic 409 message final; no autocomplete.
-- [ ] 4.9 TBD-Purpose gate: `grep -rn "TBD - created by archiving" openspec/specs/ openspec/changes/` is empty.
-- [ ] 4.10 Move the change to `openspec/changes/archive/<date>-spec-hygiene-shipped-surfaces/`, push the archive commit, and refresh the PR body to merge-ready (`Closes #499`; note #336 → duplicate of #252 after merge).
+- [x] 4.1 Sync the 8 deltas into `openspec/specs/` (RENAMED first, then MODIFIED by new header). Grep each synced spec: every new header is present, every old FROM header is gone.
+- [x] 4.2 Purpose fix — `mobile-notifications-list`: deep-link tap-through is wired; actor-username rendering and live unread-badge updates stay deferred.
+- [x] 4.3 Purpose fix — `mobile-settings`: describe the shipped backed rows, and say the self-profile gear is the entry (no "#288 deferred").
+- [x] 4.4 Purpose fix — `moderation-queue`: writers for the later triggers landed after V9; the `resolved_by` FK was backfilled by V16; readers are admin-only.
+- [x] 4.5 Purpose fix — `admin-panel-scaffold`: the authenticated frame-2 shell (auth by `admin-login`); drop the nav stub, footer and mount-guard text.
+- [x] 4.6 Purpose fix — `admin-feature-flags`: the full integer list, and the wordlist editor shipped (`admin-moderation-wordlist-editor`), not "deferred".
+- [x] 4.7 Purpose fix — `mobile-post-detail`: the notifications list deep-links here (not "future"); reply rows render author identity but never `author_id`.
+- [x] 4.8 Purpose fix — `mobile-premium-username`: #333 / #335 tracked; generic 409 message final; no autocomplete.
+- [x] 4.9 TBD-Purpose gate: `grep -rln "TBD - created by archiving" openspec/specs/` is empty (the only `openspec/changes/archive/**` hits are tasks.md lines describing this same check).
+- [x] 4.10 Move the change to `openspec/changes/archive/<date>-spec-hygiene-shipped-surfaces/`, push the archive commit, and refresh the PR body to merge-ready (`Closes #499`; note #336 → duplicate of #252 after merge).

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The moderation-queue capability defines the admin-triage table that surfaces content needing human review. Rows carry `(target_type, target_id, trigger)` with the `trigger` enum reserving 7 values (`auto_hide_3_reports`, `perspective_api_high_score`, `uu_ite_keyword_match`, `admin_flag`, `csam_detected`, `anomaly_detection`, `username_flagged`) at V9 for forward-compatibility, even though only the first writer ships now. UNIQUE `(target_type, target_id, trigger)` makes enqueueing idempotent so duplicate triggers do not flood the queue, and the `resolved_by` admin-FK is deliberately deferred until the Phase 3.5 admin-users migration lands.
+The moderation-queue capability defines the admin-triage table that surfaces content needing human review. Rows carry `(target_type, target_id, trigger)` with the `trigger` enum reserving 7 values (`auto_hide_3_reports`, `perspective_api_high_score`, `uu_ite_keyword_match`, `admin_flag`, `csam_detected`, `anomaly_detection`, `username_flagged`) at V9 for forward-compatibility. V9 shipped only the first writer (the reports auto-hide path); writers for later triggers landed in subsequent changes, and V36 extended the enum with `area_spam`. UNIQUE `(target_type, target_id, trigger)` makes enqueueing idempotent so duplicate triggers do not flood the queue, and the `resolved_by` admin-FK (`ON DELETE SET NULL`) was backfilled by the V16 admin-users migration. Only authenticated admin-panel surfaces read the queue.
 ## Requirements
 ### Requirement: moderation_queue table created via Flyway V9
 
@@ -114,14 +114,6 @@ V9 MUST NOT customize `priority` on auto-hide inserts; the default value of 5 is
 - **WHEN** querying `SELECT priority FROM moderation_queue WHERE trigger = 'auto_hide_3_reports'`
 - **THEN** every returned row has `priority = 5`
 
-### Requirement: No reader endpoint in V9
-
-V9 MUST NOT expose any admin or user-facing endpoint that reads `moderation_queue`. The Phase 3.5 admin panel owns that reader. V9 code is a write-only producer.
-
-#### Scenario: No GET endpoint for moderation_queue
-- **WHEN** the V9-era backend is fully deployed
-- **THEN** no route matches `GET /admin/moderation-queue` or any V9-introduced route that returns `moderation_queue` rows
-
 ### Requirement: moderation_queue.trigger enum extended with `area_spam` (V36)
 
 Migration `V36__moderation_queue_area_spam_trigger.sql` SHALL extend the `moderation_queue.trigger` CHECK enum with the value `area_spam`, raising the allowed set to 8 values: `auto_hide_3_reports`, `perspective_api_high_score`, `uu_ite_keyword_match`, `admin_flag`, `csam_detected`, `anomaly_detection`, `username_flagged`, `area_spam`. Because the V9 enum is an inline column CHECK (auto-named `moderation_queue_trigger_check`), the migration SHALL perform `ALTER TABLE moderation_queue DROP CONSTRAINT moderation_queue_trigger_check, ADD CONSTRAINT moderation_queue_trigger_check CHECK (trigger IN ( … 8 values …))`. The extension is additive — existing rows are untouched and all seven previously-valid values continue to pass — so the V9 forward-compatibility scenarios remain valid. The `area_spam` trigger denotes the Layer 4 per-area anti-local-spam control and is DISTINCT from the reserved `anomaly_detection` value (which is earmarked for the separate per-user behavioral-baseline mechanism); the two SHALL NOT be conflated.
@@ -141,4 +133,23 @@ Migration `V36__moderation_queue_area_spam_trigger.sql` SHALL extend the `modera
 #### Scenario: Pre-V36 rows remain valid
 - **WHEN** the V36 migration runs against a DB that already holds `moderation_queue` rows with any of the seven original trigger values
 - **THEN** the migration succeeds AND all existing rows remain present and valid (additive constraint change, no data rewrite)
+
+### Requirement: moderation_queue is read only by authenticated admin-panel surfaces
+
+V9 shipped `moderation_queue` write-only (no reader endpoint); the Phase 3.5 admin panel now owns every reader. No user-facing endpoint (any `/api/v1/*` route serving the mobile clients) SHALL read or return `moderation_queue` rows. The only HTTP surfaces that read `moderation_queue` SHALL be routes under `/admin/*` behind the admin session middleware (and its CSRF gate for writes), each owned by its own admin capability:
+
+- `admin-report-queue` — `GET /admin/reports` attaches the representative `moderation_queue` context to the report-queue listing, and its queue-resolution action (`POST /admin/moderation-queue/{id}/resolve`) reads and transitions the queue row (the per-report `POST /admin/reports/{id}/resolve` updates `reports` only).
+- `admin-premium-username-oversight` — `GET /admin/username-oversight` lists the `username_flagged` rows, and `POST /admin/username-oversight/flags/{queue_id}/resolve` reads the row it resolves.
+
+A new reader SHALL land as an admin capability under `/admin/*`, never as a user-facing route.
+
+#### Scenario: No user-facing route returns moderation_queue rows
+
+- **WHEN** inspecting the backend's `/api/v1/*` route handlers and the repositories they call
+- **THEN** none reads `moderation_queue` (every `SELECT` against it sits behind an `/admin/*` route), so no user-facing response can contain `moderation_queue` rows
+
+#### Scenario: The admin readers sit behind the admin session
+
+- **WHEN** a request without a valid admin session calls `GET /admin/reports` or `GET /admin/username-oversight`
+- **THEN** the response redirects to `/admin/login` AND no `moderation_queue` content is disclosed
 
