@@ -39,7 +39,8 @@ jobs:
   # for any code-touching PR.
   #
   # NOTE: this is a hand-rolled `git diff + grep` filter with two axes: `code`
-  # (docs-only skip) and `ios` (the mobile-only `ios-test` lane — one grep).
+  # (per-push docs-only skip) and `ios` (the mobile-only `ios-test` lane — one
+  # grep over the whole PR diff, so it can't be skipped by a later push).
   # If we need MORE axes (e.g. "skip android tests when only backend changed"
   # / "skip backend tests when only mobile changed"), switch to
   # `dorny/paths-filter@v3` — battle-tested third-party action with
@@ -82,8 +83,12 @@ jobs:
             echo "→ Only docs paths changed; skipping heavy jobs."
           fi
           # iOS axis: the K/N mobile surface + the build inputs it compiles against (the `ios-test`
-          # macOS lane is too slow to run on backend-only pushes).
-          if echo "$CHANGED" | grep -qE '^(mobile/|shared/|infra/(sentry|supabase-realtime|revenuecat|amplitude|admob)/|iosApp/|gradle/|build-logic/|(settings|build)\.gradle\.kts$|gradle\.properties$|\.github/workflows/ci\.yml$)'; then
+          # macOS lane is too slow to run on backend-only PRs). Computed on the WHOLE PR diff, not
+          # this push: per-push, a backend-only push after a red (or cancelled) iOS run would skip
+          # the lane and pass merge-gate with iOS never green. Here-string, not `echo | grep -q`
+          # (pipefail + SIGPIPE flips a huge diff to false).
+          PR_CHANGED=$(git diff --name-only '${{ github.event.pull_request.base.sha }}'...'${{ github.event.pull_request.head.sha }}' || true)
+          if grep -qE '^(mobile/|shared/|infra/(sentry|supabase-realtime|revenuecat|amplitude|admob)/|iosApp/|gradle/|build-logic/|(settings|build)\.gradle\.kts$|gradle\.properties$|\.github/workflows/ci\.yml$)' <<<"$PR_CHANGED"; then
             echo "ios=true" >> "$GITHUB_OUTPUT"
           else
             echo "ios=false" >> "$GITHUB_OUTPUT"
@@ -301,6 +306,11 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+      # Kotlin/Native toolchain + platform caches (~1 GB) — setup-gradle does not cover ~/.konan.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
       - run: ./gradlew :mobile:app:iosSimulatorArm64Test :mobile:app:linkDebugFrameworkIosSimulatorArm64
       - name: Upload iOS test report on failure
         if: failure()

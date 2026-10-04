@@ -34,6 +34,16 @@ class MobileHardcodedStringRuleTest : StringSpec({
         rule.lint("""fun s() { Icon(imageVector = Icons.Back, contentDescription = "Kembali") }""") shouldHaveSize 1
     }
 
+    "Modifier.semantics { contentDescription = / stateDescription = } literal assignments fire" {
+        val code =
+            """
+            fun s() {
+                Box(Modifier.semantics { contentDescription = "Tombol suka"; stateDescription = "Disukai" })
+            }
+            """.trimIndent()
+        rule.lint(code) shouldHaveSize 2
+    }
+
     "template with literal words fires" {
         rule.lint("""fun s(n: Int) { Text("${'$'}n postingan") }""") shouldHaveSize 1
     }
@@ -53,6 +63,10 @@ class MobileHardcodedStringRuleTest : StringSpec({
 
     "formatting-only templates (no letters in the static parts) pass" {
         rule.lint("""fun s(u: String, a: Int, b: Int) { Text(text = "@${'$'}u"); Text("${'$'}a · ${'$'}b") }""").shouldBeEmpty()
+    }
+
+    "semantics assignment from a resource passes" {
+        rule.lint("""fun s(cd: String) { Box(Modifier.semantics { contentDescription = cd }) }""").shouldBeEmpty()
     }
 
     "contentDescription = null passes" {

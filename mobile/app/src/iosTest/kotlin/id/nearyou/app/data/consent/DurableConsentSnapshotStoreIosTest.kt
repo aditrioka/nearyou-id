@@ -29,9 +29,10 @@ class DurableConsentSnapshotStoreIosTest {
 
     @Test
     fun writeThenReadFromNewInstance_returnsPersistedTriple() {
-        DurableConsentSnapshotStore().write(ConsentSnapshot(analytics = true, crash = false, adsPersonalization = true))
+        // Asymmetric triple: analytics differs from both others, so a key swap involving it can't read back equal.
+        DurableConsentSnapshotStore().write(ConsentSnapshot(analytics = true, crash = false, adsPersonalization = false))
         assertEquals(
-            ConsentSnapshot(analytics = true, crash = false, adsPersonalization = true),
+            ConsentSnapshot(analytics = true, crash = false, adsPersonalization = false),
             DurableConsentSnapshotStore().read(),
         )
     }

@@ -7,8 +7,12 @@ import io.gitlab.arturbosch.detekt.api.Entity
 import io.gitlab.arturbosch.detekt.api.Issue
 import io.gitlab.arturbosch.detekt.api.Rule
 import io.gitlab.arturbosch.detekt.api.Severity
+import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtLiteralStringTemplateEntry
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 
@@ -19,7 +23,8 @@ import org.jetbrains.kotlin.psi.KtStringTemplateExpression
  *
  * Flags a string literal passed as:
  *  - the first positional / `text =` argument of a `Text(...)` call;
- *  - any `contentDescription =` named argument.
+ *  - any `contentDescription =` named argument;
+ *  - a `contentDescription = …` / `stateDescription = …` assignment (the `Modifier.semantics { }` shape).
  *
  * A literal counts as copy only when its static parts contain a letter, so formatting-only templates
  * (`"@$username"`, `"$a · $b"`) pass. Test source sets (`src/<name>Test/`) are exempt — test
@@ -43,16 +48,27 @@ class MobileHardcodedStringRule(config: Config = Config.empty) : Rule(config) {
 
     override fun visitCallExpression(expression: KtCallExpression) {
         super.visitCallExpression(expression)
-        val path = expression.containingKtFile.virtualFilePath.replace('\\', '/')
-        if (TEST_SOURCE_SET.containsMatchIn(path)) return
         val isText = (expression.calleeExpression as? KtSimpleNameExpression)?.getReferencedName() == "Text"
         expression.valueArguments.forEachIndexed { index, arg ->
             val name = arg.getArgumentName()?.asName?.asString()
-            val checked = name == "contentDescription" || (isText && (name == "text" || (name == null && index == 0)))
-            val literal = arg.getArgumentExpression() as? KtStringTemplateExpression ?: return@forEachIndexed
-            if (checked && literal.entries.any { it is KtLiteralStringTemplateEntry && it.text.any(Char::isLetter) }) {
-                report(CodeSmell(issue, Entity.from(literal), issue.description))
+            if (name == "contentDescription" || (isText && (name == "text" || (name == null && index == 0)))) {
+                reportIfCopy(arg.getArgumentExpression())
             }
+        }
+    }
+
+    override fun visitBinaryExpression(expression: KtBinaryExpression) {
+        super.visitBinaryExpression(expression)
+        if (expression.operationToken != KtTokens.EQ) return
+        val target = (expression.left as? KtNameReferenceExpression)?.getReferencedName()
+        if (target in SEMANTICS_PROPERTIES) reportIfCopy(expression.right)
+    }
+
+    private fun reportIfCopy(expression: KtExpression?) {
+        val literal = expression as? KtStringTemplateExpression ?: return
+        if (TEST_SOURCE_SET.containsMatchIn(literal.containingKtFile.virtualFilePath.replace('\\', '/'))) return
+        if (literal.entries.any { it is KtLiteralStringTemplateEntry && it.text.any(Char::isLetter) }) {
+            report(CodeSmell(issue, Entity.from(literal), issue.description))
         }
     }
 
@@ -60,5 +76,7 @@ class MobileHardcodedStringRule(config: Config = Config.empty) : Rule(config) {
         const val RULE_ID: String = "MobileHardcodedStringRule"
 
         private val TEST_SOURCE_SET: Regex = Regex("/src/\\w*Test/")
+
+        private val SEMANTICS_PROPERTIES: Set<String> = setOf("contentDescription", "stateDescription")
     }
 }

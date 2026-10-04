@@ -37,6 +37,9 @@ import org.koin.mp.KoinPlatformTools
  * suite red. [flowTestDefaults] binds an inert fake for each cross-screen collaborator ONCE; a test's own
  * modules load after it (Koin `allowOverride`, on by default) and bind only what the test asserts on.
  * A screen that gains a new cross-screen `koinInject` adds its default here, not to N tests.
+ * Override a default with the INTERFACE type (`single<LikeFlow> { fake }`): an untyped
+ * `single { FakeLikeFlow() }` binds the concrete class, the screen still gets the default, and a
+ * "nothing happened" assertion passes vacuously.
  */
 fun startFlowTestKoin(vararg modules: Module) {
     stopFlowTestKoin()
