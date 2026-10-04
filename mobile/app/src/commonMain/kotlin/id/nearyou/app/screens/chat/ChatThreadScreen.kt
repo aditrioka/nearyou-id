@@ -20,16 +20,18 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,7 +44,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,10 +58,14 @@ import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.ListCenteredMessageState
+import id.nearyou.app.ui.components.ListErrorState
+import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_cap_upsell
+import id.nearyou.resources.generated.resources.chat_error_too_long
 import id.nearyou.resources.generated.resources.chat_message_redacted
 import id.nearyou.resources.generated.resources.chat_send
 import id.nearyou.resources.generated.resources.chat_send_blocked
@@ -68,6 +73,7 @@ import id.nearyou.resources.generated.resources.chat_thread_input_placeholder
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.notif_permission_rationale
+import id.nearyou.resources.generated.resources.notif_permission_rationale_confirm
 import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_success_toast
@@ -93,6 +99,15 @@ const val CHAT_THREAD_SEND_TAG: String = "chatThreadSend"
 /** Test tag on the send-blocked banner. */
 const val CHAT_THREAD_BLOCKED_BANNER_TAG: String = "chatThreadBlockedBanner"
 
+/** Test tag on the network-retry banner (a failed send; its retry re-sends the kept input). */
+const val CHAT_THREAD_RETRY_BANNER_TAG: String = "chatThreadRetryBanner"
+
+/** Test tag on the network-retry banner's retry control. */
+const val CHAT_THREAD_RETRY_TAG: String = "chatThreadRetry"
+
+/** Test tag on the over-limit (too-long) hint. */
+const val CHAT_THREAD_TOO_LONG_TAG: String = "chatThreadTooLong"
+
 /** Test tag on a redacted message bubble (asserts the placeholder, not an empty/null bubble). */
 const val CHAT_THREAD_REDACTED_TAG: String = "chatThreadRedacted"
 
@@ -114,14 +129,19 @@ const val CHAT_REPORT_DIALOG_TAG: String = "chatReportDialog"
  *  - the message list (own-vs-other alignment; a redacted message → the neutral `chat_message_redacted`
  *    bubble, never an empty/`null` one; realtime/optimistic rows animate in; load-older on scroll-up);
  *  - a bottom input bar (`chat_thread_input_placeholder` + send; the 2000-code-point client guard
- *    disables send on empty/whitespace/over-limit BEFORE any request);
- *  - a send-blocked banner (`chat_send_blocked`) on a `Blocked` send; a network-retry hint otherwise;
+ *    disables send on empty/whitespace/over-limit BEFORE any request, and an over-limit input shows the
+ *    `chat_error_too_long` hint);
+ *  - a send-blocked banner (`chat_send_blocked`) on a `Blocked` send; a network-retry banner
+ *    (`signin_error_network` + `cta_retry`, re-sending the kept input) on a failed send;
  *  - the shared frame-18 cap dialog (`chat_cap_upsell` + a live countdown) on a `RateLimited` send — the
  *    Free 50/day cap. The bubble drops (the message was not accepted) but the typed input is kept; the
  *    "Aktifkan Premium" CTA invokes [onActivatePremium] (the host pushes `PaywallRoute(CHAT_CAP)`);
- *  - the initial-load skeleton vs a usable thread (no double indicator).
+ *  - the initial-load skeleton vs pull-to-refresh over the retained thread (no double indicator).
  *
- * On the first successful send (per-process one-shot via [NotificationPromptOneShot]) it shows the
+ * A root-stack overlay, it owns ONE `Scaffold` (top bar / input bar / snackbar) so the bars sit on the
+ * theme surface and inherit its content color in light AND dark (#488).
+ *
+ * On the first successful send (per-install one-shot via [NotificationPromptOneShot]) it shows the
  * `notif_permission_rationale` rationale then the platform notification-permission prompt (task 9.4),
  * independent of FCM registration. The screen is navigation-free (the back affordance invokes [onBack]).
  */
@@ -148,6 +168,7 @@ fun ChatThreadScreen(
             ChatThreadViewModel(route.conversationId, flow, subscriber, viewerIdProvider, reportSubmitter)
         }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val sendOutcome by viewModel.sendOutcome.collectAsStateWithLifecycle()
     val sendInFlight by viewModel.sendInFlight.collectAsStateWithLifecycle()
     val reportTargetMessageId by viewModel.reportTargetMessageId.collectAsStateWithLifecycle()
@@ -169,7 +190,7 @@ fun ChatThreadScreen(
         }
     }
 
-    // First-send notification-permission prompt (task 9.4): on a successful send, if the per-process
+    // First-send notification-permission prompt (task 9.4): on a successful send, if the per-install
     // one-shot is unclaimed AND the OS status is NOT_DETERMINED, show the rationale → then the prompt.
     // Also clears the input on a successful send.
     LaunchedEffect(sendOutcome) {
@@ -193,26 +214,22 @@ fun ChatThreadScreen(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        ChatThreadContent(
-            partnerDisplayName = route.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
-            uiState = uiState,
-            sendBar = remember(sendOutcome, sendInFlight) { sendBarState(sendOutcome, sendInFlight) },
-            input = input,
-            onInputChange = { input = it },
-            canSend = canSubmitChat(input) && !sendInFlight,
-            onSend = { viewModel.send(input) },
-            onRetryHistory = viewModel::retry,
-            onLoadOlder = viewModel::loadOlder,
-            onReportMessage = viewModel::onReportMessageClicked,
-            onOpenSharedPost = onOpenSharedPost,
-            onBack = onBack,
-        )
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
-        )
-    }
+    ChatThreadContent(
+        partnerDisplayName = route.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
+        uiState = uiState,
+        isRefreshing = isRefreshing,
+        sendBar = remember(sendOutcome, sendInFlight, input) { sendBarState(sendOutcome, sendInFlight, input) },
+        input = input,
+        onInputChange = { input = it },
+        canSend = canSubmitChat(input) && !sendInFlight,
+        onSend = { viewModel.send(input) },
+        onRefresh = viewModel::retry,
+        onLoadOlder = viewModel::loadOlder,
+        onReportMessage = viewModel::onReportMessageClicked,
+        onOpenSharedPost = onOpenSharedPost,
+        onBack = onBack,
+        snackbarHostState = snackbarHostState,
+    )
 
     // cap-upsell-parity: the Free 50/day cap (frame 18). Shown while the one-shot sendOutcome is RateLimited;
     // every dismissal path clears it via clearSendOutcome(). The input was never cleared (only Sent clears
@@ -241,42 +258,67 @@ fun ChatThreadScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatThreadContent(
     partnerDisplayName: String,
     uiState: ChatThreadUiState,
+    isRefreshing: Boolean,
     sendBar: SendBarState,
     input: String,
     onInputChange: (String) -> Unit,
     canSend: Boolean,
     onSend: () -> Unit,
-    onRetryHistory: () -> Unit,
+    onRefresh: () -> Unit,
     onLoadOlder: () -> Unit,
     onReportMessage: (String) -> Unit,
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
     onBack: () -> Unit,
+    snackbarHostState: SnackbarHostState,
 ) {
-    Column(modifier = Modifier.fillMaxSize().imePadding()) {
-        ChatThreadTopBar(partnerDisplayName = partnerDisplayName, onBack = onBack)
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+    // The single Scaffold of this root-stack overlay (mobile-design-system): its surface gives the bars the
+    // theme background + content color (a bare Column left the title black-on-black in dark mode, #488).
+    Scaffold(
+        topBar = { ChatThreadTopBar(partnerDisplayName = partnerDisplayName, onBack = onBack) },
+        bottomBar = {
+            // Bottom-bar insets: keep the send-state row + input above the nav bar AND the keyboard.
+            Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
+                when (sendBar) {
+                    SendBarState.Blocked -> SendBlockedBanner()
+                    SendBarState.NetworkRetry -> SendRetryBanner(canRetry = canSend, onRetry = onSend)
+                    SendBarState.TooLong -> TooLongHint()
+                    SendBarState.Idle, SendBarState.Sending -> Unit
+                }
+                ChatInputBar(
+                    input = input,
+                    onInputChange = onInputChange,
+                    canSend = canSend,
+                    sending = sendBar == SendBarState.Sending,
+                    onSend = onSend,
+                )
+            }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
+        // Pull-to-refresh (and the error retry) resync the newest page over the RETAINED thread; the
+        // non-Content states render inside a scrollable so the pull works from them too.
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
             when (uiState) {
-                ChatThreadUiState.Loading -> CenteredThreadState(stringResource(Res.string.timeline_loading), spinner = true)
-                ChatThreadUiState.Error -> ThreadErrorState(onRetry = onRetryHistory)
+                ChatThreadUiState.Loading ->
+                    ListLoadingState(message = stringResource(Res.string.timeline_loading), testTag = CHAT_THREAD_LIST_TAG)
+                ChatThreadUiState.Error -> ListErrorState(onRetry = onRefresh, testTag = CHAT_THREAD_LIST_TAG)
                 ChatThreadUiState.SessionRedirect ->
-                    CenteredThreadState(stringResource(Res.string.timeline_session_redirect), spinner = false)
+                    ListCenteredMessageState(
+                        message = stringResource(Res.string.timeline_session_redirect),
+                        testTag = CHAT_THREAD_LIST_TAG,
+                    )
                 is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder, onReportMessage, onOpenSharedPost)
             }
         }
-        if (sendBar == SendBarState.Blocked) {
-            SendBlockedBanner()
-        }
-        ChatInputBar(
-            input = input,
-            onInputChange = onInputChange,
-            canSend = canSend,
-            sending = sendBar == SendBarState.Sending,
-            onSend = onSend,
-        )
     }
 }
 
@@ -285,6 +327,7 @@ private fun ChatThreadTopBar(
     partnerDisplayName: String,
     onBack: () -> Unit,
 ) {
+    // The overlay owns its Scaffold, so the custom bar applies its own status-bar inset (06-#4).
     Row(
         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -434,6 +477,44 @@ private fun SendBlockedBanner() {
     }
 }
 
+/** A failed send (transport / 5xx): the connectivity copy + a retry that re-sends the kept input. */
+@Composable
+private fun SendRetryBanner(
+    canRetry: Boolean,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth().testTag(CHAT_THREAD_RETRY_BANNER_TAG),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.signin_error_network),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+            )
+            TextButton(onClick = onRetry, enabled = canRetry, modifier = Modifier.testTag(CHAT_THREAD_RETRY_TAG)) {
+                Text(text = stringResource(Res.string.cta_retry))
+            }
+        }
+    }
+}
+
+/** The over-limit input hint (> 2000 code points) — send is already disabled; this says why. */
+@Composable
+private fun TooLongHint() {
+    Text(
+        text = stringResource(Res.string.chat_error_too_long),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag(CHAT_THREAD_TOO_LONG_TAG),
+    )
+}
+
 @Composable
 private fun ChatInputBar(
     input: String,
@@ -443,13 +524,15 @@ private fun ChatInputBar(
     onSend: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedTextField(
             value = input,
             onValueChange = onInputChange,
             placeholder = { Text(text = stringResource(Res.string.chat_thread_input_placeholder)) },
+            // Bounded: a long draft scrolls inside the field instead of growing the bottom bar over the thread.
+            maxLines = 5,
             modifier = Modifier.weight(1f).testTag(CHAT_THREAD_INPUT_TAG),
         )
         Button(
@@ -470,45 +553,11 @@ private fun NotificationRationaleDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         text = { Text(text = stringResource(Res.string.notif_permission_rationale)) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(text = stringResource(Res.string.chat_send)) } },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(text = stringResource(Res.string.notif_permission_rationale_confirm)) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text(text = stringResource(Res.string.cta_close)) } },
     )
-}
-
-@Composable
-private fun CenteredThreadState(
-    message: String,
-    spinner: Boolean,
-) {
-    Box(modifier = Modifier.fillMaxSize().testTag(CHAT_THREAD_LIST_TAG), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (spinner) CircularProgressIndicator()
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(24.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThreadErrorState(onRetry: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().testTag(CHAT_THREAD_LIST_TAG), contentAlignment = Alignment.Center) {
-        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = stringResource(Res.string.signin_error_network),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-                Text(text = stringResource(Res.string.cta_retry))
-            }
-        }
-    }
 }
 
 /** Maps the one-shot [ChatReportMessage] to its `:shared:resources` string. Submitted AND Duplicate share

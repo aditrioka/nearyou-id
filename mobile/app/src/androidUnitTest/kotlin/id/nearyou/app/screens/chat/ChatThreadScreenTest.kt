@@ -1,6 +1,9 @@
 package id.nearyou.app.screens.chat
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -14,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.chat.ChatFlow
@@ -30,7 +35,9 @@ import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.notifications.FakeNotificationPermissionController
+import id.nearyou.app.notifications.FakeNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
+import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.paywall.FakePurchaseController
 import id.nearyou.app.screens.routing.ChatThreadRoute
@@ -41,6 +48,7 @@ import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.resources.theme.NearYouColorScheme
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -52,6 +60,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 private const val CONV = "11111111-1111-1111-1111-111111111111"
 private const val VIEWER = "22222222-2222-2222-2222-222222222222"
@@ -59,6 +68,10 @@ private const val OTHER = "33333333-3333-3333-3333-333333333333"
 private const val REDACTED = "Pesan ini telah dihapus"
 private const val BLOCKED = "Tidak dapat mengirim pesan ke user ini"
 private const val DELETED = "Akun Dihapus"
+private const val NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
+private const val TOO_LONG = "Pesan maksimal 2000 karakter."
+private const val RATIONALE = "Aktifkan notifikasi agar kamu tahu saat ada pesan baru."
+private const val RATIONALE_CONFIRM = "Izinkan notifikasi"
 
 // cap-upsell-parity: chat_cap_upsell with the cap dialog's 1140s countdown ("19 mnt").
 private const val CHAT_CAP_19M =
@@ -75,8 +88,9 @@ private fun dto(
 /**
  * Render coverage of `ChatThreadScreen` via the Robolectric CMP runner (task 12.4). The merge/projection
  * is covered purely by `ChatThreadUiStateTest` + `ChatThreadViewModelTest`; this suite verifies history
- * renders, the redacted placeholder bubble, the input bar, the send-blocked banner, the 2000-char guard
- * disables send, and the deleted-partner top-bar placeholder.
+ * renders, the redacted placeholder bubble, the input bar, the send-blocked / network-retry / too-long
+ * send states, pull-to-refresh, the once-per-install first-send rationale, the deleted-partner top-bar
+ * placeholder, and the themed top-bar title in light + dark.
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
@@ -85,15 +99,22 @@ private fun dto(
 class ChatThreadScreenTest {
     private lateinit var flow: FakeChatFlow
     private lateinit var reportSubmitter: FakeReportSubmitter
+    private lateinit var notificationController: FakeNotificationPermissionController
+    private lateinit var promptOneShot: FakeNotificationPromptOneShot
 
     private fun installKoin(
         history: ChatThreadOutcome = ChatThreadOutcome.Loaded(emptyList(), null),
         sendOutcome: SendOutcome = SendOutcome.Sent(dto("server-1", sender = VIEWER, content = "hi")),
         reportOutcome: ReportOutcome = ReportOutcome.Submitted,
+        historyOutcomes: List<ChatThreadOutcome> = listOf(history),
+        notificationStatus: NotificationPermissionStatus = NotificationPermissionStatus.GRANTED,
+        rationaleAlreadyShown: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        flow = FakeChatFlow(historyOutcomes = listOf(history), sendOutcome = sendOutcome)
+        flow = FakeChatFlow(historyOutcomes = historyOutcomes, sendOutcome = sendOutcome)
         reportSubmitter = FakeReportSubmitter(reportOutcome)
+        notificationController = FakeNotificationPermissionController(notificationStatus)
+        promptOneShot = FakeNotificationPromptOneShot(claimed = rationaleAlreadyShown)
         startKoin {
             modules(
                 module {
@@ -101,8 +122,8 @@ class ChatThreadScreenTest {
                     single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
                     single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
                     single<ReportSubmitter> { reportSubmitter }
-                    single<NotificationPermissionController> { FakeNotificationPermissionController() }
-                    single { NotificationPromptOneShot() }
+                    single<NotificationPermissionController> { notificationController }
+                    single<NotificationPromptOneShot> { promptOneShot }
                     // The host-push test navigates onward to PaywallRoute (Unconfigured fail-soft state).
                     single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
                 },
@@ -153,15 +174,145 @@ class ChatThreadScreenTest {
         }
     }
 
+    // mobile-chat § "Over-length content blocked client-side": no request AND the bar shows the too-long state.
     @Test
-    fun overLimitInput_disablesSend() {
+    fun overLimitInput_disablesSend_andShowsTheTooLongState() {
         installKoin()
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_TOO_LONG_TAG).assertDoesNotExist()
             onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("a".repeat(MAX_CHAT_CONTENT_CODE_POINTS + 1))
             onNodeWithTag(CHAT_THREAD_SEND_TAG).assertIsNotEnabled()
+            onNodeWithTag(CHAT_THREAD_TOO_LONG_TAG).assertExists()
+            onNodeWithText(TOO_LONG).assertExists()
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitForIdle()
+            assertEquals(0, flow.sendCount, "an over-limit input issues no request")
         }
+    }
+
+    // #494: a failed send (transport / 5xx) renders the network-retry state instead of silently dropping the
+    // bubble; the typed input is kept and the retry re-sends it.
+    @Test
+    fun networkErrorSend_showsRetryBanner_keepsTheInput_andRetryResends() {
+        installKoin(sendOutcome = SendOutcome.NetworkError)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("halo")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_RETRY_BANNER_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(NETWORK).assertExists()
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).assertTextEquals("halo", includeEditableText = true)
+            flow.sendOutcome = SendOutcome.Sent(dto("server-2", sender = VIEWER, content = "halo"))
+            onNodeWithTag(CHAT_THREAD_RETRY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_RETRY_BANNER_TAG).fetchSemanticsNodes().isEmpty() }
+            assertEquals(listOf<String?>("halo", "halo"), flow.sentContents, "the retry re-sent the kept input")
+            onNodeWithText("halo").assertExists()
+        }
+    }
+
+    // #494 / mobile-chat § "Reconnect resyncs via REST…": pull-to-refresh over the retained thread resyncs.
+    @Test
+    fun pullToRefresh_resyncsHistory_andKeepsTheThreadMounted() {
+        installKoin(ChatThreadOutcome.Loaded(listOf(dto("m1", content = "STAYS")), null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("STAYS").fetchSemanticsNodes().isNotEmpty() }
+            val before = flow.loadHistoryCount
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == before + 1 }
+            onNodeWithText("STAYS").assertExists()
+        }
+    }
+
+    // mobile-design-system § "Pull-to-refresh is available from a non-Content state": the error state is
+    // scrollable, so a pull reloads; the reload then lands the thread.
+    @Test
+    fun pullToRefresh_worksFromTheErrorState() {
+        installKoin(
+            historyOutcomes =
+                listOf(ChatThreadOutcome.NetworkError, ChatThreadOutcome.Loaded(listOf(dto("m1", content = "BACK")), null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(NETWORK).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("BACK").fetchSemanticsNodes().isNotEmpty() }
+        }
+    }
+
+    // mobile-chat § "First-send notification-permission prompt" + #487: the rationale confirms with the
+    // notification copy (not "Kirim pesan"), launches the OS request, and a later send does not re-prompt.
+    @Test
+    fun firstSend_showsRationaleOnce_confirmLabelIsTheNotificationCopy() {
+        installKoin(notificationStatus = NotificationPermissionStatus.NOT_DETERMINED)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("satu")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(RATIONALE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(RATIONALE_CONFIRM).performClick()
+            waitUntil(timeoutMillis = 5_000) { notificationController.requestCount == 1 }
+            onNodeWithText(RATIONALE).assertDoesNotExist()
+            flow.sendOutcome = SendOutcome.Sent(dto("server-2", sender = VIEWER, content = "dua"))
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("dua")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { flow.sendCount == 2 }
+            waitForIdle()
+            onNodeWithText(RATIONALE).assertDoesNotExist()
+            assertEquals(1, notificationController.requestCount, "a subsequent send does not re-prompt")
+        }
+    }
+
+    // #494: the one-shot is per INSTALL — a relaunch (fresh composition + VM) after the rationale was shown
+    // on this install does not show it again.
+    @Test
+    fun firstSendAfterRelaunch_doesNotReshowTheRationale() {
+        installKoin(notificationStatus = NotificationPermissionStatus.NOT_DETERMINED, rationaleAlreadyShown = true)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("hi")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { flow.sendCount == 1 }
+            waitForIdle()
+            onNodeWithText(RATIONALE).assertDoesNotExist()
+            assertEquals(0, notificationController.requestCount)
+        }
+    }
+
+    // #488: the thread sits in a themed Scaffold, so the top-bar title resolves the theme's on-color in dark
+    // mode (it was LocalContentColor's default black on the black window).
+    @Test
+    fun darkTheme_topBarTitleUsesTheThemeOnColor_notBlack() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme(darkTheme = true) { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Dewi Lestari").fetchSemanticsNodes().isNotEmpty() }
+            val color = onNodeWithText("Dewi Lestari").textColor()
+            assertNotEquals(Color.Black, color)
+            assertEquals(NearYouColorScheme.dark.onBackground, color)
+        }
+    }
+
+    @Test
+    fun lightTheme_topBarTitleUsesTheThemeOnColor() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme(darkTheme = false) { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Dewi Lestari").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(NearYouColorScheme.light.onBackground, onNodeWithText("Dewi Lestari").textColor())
+        }
+    }
+
+    /** The resolved text color the node was laid out with (M3 `Text` merges LocalContentColor into the style). */
+    private fun SemanticsNodeInteraction.textColor(): Color {
+        val results = mutableListOf<TextLayoutResult>()
+        fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action?.invoke(results)
+        return results.first().layoutInput.style.color
     }
 
     @Test

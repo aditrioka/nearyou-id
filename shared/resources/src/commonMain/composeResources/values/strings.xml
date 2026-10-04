@@ -446,6 +446,11 @@
     <string name="chat_shared_post_edited_banner">Diedit sejak dibagikan</string>
     <string name="chat_shared_post_deleted">Postingan telah dihapus</string>
     <string name="notif_permission_rationale">Aktifkan notifikasi agar kamu tahu saat ada pesan baru.</string>
+    <!-- Chat thread send states (#494) + the rationale confirm (#487, was chat_send "Kirim pesan"). The
+         too-long copy mirrors post_create_error_too_long; the network-retry state REUSES
+         signin_error_network + cta_retry. Derived BI, flagged for UX review in the PR. -->
+    <string name="notif_permission_rationale_confirm">Izinkan notifikasi</string>
+    <string name="chat_error_too_long">Pesan maksimal 2000 karakter.</string>
     <!-- mobile-search: the Premium-gated Cari surface (docs/03-UX-Design.md § Search UX). The
          empty-results + rate-limit modal copy are verbatim docs/03:244 / :245. The error/session/loading
          states REUSE signin_error_network / cta_retry / timeline_loading / timeline_session_redirect

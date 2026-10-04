@@ -19,8 +19,10 @@ import id.nearyou.app.location.AndroidLocationProvider
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionRequestBridge
 import id.nearyou.app.notifications.AndroidNotificationPermissionController
+import id.nearyou.app.notifications.AndroidNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionRequestBridge
+import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.push.AndroidFcmTokenProvider
 import id.nearyou.app.push.AndroidNotificationContentPreferenceStore
 import id.nearyou.app.push.FcmTokenProvider
@@ -59,6 +61,8 @@ actual val platformModule: Module =
         // MainActivity) + the controller the chat first-send flow drives.
         single { NotificationPermissionRequestBridge() }
         single<NotificationPermissionController> { AndroidNotificationPermissionController(androidContext(), get()) }
+        // The first-send rationale one-shot, persisted once per install (#494).
+        single<NotificationPromptOneShot> { AndroidNotificationPromptOneShot(androidContext()) }
         // mobile-fcm-token-registration — the Android FCM token provider (Firebase Messaging SDK). The
         // vendor SDK import is confined to this actual (FcmPushSourceGuardTest enforces the boundary).
         single<FcmTokenProvider> { AndroidFcmTokenProvider() }

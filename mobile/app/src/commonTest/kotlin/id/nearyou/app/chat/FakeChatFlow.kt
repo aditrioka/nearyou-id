@@ -8,6 +8,7 @@ import kotlinx.coroutines.CompletableDeferred
  * resync. [sendOutcome] / [createOutcome] drive [send] / [createOrReturn]. Invocation counts let the
  * test assert resync-on-resubscribe + send-via-REST. [createGate], when set, suspends [createOrReturn]
  * until completed (the in-flight window a double-tap test needs); [createdRecipientIds] records each call.
+ * [historyGate], when set, suspends [loadHistory] the same way (the in-flight window of a refresh).
  */
 class FakeChatFlow(
     historyOutcomes: List<ChatThreadOutcome> = listOf(ChatThreadOutcome.Loaded(emptyList(), null)),
@@ -23,6 +24,7 @@ class FakeChatFlow(
         ),
     var createOutcome: CreateConversationOutcome = CreateConversationOutcome.Ready("c1"),
     var createGate: CompletableDeferred<Unit>? = null,
+    var historyGate: CompletableDeferred<Unit>? = null,
 ) : ChatFlow {
     private val queue = ArrayDeque(historyOutcomes)
 
@@ -42,6 +44,7 @@ class FakeChatFlow(
         cursor: String?,
     ): ChatThreadOutcome {
         loadHistoryCount++
+        historyGate?.await()
         return if (queue.size > 1) queue.removeFirst() else queue.first()
     }
 

@@ -30,19 +30,13 @@ interface NotificationPermissionController {
 }
 
 /**
- * Per-install one-shot guard for the first-send notification-permission rationale (task 9.4). A Koin
- * `single` so the rationale + prompt fire at most once per process; combined with the OS de-duping the
- * actual system dialog after the user has answered, the effective behavior is "ask once". (Persisting
- * the flag across process restarts is folded into the FCM-registration follow-up — the OS dialog itself
- * never re-shows once answered, so the only imperfection is re-showing our rationale once per process.)
+ * Per-install one-shot guard for the first-send notification-permission rationale (`mobile-chat` §
+ * "First-send notification-permission prompt"). The claimed flag is persisted on the device, so the
+ * rationale shows once per install — not once per process (#494). Platform impls bound in each
+ * `platformModule` (non-secret flag → plain key-value storage): `AndroidNotificationPromptOneShot`
+ * (SharedPreferences) / `IosNotificationPromptOneShot` (NSUserDefaults).
  */
-class NotificationPromptOneShot {
-    private var consumed = false
-
-    /** Returns true exactly once (the first call), then false — the caller shows the rationale on true. */
-    fun claim(): Boolean {
-        if (consumed) return false
-        consumed = true
-        return true
-    }
+interface NotificationPromptOneShot {
+    /** Returns true exactly once per install (the first call), then false — the caller shows the rationale on true. */
+    suspend fun claim(): Boolean
 }
