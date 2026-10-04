@@ -44,21 +44,28 @@ When the tier is known Free, the pure projection maps the **Idle** state (query 
 While the read is in flight (`null`), the projection receives `viewerKnownFree = false` and renders the Idle prompt. A missing self id or any non-`Loaded` outcome degrades to Premium-known, the `NearbyTimelineViewModel` precedent: never an error wall, with the reactive `403` backstopping.
 **Alternative:** a spinner during resolution. It would flash on every Premium entry, and the Idle prompt is already actionable.
 
-### D4 — Server evidence clears the gate; a `403` does not set it
-A first-page `Results` or `RateLimited` (`429` is a Premium-tier limit) sets the tier known-Premium for the rest of the visit. A billing-retry viewer who searched and then clears the field returns to the Idle prompt, not the upsell. A `403` does NOT flip the tier to Free. The reactive gate already renders for the gated query. Flipping would also fight `purchaseConfirmed` during the webhook-lag window, where a `403` is expected and the activating notice owns the panel.
+### D4 — Server evidence clears the gate; a `403` does not set it; Premium is sticky
+A first-page `Results` or `RateLimited` (`429` is a Premium-tier limit) sets the tier known-Premium for the rest of the visit. The tier is a tri-state (`null` unresolved / `false` / `true`), and every write moves only toward Premium. The read lands as `tier.takeIf { it == true } ?: (isPremium || confirmed)`. A read that lands after a Premium-proving answer or a confirmed purchase therefore cannot downgrade it. (`NearbyTimelineViewModel` assigns its read unconditionally; copying that would re-gate a billing-retry viewer whose `Results` beat the read.) A billing-retry viewer who searched and then clears the field returns to the Idle prompt, not the upsell. A `403` does NOT flip the tier to Free. The reactive gate already renders for the gated query. Flipping would also fight `purchaseConfirmed` during the webhook-lag window, where a `403` is expected and the activating notice owns the panel.
 
 ### D5 — Purchase confirmation extends the existing collector (not rewritten)
 The shipped `init` collector (`premiumConfirmed.first { it }` → re-run a `PremiumGate` query once) gains one step: mark the tier known-Premium. The once-only re-run semantics are unchanged. An empty-query Free viewer who buys therefore lands on the Idle prompt with no request issued.
 
 ### D6 — Tap hydration lives in the ViewModel as a consumed-once target (the notification pattern)
-`SearchScreen` hands a tap to `SearchViewModel.onResultTap(hit)`:
-1. The VM cancels any prior resolution (latest tap wins).
-2. It marks the card `openingPostId`, which drives a small per-card spinner, the `NotificationsScreen` row idiom.
-3. It calls `SearchFlow.resolvePost(postId)`.
-4. It stores the resulting `PostDetailTarget` as a nullable **consumed-once** `pendingOpenPost` in `uiState`.
-5. The screen's `LaunchedEffect` invokes the hoisted `onOpenPost(target)` and then `onOpenPostConsumed()`.
+`SearchScreen` hands a tap to `SearchViewModel.onResultTap(hit)`. The names follow the `NotificationsViewModel` precedent (docs/11 §4: one concept, one name).
+1. The VM ignores the tap while a resolved target is still pending.
+2. Otherwise it cancels any prior resolution (latest tap wins).
+3. It marks the card `resolvingPostId`, which drives a small per-card spinner, the `NotificationsScreen` row idiom.
+4. It calls `SearchFlow.resolvePost(postId)`. A non-cancellation throw is treated like `Unavailable`.
+5. It stores the `PostDetailTarget` as a nullable **consumed-once** `pendingNavTarget` in `uiState`.
+6. The screen's `LaunchedEffect` invokes the hoisted `onOpenPost(target)` and then `onNavConsumed()`.
 
 Per docs/11 §2.2 this models one-shot events as state; there is no `Channel`/`SharedFlow`. The screen stays navigation-free.
+
+An in-flight resolution is cancelled, and its spinner cleared, in two cases:
+- **A new search starts** (edit / submit / clear / retry), so it never opens a post that is no longer on screen.
+- **`SearchScreen` leaves composition** (a `DisposableEffect` calling `onNavConsumed()`). Nav3 composes only the top entry, so without this a tap made during the push transition could resolve while Search sits under the detail, and then push a second detail when the viewer comes back.
+
+The per-card spinner is an action affordance on the tapped card, not a list loading indicator, so it sits outside `mobile-design-system`'s "never two progress indicators" list-loading rule. The notification-row spinner already coexists with that list's load-more footer the same way.
 
 **Alternatives considered:**
 - Hydrate inside `PostDetailScreen`. Forbidden: concurrent ownership. It would also break `mobile-post-detail` § "The post header renders from nav args".
@@ -75,10 +82,22 @@ A notification has nothing renderable without the read, so it shows a transient 
 This is mechanical: no notification behavior changes, and their tests only update imports. The alternative was a second copy of both 9-field mappers in search, which is exactly the "second resolver" `NotificationNavigation.kt` documents against (docs/11 Pattern Registry, rule of three).
 
 ### D9 — `SearchViewModel` folds into ONE `uiState` (docs/11 §2.2 known debt)
-docs/11 lists `SearchViewModel` (4 public flows) as debt to "consolidate when next touched", and this change touches it. It now exposes `uiState: StateFlow<SearchScreenUiState>` via `stateIn(WhileSubscribed(5_000))`. `SearchScreenUiState` holds the query (the text field value), the surface, the opening card id and the pending target. The wrapper follows the `SignInScreenUiState` precedent. The surface is still produced by the pure `searchUiState(...)` projection, now with the explicit `viewerKnownFree` input. The raw `outcome` stays public as the white-box seam (the `GlobalTimelineViewModel` precedent). `isLoading` / `isLoadingMore` / the tier become private. The text field binds `uiState.query`, the `UsernameCustomizationScreen` precedent: `Dispatchers.Main.immediate` delivers the update before the next frame. docs/11 §2.2's debt count drops by one.
+docs/11 lists `SearchViewModel` (4 public flows) as debt to "consolidate when next touched", and this change touches it. It now exposes `uiState: StateFlow<SearchScreenUiState>` via `stateIn(WhileSubscribed(5_000))`. `SearchScreenUiState` holds the query (the text field value), the surface, the resolving card id (`resolvingPostId`) and the pending nav target (`pendingNavTarget`). The wrapper follows the `SignInScreenUiState` precedent. The surface is still produced by the pure `searchUiState(...)` projection, now with the explicit `viewerKnownFree` input. The raw `outcome` stays public as the white-box seam (the `GlobalTimelineViewModel` precedent). `isLoading` / `isLoadingMore` / the tier become private. The text field binds `uiState.query`, the `UsernameCustomizationScreen` precedent: `Dispatchers.Main.immediate` delivers the update before the next frame. docs/11 §2.2's debt count drops by one.
 
-### D10 — One target→route helper in `appEntryProvider`
-The Home entry already builds `PostDetailRoute` from a `PostDetailTarget` twice: open, and the reply shortcut. Search becomes the third consumer. A private `PostDetailTarget.toRoute(focusReplyComposer = false)` replaces the repeated field lists, so all three call sites carry the same fields, `imageUrl` included.
+### D10 — One target→route helper in `screens/routing/`
+`PostDetailRoute` is already built from a `PostDetailTarget` three times: the Home entry's open, its reply shortcut, and `PushTapNavigationEffect`'s notification push. Search becomes the fourth consumer. An `internal fun PostDetailTarget.toRoute(focusReplyComposer: Boolean = false)` in `screens/routing/` replaces the repeated field lists, so every call site carries the same fields, `imageUrl` included (docs/11 §4, rule of three).
+
+### D11 — `SearchScreen.kt` sheds its state composables
+`SearchScreen.kt` is 411 lines, past docs/11's ~400-line soft cap for a UI file, and this change grows it. The non-result state composables (`LoadingState`, `CenteredMessage`, `ErrorState`, `PremiumGateState`, `RateLimitedState`) move unchanged into `SearchStates.kt` in the same package, as `internal`. This is a pure move with no visual or behavioral change.
+
+### D12 — `SearchViewModel` state shape
+The VM follows the `UsernameCustomizationViewModel` shape: one private `MutableStateFlow<VmState>`, updated with `update { }`, then `.map { it.toUiState() }.stateIn(viewModelScope, WhileSubscribed(5_000), state.value.toUiState())`. The raw `outcome` stays exposed as a `map`ped white-box seam. One state object makes the tier, outcome and resolution writes atomic, and avoids a seven-flow `combine` feeding the text field.
+
+### Mockup reference (docs/11 §2.8)
+The mockup board has **no Cari frame** (frames 1–19 contain no search screen). This change adds no new visual element:
+- the on-entry gate reuses the shipped gate panel (`search_premium_gate_body` + `PremiumGateAction`);
+- the per-card spinner reuses the notification-row idiom (16 dp, 2 dp stroke).
+Visual verification is the manual run (task 7.2).
 
 ### Standards conformance (docs/11)
 - **§2.2 state:** an entry-scoped androidx `ViewModel` exposing ONE `stateIn` `uiState` (D9), with a one-shot nav target as nullable state consumed via a callback (D6). The app-wide fact `purchaseConfirmed` comes through the fail-safe `rememberPremiumConfirmed()` (§2.3 "Refreshing a screen after an overlay returns" → app-wide fact).
@@ -97,6 +116,7 @@ The Home entry already builds `PostDetailRoute` from a `PostDetailTarget` twice:
 - **[A billing-retry viewer sees the upsell on entry]** → they can still type and search (D2), and a successful answer clears the gate (D4). The profile `isPremium` semantics are out of scope.
 - **[One extra `GET /users/{self}` per Cari entry]** → the same cost the username, composer and Nearby gates already pay. The read is not on the typing path.
 - **[A tap now waits on a by-id GET before navigating]** → a per-card spinner gives feedback. A failure or timeout still navigates with the v1 payload (D7). The latest tap wins, so a double-tap cannot push twice.
+- **[A terminal `401` during the by-id read]** → `fetchFullPost` maps it to `Unavailable`, so the fallback push races the session-expiry re-route (`replaceAll(SignInRoute)`). Both orderings are benign. If the push lands first, `replaceAll` supersedes it. If the re-route lands first, the `SearchRoute` entry is gone: its VM is cleared and the pending target is never consumed.
 - **[Moving `PostTargetResolution` touches notifications files]** → only imports plus one call to the shared mapper. Behavior is pinned by the existing notification tests, which stay green unchanged except for imports.
 - **[Text field bound to a `stateIn` flow]** → precedent `UsernameCustomizationScreen`. It is covered by the existing type/clear/submit screen tests.
 

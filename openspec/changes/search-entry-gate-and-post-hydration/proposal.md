@@ -19,7 +19,7 @@ The Cari surface still carries two v1 limitations that `mobile-search` explicitl
   - `distanceM` stays `null`: search has no spatial origin, and the by-id projection carries no coordinates.
 - **Shared by-id post resolution.** `PostTargetResolution` moves from the notifications package to `post/`, together with one `SinglePostFullResult → PostTargetResolution` mapping. The `Resolved → PostDetailTarget` mapping becomes a shared function next to `PostDetailTarget`. Notifications and search consume the same two mappers, so there is no second resolver (docs/11 Pattern Registry, rule of three). This is a mechanical move with no behavior change for notifications.
 - **`SearchViewModel` exposes one `uiState`.** It gets one `uiState: StateFlow<SearchScreenUiState>` via `stateIn` (docs/11 §2.2 known debt: "consolidate when next touched"). The pure `searchUiState(...)` projection is unchanged, and the raw `outcome` stays as the white-box seam (the `GlobalTimelineViewModel` precedent).
-- **`appEntryProvider`.** The search entry maps the resolved `PostDetailTarget` through the same target→route mapping the Home feed taps use. That mapping is factored into one private helper, so the field list is not repeated a third time.
+- **One target→route helper.** The search entry maps the resolved `PostDetailTarget` through the same mapping the Home feed taps and the push-tap effect use. That mapping is factored into one `internal` helper in `screens/routing/`, used by `AppEntryProvider` and `PushTapNavigationEffect`, so the field list is not repeated a fourth time.
 - **Spec.** The `mobile-search` deferral requirement now keeps only username autocomplete deferred (#252).
 
 ## Capabilities
@@ -30,11 +30,14 @@ _None._
 
 ### Modified Capabilities
 
-- `mobile-search`: four requirements change.
-  - The Premium gate also renders on entry for a known-Free viewer.
-  - A result tap hydrates `PostDetailRoute` from the by-id read, with the v1 defaults as the `Unavailable` fallback.
+- `mobile-search`: seven requirements change.
+  - The Premium gate also renders on entry for a known-Free viewer. Known-Premium is sticky.
+  - The screen-state projection gains the explicit `viewerKnownFree` input.
+  - The screen and query-guard requirements now say "Idle, or the on-entry gate for a known-Free viewer".
+  - A result tap hydrates `PostDetailRoute` from the by-id read, with the v1 defaults as the `Unavailable` fallback. A query change or leaving the screen cancels the read.
   - The `SearchViewModel` seam requirement gains the self-profile and by-id dependencies and the single `uiState`.
   - The deferral requirement drops the proactive upsell (shipped) and keeps autocomplete (#252).
+- `mobile-post-detail`: § "By-id post reads never gate the header's first paint" gains the search-result entry as a third pre-push lookup. Unlike the notification entry, its fallback on failure still pushes, because the hit is renderable.
 
 ## Impact
 
@@ -45,7 +48,8 @@ _None._
   - `notifications/` (`NotificationsFlow`, `NotificationsRepository`: imports and the shared mapping);
   - `screens/notifications/NotificationNavigation.kt` (shared mapper);
   - `screens/home/HomeScreen.kt` (`PostDetailTarget` mapper);
-  - `screens/routing/AppEntryProvider.kt` (search entry + target→route helper);
+  - `screens/routing/` (`AppEntryProvider`: search entry; `PushTapNavigationEffect` + a new shared target→route helper);
+  - `screens/search/SearchStates.kt` (the non-result state composables moved out of `SearchScreen.kt`, which is past the docs/11 ~400-line soft cap);
   - `di/MobileModule.kt` (`SearchRepository` wiring).
 - **Tests:**
   - commonTest: `SearchViewModelTest` (on-entry Free/Premium/failure/confirm/server-evidence, tap hydration + fallback + supersede), a `SearchRepository` `resolvePost` test, and `FakeSearchFlow` + notification fakes (imports);

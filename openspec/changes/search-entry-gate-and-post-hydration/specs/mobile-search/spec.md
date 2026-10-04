@@ -11,6 +11,47 @@
 
 ## MODIFIED Requirements
 
+### Requirement: SearchScreen renders the Cari surface and is navigation-free
+
+The mobile app SHALL ship a composable `SearchScreen` (file: `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/search/SearchScreen.kt`), mapped from the `SearchRoute` `NavKey` by the `appEntryProvider`, that renders the search surface. As a pushed full-screen route (overlaying the section `NavigationBar`, like `PostDetailScreen`), it SHALL own a minimal top bar carrying: (a) a back affordance invoking a hoisted `onBack` lambda; (b) an M3 single-line search text field with a hint via `stringResource(Res.string.search_hint)` ("Cari postingan"); (c) a clear affordance (visible while the field is non-empty) that empties the field and returns the screen to the Idle state — or, for a viewer known Free on entry, to the on-entry Premium gate (per the § "The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403" requirement). Below the bar, the screen SHALL render the result list / state surface filling the remaining space, mapping to exactly one `SearchUiState` per the § "Screen state mapping" requirement. `SearchScreen` SHALL be navigation-free: it holds no back-stack reference; its back affordance invokes the hoisted `onBack`, and a result tap is resolved by the ViewModel and delivered to the hoisted `onOpenPost(...)` (per the § "A result tap opens PostDetailRoute hydrated from the by-id post read" requirement). No hardcoded UI string literals SHALL appear in the screen source (every `Text` / `contentDescription` resolves via `stringResource`). The screen SHALL render under `NearYouTheme` (light/dark).
+
+#### Scenario: SearchScreen renders the search input and is navigation-free
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/search/SearchScreen.kt`
+- **THEN** the screen renders a search text field (hint via `stringResource(Res.string.search_hint)`), a back affordance bound to the hoisted `onBack`, and a clear affordance AND holds no back-stack reference (navigation is delivered via the hoisted `onBack` / `onOpenPost` lambdas only)
+
+#### Scenario: No hardcoded UI strings in SearchScreen source
+
+- **WHEN** inspecting `SearchScreen.kt`
+- **THEN** every `Text(...)` / `contentDescription = ...` call site sources its text via `stringResource(Res.string.<name>)`; zero literal string arguments appear in such call sites
+
+#### Scenario: Back affordance invokes onBack and returns to the prior surface
+
+- **GIVEN** `SearchScreen` composed over a test root back stack (or with a recording `onBack` callback) with `SearchRoute` as the current entry
+- **WHEN** the back affordance is activated
+- **THEN** the `SearchRoute` entry is removed from the root back stack (`removeLastOrNull`) / the recording `onBack` fires, and the prior surface becomes current again
+
+### Requirement: A client-side query guard mirrors the backend 2..100 bound and debounces requests
+
+`SearchScreen` SHALL NOT issue a request until the query, after trimming leading/trailing Unicode whitespace, is between `2` and `100` Unicode code points (mirroring the backend `premium-search` § "Query length guard 2..100"). A below-2 query (including empty) keeps the screen in the Idle state — the on-entry Premium gate for a viewer known Free on entry — and issues NO request. The text field SHALL cap input at `100` code points. A valid query SHALL be issued on a **500 ms** debounce after the last keystroke AND immediately on the keyboard submit action (`docs/03-UX-Design.md:242`). The trim + code-point counting SHALL be a pure commonMain helper, unit-testable without composing UI. This is a UX optimization; the backend guard remains authoritative — a `400 invalid_query_length` (should the bounds ever diverge) maps to `Error`, never a crash (per the § "Fetch outcome mapping" requirement).
+
+#### Scenario: Below-2 query issues no request and stays Idle
+
+- **GIVEN** `SearchScreen` over a counting `FakeSearchFlow` for a viewer not known Free
+- **WHEN** the query field holds `a` (post-trim length 1) or `   ` (whitespace, post-trim length 0)
+- **THEN** no fetch is issued (the fake's invocation count stays 0) AND the screen renders the Idle prompt
+
+#### Scenario: 2-char and 100-char boundaries are accepted; 101 is capped
+
+- **WHEN** the query guard helper evaluates a 2-code-point query, a 100-code-point query, and a 101-code-point input
+- **THEN** the 2- and 100-code-point queries are eligible to fetch AND the field caps the 101-code-point input at 100 code points
+
+#### Scenario: A valid query fires on debounce and on submit
+
+- **GIVEN** `SearchScreen` over a counting `FakeSearchFlow`
+- **WHEN** the user types a valid query and pauses (500 ms) — and separately, types and presses the keyboard submit action
+- **THEN** a fetch is issued in each case for the current query (the fake's invocation count increases)
+
 ### Requirement: Screen state mapping covers idle, loading, results, empty, error, gate, rate-limit, and disabled states
 
 `SearchScreen` state SHALL be modeled as a Compose-free `SearchUiState` (data class or sealed type) plus a pure projection `searchUiState(query: String, outcome: SearchOutcome?, isLoading: Boolean, isLoadingMore: Boolean, viewerKnownFree: Boolean): SearchUiState` — mirroring `mobile-global-timeline`'s `globalTimelineUiState(...)` — so the mapping is deterministically unit-testable in commonTest without composing the UI. `viewerKnownFree` is `true` only while the on-entry tier read has resolved the viewer as Free (per the § "The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403" requirement); it is `false` while the read is in flight, after a failed read, and for a Premium viewer. The projection MUST carry no PII (no `author_id`, no `rank`). The screen SHALL render exactly one of these states, all copy via `stringResource`, following the `mobile-design-system` loading-state contract (never two simultaneous progress indicators):
@@ -72,7 +113,7 @@ The CTA SHALL invoke a hoisted `onActivatePremium` callback that the host (the `
 - read `Loaded` with `isPremium = true`, OR a confirmed purchase → known Premium: the Idle prompt;
 - the read in flight, a missing self id, or any non-`Loaded` read outcome → NOT known Free: the Idle prompt (optimistic degradation — never an error wall; the reactive `403` backstops correctness).
 
-The on-entry gate is a UX pre-check, NOT an enforcement point; the server's `403` stays authoritative. The search field SHALL remain usable while the on-entry gate shows, and an eligible query SHALL still be issued through the normal debounce/submit path, so the server decides (the profile `isPremium` is `premium_active` only, while the search gate also admits `premium_billing_retry`; a `403` consumes no search quota because the gate precedes the rate limiter). A first-page answer that proves Premium-tier access — `Results` or `RateLimited` — SHALL mark the viewer known Premium for the rest of the route's lifetime (clearing the field afterwards returns to the Idle prompt, not the upsell). A `403` SHALL NOT mark the viewer known Free (the reactive gate already renders for that query, and during the webhook-lag window the activating notice below owns the panel).
+The on-entry gate is a UX pre-check, NOT an enforcement point; the server's `403` stays authoritative. The search field SHALL remain usable while the on-entry gate shows, and an eligible query SHALL still be issued through the normal debounce/submit path, so the server decides (the profile `isPremium` is `premium_active` only, while the search gate also admits `premium_billing_retry`; a `403` consumes no search quota because the gate precedes the rate limiter). A first-page answer that proves Premium-tier access — `Results` or `RateLimited` — SHALL mark the viewer known Premium for the rest of the route's lifetime (clearing the field afterwards returns to the Idle prompt, not the upsell). Known Premium is **sticky**: whichever of the self read, a Premium-proving answer, or a confirmed purchase lands first, a later self read SHALL NOT downgrade it back to Free (tier writes move only toward Premium). A `403` SHALL NOT mark the viewer known Free (the reactive gate already renders for that query, and during the webhook-lag window the activating notice below owns the panel).
 
 During the post-purchase webhook-lag window (`mobile-premium-entitlement` § "Upsell surfaces show the activating notice during the webhook-lag window") the gate panel SHALL render `premium_activating_body` in place of the upsell body, and its button SHALL become "Coba lagi" (`cta_retry`). The button re-runs the current query through the screen's existing retry path instead of opening the paywall. That is the state the once-only re-run below lands in when it returns `PremiumGate` again. `SearchScreen` reads the signal through the shared fail-safe resolver. The on-entry gate is never shown while `purchaseConfirmed` is `true` (the effective tier is known Premium), so only the reactive gate can carry the activating notice.
 
@@ -115,6 +156,24 @@ This resolves the v1 informational-placeholder state: the CTA is no longer a no-
 - **GIVEN** a `SearchViewModel` resolved known Free on entry
 - **WHEN** the viewer submits `"kopi"` and the flow returns `Results`, and the viewer then clears the field
 - **THEN** a search for `"kopi"` was issued AND the surface showed `Results` AND after clearing the surface is `Idle` (the server answer marked the viewer known Premium), not `PremiumGate`
+
+#### Scenario: A known-Free viewer's rate-limited answer also proves Premium
+
+- **GIVEN** a `SearchViewModel` resolved known Free on entry
+- **WHEN** the viewer submits `"kopi"` and the flow returns `RateLimited(60)`, and the viewer then clears the field
+- **THEN** after clearing the surface is `Idle`, not `PremiumGate` (a `429` is a Premium-tier limit)
+
+#### Scenario: A late Free read never downgrades a Premium-proving answer
+
+- **GIVEN** a `SearchViewModel` whose self read is still in flight
+- **WHEN** the viewer submits `"kopi"` and the flow returns `Results`, then the self read lands `Loaded(isPremium = false)`, then the viewer clears the field
+- **THEN** the surface is `Idle` after clearing, never `PremiumGate`
+
+#### Scenario: A purchase confirmed while the read is in flight is not overwritten
+
+- **GIVEN** a `SearchViewModel` whose self read is still in flight
+- **WHEN** `purchaseConfirmed` becomes `true` and the read then lands `Loaded(isPremium = false)`
+- **THEN** the surface stays `Idle`, never `PremiumGate`
 
 #### Scenario: A known-Free viewer's 403 keeps the gate
 
@@ -160,12 +219,12 @@ This resolves the v1 informational-placeholder state: the CTA is no longer a no-
 
 ### Requirement: A result tap opens PostDetailRoute hydrated from the by-id post read
 
-A search result card SHALL be tappable. The tap SHALL go to the route-scoped `SearchViewModel` (`onResultTap(hit)`), which resolves the post through the full `single-post-read` projection (`GET /api/v1/posts/{post_id}`) via `SearchFlow.resolvePost(postId)` — the SAME by-id resolution the notification deep-link uses (the shared `PostTargetResolution` + `toPostDetailTarget()` mapping; no second resolver). While the read is in flight the tapped card SHALL show a small progress indicator (test tag `searchResultOpening`), and a newer tap SHALL cancel and supersede an in-flight one (latest tap wins — at most one navigation per settled tap).
+A search result card SHALL be tappable. The tap SHALL go to the route-scoped `SearchViewModel` (`onResultTap(hit)`), which resolves the post through the full `single-post-read` projection (`GET /api/v1/posts/{post_id}`) via `SearchFlow.resolvePost(postId)` — the SAME by-id resolution the notification deep-link uses (the shared `PostTargetResolution` + `toPostDetailTarget()` mapping; no second resolver). While the read is in flight the tapped card SHALL show a small progress indicator (test tag `searchResultResolving`) — an action affordance on the tapped card (the `NotificationsScreen` row-resolving precedent), NOT a list load/refresh indicator, so it is outside the `mobile-design-system` "never two progress indicators" list-loading rule. A newer tap SHALL cancel and supersede an in-flight one (latest tap wins). An in-flight resolution SHALL also be cancelled — and its card indicator cleared — when the query changes (an edit, a submit, a clear, or a retry starts a new search) and when the `SearchScreen` leaves composition (e.g. covered by the pushed detail), so a resolution never navigates to a post that is no longer on screen or opens a second detail after the viewer returns. While a resolved target is pending, further taps SHALL be ignored. A non-cancellation exception from the read SHALL be treated like `Unavailable` (the fallback below), never escape the ViewModel scope.
 
-The resolved destination SHALL be exposed as a nullable, consumed-once `PostDetailTarget` on the ViewModel's `uiState` (docs/11 §2.2 one-shot-as-state; NO `Channel`/`SharedFlow`). `SearchScreen` SHALL invoke the hoisted `onOpenPost(target)` with it and then clear it via `onOpenPostConsumed()`, so recomposition or a configuration change never navigates twice. `SearchScreen` SHALL remain navigation-free; the host (the `appEntryProvider` call site) pushes `PostDetailRoute` onto the root back stack through the SAME `PostDetailTarget` → `PostDetailRoute` mapping the Home feed card tap uses.
+The resolved destination SHALL be exposed as a nullable, consumed-once `pendingNavTarget: PostDetailTarget?` on the ViewModel's `uiState` (docs/11 §2.2 one-shot-as-state; NO `Channel`/`SharedFlow`; the `NotificationsViewModel` naming — `pendingNavTarget` / `onNavConsumed()` / a resolving id). `SearchScreen` SHALL invoke the hoisted `onOpenPost(target)` with it and then clear it via `onNavConsumed()`, so recomposition or a configuration change never navigates twice. `SearchScreen` SHALL remain navigation-free; the host (the `appEntryProvider` call site) pushes `PostDetailRoute` onto the root back stack through the SAME `PostDetailTarget` → `PostDetailRoute` mapping the Home feed card tap uses.
 
 - **Resolved** → the target carries the read's `postId`, `content`, `createdAtIso`, `authorUsername`, `authorDisplayName`, `cityName`, `likedByViewer`, `replyCount`, and `imageUrl`, with `distanceM = null` (search has no spatial origin and the by-id projection carries no coordinates).
-- **Unavailable** (any non-`200` incl. `404 post_not_found`, or a transport failure) → the target falls back to the hit's own fields (`postId`, `content`, `createdAtIso` = the hit's `createdAt`, `authorUsername`, `authorDisplayName`) with the documented defaults `cityName = ""`, `distanceM = null`, `likedByViewer = false`, `replyCount = 0`, `imageUrl = null`, so a tap is never stranded by a transient failure. In this fallback the like toggle's initial state and the header reply count MAY be cosmetically stale until the detail screen's authoritative `/likes/count` + `/replies` fetches resolve; the like endpoints are idempotent, so a stale-`false` initial state cannot corrupt server state.
+- **Unavailable** (any non-`200` incl. `404 post_not_found`, a transport failure, or a thrown read) → the target falls back to the hit's own fields (`postId`, `content`, `createdAtIso` = the hit's `createdAt`, `authorUsername`, `authorDisplayName`) with the documented defaults `cityName = ""`, `distanceM = null`, `likedByViewer = false`, `replyCount = 0`, `imageUrl = null`, so a tap is never stranded by a transient failure. In this fallback the like toggle's initial state and the header reply count MAY be cosmetically stale until the detail screen's authoritative `/likes/count` + `/replies` fetches resolve; the like endpoints are idempotent, so a stale-`false` initial state cannot corrupt server state.
 
 The payload SHALL never carry `latitude`/`longitude` or the `author_id` UUID. This resolves GitHub issue [#255](https://github.com/aditrioka/nearyou-id/issues/255).
 
@@ -185,25 +244,37 @@ The payload SHALL never carry `latitude`/`longitude` or the `author_id` UUID. Th
 
 - **GIVEN** a `resolvePost` that has not returned yet
 - **WHEN** a result card is tapped
-- **THEN** that card renders the `searchResultOpening` progress indicator AND no navigation has happened yet
+- **THEN** that card renders the `searchResultResolving` progress indicator AND no navigation has happened yet
 
 #### Scenario: A newer tap supersedes an in-flight resolution
 
 - **GIVEN** a `resolvePost` for `p1` still in flight
-- **WHEN** the viewer taps `p2` and both reads then complete
-- **THEN** exactly one target is delivered and it is `p2`
+- **WHEN** the viewer taps `p2`, then `p1`'s read is released before `p2`'s completes
+- **THEN** `p1`'s result is discarded AND exactly one target is ever delivered, and it is `p2`
+
+#### Scenario: A query change cancels an in-flight resolution
+
+- **GIVEN** a `resolvePost` for `p1` still in flight after a tap
+- **WHEN** the viewer edits or clears the query, then the read completes
+- **THEN** no target is delivered AND the resolving indicator is cleared
+
+#### Scenario: A thrown by-id read falls back instead of crashing
+
+- **GIVEN** a `resolvePost` that throws a non-cancellation exception
+- **WHEN** a result card is tapped
+- **THEN** the fallback target (hit fields + documented defaults) is delivered AND no exception escapes the ViewModel
 
 #### Scenario: The resolved target is consumed once
 
 - **GIVEN** a resolved target delivered to `onOpenPost`
 - **WHEN** the screen recomposes (or the ViewModel's `uiState` is re-collected)
-- **THEN** `onOpenPost` is not invoked again (the pending target was cleared via `onOpenPostConsumed()`)
+- **THEN** `onOpenPost` was invoked exactly once (the pending target was cleared via `onNavConsumed()`)
 
 ### Requirement: SearchApiClient and SearchRepository are Koin singletons behind a testable seam
 
 `SearchApiClient` and `SearchRepository` SHALL be registered in the commonMain Koin `mobileModule`. `SearchRepository` SHALL be bound behind a `SearchFlow` interface (`single<SearchFlow> { get<SearchRepository>() }`) so a `FakeSearchFlow` can drive the screen + ViewModel tests, mirroring the timeline seams. `SearchFlow` SHALL declare both `search(query, offset)` and `resolvePost(postId): PostTargetResolution`; `SearchRepository` SHALL implement `resolvePost` over the shared `SinglePostApiClient` Koin singleton's `fetchFullPost` through the shared `SinglePostFullResult` → `PostTargetResolution` mapping (the one `NotificationsRepository` also uses), logging only a type tag on `Unavailable` (never the post id, body, or any PII).
 
-The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `SearchRoute`, the pushed-route precedent). It takes the `SearchFlow`, the `ProfileFlow` + `SelfUserIdProvider` self-read seam, and the fail-safe `purchaseConfirmed` signal. It holds the query, the in-flight flags, the retained outcome, the retained `nextOffset`, the resolved tier, the opening card id, and the consumed-once pending detail target, and it issues the search via the `SearchFlow` seam (debounced + on submit). It SHALL expose ONE `uiState: StateFlow<SearchScreenUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), …)` (docs/11 §2.2) whose surface is the pure `searchUiState(...)` projection; the raw `outcome` MAY stay exposed as the white-box test seam (the `GlobalTimelineViewModel` precedent). The query/results state is owned by the ViewModel, NOT composition-scoped `remember`.
+The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `SearchRoute`, the pushed-route precedent). It takes the `SearchFlow`, the `ProfileFlow` + `SelfUserIdProvider` self-read seam, and the fail-safe `purchaseConfirmed` signal. It holds the query, the in-flight flags, the retained outcome, the retained `nextOffset`, the resolved tier, the resolving card id, and the consumed-once pending detail target, and it issues the search via the `SearchFlow` seam (debounced + on submit). It SHALL expose ONE `uiState: StateFlow<SearchScreenUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), …)` (docs/11 §2.2) whose surface is the pure `searchUiState(...)` projection; the raw `outcome` MAY stay exposed as the white-box test seam (the `GlobalTimelineViewModel` precedent). The query/results state is owned by the ViewModel, NOT composition-scoped `remember`.
 
 #### Scenario: Koin registers the search graph behind the flow interface
 
@@ -225,7 +296,7 @@ The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved vi
 #### Scenario: The ViewModel exposes one screen state
 
 - **WHEN** inspecting `SearchViewModel`
-- **THEN** the screen collects a single `uiState: StateFlow<SearchScreenUiState>` (query + surface + opening card id + pending target) AND `isLoading` / `isLoadingMore` / the resolved tier are not public flows
+- **THEN** the screen collects a single `uiState: StateFlow<SearchScreenUiState>` (query + surface + resolving card id + pending nav target) AND `isLoading` / `isLoadingMore` / the resolved tier are not public flows
 
 ### Requirement: Username autocomplete is explicitly deferred
 
