@@ -424,7 +424,7 @@ object AdminAuthTestSupport {
  * [block], then drop it. NOT VALID skips existing rows but enforces new INSERTs — the DB-layer
  * fault-injection the admin repository tests use to prove a mid-transaction write failure rolls back the
  * whole action (the repository SQL has no app-level injection seam). Shared by the user-moderation,
- * report-resolution, username-oversight, and appeal-review specs.
+ * report-resolution, username-oversight, appeal-review, and suspension-unban-worker specs.
  */
 inline fun withFailingConstraint(
     dataSource: DataSource,

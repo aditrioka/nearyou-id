@@ -264,7 +264,34 @@ class NotificationsViewModelNavTest {
         viewModel.onRowTap("n2") // supersedes #1; #2 resolves
 
         assertEquals(listOf("p1", "p2"), fake.resolvePostTargetIds, "both fetches were attempted")
+        assertEquals(1, fake.cancelledResolves, "the superseded resolution #1 was cancelled")
         assertIs<NotificationNavTarget.Post>(viewModel.pendingNavTarget.value)
+    }
+
+    @Test
+    fun appealTapSupersedesAnInFlightPostResolution() {
+        val (viewModel, fake) =
+            vm(
+                fakeNotification(id = "n1", type = "post_liked", targetType = "post", targetId = "p1"),
+                fakeNotification(
+                    id = "n2",
+                    type = "appeal_decided",
+                    targetType = "appeal",
+                    targetId = "appeal-1",
+                    actorUserId = null,
+                    bodyData = buildJsonObject { put("decision", "rejected") },
+                ),
+                // the post resolution hangs
+                suspendResolveOnCall = 1,
+            )
+
+        viewModel.onRowTap("n1")
+        assertNull(viewModel.pendingNavTarget.value, "the post resolution is still in flight")
+        viewModel.onRowTap("n2") // the fetch-free appeal tap cancels the in-flight post job
+
+        assertEquals(1, fake.cancelledResolves, "the in-flight post resolution was cancelled")
+        assertEquals(NotificationNavTarget.Appeal, viewModel.pendingNavTarget.value)
+        assertNull(viewModel.resolvingRowId.value, "the superseded row's resolving indicator is cleared")
     }
 
     @Test

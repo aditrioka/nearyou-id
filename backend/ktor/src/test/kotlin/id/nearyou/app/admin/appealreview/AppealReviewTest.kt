@@ -27,6 +27,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import org.postgresql.util.PSQLException
 import java.sql.Date
 import java.sql.Timestamp
 import java.sql.Types
@@ -610,7 +611,9 @@ class AppealReviewTest : StringSpec({
             // The notification insert runs AFTER the appeal UPDATE, the unban, and the audit row — failing it
             // proves all three roll back with it.
             withFailingConstraint(dataSource, "notifications", "zzz_fail_appeal_decided", "type <> 'appeal_decided'") {
-                shouldThrow<Exception> { repo.approve(appealId, admin.id, ip = "127.0.0.1", userAgent = "t") }
+                val e = shouldThrow<PSQLException> { repo.approve(appealId, admin.id, ip = "127.0.0.1", userAgent = "t") }
+                e.sqlState shouldBe "23514" // the injected zzz_fail_appeal_decided CHECK, not an unrelated failure
+                e.message shouldContain "zzz_fail_appeal_decided"
             }
             loadAppeal(appealId).status shouldBe "pending"
             loadUserBanned(uid).first shouldBe true

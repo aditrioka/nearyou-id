@@ -161,7 +161,7 @@ class MigrationV40SmokeTest : StringSpec({
                   FROM pg_constraint
                  WHERE conrelid = 'notifications'::regclass
                    AND contype = 'c'
-                   AND pg_get_constraintdef(oid) LIKE '%type%'
+                   AND pg_get_constraintdef(oid) ~ '\mtype\M'
                 """.trimIndent(),
             ).use { ps ->
                 ps.executeQuery().use { rs ->

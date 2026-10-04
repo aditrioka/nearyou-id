@@ -102,7 +102,8 @@ private const val POST_UNAVAILABLE_DURATION_MS: Long = 3000L
  * unavailable → the transient [notifications_post_unavailable] affordance, no nav), `followed` → profile,
  * `chat_message` → chat thread, `appeal_decided` → the appeal screen. Navigation is hoisted to [onOpenPost] /
  * [onOpenProfile] / [onOpenChatThread] / [onOpenAppeal] (the shell wires them to root-stack pushes) and is
- * consumed once from the VM's `pendingNavTarget` signal, so it does not re-fire on recomposition. The screen itself stays navigation-free (no back-stack reference).
+ * consumed once from the VM's `pendingNavTarget` signal, so it does not re-fire on recomposition. The screen
+ * itself stays navigation-free (no back-stack reference).
  */
 @Composable
 fun NotificationsScreen(
@@ -374,7 +375,8 @@ private fun NotificationRowItem(
  * and `apple_relay_email_changed` (follow-up #433, the Apple S2S email-relay writer)
  * get specific copy; `appeal_decided` (#390) is keyed by [NotificationRow.appealDecision] — approved /
  * rejected, or the neutral appeal copy when the decision is absent/unknown; the still-unemitted reserved
- * value (`username_release_scheduled`) AND any unknown/future `type` fall back to the generic copy (no crash). `privacy_flip_warning` renders the flip deadline
+ * value (`username_release_scheduled`) AND any unknown/future `type` fall back to the generic copy (no crash).
+ * `privacy_flip_warning` renders the flip deadline
  * date ([NotificationRow.flipDeadlineDate]) into its copy, degrading to the dateless `_soon` variant
  * when `body_data` carries no parseable deadline. These are wire-protocol keys matched against
  * `row.type`, NOT rendered UI literals — the rendered text is always a `stringResource`.

@@ -299,6 +299,14 @@ class NotificationsScreenTest {
                         targetId = APPEAL_UUID,
                         bodyData = buildJsonObject {},
                     ),
+                    fakeNotification(
+                        id = "n4",
+                        type = "appeal_decided",
+                        actorUserId = null,
+                        targetType = "appeal",
+                        targetId = APPEAL_UUID,
+                        bodyData = buildJsonObject { put("decision", "foo") },
+                    ),
                 ),
                 null,
             ),
@@ -311,7 +319,8 @@ class NotificationsScreenTest {
             onNodeWithText(COPY_APPEAL_APPROVED, substring = true).assertExists()
             // `substring = false`: "Banding kamu ditolak" must match the rejected row exactly, not a prefix.
             onNodeWithText(COPY_APPEAL_REJECTED).assertExists()
-            onNodeWithText(COPY_APPEAL_DECIDED, substring = true).assertExists()
+            // Absent AND unknown ("foo") decisions both render the neutral appeal copy.
+            assertEquals(2, onAllNodesWithText(COPY_APPEAL_DECIDED, substring = true).fetchSemanticsNodes().size)
             assertEquals(0, onAllNodesWithText(COPY_GENERIC, substring = true).fetchSemanticsNodes().size)
             assertEquals(0, onAllNodesWithText(APPEAL_UUID, substring = true).fetchSemanticsNodes().size)
         }

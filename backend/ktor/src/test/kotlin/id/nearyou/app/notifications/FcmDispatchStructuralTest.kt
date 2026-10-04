@@ -102,7 +102,8 @@ class FcmDispatchStructuralTest : StringSpec(
                     .first { File(it, "settings.gradle.kts").exists() }
             val pushCopy = File(repoRoot, "infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/PushCopy.kt")
             pushCopy.exists() shouldBe true
-            pushCopy.readText().contains("appeal") shouldBe false
+            // Case-insensitive: a real case would read `NotificationType.APPEAL_DECIDED.wire`, not the wire string.
+            Regex("appeal_decided", RegexOption.IGNORE_CASE).containsMatchIn(pushCopy.readText()) shouldBe false
         }
     },
 )

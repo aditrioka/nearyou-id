@@ -142,6 +142,8 @@ class NotificationsFlowIosTest {
             setContent { KoinContext { NearYouTheme { NotificationsScreen(onOpenAppeal = { appealCalls++ }) } } }
             onNodeWithText(COPY_APPEAL_REJECTED).performClick()
             waitUntil(timeoutMillis = 5_000) { appealCalls == 1 }
+            waitForIdle()
+            assertEquals(1, appealCalls, "onOpenAppeal fires exactly once (consumed-once nav signal)")
             assertEquals(listOf("n1"), fake.markReadIds, "tapping the row marks it read")
         }
     }

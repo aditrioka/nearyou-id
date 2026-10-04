@@ -69,6 +69,17 @@ class NotificationsScreenNavFreeScanTest {
             shell.contains("onOpenAppeal = onOpenAppeal"),
             "AppShellScreen must forward its onOpenAppeal callback to NotificationsScreen (not invoke it bare)",
         )
+        val routing = "mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing"
+        val entryProvider = File(findRepoRoot(), "$routing/AppEntryProvider.kt").readText().stripComments()
+        assertTrue(
+            entryProvider.contains("onOpenAppeal = { backStack.add($appealRouteNeedle) }"),
+            "appEntryProvider must wire the shell's onOpenAppeal to a root-stack AppealRoute push",
+        )
+        val pushTap = File(findRepoRoot(), "$routing/PushTapNavigationEffect.kt").readText().stripComments()
+        assertTrue(
+            pushTap.contains("NotificationNavTarget.Appeal -> add($appealRouteNeedle)"),
+            "the push-tap consumer must push AppealRoute for the shared resolver's Appeal target",
+        )
     }
 
     private companion object {

@@ -1,7 +1,9 @@
 package id.nearyou.app.appeal
 
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
+import id.nearyou.app.network.HttpClientFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -17,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private val JSON_HEADERS = headersOf("Content-Type", "application/json")
@@ -207,8 +210,9 @@ class AppealRepositoryTest {
         runTest {
             var path: String? = null
             var authHeader: String? = "unset"
+            val appealCalls = mutableListOf<String>()
             val repo =
-                sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE)) { request ->
+                sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE), appealClientCalls = appealCalls) { request ->
                     path = request.url.encodedPath
                     authHeader = request.headers["Authorization"]
                     respond(
@@ -228,6 +232,7 @@ class AppealRepositoryTest {
             )
             assertEquals("/api/v1/appeals", path)
             assertEquals(null, authHeader, "the bearer comes from the session client's Auth plugin, never attached here")
+            assertEquals(emptyList(), appealCalls, "the raw appeal client is never used without a token")
         }
 
     @Test
@@ -243,6 +248,79 @@ class AppealRepositoryTest {
             assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
             assertEquals(0, sessionCalls, "no session read without a stored session")
             assertEquals(emptyList(), appealCalls)
+        }
+
+    /** The PRODUCTION session client shape — the shared bearer client with its refresh chain. */
+    private fun sharedClientRepository(
+        store: InMemoryTokenStore,
+        handler: MockRequestHandler,
+    ): AppealRepository =
+        AppealRepository(
+            AppealApiClient(
+                rawClient { error("appeal client must not be used without a token") },
+                sessionClient =
+                    HttpClientFactory.create(
+                        installTimeouts = false,
+                        apiBaseUrl = "http://test.local",
+                        tokenStore = store,
+                        sessionInvalidator = SessionInvalidator(store),
+                        engine = MockEngine(handler),
+                        installLogging = false,
+                        nowMillis = { 0L },
+                    ),
+            ),
+            tokenStore = store,
+        )
+
+    @Test
+    fun `null token through the shared client refreshes a stale access token then reads the status`() =
+        runTest {
+            var refreshCalls = 0
+            val store = InMemoryTokenStore(TokenPair("at-stale", "rt-1", Long.MAX_VALUE))
+            val repo =
+                sharedClientRepository(store) { request ->
+                    when (request.url.encodedPath) {
+                        "/api/v1/auth/refresh" -> {
+                            refreshCalls++
+                            respond(
+                                """{"access_token":"at-new","refresh_token":"rt-new","expires_in":900}""",
+                                HttpStatusCode.OK,
+                                JSON_HEADERS,
+                            )
+                        }
+                        else ->
+                            if (request.headers["Authorization"] == "Bearer at-stale") {
+                                respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
+                            } else {
+                                respond(
+                                    """{"has_appeal":true,"action_type":"suspension","status":"approved"}""",
+                                    HttpStatusCode.OK,
+                                    JSON_HEADERS,
+                                )
+                            }
+                    }
+                }
+            assertEquals(
+                AppealStatusOutcome.Decided(approved = true, actionType = "suspension", decisionReason = null, reviewedAt = null),
+                repo.status(null),
+            )
+            assertEquals(1, refreshCalls)
+        }
+
+    @Test
+    fun `null token through the shared client with a rejected refresh is SessionExpired and clears the store`() =
+        runTest {
+            val store = InMemoryTokenStore(TokenPair("at-stale", "rt-revoked", Long.MAX_VALUE))
+            val repo =
+                sharedClientRepository(store) { request ->
+                    when (request.url.encodedPath) {
+                        "/api/v1/auth/refresh" ->
+                            respond("""{"error":{"code":"token_reuse_detected"}}""", HttpStatusCode.Unauthorized, JSON_HEADERS)
+                        else -> respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
+                    }
+                }
+            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertNull(store.read(), "the app-wide invalidation clears the session")
         }
 
     @Test

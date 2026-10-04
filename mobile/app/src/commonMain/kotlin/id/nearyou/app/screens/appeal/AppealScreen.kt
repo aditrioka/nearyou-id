@@ -67,9 +67,11 @@ const val APPEAL_RESIGNIN_TAG: String = "appealReSignIn"
  * sign-in state, or signed-in from an `appeal_decided` notification. Injects [AppealFlow] + [AppealSession]
  * and observes a route-scoped [AppealViewModel] that reads the limited appeal token from the holder (else
  * the signed-in session), loads the caller's own appeal status on entry, and gates the submit.
- * Navigation-free: back invokes [onBack]; a no-session / `401` state, or an approval read on the banned
- * path, invokes [onReSignIn] (the caller routes to sign-in to re-mint the token / pick up the lifted ban).
- * An approval read through the session renders no re-sign-in action — the user is already signed in. All copy via
+ * Navigation-free: back invokes [onBack]; an approval read on the banned path offers [onReSignIn] (re-sign-in
+ * picks up the lifted ban). The session-redirect state (a `401`, or neither an appeal token nor a stored
+ * session) renders a redirect placeholder with no action — an invalidated session is re-routed app-wide by
+ * `SessionExpiryEffect`; the banned-path dead-end is tracked in #581. An approval read through the session
+ * renders no re-sign-in action — the user is already signed in. All copy via
  * `stringResource`; renders under `NearYouTheme`.
  */
 @Composable
