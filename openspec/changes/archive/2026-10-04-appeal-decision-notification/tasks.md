@@ -45,5 +45,5 @@
 
 - [x] 7.1 Gate: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest --no-daemon` against a fresh throwaway Postgres on :5434 (AxonFlow override per operator approval 2026-10-04)
 - [x] 7.2 verify-loop (local): seed an appellant + pending appeal, approve and reject via the local admin panel, confirm the `notifications` rows; Android emulator + iOS simulator screenshots of the notifications row copy and the tap → appeal screen (approved-via-session surface); evidence in the PR body
-- [ ] 7.3 Pre-archive staging branch deploy + smoke: V40 history row `success` + exactly one `notifications` CHECK referencing `type`, containing `appeal_decided` (read-only Supabase MCP) + `/health/ready` 200
-- [ ] 7.4 PR title/body current at each phase boundary; body carries `Closes #390`
+- [x] 7.3 Pre-archive staging branch deploy + smoke: V40 history row `success` + exactly one `notifications` CHECK referencing `type`, containing `appeal_decided` (read-only Supabase MCP) + `/health/ready` 200
+- [x] 7.4 PR title/body current at each phase boundary; body carries `Closes #390`
