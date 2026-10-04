@@ -391,7 +391,7 @@ OTel SDK in Ktor (auto-instrument: HTTP server, HTTP client, Postgres JDBC, Redi
 
 **Instrumentation priorities**:
 - **Mandatory spans**: HTTP request on Ktor, Supabase API calls, Redis calls, PostGIS spatial queries, CF Images calls, Resend API calls
-- **Mandatory attributes**: `user_id` (hashed; UserPrincipal-backed `/api/v1/*` requests), `service.account.id` (hashed OIDC `sub`; Cloud-Scheduler-OIDC-backed `/internal/*` requests), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `cloud.region` — full enforced attribute contract (including the forbidden-attributes list): [`openspec/specs/observability-otel-foundation/spec.md`](../openspec/specs/observability-otel-foundation/spec.md)
+- **Mandatory attributes**: `user.id` (hashed via `UserIdHasher`; UserPrincipal-backed `/api/v1/*` requests — the key `user_id` is runtime-stripped and lint-forbidden as an attribute key), `service.account.id` (hashed OIDC `sub`; Cloud-Scheduler-OIDC-backed `/internal/*` requests), `endpoint`, `db.statement` (parameterized), `supabase.realtime.channel`, `cloud.region` — full enforced attribute contract (including the forbidden-attributes list): [`openspec/specs/observability-otel-foundation/spec.md`](../openspec/specs/observability-otel-foundation/spec.md)
 - **Trace context propagation**: W3C Trace Context on all outbound HTTP
 
 ### Sentry KMP (unified crash + error reporting)
