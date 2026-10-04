@@ -57,8 +57,8 @@
 
 ## 4. Gates + verification
 
-- [ ] 4.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`, with the backend DB suite against a throwaway PostGIS container if `:5433` is dirty (`docs/13` §5).
-- [ ] 4.2 `./gradlew :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (named explicitly).
+- [x] 4.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`, with the backend DB suite against a throwaway PostGIS container if `:5433` is dirty (`docs/13` §5).
+- [x] 4.2 `./gradlew :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (named explicitly).
 - [x] 4.3 `./gradlew :mobile:app:iosSimulatorArm64Test`, because commonMain changed. Result: 1246 tests, 38 red. Every red one matches the documented pre-existing #348 signature on `main`: 35 Koin `NoDefinitionFoundException` (older iOS fixture graphs missing `LikeFlow` / `ProfileFlow` / `PostEditFlow` / `ConsentSnapshotStore` / `FcmTokenRegistrar` / `PrivateProfileRepository`; this change adds no Koin injection) plus the 3 SignIn/Search `assertExists` failures. No new failure signature. The K/N compile of all changed commonMain + commonTest code succeeded.
 - [x] 4.4 Manual UI verification (docs/11 §5 DoD) on the `verify36` emulator, with screenshots in the PR body:
   - (a) post from the composer → the new post is at the top of Nearby on return with no pull-to-refresh;
@@ -71,3 +71,15 @@
   - Rotation after the posts: the Activity relaunched with 0 new requests (D2).
   - (c) Error state at 50 km → `403 radius_premium_only` on "Coba lagi" → upsell + 20 km + 20 km re-fetch.
   - Loaded at 50 km → 403 on pull-to-refresh → the same backstop.
+
+  **iOS simulator, also done** (docs/11 §5.3, local session). A dedicated iPhone 17 / iOS 26.3 simulator ran the `iosApp (Dev)` build with `APP_API_BASE_URL` pointed at the same stub. A temporary `App.kt` token/HomeRoute harness was used, never committed, and `git restore`d before any further step.
+  - Post → the new post at the top of Nearby, with one POST and one Nearby GET. The D5 pin also works on iOS.
+  - Loaded at 50 km → `403 radius_premium_only` on pull-to-refresh → upsell + 20 km + a 20 km re-fetch.
+  - The `ios-*` frames are on the same evidence branch.
+
+  **Gate results, HEAD 4bea139d.**
+  - Root `ktlintCheck` + `detekt`: green.
+  - `:backend:ktor:test` 2641/0 (forced rerun on a throwaway PostGIS; the backend inputs are unchanged since).
+  - `:lint:detekt-rules:test` 344/0.
+  - `:mobile:app:ktlintCheck`: green.
+  - `testDevDebugUnitTest` 1714/0 and `testDevReleaseUnitTest` 1283/0 (forced `--rerun`).

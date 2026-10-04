@@ -96,7 +96,7 @@ class PostCreationSourceGuardTest {
         )
     }
 
-    // ---- 7.8: automatic-location-only; no Nearby reload on success; deferral bookkeeping ----
+    // ---- 7.8: automatic-location-only; a feed-agnostic composer (the host hoists the feed reload, #173) ----
 
     @Test
     fun postCreationScreen_hasNoManualLocationAffordance() {
