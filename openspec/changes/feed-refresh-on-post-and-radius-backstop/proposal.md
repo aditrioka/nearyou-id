@@ -31,6 +31,7 @@ None.
 - `mobile-nearby-timeline` (also): "Fetch outcome mapping is HTTP-status-driven …". This requirement gets the one `error.code` carve-out: `radius_premium_only` → `NearbyFetchResult.PremiumGated` ahead of the unchanged mapping.
 - `mobile-home-tab-host`: "Tab switching preserves each tab's state and never re-fetches". A successful post is the one exception: an off-screen Nearby or Global page re-fetches once when next shown.
 - `mobile-app-scaffold`: "NavDisplay scopes per-entry saveable state …". Its parenthetical now notes that a successful post re-fetches explicitly through the reload key, not through a lost ViewModel.
+- `mobile-design-system` (ADDED): "A feed list stays pinned to the top when posts are prepended". Found during device verification: the refresh landed, but `LazyColumn` kept the previous first post's key in view, so the new post sat just above the viewport. The shared `PostFeedList` now calls `requestScrollToItem(0)` when the viewer was at the top, which also helps pull-to-refresh on every feed. A scrolled-down viewer keeps their position.
 
 ## Impact
 

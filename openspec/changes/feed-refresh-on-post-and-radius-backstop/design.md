@@ -19,7 +19,7 @@ Only `changeRadius` checks for `403 radius_premium_only`. The other page-1 paths
 **Non-Goals**
 - Refreshing Following. Own posts never appear there because self-follow is impossible (`following-timeline` § "Following carries NO own-content self-arm").
 - Optimistic insertion of the new post into the list. The refresh re-reads page 1, which is the source of truth for ordering, distance and shadow-ban self-visibility.
-- Scrolling to the top after the refresh. It behaves exactly like a pull-to-refresh.
+- Forcing a scroll to the top after the refresh. A viewer at the top stays pinned there (D5); a scrolled-down viewer keeps their position, exactly like a pull-to-refresh.
 - Re-gating `isPremiumKnown` to Free after a 403. A webhook-lag buyer must stay unlocked; the backstop only reverts the current selection, as it does today.
 - Any backend, admin or wire change.
 
@@ -58,6 +58,16 @@ The root cause is that page-1 and load-more each have their own mapping, and onl
 ### D4 — The 20 km re-fetch is non-recursive, and a gated 20 km is a fault
 
 After a `PremiumGated` result at a Premium radius, the ViewModel re-fetches once at `NEARBY_RADIUS_M`. The Free anchor is never gated, so a gated fetch *at* 20 km is a server fault. That covers both the re-fetch and an original 20 km fetch (for example the load-more backstop's `reload()`). It maps straight to the retryable `NetworkError`, with no upsell and no further fetch. Recursing could loop, and a Premium upsell for a server fault would be misleading.
+
+### D5 — The refreshed list stays pinned to the top (found on device)
+
+The first emulator run showed the reload landing, yet the new post was invisible. `LazyColumn` keeps the previous first item's key in view across a data change, so a post prepended at index 0 sat just above the viewport, with only its bottom edge peeking in. The fix lives in the ONE shared list (`PostFeedList`, `mobile-design-system`), not in each feed:
+
+- When the first post's key changes while the viewer is at the very top (index 0, offset 0), the list calls `LazyListState.requestScrollToItem(0)`. This is the documented Compose API for "stay at the top when items are prepended".
+- It is called from a `SideEffect`, which runs after the new posts are applied and before the remeasure, so "was at the top" still reads the pre-change position.
+- A scrolled-down viewer is never jumped.
+- This also benefits pull-to-refresh on all three feeds, which had the same latent behaviour.
+- *Alternative: a ViewModel one-shot "scroll to top" plus `scrollToItem(0)` after the data lands.* Rejected. It adds per-feed state plumbing and a visible one-frame jump. It also fixes only the post path, not the shared list.
 
 ### Standards conformance (docs/11)
 

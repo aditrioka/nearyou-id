@@ -33,12 +33,21 @@
 - [x] 3.6 `PostCreationSourceGuardTest`: keep the composer feed-agnostic guard (no timeline type / `reload` / `ResultEventBus` in `PostCreationScreen.kt`) under a renamed test. Add the hoisting guard: `AppEntryProvider.kt` holds the key with `rememberSaveable` and raises the signal before popping; no `Channel` / `SharedFlow` / `ResultEventBus` appears in it or in the Nearby/Global feed ViewModels.
 - [x] 3.7 `NearbyTimelineViewModelTest`: a gated 20 km refresh → `NetworkError`, no upsell, no re-fetch. The gated load-more test also asserts nothing was appended.
 
+- [x] 3.8 D5 (found on device): `PostFeedList` pins a viewer at the top to the top when posts are prepended (`requestScrollToItem(0)` in a `SideEffect`). New Robolectric `PostFeedListTest` (at top → the prepended post is fully visible, checked with the unclipped `positionInRoot`, mutation-checked; scrolled down → position kept), added to the Release-variant exclude block.
+
 ## 4. Gates + verification
 
 - [ ] 4.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`, with the backend DB suite against a throwaway PostGIS container if `:5433` is dirty (`docs/13` §5).
 - [ ] 4.2 `./gradlew :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (named explicitly).
 - [ ] 4.3 `./gradlew :mobile:app:iosSimulatorArm64Test`, because commonMain changed. The known pre-existing `AppShellFlowIosTest` red (#348) is confirmed against a main-baseline worktree, not attributed to this change.
-- [ ] 4.4 Manual UI verification (docs/11 §5 DoD) on the `verify36` emulator, with screenshots in the PR body:
+- [x] 4.4 Manual UI verification (docs/11 §5 DoD) on the `verify36` emulator, with screenshots in the PR body:
   - (a) post from the composer → the new post is at the top of Nearby on return with no pull-to-refresh;
   - (b) the Global tab shows it on the next swipe;
   - (c) against a stub backend, a 50 km retry / pull-to-refresh that gets `403 radius_premium_only` shows the radius upsell and the control returns to 20 km.
+
+  **Done 2026-10-04.** Verified on a dedicated `verify36`-image AVD against a stateful Python stub on a private host port (`-PdevApiBaseUrl` + `adb reverse`, so sibling sessions were not disturbed). Frames are on the orphan branch `evidence/feed-refresh-on-post-and-radius-backstop`.
+  - (a) Post → back on Nearby with the new post at the top: one POST plus one Nearby GET. The first run exposed the D5 hidden-post bug, which is now fixed.
+  - (b) Global visited, then a post from Nearby → Global re-fetched once when shown, with the new post at the top. Following was not re-fetched.
+  - Rotation after the posts: the Activity relaunched with 0 new requests (D2).
+  - (c) Error state at 50 km → `403 radius_premium_only` on "Coba lagi" → upsell + 20 km + 20 km re-fetch.
+  - Loaded at 50 km → 403 on pull-to-refresh → the same backstop.
