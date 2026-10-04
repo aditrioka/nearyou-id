@@ -17,20 +17,20 @@ Doing all three in one pass means the file is restructured once (#542 asks for e
     - the resume freshness read (`refreshPost`) and the session self-id read.
   - It exposes ONE `uiState: StateFlow<PostDetailUiState>` via `stateIn`. The 10-`StateFlow` debt named in docs/11 §2.2 is consolidated now that the VM is touched.
   - The in-flight guards become VM state (`likeInFlight` / `replyInFlight`).
-  - Writes (like, reply, delete) run under `NonCancellable`, so a POST/DELETE already sent completes even if the entry is popped mid-flight.
+  - Writes (like, reply, delete, report, block) run under `NonCancellable`, so a POST/DELETE already sent completes even if the entry is popped mid-flight. docs/11 §2.2 registers this convention; #577 sweeps the other VMs that write.
   - The reply draft stays UI element state (`rememberSaveable`). The VM signals "clear it" after a `201` through a one-shot state field.
 - **Split the screen file (#542).** `PostDetailScreen.kt` is split into the screen plus three composable files under the docs/11 §4 ~400-LOC UI soft cap:
   - `PostDetailHeader.kt` — top bar, post header, action row;
   - `PostDetailReplies.kt` — subhead, reply rows, list states, delete dialog;
   - `PostDetailComposer.kt` — the reply composer.
-- **Settings logout goes through the repository (#542).** `SettingsViewModel` logout calls the new `AuthRepository.revokeSession(fcmToken)` instead of `AuthApiClient`, removing the only ViewModel→ApiClient layer skip (docs/11 §4). Behaviour is unchanged.
+- **Settings logout goes through the repository (#542).** `SettingsViewModel` logout calls the new `AuthFlow.revokeSession(fcmToken)` (implemented by `AuthRepository`) instead of `AuthApiClient`, removing the only ViewModel→ApiClient layer skip (docs/11 §4). Behaviour is unchanged.
 - **Own-reply delete (#497).**
   - Data path: `ReplyApiClient.deleteReply` → `PostDetailFlow.deleteReply` → `ReplyDeleteOutcome` (`Deleted` / `NetworkError`).
   - UI: a "Hapus balasan" item in the reply row's overflow kebab. It shows only on the viewer's own reply and fails closed while the session id is unresolved. A confirm dialog comes first.
   - Removal is optimistic: the row disappears and the header reply count drops by one. On failure the row comes back at its position, the count is restored, and a snackbar says the delete failed.
 - **Frame-7 restyle (#242).**
   - Top bar: M3 `TopAppBar` with a back arrow, the title "Postingan", and the existing Edit + kebab actions.
-  - Post header: identity row whose meta line reads `@handle · {distance}`, then the content, then the spec'd "Diposting dari …" line with a coral pin.
+  - Post header: identity row with the `@handle`, then the content, then the spec'd "Diposting dari …" line with a coral pin. Frame 7's distance is not rendered, because `hide-distance` keeps post-detail distance-free.
   - Action row between dividers:
     - reply icon + count;
     - a share-to-chat icon (the existing "Bagikan ke chat" action);
@@ -38,13 +38,18 @@ Doing all three in one pass means the file is restructured once (#542 asks for e
   - A "N balasan" subhead.
   - Reply rows as full-bleed list items: avatar, then a "name · date" line, then the content, plus the kebab.
   - Composer: a pill `TextField` with a filled send `IconButton` labelled "Balas". The `N/280` counter shows while the draft is non-empty.
-- **Explicit deferrals (docs/12 §3).** Three frame-7 elements are not built:
+- **Explicit deferrals (docs/12 §3).** Four frame-7 elements are not built:
   - the header "Ikuti" button — #569;
   - per-reply likes, which have no backend — #570;
-  - the composer self-avatar — #569.
+  - the composer self-avatar — #569;
+  - the Premium badge + name tint on a reply author — #575.
 
   Each gets a deferred requirement with a negative guard.
-- **Out of scope.** Feed-level propagation of a deleted reply's count stays the documented detail→feed deferral. The audit `05-#11` remainder (`Replies*` / `PostHeader` → shared kit) stays with `/audit-burndown`.
+- **Out of scope.**
+  - Feed-level propagation of a deleted reply's count stays the documented detail→feed deferral.
+  - The audit `05-#11` remainder (`Replies*` / `PostHeader` → shared kit) stays with `/audit-burndown`.
+  - The frame-6 composer top bar, which #242 listed as a "candidate to fold in", is #574.
+  - `EditHistorySheet`'s composition-scoped load is #576.
 
 ## Capabilities
 
@@ -71,10 +76,11 @@ _None._
     - new `PostDetailHeader.kt`, `PostDetailReplies.kt`, `PostDetailComposer.kt`;
     - `PostDetailViewModel.kt` and `PostDetailUiState.kt`.
   - `mobile/app/src/commonMain/kotlin/id/nearyou/app/post/` — `ReplyApiClient.kt`, `PostDetailFlow.kt`, `PostDetailRepository.kt`.
-  - Auth and settings — `auth/AuthRepository.kt`, `screens/settings/SettingsViewModel.kt`, `screens/settings/SettingsScreen.kt` (Koin resolution only).
+  - Auth and settings — `auth/AuthRepository.kt` (`AuthFlow.revokeSession`), `screens/settings/SettingsViewModel.kt`, `screens/settings/SettingsScreen.kt` (Koin resolution only).
+  - Docs — `docs/11-Engineering-Standards.md` §2.2 (the `NonCancellable`-write convention).
 - **Resources** (`:shared:resources`):
   - new strings `post_detail_title`, `cta_back`, `post_detail_replies_header`, `post_detail_reply_delete_action`, `post_detail_reply_delete_title`, `post_detail_reply_delete_body`, `cta_delete`, `post_detail_reply_delete_failed`;
-  - new drawable `ic_send.xml` (Material Symbols "send").
+  - new drawables `ic_send.xml` and `ic_send_filled.xml` (Material Symbols "send", outlined + filled).
 - **Tests**:
   - `PostDetailViewModelTest` (rewritten onto `uiState`, plus cancel-safety and delete);
   - `PostDetailScreenTest` (restyle selectors and delete);

@@ -4,13 +4,15 @@
 
 Every post-detail network operation SHALL be launched by `PostDetailViewModel` (`viewModelScope`). This covers the like toggle, the like-count read, the reply POST, the own-reply DELETE, the resume-time single-post freshness read, the session self-id read (`SelfUserIdProvider`), the replies first page, the replies load-more, report submission and block submission. `PostDetailScreen` and its split-out composable files SHALL NOT launch any of them from a composition scope: no `rememberCoroutineScope()`-launched repository call, and no `LaunchedEffect` whose body calls a repository / flow.
 
+One exception remains: the `mobile-post-editing` "Riwayat edit" overlay (`EditHistorySheet.kt`, its own file and capability) still loads the edit history from its own composition. Moving it into a ViewModel is tracked by [#576](https://github.com/aditrioka/nearyou-id/issues/576).
+
 The screen MAY forward lifecycle triggers to the VM. Its `LifecycleEventEffect(ON_RESUME)` calls `viewModel.refreshPost()` (docs/11 §2.3 "silent re-read in the screen's VM").
 
 The in-flight guards SHALL be VM state (`likeInFlight`, `replyInFlight`), claimed synchronously before the launch so a same-frame double tap cannot double-submit.
 
 The VM SHALL expose exactly ONE `uiState: StateFlow<PostDetailUiState>` produced via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), …)`, collected with `collectAsStateWithLifecycle()`. It SHALL NOT expose any other public `StateFlow`. One-shot events SHALL be nullable / boolean `uiState` fields cleared through `onXxxShown()` callbacks, never a `Channel` / `SharedFlow`. These are: the report / block / delete result messages, the post-block pop-back, and the reply-posted draft clear.
 
-The network leg of every **write** (like toggle, reply POST, reply DELETE) SHALL run under `NonCancellable`. Once issued, a write SHALL complete even if the post-detail entry is popped and the VM cleared mid-flight. Reads SHALL remain cancellable.
+The network leg of every **write** (like toggle, reply POST, reply DELETE, report submission, block submission) SHALL run under `NonCancellable`. Once issued, a write SHALL complete even if the post-detail entry is popped and the VM cleared mid-flight. Reads SHALL remain cancellable.
 
 The reply draft text SHALL remain composable-held saveable UI state. On a `201` the VM SHALL raise a one-shot `replyPosted` flag, and the screen clears the draft and acknowledges it.
 
@@ -26,6 +28,12 @@ The reply draft text SHALL remain composable-held saveable UI state. On a `201` 
 - **WHEN** the like is toggled, the ViewModel is cleared, and the gate is released
 - **THEN** the `toggleLike` call runs to completion (it is NOT cancelled)
 
+#### Scenario: An own-reply DELETE completes after the entry is popped mid-flight
+
+- **GIVEN** a `PostDetailViewModel` whose `deleteReply` suspends on a gate AND the viewer's own reply loaded
+- **WHEN** the delete is confirmed, the ViewModel is cleared, and the gate is released
+- **THEN** the `deleteReply` call runs to completion (it is NOT cancelled)
+
 #### Scenario: A double submit issues one reply POST
 
 - **GIVEN** a reply submission in flight
@@ -35,7 +43,12 @@ The reply draft text SHALL remain composable-held saveable UI state. On a `201` 
 #### Scenario: The screen launches no repository work from composition
 
 - **WHEN** inspecting the post-detail UI source files (`PostDetailScreen.kt`, `PostDetailHeader.kt`, `PostDetailReplies.kt`, `PostDetailComposer.kt`) with comments stripped
-- **THEN** none contains `rememberCoroutineScope`, and none references `PostDetailFlow`, `PostEditFlow`, `SelfUserIdProvider`, `ReportSubmitter` or `BlockSubmitter` outside the ViewModel construction in `PostDetailScreen`
+- **THEN** none contains `rememberCoroutineScope`; none references `PostDetailFlow`, `PostEditFlow`, `SelfUserIdProvider`, `ReportSubmitter` or `BlockSubmitter` outside the injections that construct the ViewModel in `PostDetailScreen`; AND none calls a member of those injected dependencies (no `flow.…(`, `editFlow.…(`, `selfUserIdProvider.…(`, `reportSubmitter.…(`, `blockSubmitter.…(`)
+
+#### Scenario: The ViewModel exposes one state stream and no event bus
+
+- **WHEN** inspecting `PostDetailViewModel.kt` with comments stripped
+- **THEN** exactly one public `StateFlow` property (`uiState`) is declared AND no `Channel` / `SharedFlow` is used
 
 #### Scenario: A 201 clears the draft through a one-shot
 
@@ -69,9 +82,11 @@ The outcome mapping:
 
 On `NetworkError`:
 
-- The reply SHALL be restored at its original position, clamped to the list size, unless a concurrent reload already re-listed it.
-- The count SHALL be restored.
+- The reply SHALL be restored at its original position, clamped to the list size. This is skipped when a concurrent reload already re-listed it, or when the list is no longer loaded.
+- The count SHALL be restored by adding back exactly the amount the optimistic step subtracted (1, or 0 when the count was already 0).
 - A one-shot snackbar `post_detail_reply_delete_failed` SHALL show.
+
+The ViewModel SHALL ignore a confirmed delete for a reply that is not the viewer's own (defence in depth — the backend `204`s a stranger's reply too, which would otherwise hide it locally).
 
 The reply `author_id` SHALL NOT be rendered or logged. It is used only for the `isOwn` comparison. The DELETE carries only the post id and the reply id.
 
@@ -104,6 +119,12 @@ The reply `author_id` SHALL NOT be rendered or logged. It is used only for the `
 - **WHEN** the delete of "MINE" is confirmed
 - **THEN** the list is again `[A, MINE, C]` (same position) AND the count is `3` AND a snackbar with `stringResource(Res.string.post_detail_reply_delete_failed)` is shown
 
+#### Scenario: A restore never duplicates a re-listed reply
+
+- **GIVEN** the delete of "MINE" is in flight AND a replies reload re-lists "MINE"
+- **WHEN** the DELETE returns `NetworkError`
+- **THEN** "MINE" appears exactly once in the list
+
 #### Scenario: The DELETE maps 204 to Deleted and anything else to NetworkError
 
 - **GIVEN** a `MockEngine` answering `DELETE /api/v1/posts/p1/replies/r1`
@@ -112,13 +133,14 @@ The reply `author_id` SHALL NOT be rendered or logged. It is used only for the `
 
 ### Requirement: Frame-7 elements outside the restyle are deferred
 
-Post-detail SHALL NOT yet render three elements of mockup frame 7 (`dev/mockups/nearyou-screens-mockup.html` · "Detail postingan + balasan"). Each is tracked for a follow-up change that will MODIFY this requirement:
+Post-detail SHALL NOT yet render four elements of mockup frame 7 (`dev/mockups/nearyou-screens-mockup.html` · "Detail postingan + balasan"). Each is tracked for a follow-up change that will MODIFY this requirement:
 
 - **(a) A post-header "Ikuti" follow button** (tracked: [#569](https://github.com/aditrioka/nearyou-id/issues/569)). It will be an optimistic follow toggle beside the author identity, hidden on the viewer's own post, reusing the `mobile-profile` follow seam.
 - **(b) Per-reply likes** (tracked: [#570](https://github.com/aditrioka/nearyou-id/issues/570)). Each reply row will show a heart + like count, backed by a future reply-likes capability.
 - **(c) The reply composer's leading self-avatar** (tracked: [#569](https://github.com/aditrioka/nearyou-id/issues/569)). The viewer's own `LetterAvatar` will lead the composer bar once a cached self identity exists.
+- **(d) The Premium badge + name treatment on a reply author** (tracked: [#575](https://github.com/aditrioka/nearyou-id/issues/575)). A Premium author's identity will show the `workspace_premium` badge and the tinted name, once the reply wire carries an author-premium display flag.
 
-Until then, post-detail SHALL render none of the three.
+Until then, post-detail SHALL render none of the four.
 
 #### Scenario: No follow button in the post header
 
@@ -132,6 +154,11 @@ Until then, post-detail SHALL render none of the three.
 - **WHEN** a reply row is inspected
 - **THEN** it renders no like / heart affordance and no per-reply like count
 
+#### Scenario: Reply identities carry no Premium badge
+
+- **WHEN** a reply row with a wire identity renders
+- **THEN** it renders the avatar, the display name and the date only — no Premium badge node
+
 #### Scenario: The composer has no self-avatar
 
 - **WHEN** the reply composer renders
@@ -141,7 +168,13 @@ Until then, post-detail SHALL render none of the three.
 
 The change SHALL ship:
 
-1. `PostDetailViewModelTest` (commonTest) rewritten onto the single `uiState` (a background collector). It covers every previously-asserted VM behaviour, plus the cancel-safety scenarios (reply and like complete after the ViewModel is cleared), the double-submit guard, the like optimistic flip + exact-count revert, and the reply `replyPosted` one-shot. It also covers own-reply delete: the optimistic removal + decrement, the keep on `Deleted`, the positional restore + count restore + failure message on `NetworkError`, the fail-closed `isOwn` with a null self id, and dismiss-without-request.
+1. `PostDetailViewModelTest` (commonTest) rewritten onto the single `uiState` (a background collector). It covers:
+   - every previously-asserted VM behaviour;
+   - the cancel-safety scenarios: reply, like and delete each complete after the `ViewModelStore` is cleared mid-flight;
+   - the reply and like double-submit guards;
+   - the like optimistic flip + exact-count revert, and the reply `replyPosted` one-shot;
+   - own-reply delete: the optimistic removal + decrement, the keep on `Deleted`, the positional restore + count restore + failure message on `NetworkError`, the no-duplicate restore after a re-list, a no-op for a non-own reply, a null self id keeping both gates closed, and dismiss-without-request;
+   - `onBlockPostClicked()` as a no-op without an `authorUserId` or on an own post.
 2. `PostDetailUiStateTest` coverage of `ReplyUi.isOwn` (own / other / null self id).
 3. `PostDetailApiTest` MockEngine coverage of the DELETE → `ReplyDeleteOutcome` mapping.
 4. `PostDetailScreenTest` (Robolectric) coverage of:
@@ -151,12 +184,16 @@ The change SHALL ship:
    - a failed delete → row restored + failure snackbar;
    - the frame-7 chrome nodes (title "Postingan", the back arrow's "Kembali" description, the "N balasan" subhead, the bare like count, the send action described "Balas");
    - every pre-existing screen scenario migrated to the new selectors.
-5. `PostDetailSourceGuardTest` scanning all four post-detail UI files for the no-literal and no-composition-launch guards.
+5. `PostDetailSourceGuardTest` scanning all four post-detail UI files (concatenated) for:
+   - the no-literal guard and the existing `stringResource` presence checks;
+   - the no-composition-launch guard, including the injected-dependency call pattern.
+
+   It also scans `PostDetailViewModel.kt` for the single public `StateFlow` and no event bus, and adds it to the no-`println` / no-logging scan.
 6. `PostDetailFlowIosTest` kept green under `:mobile:app:iosSimulatorArm64Test`. Only its selectors may change to follow the restyle; its scenarios are unchanged.
 
 #### Scenario: The new and migrated tests pass in every gate
 
-- **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest :mobile:app:iosSimulatorArm64Test`
+- **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest :mobile:app:iosSimulatorArm64Test :mobile:app:linkDebugFrameworkIosSimulatorArm64`
 - **THEN** the post-detail VM, projection, API, screen, source-guard and iOS flow tests are discovered and pass, AND `PostDetailScreenTest` stays in the Release-variant `*ScreenTest` exclude
 
 ## MODIFIED Requirements
@@ -189,7 +226,7 @@ No hardcoded UI string literals SHALL appear in any of the four post-detail UI s
 #### Scenario: The frame-7 top bar renders a titled back arrow
 
 - **WHEN** the detail surface renders
-- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.post_detail_title)` AND the back affordance (test tag `postDetailBack`) carries the `contentDescription` `stringResource(Res.string.cta_back)` and no visible "Tutup" text
+- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.post_detail_title)` AND the back affordance (test tag `postDetailBack`) carries the `contentDescription` `stringResource(Res.string.cta_back)` AND no node's text is "Tutup"
 
 #### Scenario: Empty city_name is tolerated in the header
 
@@ -217,8 +254,9 @@ The screen's outbound requests are:
 
 As of `mobile-timeline-card-redesign` the header SHALL render the author **display identity** from the payload:
 
-- The letter avatar, then `authorDisplayName`, then a meta line. The meta line holds the `authorUsername` handle, followed — as of `post-detail-vm-reply-delete-restyle`, mockup frame 7 — by the separator and the `DistanceRenderer` distance when the payload's `distanceM` is non-null (Nearby origin; a Global / notification origin carries `null` and renders the handle alone).
-- The header uses the same avatar derivation, handle treatment and distance rendering as `mobile-post-card`. It is not the shared card composable, but it reuses the card's avatar / identity sub-components so the treatments cannot drift.
+- The letter avatar, then `authorDisplayName`, then the `authorUsername` handle.
+- The header uses the same avatar derivation and handle treatment as `mobile-post-card`. It is not the shared card composable, but it reuses the card's avatar / identity sub-components so the treatments cannot drift.
+- Mockup frame 7 also shows a distance in this meta line. Post-detail SHALL NOT render it: `hide-distance` § "Scope is Nearby only — every other surface stays distance-free" governs (spec over mockup), even though the payload may carry the Nearby-origin `distanceM`.
 - When `authorUsername` / `authorDisplayName` are empty (a legacy restored payload), the identity row SHALL be omitted gracefully: no empty "@" handle, no crash.
 
 As of `post-detail-tap-to-profile`, the identity row IS a tap target once the single-post freshness read has resolved an `authorUserId` (per § "Post header identity row opens the author profile"). It renders non-tappable while/if that read has not resolved one.
@@ -235,11 +273,11 @@ As of `post-detail-tap-to-profile`, the identity row IS a tap target once the si
 - **WHEN** the detail surface renders
 - **THEN** the header contains the "Raka Pratama" display-name node, the "@raka.jkt" handle node, and the letter avatar — with no additional network request for them
 
-#### Scenario: Header meta line carries the distance when the payload has one
+#### Scenario: Post-detail renders no distance even with a Nearby payload
 
-- **GIVEN** a `PostDetailRoute` with `distanceM = 5000.0` and another with `distanceM = null`
-- **WHEN** each detail surface renders
-- **THEN** the first header contains the `DistanceRenderer.render(5000.0)` text AND the second contains no distance node
+- **GIVEN** a `PostDetailRoute` with `distanceM = 5000.0` (a Nearby-origin card tap)
+- **WHEN** the detail surface renders
+- **THEN** no node's text equals `DistanceRenderer.render(5000.0)` (post-detail stays distance-free)
 
 #### Scenario: Empty identity payload renders without an identity row
 
@@ -271,7 +309,7 @@ As of `post-detail-vm-reply-delete-restyle` (mockup frame 7), the like control S
 2. A share affordance (`Res.drawable.ic_send`, `contentDescription = stringResource(Res.string.chat_share_to_chat_action)`) that invokes the same hoisted `onShareToChat(postId)` as the kebab's "Bagikan ke chat" item.
 3. The like affordance. It shows a `locationPin`-tinted filled heart when liked and a muted outlined heart otherwise. Next to the heart, the like count renders as the **bare number** when available.
    - The count node's `contentDescription` SHALL be `stringResource(Res.string.post_detail_like_count)` formatted with the count, so assistive tech announces "N suka".
-   - The like target SHALL announce its liked state via `stateDescription`.
+   - The like target SHALL carry the action label `stringResource(Res.string.post_card_action_like)` as its `contentDescription` and announce its liked state via `stateDescription` (the `mobile-post-card` idiom).
 
 Every action-row target SHALL be ≥48dp.
 
@@ -407,7 +445,7 @@ As of `post-detail-vm-reply-delete-restyle` (mockup frame 7's bottom bar), the r
   - Container `surfaceContainerHigh`, no indicator line, bounded growth.
   - Placeholder `stringResource(Res.string.post_detail_reply_placeholder)`.
   - Test tag `postDetailReplyField`.
-- **A filled circular send `IconButton`** (`Res.drawable.ic_send`). This is the "Balas" CTA, labelled via `contentDescription = stringResource(Res.string.cta_reply)`. It SHALL be disabled while content is empty / over-limit / in-flight.
+- **A filled circular send `IconButton`** (`Res.drawable.ic_send_filled`). This is the "Balas" CTA, labelled via `contentDescription = stringResource(Res.string.cta_reply)`. It SHALL be disabled while content is empty / over-limit / in-flight.
 
 While the draft is non-empty, a live `N/280` counter (`stringResource(Res.string.post_detail_reply_counter)`) SHALL render above the row. It is computed in **Unicode code points** (NOT UTF-16 units) and uses the `error` color when over the limit.
 
@@ -512,9 +550,9 @@ As of `mobile-block-from-content`, the **reply** UI model MAY carry the reply `a
 
 The reply UI model SHALL also carry:
 - the reply author's **display identity** (`authorUsername` / `authorDisplayName` from the reply wire — design D7). Display identity is renderable, not PII.
-- as of `post-detail-vm-reply-delete-restyle`, a boolean `isOwn`, projected as `selfUserId != null && authorId == selfUserId` (fail-closed). It drives the reply block gate (hidden when own) and the delete gate (shown only when own).
+- as of `post-detail-vm-reply-delete-restyle`, a boolean `isOwn`, projected as `selfUserId != null && authorId == selfUserId` (fail-closed). It drives the delete gate (shown only when own) and hides the block item on an own reply.
 
-The session `selfUserId` itself is NOT projected. No other PII (coordinates, token material) enters projected state.
+The session `selfUserId` itself is NOT projected. `PostDetailUiState` carries only a boolean `selfResolved` (the self id has resolved to a non-null value). The reply block item SHALL stay absent until `selfResolved` is true, so neither gate can fail open while the session id is unknown. No other PII (coordinates, token material) enters projected state.
 
 #### Scenario: Projection maps each outcome to its state deterministically
 
@@ -532,6 +570,12 @@ The session `selfUserId` itself is NOT projected. No other PII (coordinates, tok
 - **GIVEN** a reply with `author_id = "U"`
 - **WHEN** it is projected with `selfUserId = "U"`, with `selfUserId = "V"`, and with `selfUserId = null`
 - **THEN** `isOwn` is `true`, `false`, and `false` respectively
+
+#### Scenario: Neither authorship gate opens while the session id is unresolved
+
+- **GIVEN** `SelfUserIdProvider` returns null AND a loaded reply with a wire username
+- **WHEN** the reply's kebab is opened
+- **THEN** neither the "Blokir" nor the "Hapus balasan" item is present (the "Laporkan" item remains)
 
 ### Requirement: Replies list wires cursor load-more via PostDetailViewModel
 
@@ -584,3 +628,20 @@ The existing optimistic new-reply behavior SHALL be preserved:
 
 - **GIVEN** the replies list with a loaded first page AND a load-more fetch that fails (network/5xx)
 - **THEN** the first-page replies remain rendered (the post header + action row unaffected) AND a non-destructive load-more error footer with a retry control is shown AND retry re-issues the `cursor`-bearing follow-up for the same cursor
+
+### Requirement: PostDetailScreen is reached via the root back stack and is navigation-free
+
+`PostDetailScreen` SHALL be reached by appending `PostDetailRoute` to the **root** navigation back stack (above `HomeRoute`, overlaying the tab bar). This mirrors the post-composer FAB's root-stack push and deliberately does NOT use a per-tab `NavDisplay` back stack (deferred by `mobile-home-tab-host`).
+
+`PostDetailScreen` SHALL be navigation-free: it holds no back-stack reference. Its back affordance — as of `post-detail-vm-reply-delete-restyle`, the top app bar's back arrow — invokes a hoisted `onBack` lambda (the Nav3 `backStack.removeLastOrNull()` equivalent, wired by the host) to return to the feed. The same holds for the split-out `PostDetailHeader.kt`, `PostDetailReplies.kt` and `PostDetailComposer.kt`.
+
+#### Scenario: Back affordance pops the detail off the root stack
+
+- **GIVEN** `PostDetailScreen` composed over a test root back stack (or with a recording `onBack` callback) with `PostDetailRoute` as the current entry
+- **WHEN** the back affordance is activated
+- **THEN** the `PostDetailRoute` entry is removed from the root back stack (`removeLastOrNull`) / the recording `onBack` fires, and the feed surface becomes current again
+
+#### Scenario: PostDetailScreen holds no back-stack reference
+
+- **WHEN** inspecting `PostDetailScreen.kt`, `PostDetailHeader.kt`, `PostDetailReplies.kt` and `PostDetailComposer.kt`
+- **THEN** they take navigation only via hoisted lambdas (`onBack`); none holds a `NavBackStack` field or performs a direct back-stack mutation of its own
