@@ -192,7 +192,7 @@ Enforced by CI (full list: [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.m
 - **Content length guards**: input endpoints must length-check (post/reply 280 chars, etc.).
 - **Admin sessions**: every `INSERT INTO admin_sessions` must populate `csrf_token_hash`.
 - **Admin-user FKs** on operational tables must use `ON DELETE SET NULL`.
-- **Mobile strings**: no hardcoded UI strings; must go through Compose Multiplatform Resources (`stringResource(Res.string.X)` accessor).
+- **Mobile strings**: no hardcoded UI strings; must go through Compose Multiplatform Resources (`stringResource(Res.string.X)` accessor). Enforced by Detekt `MobileHardcodedStringRule` (`Text("…")` / `contentDescription = "…"` literals outside test source sets; escape hatch `@Suppress("MobileHardcodedStringRule")` with a reason).
 - **Partial indexes**: no `NOW()` in `WHERE` (non-immutable; PG rejects).
 - **RLS changes**: mandatory test case "JWT `sub` not in `public.users` → deny" on every policy change.
 - **Secrets**: Ktor MUST read via the `secretKey(env, name)` helper (per Environments section above). Direct secret-name reads are a lint violation.

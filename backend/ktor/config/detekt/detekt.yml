@@ -35,3 +35,7 @@ nearyou:
     active: true
   ContentWriteRequiresModerationRule:
     active: true
+  # Mobile-only concern (UI `Text`/`contentDescription` literals) — inert here; listed because
+  # DetektConfigActivationTest pins every provider rule active in every scanning config.
+  MobileHardcodedStringRule:
+    active: true

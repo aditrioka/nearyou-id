@@ -19,9 +19,9 @@ import java.io.File
  * This test closes the gap structurally: any rule added to [NearYouRuleSetProvider]
  * MUST be listed with `active: true` in BOTH scanning configs
  * (`backend/ktor/config/detekt/detekt.yml`, `config/detekt/invariants.yml`).
- * The mobile config is deliberately TestLoginIsolationRule-only (its header
- * documents why: the other rules target backend SQL / Redis / HTTP patterns),
- * so it is pinned to that single activation, not the full set.
+ * The mobile config deliberately activates only the two mobile-relevant rules
+ * (its header documents why: the other rules target backend SQL / Redis / HTTP
+ * patterns), so it is pinned to exactly that pair, not the full set.
  */
 class DetektConfigActivationTest : StringSpec({
 
@@ -48,8 +48,8 @@ class DetektConfigActivationTest : StringSpec({
         return active
     }
 
-    "provider ships the expected 10 rules" {
-        providerRuleIds.size shouldBe 10
+    "provider ships the expected 11 rules" {
+        providerRuleIds.size shouldBe 11
     }
 
     "backend/ktor detekt.yml activates every provider rule" {
@@ -72,8 +72,8 @@ class DetektConfigActivationTest : StringSpec({
         }
     }
 
-    "mobile detekt.yml keeps its deliberate TestLoginIsolationRule-only activation" {
+    "mobile detekt.yml activates exactly the two mobile-relevant rules" {
         val config = File(repoRoot, "mobile/app/config/detekt/detekt.yml")
-        activeRuleNames(config) shouldBe setOf("TestLoginIsolationRule")
+        activeRuleNames(config) shouldBe setOf("TestLoginIsolationRule", "MobileHardcodedStringRule")
     }
 })
