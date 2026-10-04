@@ -115,7 +115,7 @@ March 2026 Google Play fee reform: US/UK/EEA subscription fees become 10% servic
 ### Developer Program Fees (One-Time + Recurring)
 
 - Google Play Developer account: **$25 one-time fee** (verify current rate in Pre-Phase 1; Google adjusts periodically)
-- Apple Developer Program: $99/year recurring (~Rp133k/month amortized)
+- Apple Developer Program: $99/year recurring (~Rp133k/month amortized) — **Rp0 until the apple-paid lane starts** (Android-first release, `08-Roadmap-Risk.md` Open Decision #37)
 
 ### Payment Stack
 
@@ -268,7 +268,7 @@ Max Rp2M/month, max 6 months — past that, kill or pivot. Total burn budget Rp1
 ### Assumptions
 
 - Month 1 = Public Launch Day 1, all features ready except image upload (Month 6)
-- MAU Premium conversion 2% Android / 3% iOS (blended 2.2%); weighted average net revenue per premium user Rp29,500/month (15% fee)
+- MAU Premium conversion 2% Android / 3% iOS (blended 2.2%); weighted average net revenue per premium user Rp29,500/month (15% fee). **Re-baseline pending (2026-10-03):** the first release is Android-only (Open Decision #37), so the first-release forecast must use 2.0 % and an Android-only MAU base (StatCounter ID 2026-09: Android 79.2 %); iOS re-enters after the apple-paid lane
 - Growth ~25%/month early, slowing to ~15% after Month 6
 - OTP cost Rp0 (Google/Apple free); attestation Rp0 at MVP scale (100k/day quota sufficient up to >50k MAU)
 - Ads revenue starts Month 3 (post AdMob approval)
@@ -314,6 +314,8 @@ Resend free tier: 3,000 emails/month. Typical usage: data export links, subscrip
 | 19-24 | 50k | ~16,000 | Pro ($20/mo) | ~Rp320k |
 
 ### Cost Breakdown Per Component
+
+> **Re-baseline pending (2026-10-03, Open Decision #36).** This table predates (a) the `08-Roadmap-Risk.md` § Pre-Launch Cloud Run posture (`--cpu=2 --min-instances=1 --no-cpu-throttling` ≈ US$112/month in Jakarta Tier 2, instance-based — vs the 50k–300k Rp rows below that assumed scale-to-zero), (b) Supabase PITR being a US$100/month add-on rather than included, (c) the Android-first release (no Apple Developer fee until the apple-paid lane), (d) Upstash's Fixed plans and Amplitude's event-based free tier. Official prices as of 2026-10-03 and a 500-user → 10k-MAU projection are in `dev/audits/2026-10-03-architecture-review/REPORT.md` § 9; this table is rewritten when the production-spend decision is taken.
 
 | Component | Month 1-3 | Month 6 | Month 12 | Month 18 | Month 24 |
 |----------|-----------|---------|----------|----------|----------|
