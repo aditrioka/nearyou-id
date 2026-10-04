@@ -1,6 +1,7 @@
 package id.nearyou.app.timeline
 
 import id.nearyou.distance.LatLng
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 
 /**
@@ -44,10 +45,19 @@ class FakeNearbyTimelineFlow(
     /** Programmable page-1 outcome for a non-gated radius; defaults to the constructor [outcome]. */
     var firstPageOutcome: NearbyTimelineOutcome = outcome
 
+    /** When set, the next page-1 / load-more call suspends until it completes — holds a fetch in flight so a
+     *  test can act mid-flight, then resolve it (the gate is consumed by the call that awaits it). */
+    var firstPageGate: CompletableDeferred<Unit>? = null
+    var loadMoreGate: CompletableDeferred<Unit>? = null
+
     override suspend fun loadFirstPage(radiusM: Int): NearbyFetchResult {
         loadInvocationCount++
         loadFirstPageRadii += radiusM
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
+        firstPageGate?.let { gate ->
+            firstPageGate = null
+            gate.await()
+        }
         failWith?.let { throw it }
         return if (radiusM in gatedRadii) NearbyFetchResult.PremiumGated else NearbyFetchResult.Loaded(firstPageOutcome)
     }
@@ -59,6 +69,10 @@ class FakeNearbyTimelineFlow(
     ): NearbyFetchResult {
         loadMoreCalls += cursor to anchor
         loadMoreRadii += radiusM
+        loadMoreGate?.let { gate ->
+            loadMoreGate = null
+            gate.await()
+        }
         if (radiusM in gatedRadii) return NearbyFetchResult.PremiumGated
         // Default to an end page (empty + null cursor) so a test that programs no pages still terminates.
         return NearbyFetchResult.Loaded(

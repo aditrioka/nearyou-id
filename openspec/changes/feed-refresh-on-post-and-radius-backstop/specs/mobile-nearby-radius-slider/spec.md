@@ -14,7 +14,7 @@ The backstop SHALL cover **every** Nearby fetch path through one gate mapping: t
 - **ViewModel.** Every page-1 fetch SHALL go through one fetch function. Every `PremiumGated` result at a non-20 km radius SHALL go through one handler that reverts the control to 20 km and raises the upsell.
 - **Gated page-1 fetch.** After the handler runs, page 1 SHALL be re-fetched at 20 km once.
 - **Gated fetch at 20 km.** Whether it is the original fetch or the re-fetch, the Free anchor is never gated, so this is a server fault. It SHALL map to the retryable error, with no upsell and no further fetch.
-- **Gated load-more.** It SHALL drop the stale page, so no load-more retry footer is shown, and SHALL reload page 1 at 20 km.
+- **Gated load-more.** A load-more gated at a non-20 km radius SHALL drop the stale page and SHALL reload page 1 at 20 km. No load-more retry footer is shown, because the page can never load at that radius; this is the one exception to `mobile-design-system` § "Canonical list load-more (infinite-scroll) pattern", whose error footer covers retryable failures. A gated load-more at 20 km is the server fault above and SHALL be the ordinary load-more retry footer. A *stale* gated load-more SHALL apply nothing: one that lands after a refresh has already reverted the radius raises no second upsell and spends no extra read.
 
 #### Scenario: Pre-resolution behaves as Free
 - **GIVEN** `isPremiumKnown = null` (tier not yet resolved)
@@ -64,8 +64,14 @@ The backstop SHALL cover **every** Nearby fetch path through one gate mapping: t
 - **WHEN** `loadFirstPage(50000)` and `loadMore(cursor, anchor, 50000)` each receive HTTP 403 with `error.code = "radius_premium_only"`, and separately a 403 with any other code
 - **THEN** both `radius_premium_only` calls return `NearbyFetchResult.PremiumGated` AND the other 403 returns `NearbyFetchResult.Loaded` wrapping the unchanged retryable `NearbyTimelineOutcome.NetworkError`
 
+#### Scenario: A stale gated load-more applies nothing twice
+
+- **GIVEN** a 50 km load-more in flight when a pull-to-refresh at 50 km is gated (→ 20 km + upsell, then dismissed)
+- **WHEN** the stale load-more's `403 radius_premium_only` lands
+- **THEN** no second upsell is raised AND no extra page-1 fetch is issued AND no load-more retry footer is shown
+
 #### Scenario: A gated fetch at 20 km is the retryable error, without a loop or an extra upsell
 
 - **GIVEN** a server that answers `403 radius_premium_only` even at 20 km
 - **WHEN** a 50 km selection is gated, and separately when a 20 km pull-to-refresh is gated
-- **THEN** the 50 km case issues exactly one 20 km re-fetch and ends in the retryable `NetworkError` AND the 20 km refresh issues no re-fetch, raises no upsell, and ends in `NetworkError`
+- **THEN** the 50 km case issues exactly one 20 km re-fetch and ends in the retryable `NetworkError` AND the 20 km refresh issues no re-fetch, raises no upsell, and ends in `NetworkError` AND a gated 20 km load-more shows the ordinary retry footer with no upsell and no page-1 reload

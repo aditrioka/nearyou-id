@@ -509,6 +509,7 @@ class NearbyTimelineViewModelTest {
         viewModel.selectRadius(50_000)
 
         fake.gatedRadii = setOf(50_000)
+        fake.firstPageOutcome = loadedPage1(null, fakeNearbyPost(id = "p20")) // the distinct 20 km page
         viewModel.onLoadMore()
 
         assertEquals(listOf(50_000), fake.loadMoreRadii, "the load-more went out at 50 km and was gated")
@@ -517,12 +518,52 @@ class NearbyTimelineViewModelTest {
         assertEquals(listOf(20_000, 50_000, 20_000), fake.loadFirstPageRadii, "page 1 is reloaded at 20 km")
         assertFalse(viewModel.loadMoreError.value, "the stale gated page is dropped — no retry footer")
         assertEquals(
-            listOf("p1"),
+            listOf("p20"),
             (viewModel.outcome.value as NearbyTimelineOutcome.Loaded).posts.map { it.id },
             "nothing is appended — the list is the fresh 20 km page 1",
         )
         assertFalse(viewModel.isLoadingMore.value, "no load-more spinner is left behind")
         assertFalse(viewModel.isRefreshing.value, "the 20 km reload completes")
+    }
+
+    @Test
+    fun aStaleGatedLoadMore_afterTheRefreshAlreadyReverted_appliesNothingTwice() {
+        // F1: a 50 km load-more is in flight when a pull-to-refresh hits the gate (→ 20 km + upsell, dismissed);
+        // the stale load-more's 403 then lands. It must not re-raise the upsell or spend another 20 km read.
+        val fake = FakeNearbyTimelineFlow(loadedPage1("c1", fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        viewModel.selectRadius(50_000)
+        val loadMoreGate = CompletableDeferred<Unit>()
+        fake.loadMoreGate = loadMoreGate
+        viewModel.onLoadMore() // held in flight at 50 km
+
+        fake.gatedRadii = setOf(50_000)
+        viewModel.reload() // the refresh's 403 → revert + upsell + one 20 km re-fetch
+        assertEquals(20_000, viewModel.selectedRadiusM.value)
+        viewModel.onRadiusUpsellShown()
+        val radiiBefore = fake.loadFirstPageRadii.toList()
+
+        loadMoreGate.complete(Unit) // the stale 50 km load-more's 403 lands
+
+        assertFalse(viewModel.radiusUpsell.value, "a stale gated load-more must not re-raise the upsell")
+        assertEquals(radiiBefore, fake.loadFirstPageRadii, "and must not spend another page-1 read")
+        assertFalse(viewModel.loadMoreError.value, "its stale Failure is dropped — no retry footer")
+    }
+
+    @Test
+    fun aGated20kmLoadMore_isThePlainRetryFooter_withNoUpsell_andNoReload() {
+        // D4 on the load-more path: a gated 20 km page is a server fault, not a Premium gate.
+        val fake = FakeNearbyTimelineFlow(loadedPage1("c1", fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake)
+        fake.gatedRadii = setOf(20_000)
+
+        viewModel.onLoadMore()
+
+        assertEquals(listOf(20_000), fake.loadMoreRadii, "the load-more went out at 20 km")
+        assertTrue(viewModel.loadMoreError.value, "→ the ordinary non-destructive retry footer")
+        assertFalse(viewModel.radiusUpsell.value, "no Premium upsell for a server fault at the Free anchor")
+        assertEquals(listOf(20_000), fake.loadFirstPageRadii, "no page-1 reload")
+        assertEquals(listOf("p1"), (viewModel.outcome.value as NearbyTimelineOutcome.Loaded).posts.map { it.id })
     }
 
     @Test
@@ -559,14 +600,36 @@ class NearbyTimelineViewModelTest {
         val viewModel = viewModelWith(fake)
         assertEquals(1, fake.loadInvocationCount)
 
-        viewModel.onFeedReloadKey(0)
-        viewModel.onFeedReloadKey(0)
+        // A NON-zero first key (a VM created after posts were made / restored after process death): it is
+        // only recorded — a zero-initialised "last key" would wrongly re-fetch here.
+        viewModel.onFeedReloadKey(3)
+        viewModel.onFeedReloadKey(3)
         assertEquals(1, fake.loadInvocationCount, "the first key is only recorded; a repeat is a no-op")
 
-        viewModel.onFeedReloadKey(1)
+        viewModel.onFeedReloadKey(4)
         assertEquals(2, fake.loadInvocationCount, "a changed key re-fetches page 1 once")
-        viewModel.onFeedReloadKey(1)
+        viewModel.onFeedReloadKey(4)
         assertEquals(2, fake.loadInvocationCount, "re-observing the same key does not fetch again")
+    }
+
+    @Test
+    fun feedReloadKey_changeDuringAnInFlightRefresh_reFetchesOnceMoreWhenItLands() {
+        // F3: a post made while a (slow) refresh is in flight — that refresh predates the post, so when it lands
+        // the VM re-fetches once more instead of silently dropping the key change.
+        val fake = FakeNearbyTimelineFlow(loadedPage1(null, fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake)
+        viewModel.onFeedReloadKey(3)
+        val gate = CompletableDeferred<Unit>()
+        fake.firstPageGate = gate
+        viewModel.reload() // pull-to-refresh, held in flight
+        assertEquals(2, fake.loadInvocationCount)
+
+        viewModel.onFeedReloadKey(4) // the post lands while the refresh is in flight → suppressed for now
+        assertEquals(2, fake.loadInvocationCount, "one fetch at a time")
+
+        gate.complete(Unit)
+        assertEquals(3, fake.loadInvocationCount, "the stale refresh landed → one follow-up page-1 fetch")
+        assertFalse(viewModel.isRefreshing.value)
     }
 
     @Test

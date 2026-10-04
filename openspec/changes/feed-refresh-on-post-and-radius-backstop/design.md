@@ -51,7 +51,8 @@ The root cause is that page-1 and load-more each have their own mapping, and onl
 
 - **Repository.** The private `toOutcome` status mapping, which `loadFirstPage` and `loadMore` both use, is wrapped by a private `toResult`. `toResult` checks `HttpError(403, "radius_premium_only")` first and returns `NearbyFetchResult.PremiumGated`. Every other result is `NearbyFetchResult.Loaded(toOutcome(…))`, the frozen mapping unchanged. `changeRadius` is deleted. A radius change is just `loadFirstPage(newRadius)`, so the duplicate method that let the bug happen no longer exists.
 - **Interface.** `RadiusChangeResult` is renamed `NearbyFetchResult`, because it now describes every Nearby fetch and not just a radius change. `NearbyTimelineOutcome` gains no member, which the spec requires. The 403 stays a ViewModel-level interpretation.
-- **ViewModel.** One private `fetchFirstPage()` serves `init`, `reload()` (pull-to-refresh and retry) and `selectRadius`, which now just sets the radius and calls `reload()`. `changeRadiusAndReload` is deleted. On `PremiumGated`, a single `applyPremiumGate()` sets 20 km and raises the upsell, and the page is re-fetched at 20 km. The load-more fetch maps `PremiumGated` to `applyPremiumGate()` + `reload()`. Because `reload()` resets the `LoadMoreController` generation, the in-flight load-more result is dropped as stale, and no retry footer appears for a page that can never load.
+- **ViewModel.** One private `fetchFirstPage()` serves `init`, `reload()` (pull-to-refresh and retry) and `selectRadius`, which now just sets the radius and calls `reload()`. `changeRadiusAndReload` is deleted. On `PremiumGated`, a single `applyPremiumGate()` sets 20 km and raises the upsell, and the page is re-fetched at 20 km.
+- **Load-more.** A load-more gated at a non-20 km radius that is still the selected one maps to `applyPremiumGate()` + `reload()`. Because `reload()` resets the `LoadMoreController` generation, the in-flight load-more result is dropped as stale, and no retry footer appears for a page that can never load. A gated 20 km load-more is the plain retry footer (D4). A stale one, whose radius was already reverted by a refresh, applies nothing (F1).
 - *Alternative: also map the 403 inside `loadFirstPage`'s `NearbyTimelineOutcome`.* Rejected; the spec forbids a new outcome member.
 - *Alternative: patch `reload()` to call `changeRadius`.* Rejected. It fixes the one caller the issue names, but leaves load-more and the duplicate method in place: a per-caller patch, not the root cause.
 
@@ -75,7 +76,8 @@ The first emulator run showed the reload landing, yet the new post was invisible
 - **Navigation (§2.3).** Back-stack operations stay in `appEntryProvider`. No new NavKey. Tabs stay pager state.
 - **Data (§2.6).** The repository still returns a sealed result at its boundary, and exceptions still never cross into ViewModels. The single gate-aware mapping replaces a duplicated one.
 - **Shared load-more controller (`mobile-design-system`).** Reused unchanged. The generation reset already drops stale results.
-- No Pattern Registry deviation, so no docs/11 amendment.
+- **Data layer note.** `NearbyFetchResult` deliberately wraps the frozen `NearbyTimelineOutcome` instead of adding a `PremiumGated` member, unlike the siblings' `XxxOutcome.PremiumRequired` (`PostEditOutcome`, `ImageUploadOutcome`, `SearchOutcome`). `mobile-nearby-radius-slider` pins the Nearby status→outcome mapping and its UI projection as unchanged, so the gate stays a ViewModel-level interpretation. The wrapper predates this change (`RadiusChangeResult`); it is renamed, not introduced.
+- **docs/11 §2.3 amendment, same PR.** It registers the "refresh a screen after an overlay returns" boundary across the three existing mechanisms: the `ON_RESUME` re-read, the Koin-single fact, and this host-hoisted key. That way the next change picks one instead of adding a fourth.
 
 ### Cross-layer scope (docs/12)
 
@@ -83,7 +85,8 @@ Mobile only. Neither issue changes a backend, admin or wire contract: `POST /api
 
 ## Risks / Trade-offs
 
-- [A reload is suppressed while that feed's initial load is still in flight, so a post made during a very slow first location fix may miss that load] → Rare: the author must open the composer and post before the first Nearby load finishes. Pull-to-refresh still recovers. The ViewModel records the key either way, so there is no reload loop.
+- [A key change that arrives while a refresh is in flight cannot reload at once (one fetch at a time)] → Each load records the key it was issued under. If the key moved while the load was in flight, the ViewModel re-fetches once more when it lands (review round 2, F3). The one remaining gap is the ViewModel's own first load, which is issued before any key is observed: a post made during a very slow first location fix may miss it. That is rare, and pull-to-refresh recovers.
+- [A load-more gated at 50 km can land after a refresh already reverted the radius] → The gate applies only if the radius is still the one that load-more used (F1). A stale 403 raises no second upsell and spends no extra read. A gated 20 km load-more is the plain retry footer (D4).
 - [Each post spends up to two extra page-1 reads (Nearby, Global)] → It replaces the manual pull-to-refresh the user would have done anyway. Global only re-reads when it is next shown.
 - [`NearbyFetchResult` changes the `loadFirstPage`/`loadMore` return types] → The only implementations are the repository and `FakeNearbyTimelineFlow`. The fake keeps its constructor, so the screen and iOS tests that build it are unaffected.
 - [Diagnostic tags `nearby_radius_*` disappear with `changeRadius`] → A radius change now logs under the page-1 tags (`nearby_network_error` / `nearby_invalid_request` / `nearby_position_unavailable`), which `DiagnosticSinkWiringTest` already pins.

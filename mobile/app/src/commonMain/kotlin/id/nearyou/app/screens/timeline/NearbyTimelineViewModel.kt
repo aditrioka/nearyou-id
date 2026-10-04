@@ -145,7 +145,8 @@ class NearbyTimelineViewModel(
                 if (anchor == null) {
                     LoadMorePage.Failure
                 } else {
-                    when (val result = flow.loadMore(cursor, anchor, _selectedRadiusM.value)) {
+                    val radiusM = _selectedRadiusM.value
+                    when (val result = flow.loadMore(cursor, anchor, radiusM)) {
                         is NearbyFetchResult.Loaded ->
                             (result.outcome as? NearbyTimelineOutcome.Loaded)
                                 ?.let { LoadMorePage.Success(it.posts, it.nextCursor) }
@@ -154,9 +155,13 @@ class NearbyTimelineViewModel(
                         // reload at 20 km. reload() resets this controller's generation, so the Failure below is
                         // dropped as stale — no retry footer for a page that can never load. Invariant this relies
                         // on: every path that sets _isRefreshing goes through reload() → loadMoreController.reset().
+                        // A gated 20 km load-more is a server fault (D4): the plain retry footer, no upsell/reload.
+                        // A STALE gated load-more (a refresh already moved the radius) applies nothing twice.
                         NearbyFetchResult.PremiumGated -> {
-                            applyPremiumGate()
-                            reload()
+                            if (radiusM != NEARBY_RADIUS_M && _selectedRadiusM.value == radiusM) {
+                                applyPremiumGate()
+                                reload()
+                            }
                             LoadMorePage.Failure
                         }
                     }
@@ -212,6 +217,10 @@ class NearbyTimelineViewModel(
     // Null until resolved (or unresolvable) → NO kebab (fail-closed: never offer an action we can't gate).
     private val _selfUserId = MutableStateFlow<String?>(null)
     val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
+
+    // The last HomeRoute feed reload key this VM observed (#173); null until the first observation.
+    // Declared before `init` — the first load() reads it.
+    private var feedReloadKey: Int? = null
 
     init {
         load(initial = true)
@@ -294,9 +303,6 @@ class NearbyTimelineViewModel(
     fun authorUserIdForPost(postId: String): String? =
         (_outcome.value as? NearbyTimelineOutcome.Loaded)?.posts?.firstOrNull { it.id == postId }?.authorUserId
 
-    // The last HomeRoute feed reload key this VM observed (#173); null until the first observation.
-    private var feedReloadKey: Int? = null
-
     /** The HomeRoute feed reload key (bumped by each successful post, `mobile-post-creation`). The first key
      *  is only recorded — this VM's own load is already current; every later change re-fetches page 1 so the
      *  viewer's new post shows (prior list kept mounted, like a pull-to-refresh). */
@@ -320,6 +326,10 @@ class NearbyTimelineViewModel(
     }
 
     private fun load(initial: Boolean) {
+        // #173: the reload key this load was issued under; a key that changed while it was in flight (a post made
+        // during a slow refresh) re-fetches once more when it lands. Null = issued before any key was observed
+        // (the VM's own first load, already current) — no follow-up.
+        val keyAtStart = feedReloadKey
         viewModelScope.launch {
             // A refresh keeps the prior outcome + flips only isRefreshing (the list stays mounted, the
             // screen keeps rendering Content). The initial load keeps isInitialLoad = true (skeleton).
@@ -339,6 +349,7 @@ class NearbyTimelineViewModel(
                 initialLoad.value = false
                 _isRefreshing.value = false
             }
+            if (keyAtStart != null && keyAtStart != feedReloadKey) reload()
         }
     }
 

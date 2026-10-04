@@ -36,8 +36,9 @@ None.
 ## Impact
 
 - **Mobile only** (`:mobile:app` commonMain + tests). No backend, admin, wire, schema or string-resource change.
-- Code: `screens/routing/AppEntryProvider.kt`, `screens/shell/AppShellScreen.kt`, `screens/home/HomeScreen.kt`, `screens/timeline/{Nearby,Global}TimelineScreen.kt`, `screens/timeline/{Nearby,Global}TimelineViewModel.kt`, `timeline/NearbyTimelineFlow.kt` (`RadiusChangeResult` → `NearbyFetchResult`, `changeRadius` removed), `timeline/NearbyTimelineRepository.kt`.
-- Tests: `FakeNearbyTimelineFlow` (per-radius gate), `NearbyTimelineViewModelTest`, `GlobalTimelineViewModelTest`, `NearbyTimelineRepositoryTest`, `HomeScreenFabTest`, `PostCreationSourceGuardTest`.
+- Code: `screens/routing/AppEntryProvider.kt`, `screens/shell/AppShellScreen.kt`, `screens/home/HomeScreen.kt`, `screens/timeline/{Nearby,Global}TimelineScreen.kt`, `screens/timeline/{Nearby,Global}TimelineViewModel.kt`, `timeline/NearbyTimelineFlow.kt` (`RadiusChangeResult` → `NearbyFetchResult`, `changeRadius` removed), `timeline/NearbyTimelineRepository.kt`, `ui/components/PostFeedList.kt` (D5 pin-to-top), `mobile/app/build.gradle.kts` (Release-variant exclude). Comment-only: `App.kt`, `screens/post/PostCreationScreen.kt`.
+- Tests: `FakeNearbyTimelineFlow` / `FakeGlobalTimelineFlow` (per-radius gate, in-flight gates), `NearbyTimelineViewModelTest`, `GlobalTimelineViewModelTest`, `NearbyTimelineRepositoryTest`, `HomeScreenFabTest`, `HomeTabHostScreenTest`, `PostCreationSourceGuardTest`, `PostFeedListTest` (new).
+- Docs: `docs/11-Engineering-Standards.md` §2.3 registers the "refresh a screen after an overlay returns" boundary.
 - Not touched: `NavKeys.kt` (a parallel session for #516/#517 owns it) and the composer screen. `PostCreationScreen` stays feed-agnostic and still just calls `onPostCreated()`.
 - Read budget: a post costs at most one extra page-1 read per refreshed feed (Nearby on return, Global when next shown). That is the same read a manual pull-to-refresh would have spent.
 - Closes #173 and #518.

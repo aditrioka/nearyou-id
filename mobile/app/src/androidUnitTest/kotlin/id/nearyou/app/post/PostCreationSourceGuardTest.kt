@@ -127,9 +127,10 @@ class PostCreationSourceGuardTest {
         val provider = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/AppEntryProvider.kt")
         assertTrue(provider.contains("rememberSaveable { mutableIntStateOf(0) }"), "the HomeRoute entry holds a saveable key")
         assertTrue(provider.contains("feedReloadKey = feedReloadKey"), "the key is passed down to the shell")
-        val raise = provider.indexOf("postCreated.value = true")
-        val pop = provider.indexOf("backStack.removeLastOrNull()", startIndex = raise)
-        assertTrue(raise >= 0 && pop > raise, "onPostCreated raises the signal before popping the composer")
+        assertTrue(
+            Regex("""postCreated\.value = true\s+backStack\.removeLastOrNull\(\)""").containsMatchIn(provider),
+            "onPostCreated raises the signal, then pops the composer",
+        )
         val feedViewModels =
             listOf("Nearby", "Global").map {
                 code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/${it}TimelineViewModel.kt")

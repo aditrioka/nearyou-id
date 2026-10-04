@@ -427,6 +427,7 @@ class HomeTabHostScreenTest {
             // waitForIdle (not just waitUntil) drives the recomposition that the external state write scheduled.
             waitForIdle()
             assertEquals(2, nearbyFake.loadInvocationCount, "the on-screen Nearby feed re-fetches once on the key change")
+            assertEquals(1, globalFake.loadInvocationCount, "the off-screen Global feed is NOT read eagerly")
 
             onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
@@ -436,6 +437,25 @@ class HomeTabHostScreenTest {
             assertEquals(2, nearbyFake.loadInvocationCount, "Nearby re-fetched exactly once")
             assertEquals(1, followingFake.loadInvocationCount, "Following is never refreshed by a post")
             assertEquals(2, globalFake.loadInvocationCount, "Global re-fetched once when its page was shown")
+        }
+    }
+
+    // #173: a Global feed shown for the FIRST time after posts were made loads exactly once — its fresh VM records
+    // the current (non-zero) key instead of treating it as a change (no double read).
+    @Test
+    fun aGlobalFeedFirstShownAfterAPost_loadsExactlyOnce() {
+        installKoin()
+        runComposeUiTest {
+            var feedReloadKey by mutableIntStateOf(0)
+            setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}, feedReloadKey = feedReloadKey) } } }
+            waitUntil(timeoutMillis = 5_000) { nearbyFake.loadInvocationCount == 1 }
+            runOnIdle { feedReloadKey = 2 } // two posts before Global was ever shown
+            waitForIdle()
+
+            onNodeWithText(TAB_GLOBAL).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+            assertEquals(1, globalFake.loadInvocationCount, "the first-shown Global feed reads once, not twice")
         }
     }
 

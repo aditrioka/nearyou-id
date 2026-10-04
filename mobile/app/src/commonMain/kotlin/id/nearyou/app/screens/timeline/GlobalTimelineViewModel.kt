@@ -164,6 +164,10 @@ class GlobalTimelineViewModel(
     private val _selfUserId = MutableStateFlow<String?>(null)
     val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
 
+    // The last HomeRoute feed reload key this VM observed (#173); null until the first observation.
+    // Declared before `init` — the first load() reads it.
+    private var feedReloadKey: Int? = null
+
     init {
         load(initial = true)
         viewModelScope.launch { _selfUserId.value = selfUserIdProvider.selfUserId() }
@@ -241,9 +245,6 @@ class GlobalTimelineViewModel(
     fun authorUserIdForPost(postId: String): String? =
         (_outcome.value as? GlobalTimelineOutcome.Loaded)?.posts?.firstOrNull { it.id == postId }?.authorUserId
 
-    // The last HomeRoute feed reload key this VM observed (#173); null until the first observation.
-    private var feedReloadKey: Int? = null
-
     /** The HomeRoute feed reload key (bumped by each successful post, `mobile-post-creation`). The first key
      *  is only recorded — this VM's own load is already current; every later change re-fetches page 1 so the
      *  viewer's new post shows (prior list kept mounted, like a pull-to-refresh). */
@@ -266,6 +267,9 @@ class GlobalTimelineViewModel(
     }
 
     private fun load(initial: Boolean) {
+        // #173: a reload key that changed while this load was in flight re-fetches once more when it lands
+        // (null = this VM's own first load, already current — no follow-up).
+        val keyAtStart = feedReloadKey
         viewModelScope.launch {
             if (!initial) _isRefreshing.value = true
             try {
@@ -281,6 +285,7 @@ class GlobalTimelineViewModel(
                 initialLoad.value = false
                 _isRefreshing.value = false
             }
+            if (keyAtStart != null && keyAtStart != feedReloadKey) reload()
         }
     }
 }

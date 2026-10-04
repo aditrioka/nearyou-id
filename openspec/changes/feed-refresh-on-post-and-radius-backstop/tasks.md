@@ -35,11 +35,31 @@
 
 - [x] 3.8 D5 (found on device): `PostFeedList` pins a viewer at the top to the top when posts are prepended (`requestScrollToItem(0)` in a `SideEffect`). New Robolectric `PostFeedListTest` (at top → the prepended post is fully visible, checked with the unclipped `positionInRoot`, mutation-checked; scrolled down → position kept), added to the Release-variant exclude block.
 
+- [x] 3.9 Review round 2 (code-correctness + test-coverage lenses):
+  - B1/F2: a gated 20 km load-more → the plain retry footer, no upsell/reload.
+  - F1: a stale gated load-more applies nothing.
+  - F3: a key change during an in-flight refresh re-fetches once more when that refresh lands. `feedReloadKey` is now declared before `init`.
+  - S1: the key tests start at a non-zero key, plus a Robolectric case where Global is first shown after a post and loads once.
+  - S2: a regex raise-then-pop guard.
+  - S3: Global is not read eagerly.
+  - S4: a distinct 20 km page.
+  - S5: card-based pin assert + an offset > 0 no-jump case.
+  - S7: a repository position-failure test.
+  
+  The F1/F3/S1/S5 guards are mutation-checked (each mutant caught).
+- [x] 3.10 Review round 2 (general/standards lens):
+  - Stale composer, `App.kt` and Nearby screen comments fixed.
+  - The radius-slider load-more bullet now cross-references the `mobile-design-system` load-more footer.
+  - docs/11 §2.3 registers the refresh-after-overlay boundary.
+  - design.md explains why `NearbyFetchResult` wraps the frozen outcome.
+  - The proposal Impact list is complete.
+  - Declined, with reasons recorded in the PR body: a block-body local instead of the defaulted `postCreated` param (it would re-indent all of `appEntryProvider` and conflict with the sibling nav work); a `reloadPending` flag instead of `keyAtStart` (it spends a wasted read on the process-death-with-composer-open path; the remaining first-load gap is documented).
+
 ## 4. Gates + verification
 
 - [ ] 4.1 `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`, with the backend DB suite against a throwaway PostGIS container if `:5433` is dirty (`docs/13` §5).
 - [ ] 4.2 `./gradlew :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (named explicitly).
-- [ ] 4.3 `./gradlew :mobile:app:iosSimulatorArm64Test`, because commonMain changed. The known pre-existing `AppShellFlowIosTest` red (#348) is confirmed against a main-baseline worktree, not attributed to this change.
+- [x] 4.3 `./gradlew :mobile:app:iosSimulatorArm64Test`, because commonMain changed. Result: 1246 tests, 38 red. Every red one matches the documented pre-existing #348 signature on `main`: 35 Koin `NoDefinitionFoundException` (older iOS fixture graphs missing `LikeFlow` / `ProfileFlow` / `PostEditFlow` / `ConsentSnapshotStore` / `FcmTokenRegistrar` / `PrivateProfileRepository`; this change adds no Koin injection) plus the 3 SignIn/Search `assertExists` failures. No new failure signature. The K/N compile of all changed commonMain + commonTest code succeeded.
 - [x] 4.4 Manual UI verification (docs/11 §5 DoD) on the `verify36` emulator, with screenshots in the PR body:
   - (a) post from the composer → the new post is at the top of Nearby on return with no pull-to-refresh;
   - (b) the Global tab shows it on the next swipe;

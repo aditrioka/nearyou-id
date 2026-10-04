@@ -40,6 +40,7 @@ class NearbyTimelineRepositoryTest {
     private fun repository(
         tokenStore: TokenStore = InMemoryTokenStore(),
         log: (String) -> Unit = {},
+        locationProvider: LocationProvider = StubLocationProvider(),
         handler: MockRequestHandler,
     ): NearbyTimelineRepository {
         val httpClient =
@@ -55,7 +56,7 @@ class NearbyTimelineRepositoryTest {
             )
         return NearbyTimelineRepository(
             apiClient = NearbyTimelineApiClient(httpClient),
-            locationProvider = StubLocationProvider(),
+            locationProvider = locationProvider,
             sessionIdProvider = SessionIdProvider(),
             diagnosticLog = log,
         )
@@ -192,5 +193,16 @@ class NearbyTimelineRepositoryTest {
                 NearbyFetchResult.Loaded(NearbyTimelineOutcome.NetworkError),
                 repo.loadMore("c1", LatLng(-6.2, 106.8), 50_000),
             )
+        }
+
+    @Test
+    fun `a position failure is Loaded wrapping NetworkError - never the Premium gate`() =
+        runTest {
+            val noFix =
+                object : LocationProvider {
+                    override suspend fun current(): LatLng = throw IllegalStateException("no fix")
+                }
+            val repo = repository(locationProvider = noFix) { error("no HTTP call is expected without a fix") }
+            assertEquals(NearbyFetchResult.Loaded(NearbyTimelineOutcome.NetworkError), repo.loadFirstPage(50_000))
         }
 }

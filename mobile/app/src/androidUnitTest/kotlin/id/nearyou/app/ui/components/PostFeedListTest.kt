@@ -3,17 +3,24 @@ package id.nearyou.app.ui.components
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -62,8 +69,28 @@ class PostFeedListTest {
             // view and the new card sits ABOVE the list top (only its bottom edge peeks in). positionInRoot is
             // UNCLIPPED (boundsInRoot clamps an off-screen node to the root edge and would hide the failure).
             val listTop = onNodeWithTag(LIST_TAG).fetchSemanticsNode().positionInRoot.y
-            val newTextTop = onNodeWithText("NEW_POST").fetchSemanticsNode().positionInRoot.y
-            assertTrue(newTextTop >= listTop, "the prepended post is fully visible at the top ($newTextTop < $listTop)")
+            val newCardTop = newCard().fetchSemanticsNode().positionInRoot.y
+            assertTrue(newCardTop >= listTop, "the prepended post's card is fully visible at the top ($newCardTop < $listTop)")
+        }
+    }
+
+    @Test
+    fun aViewerSlightlyScrolledAtIndex0_isNotJumped_whenAPostIsPrepended() {
+        // Index 0 but offset > 0 is NOT "at the top": the viewer started scrolling, so the list must not jump
+        // (pins the offset half of the at-top check — an index-only check would wrongly pin here).
+        runComposeUiTest {
+            var posts by mutableStateOf(initial)
+            setContent { NearYouTheme { feed(posts) } }
+            waitForIdle()
+            onNodeWithTag(LIST_TAG).performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 40f) }
+            waitForIdle()
+            val post1Before = onNodeWithText("POST_1").fetchSemanticsNode().positionInRoot.y
+
+            runOnIdle { posts = listOf(Item("new", "NEW_POST")) + posts }
+            waitForIdle()
+
+            val post1After = onNodeWithText("POST_1").fetchSemanticsNode().positionInRoot.y
+            assertTrue(abs(post1After - post1Before) < 1f, "a viewer who already scrolled keeps their place ($post1Before → $post1After)")
         }
     }
 
@@ -84,6 +111,11 @@ class PostFeedListTest {
             onNodeWithText("NEW_POST").assertIsNotDisplayed()
         }
     }
+
+    private fun ComposeUiTest.newCard() =
+        onNode(
+            hasTestTag("card") and (hasText("NEW_POST", substring = true) or hasAnyDescendant(hasText("NEW_POST"))),
+        )
 
     @androidx.compose.runtime.Composable
     private fun feed(posts: List<Item>) =

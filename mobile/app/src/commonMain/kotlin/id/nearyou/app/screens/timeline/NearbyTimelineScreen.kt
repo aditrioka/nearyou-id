@@ -102,8 +102,8 @@ const val NEARBY_BLOCK_DIALOG_TAG: String = "nearbyBlockDialog"
  * branch ([NearbyFeed]) observes a `HomeRoute`-scoped [NearbyTimelineViewModel] that holds the
  * [NearbyTimelineOutcome] + the split `isInitialLoad`/`isRefreshing` flags and (re)loads page 1
  * (pull-to-refresh + error-retry both re-fetch). Hoisting that load state into a NavEntry-scoped
- * ViewModel is what makes returning from the composer (or swiping away and back) reuse the loaded feed
- * instead of re-fetching (design Decision 5). Renders the six fetch states (loading / content / empty
+ * ViewModel is what makes returning from the composer without posting (or swiping away and back) reuse the
+ * loaded feed instead of re-fetching (design Decision 5); a successful post re-fetches via `feedReloadKey` (#173). Renders the six fetch states (loading / content / empty
  * / error / rate-limit-hard / rate-limit-soft) per the screen-state-mapping spec, all copy via
  * `stringResource` (zero literals), under `NearYouTheme` tokens.
  *
