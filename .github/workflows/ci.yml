@@ -38,19 +38,21 @@ jobs:
   # (first push to a freshly-opened PR) — the heavy lane runs at least once
   # for any code-touching PR.
   #
-  # NOTE: this is a hand-rolled `git diff + grep` filter. If we ever need
-  # MULTIPLE filter axes (e.g. "skip android tests when only backend changed"
+  # NOTE: this is a hand-rolled `git diff + grep` filter with two axes: `code`
+  # (per-push docs-only skip) and `ios` (the mobile-only `ios-test` lane — one
+  # grep over the whole PR diff, so it can't be skipped by a later push).
+  # If we need MORE axes (e.g. "skip android tests when only backend changed"
   # / "skip backend tests when only mobile changed"), switch to
   # `dorny/paths-filter@v3` — battle-tested third-party action with
-  # declarative YAML filter rules. Trigger to switch: a second filter axis is
-  # needed (e.g. android-only paths), this `changes` step grows past ~30 lines,
-  # or a second `needs: changes` heavy lane diverges from the lint/test/migrate
-  # set. Pin a SHA (not the floating tag) and keep the workflow-level
+  # declarative YAML filter rules. Trigger to switch: a third filter axis is
+  # needed, this `changes` step grows past ~40 lines, or another
+  # `needs: changes` heavy lane needs its own path set. Pin a SHA (not the floating tag) and keep the workflow-level
   # `paths-ignore` as the outermost gate.
   changes:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      ios: ${{ steps.filter.outputs.ios }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,6 +81,17 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
             echo "→ Only docs paths changed; skipping heavy jobs."
+          fi
+          # iOS axis: the K/N mobile surface + the build inputs it compiles against (the `ios-test`
+          # macOS lane is too slow to run on backend-only PRs). Computed on the WHOLE PR diff, not
+          # this push: per-push, a backend-only push after a red (or cancelled) iOS run would skip
+          # the lane and pass merge-gate with iOS never green. Here-string, not `echo | grep -q`
+          # (pipefail + SIGPIPE flips a huge diff to false).
+          PR_CHANGED=$(git diff --name-only '${{ github.event.pull_request.base.sha }}'...'${{ github.event.pull_request.head.sha }}' || true)
+          if grep -qE '^(mobile/|shared/|infra/(sentry|supabase-realtime|revenuecat|amplitude|admob)/|iosApp/|gradle/|build-logic/|(settings|build)\.gradle\.kts$|gradle\.properties$|\.github/workflows/ci\.yml$)' <<<"$PR_CHANGED"; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios=false" >> "$GITHUB_OUTPUT"
           fi
 
   # `readme-sync` is a fast warning-only check (no Java / Gradle setup required).
@@ -278,15 +291,56 @@ jobs:
             -locations=filesystem:/flyway/sql \
             migrate
 
+  # iOS (Kotlin/Native) lane — `docs/08` § Pre-Launch #8. iOS was never CI-gated,
+  # so the simulator flow tests drifted red on `main` undetected (#348: 38/1234,
+  # mostly Koin DI drift that only surfaces when the K/N test binary RUNS — a
+  # compile-only step would miss it, and Linux can't run K/N at all). Runs the
+  # full `iosSimulatorArm64Test` (compile + link + execute) plus the app
+  # framework link (ObjC export — not covered by the test binary); CocoaPods +
+  # Xcode come with the runner image. Free on the public repo; path-filtered to
+  # the mobile surface via `changes.outputs.ios`. Xcode is PINNED to 26.3 (the
+  # locally verified toolchain): the image default (16.4) cannot link the iOS-26
+  # pod binaries (`ld: framework '_LocationEssentials' not found`).
+  ios-test:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      # Kotlin/Native toolchain + platform caches (~1 GB) — setup-gradle does not cover ~/.konan.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+      - run: ./gradlew :mobile:app:iosSimulatorArm64Test :mobile:app:linkDebugFrameworkIosSimulatorArm64
+      - name: Upload iOS test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ios-test-report
+          path: |
+            mobile/app/build/reports/tests/iosSimulatorArm64Test/**
+            mobile/app/build/test-results/iosSimulatorArm64Test/**
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Single required-status-check that the `main-protection` ruleset blocks on.
   # Always runs (`if: always()`) so docs-only PRs — where `lint`/`test`/
-  # `migrate-supabase-parity` correctly skip via the `changes.outputs.code`
-  # gate — still produce a final status. Treats `success` and `skipped` as OK;
+  # `migrate-supabase-parity` (and `ios-test`, on non-mobile PRs) correctly
+  # skip via the `changes` outputs — still produce a final status. Treats `success` and `skipped` as OK;
   # fails the gate on `failure` or `cancelled`. The `changes` job is included
   # so a bug in the per-push docs-only filter (which would skip every heavy
   # lane silently) cannot pass the gate by accident.
   merge-gate:
-    needs: [changes, lint, test, migrate-supabase-parity]
+    needs: [changes, lint, test, migrate-supabase-parity, ios-test]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -297,11 +351,13 @@ jobs:
           echo "lint:                    ${{ needs.lint.result }}"
           echo "test:                    ${{ needs.test.result }}"
           echo "migrate-supabase-parity: ${{ needs.migrate-supabase-parity.result }}"
+          echo "ios-test:                ${{ needs.ios-test.result }}"
           for r in \
               "${{ needs.changes.result }}" \
               "${{ needs.lint.result }}" \
               "${{ needs.test.result }}" \
-              "${{ needs.migrate-supabase-parity.result }}"; do
+              "${{ needs.migrate-supabase-parity.result }}" \
+              "${{ needs.ios-test.result }}"; do
             case "$r" in
               success|skipped) ;;
               *) echo "::error::A required job ended in '$r' — failing merge-gate"; exit 1 ;;

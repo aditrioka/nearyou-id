@@ -8,12 +8,11 @@ import id.nearyou.app.consent.ConsentOutcome
 import id.nearyou.app.consent.FakeConsentFlow
 import id.nearyou.app.screens.routing.ConsentRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,15 +36,12 @@ class ConsentFlowIosTest {
     private lateinit var fake: FakeConsentFlow
 
     private fun installKoin(outcome: ConsentOutcome = ConsentOutcome.Success) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeConsentFlow(outcome = outcome)
-        startKoin { modules(module { single<ConsentFlow> { fake } }) }
+        startFlowTestKoin(module { single<ConsentFlow> { fake } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun initialRender_showsTitleAnalyticsLabelAndCta() {

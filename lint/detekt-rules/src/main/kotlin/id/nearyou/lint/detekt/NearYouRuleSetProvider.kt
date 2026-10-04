@@ -25,6 +25,7 @@ class NearYouRuleSetProvider : RuleSetProvider {
                 IpAxisMustUseTryAcquireByKeyRule(config),
                 ContentWriteRequiresModerationRule(config),
                 TestLoginIsolationRule(config),
+                MobileHardcodedStringRule(config),
             ),
         )
 

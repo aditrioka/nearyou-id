@@ -9,6 +9,8 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
@@ -16,10 +18,7 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.UpsellDto
 import id.nearyou.app.timeline.fakeNearbyPost
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -55,24 +54,19 @@ class NearbyTimelineFlowIosTest {
         suspendForever: Boolean = false,
         locationStatus: LocationPermissionStatus = LocationPermissionStatus.GRANTED,
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeNearbyTimelineFlow(outcome = outcome, suspendForever = suspendForever)
-        startKoin {
-            modules(
-                module {
-                    single<NearbyTimelineFlow> { fake }
-                    single<LocationPermissionController> {
-                        FakeLocationPermissionController(current = locationStatus)
-                    }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<NearbyTimelineFlow> { fake }
+                single<LocationPermissionController> {
+                    FakeLocationPermissionController(current = locationStatus)
+                }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     // Granted + content: the Nearby feed surface (list tag) + the loaded post, and NO redundant header;
     // load fires once on entry.

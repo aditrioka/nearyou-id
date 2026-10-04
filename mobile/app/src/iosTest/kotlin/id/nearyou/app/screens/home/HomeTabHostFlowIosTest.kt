@@ -17,6 +17,8 @@ import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.FakeCreatePostFlow
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.screens.timeline.FOLLOWING_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.GLOBAL_TIMELINE_LIST_TAG
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
@@ -34,10 +36,7 @@ import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -74,31 +73,26 @@ class HomeTabHostFlowIosTest {
         globalOutcome: GlobalTimelineOutcome =
             GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "GLOBAL_POST")), null, null),
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         nearbyFake = FakeNearbyTimelineFlow(nearbyOutcome)
         followingFake = FakeFollowingTimelineFlow(followingOutcome)
         globalFake = FakeGlobalTimelineFlow(globalOutcome)
-        startKoin {
-            modules(
-                module {
-                    single<NearbyTimelineFlow> { nearbyFake }
-                    single<FollowingTimelineFlow> { followingFake }
-                    single<GlobalTimelineFlow> { globalFake }
-                    // The feed pages' inline-like injects the shared LikeFlow seam.
-                    single<LikeFlow> { FakeLikeFlow() }
-                    single<LocationPermissionController> {
-                        FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
-                    }
-                    single<CreatePostFlow> { FakeCreatePostFlow() }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<NearbyTimelineFlow> { nearbyFake }
+                single<FollowingTimelineFlow> { followingFake }
+                single<GlobalTimelineFlow> { globalFake }
+                // The feed pages' inline-like injects the shared LikeFlow seam.
+                single<LikeFlow> { FakeLikeFlow() }
+                single<LocationPermissionController> {
+                    FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+                }
+                single<CreatePostFlow> { FakeCreatePostFlow() }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     // Three text-only labelled tabs render and the host defaults to Nearby.
     @Test

@@ -15,12 +15,11 @@ import id.nearyou.app.infra.revenuecat.PaywallPeriod
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.revenuecat.PurchaseResult
 import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -50,17 +49,14 @@ class PaywallFlowIosTest {
         purchaseResult: PurchaseResult = PurchaseResult.Success(entitlementActive = true),
         premiumActive: Boolean = false,
     ): PremiumEntitlementSession {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         val fake = FakePurchaseController(offerings = offerings, purchaseResult = purchaseResult, premiumActive = premiumActive)
         val session = PremiumEntitlementSession(MutableSelfUserId("u-1"), fake)
-        startKoin {
-            modules(
-                module {
-                    single<PurchaseController> { fake }
-                    single { session }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<PurchaseController> { fake }
+                single { session }
+            },
+        )
         return session
     }
 
@@ -117,9 +113,7 @@ class PaywallFlowIosTest {
         )
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun content_showsHeroAndCta() {

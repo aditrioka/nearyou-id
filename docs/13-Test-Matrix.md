@@ -10,13 +10,13 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 
 | Workflow | Trigger | Path scope | Jobs |
 |---|---|---|---|
-| **`ci.yml`** | `pull_request` → `main` | none — every PR triggers it (so `merge-gate` always reports); a `changes` job computes `code=true/false` to skip heavy lanes on docs-only diffs | `changes`, `readme-sync` (warn-only), `lint`, `test`, `migrate-supabase-parity`, `merge-gate` |
+| **`ci.yml`** | `pull_request` → `main` | none — every PR triggers it (so `merge-gate` always reports); a `changes` job computes `code=true/false` to skip heavy lanes on docs-only diffs, and `ios=true/false` over the whole PR diff (mobile surface: `mobile/`, `shared/`, the mobile `infra/*` modules, `iosApp/`, Gradle build inputs, `ci.yml`) for the macOS lane | `changes`, `readme-sync` (warn-only), `lint`, `test`, `migrate-supabase-parity`, `ios-test` (`macos-15`, Xcode 26.3 pinned via `DEVELOPER_DIR`), `merge-gate` |
 | **`deploy-staging.yml`** | `push` → `main` + `workflow_dispatch` | all main pushes | `deploy` (Docker build/push → `gcloud run deploy`, `RUN_FLYWAY_ON_STARTUP=true`) |
 | **`device-run.yml`** | `pull_request` → `main` + `workflow_dispatch` | `mobile/**`, `shared/**`, `scripts/**`, self | `device-run` (build staging-debug APK + Firebase Test Lab **Robo** crawl, posts a PR comment; opt out with the `skip-device-run` label) |
 | **`instrumented-test.yml`** | `pull_request` → `main` + `workflow_dispatch` | `mobile/**`, `shared/**`, `scripts/**`, self | `instrumented-test` (build staging-debug app + androidTest APKs, run `src/androidInstrumentedTest` on a Firebase Test Lab device via `scripts/test_android.sh`, one edited-in-place PR comment + screenshot artifact; same `skip-device-run` opt-out) |
 | **`claude.yml`** | `@claude` mentions on issue/PR events | none | not a test job |
 
-**`merge-gate`** (`needs: [changes, lint, test, migrate-supabase-parity]`, `if: always()`) is the **sole** ruleset-required status check. `changes` is in its `needs` on purpose, so a path-filter bug that silently skips every heavy lane cannot pass the gate by accident.
+**`merge-gate`** (`needs: [changes, lint, test, migrate-supabase-parity, ios-test]`, `if: always()`) is the **sole** ruleset-required status check. `changes` is in its `needs` on purpose, so a path-filter bug that silently skips every heavy lane cannot pass the gate by accident.
 
 ---
 
@@ -37,7 +37,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | mobile JVM/Robolectric unit | mobile unit | `:mobile:app:testDevDebugUnitTest` + `:mobile:app:testDevReleaseUnitTest` (flavor-qualified) | pre-merge (in full `./gradlew test`) | ⚠️ add for mobile diffs | no |
 | device Robo crawl | mobile instrumented | `scripts/run_on_device.sh` → Firebase Test Lab Robo | pre-merge (mobile/shared paths) | ➖ via script (needs creds) | surfaced in CI; not in gate |
 | on-device instrumented | mobile instrumented | `scripts/test_android.sh` (local: adb device, else `FARM=firebase`; cloud: Firebase Test Lab) | pre-merge (mobile/shared paths) | ➖ via script (needs a device or creds) | surfaced in CI; not in gate |
-| **iOS sim / K-Native** | iOS | `:module:iosSimulatorArm64Test`, `:module:linkDebugFrameworkIosSimulatorArm64` | pre-merge (planned) | ➖ **local-only today** | **not yet CI-gated** — a free macOS lane (link + `iosSimulatorArm64Test` once #348 is green) is specified in `docs/08` § Pre-Launch #8 and stays in scope under the Android-first sequencing (iOS is in the "100 %" gate; `docs/08` Open Decision #37) |
+| **iOS sim / K-Native** | iOS | `:mobile:app:iosSimulatorArm64Test` + `:mobile:app:linkDebugFrameworkIosSimulatorArm64` | pre-merge (PRs touching the mobile surface) | ⚠️ add for mobile diffs (macOS + Xcode only) | no — CI `ios-test` lane (`macos-15`, in `merge-gate`) since [#348](https://github.com/aditrioka/nearyou-id/issues/348); iOS stays in the "100 %" gate under Android-first sequencing (`docs/08` Open Decision #37). `:shared:*` / `:infra:*` iOS actuals outside `:mobile:app` still verify locally |
 | staging deploy + boot Flyway | staging/deploy | Docker build + `gcloud run deploy` | **post-merge** | ❌ | yes |
 
 Legend: ✅ in gate · ❌ not in gate · ⚠️ in gate with caveat · ➖ not gate-shaped.
@@ -77,7 +77,7 @@ CI runs **more** than this. The gate does **not** cover (each has bitten `main` 
 3. **supabase-parity Flyway migrate** — Docker-based; catches migrations relying on un-established Supabase state.
 4. **full `./gradlew test`** runs every `infra:*` + mobile JVM suite; the gate names only `:backend:ktor:test` + `:lint:detekt-rules:test`.
    4b. **`/opsx:*` thin-wrapper guard** — `.claude/commands/opsx/*.md` must delegate to their `openspec-*` skill and stay ≤12 body lines (`dev/scripts/check-opsx-wrappers.sh`, lint lane only; #539).
-5. **iOS** is not yet CI-gated (the mobile CI lane is an Android device-run; the macOS link+test lane of `docs/08` § Pre-Launch #8 is pending and free on the public repo). iOS specs drift red on `main` undetected ([#348](https://github.com/aditrioka/nearyou-id/issues/348)/[#318](https://github.com/aditrioka/nearyou-id/issues/318)). Run `:module:iosSimulatorArm64Test` + `linkDebugFrameworkIosSimulatorArm64` locally when touching `:shared` actuals or iOS source.
+5. **iOS** runs in CI's `ios-test` lane (`macos-15`) on every push of a PR whose diff touches the mobile surface — it is NOT in the local gate (macOS + Xcode required). Before that lane existed the iOS flow tests drifted red on `main` undetected ([#348](https://github.com/aditrioka/nearyou-id/issues/348)/[#318](https://github.com/aditrioka/nearyou-id/issues/318)). On a Mac, run `:mobile:app:iosSimulatorArm64Test` + `linkDebugFrameworkIosSimulatorArm64` before pushing a mobile diff (else CI only finds it after the macOS lane runs); a `:shared:*` / mobile `:infra:*` iOS actual is only exercised through `:mobile:app`'s binary, so run that module's own `iosSimulatorArm64Test` locally when touching it. New iOS flow tests start Koin via the shared `startFlowTestKoin` harness (`mobile/app/src/iosTest/.../screens/FlowTestKoin.kt`) — a screen gaining a cross-screen `koinInject` adds its default fake there.
 
 ---
 

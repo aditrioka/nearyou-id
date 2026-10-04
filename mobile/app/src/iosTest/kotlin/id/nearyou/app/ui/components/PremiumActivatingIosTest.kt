@@ -5,12 +5,11 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.billing.confirmedPremiumSession
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
@@ -23,14 +22,11 @@ import kotlin.test.Test
 @OptIn(ExperimentalTestApi::class)
 class PremiumActivatingIosTest {
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun capDialog_withAConfirmedSession_rendersTheActivatingNotice() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single { confirmedPremiumSession() } }) }
+        startFlowTestKoin(module { single { confirmedPremiumSession() } })
         runComposeUiTest {
             setContent {
                 KoinContext {

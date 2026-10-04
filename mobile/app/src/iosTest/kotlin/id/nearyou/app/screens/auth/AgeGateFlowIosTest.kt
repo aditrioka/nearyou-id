@@ -13,13 +13,12 @@ import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.RootRoute
 import id.nearyou.app.screens.routing.SignInRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.datetime.LocalDate
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -50,24 +49,19 @@ class AgeGateFlowIosTest {
         signUpOutcome: SignUpOutcome = SignUpOutcome.Success,
         seedIdentity: String? = "g-id",
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeAuthFlow(signUpOutcome = signUpOutcome)
-        startKoin {
-            modules(
-                module {
-                    single<AuthFlow> { fake }
-                    single { PendingSignupIdentity().apply { if (seedIdentity != null) set(seedIdentity) } }
-                    // The absent-identity guard re-routes to SignInRoute, which koinInjects this (D5).
-                    single { PendingReturnDestination() }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<AuthFlow> { fake }
+                single { PendingSignupIdentity().apply { if (seedIdentity != null) set(seedIdentity) } }
+                // The absent-identity guard re-routes to SignInRoute, which koinInjects this (D5).
+                single { PendingReturnDestination() }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     // Initial render shows title + DOB label + create-account CTA + brand logo.
     @Test
