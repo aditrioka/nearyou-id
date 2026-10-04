@@ -10,16 +10,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-declare -A SKILL=(
-  [apply]=openspec-apply-change
-  [archive]=openspec-archive-change
-  [propose]=openspec-propose
-  [explore]=openspec-explore
-)
+# cmd:skill pairs (plain list — macOS ships bash 3.2, which has no associative arrays)
+PAIRS="apply:openspec-apply-change archive:openspec-archive-change propose:openspec-propose explore:openspec-explore"
 fail=0
-for cmd in "${!SKILL[@]}"; do
+for pair in $PAIRS; do
+  cmd="${pair%%:*}"
+  skill="${pair#*:}"
   f=".claude/commands/opsx/${cmd}.md"
-  skill="${SKILL[$cmd]}"
   if [[ ! -f "$f" ]]; then echo "FAIL: $f missing"; fail=1; continue; fi
   if [[ ! -f ".claude/skills/${skill}/SKILL.md" ]]; then echo "FAIL: skill ${skill} missing for $f"; fail=1; continue; fi
   if ! grep -q "Invoke the \`${skill}\` skill" "$f"; then
