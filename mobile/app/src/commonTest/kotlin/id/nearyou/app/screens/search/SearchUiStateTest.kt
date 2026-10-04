@@ -16,26 +16,38 @@ class SearchUiStateTest {
 
     @Test
     fun `below-2 query is Idle regardless of outcome`() {
-        assertEquals(SearchUiState.Idle, searchUiState("a", null, isLoading = false, isLoadingMore = false))
+        assertEquals(SearchUiState.Idle, searchUiState("a", null, isLoading = false, isLoadingMore = false, viewerKnownFree = false))
         assertEquals(
             SearchUiState.Idle,
             // Even with a stale Results outcome, typing back below 2 returns to the prompt.
-            searchUiState("a", SearchOutcome.Results(listOf(hit), 20), isLoading = false, isLoadingMore = false),
+            searchUiState("a", SearchOutcome.Results(listOf(hit), 20), isLoading = false, isLoadingMore = false, viewerKnownFree = false),
         )
-        assertEquals(SearchUiState.Idle, searchUiState("", null, isLoading = false, isLoadingMore = false))
+        assertEquals(SearchUiState.Idle, searchUiState("", null, isLoading = false, isLoadingMore = false, viewerKnownFree = false))
     }
 
     @Test
     fun `valid query in flight is Loading`() {
-        assertEquals(SearchUiState.Loading, searchUiState("jakarta", null, isLoading = true, isLoadingMore = false))
+        assertEquals(
+            SearchUiState.Loading,
+            searchUiState("jakarta", null, isLoading = true, isLoadingMore = false, viewerKnownFree = false),
+        )
         // A valid query with no outcome yet (pre-fetch window) also projects to Loading.
-        assertEquals(SearchUiState.Loading, searchUiState("jakarta", null, isLoading = false, isLoadingMore = false))
+        assertEquals(
+            SearchUiState.Loading,
+            searchUiState("jakarta", null, isLoading = false, isLoadingMore = false, viewerKnownFree = false),
+        )
     }
 
     @Test
     fun `Results non-empty with nextOffset shows load-more`() {
         val state =
-            searchUiState("jakarta", SearchOutcome.Results(listOf(hit), 20), isLoading = false, isLoadingMore = false)
+            searchUiState(
+                "jakarta",
+                SearchOutcome.Results(listOf(hit), 20),
+                isLoading = false,
+                isLoadingMore = false,
+                viewerKnownFree = false,
+            )
         assertTrue(state is SearchUiState.Results)
         assertEquals(1, state.hits.size)
         assertTrue(state.showLoadMore, "nextOffset != null → load-more shown")
@@ -45,7 +57,13 @@ class SearchUiStateTest {
     @Test
     fun `Results non-empty with null nextOffset hides load-more`() {
         val state =
-            searchUiState("jakarta", SearchOutcome.Results(listOf(hit), null), isLoading = false, isLoadingMore = true)
+            searchUiState(
+                "jakarta",
+                SearchOutcome.Results(listOf(hit), null),
+                isLoading = false,
+                isLoadingMore = true,
+                viewerKnownFree = false,
+            )
         assertTrue(state is SearchUiState.Results)
         assertEquals(false, state.showLoadMore, "nextOffset == null → load-more hidden")
         assertEquals(true, state.isLoadingMore)
@@ -54,14 +72,26 @@ class SearchUiStateTest {
     @Test
     fun `Results empty is EmptyResults carrying the trimmed query`() {
         val state =
-            searchUiState("  jakarta  ", SearchOutcome.Results(emptyList(), null), isLoading = false, isLoadingMore = false)
+            searchUiState(
+                "  jakarta  ",
+                SearchOutcome.Results(emptyList(), null),
+                isLoading = false,
+                isLoadingMore = false,
+                viewerKnownFree = false,
+            )
         assertEquals(SearchUiState.EmptyResults("jakarta"), state)
     }
 
     @Test
     fun `the projected hits carry no PII`() {
         val state =
-            searchUiState("jakarta", SearchOutcome.Results(listOf(hit), null), isLoading = false, isLoadingMore = false)
+            searchUiState(
+                "jakarta",
+                SearchOutcome.Results(listOf(hit), null),
+                isLoading = false,
+                isLoadingMore = false,
+                viewerKnownFree = false,
+            )
         assertTrue(state is SearchUiState.Results)
         val projected = state.hits.first()
         // SearchHit structurally has no authorId / rank fields — assert the display fields survived.
@@ -72,12 +102,31 @@ class SearchUiStateTest {
 
     @Test
     fun `each non-Results outcome maps to its state`() {
-        fun state(outcome: SearchOutcome) = searchUiState("jakarta", outcome, isLoading = false, isLoadingMore = false)
+        fun state(outcome: SearchOutcome) =
+            searchUiState("jakarta", outcome, isLoading = false, isLoadingMore = false, viewerKnownFree = false)
         assertEquals(SearchUiState.PremiumGate, state(SearchOutcome.PremiumGate))
         assertEquals(SearchUiState.RateLimited(1740L), state(SearchOutcome.RateLimited(1740L)))
         assertEquals(SearchUiState.Disabled, state(SearchOutcome.Disabled))
         assertEquals(SearchUiState.Error, state(SearchOutcome.Error))
         assertEquals(SearchUiState.Error, state(SearchOutcome.NetworkError))
         assertEquals(SearchUiState.SessionRedirect, state(SearchOutcome.SessionExpired))
+    }
+
+    // ---- #253: the on-entry gate for a viewer known Free ----
+
+    @Test
+    fun `a known-Free viewer's below-2 query is the gate and an eligible query follows its outcome`() {
+        assertEquals(SearchUiState.PremiumGate, searchUiState("", null, isLoading = false, isLoadingMore = false, viewerKnownFree = true))
+        assertEquals(SearchUiState.PremiumGate, searchUiState("a", null, isLoading = false, isLoadingMore = false, viewerKnownFree = true))
+        // An issued query is decided by the server: Results render even for a viewer read as Free.
+        val eligible =
+            searchUiState(
+                "jakarta",
+                SearchOutcome.Results(listOf(hit), null),
+                isLoading = false,
+                isLoadingMore = false,
+                viewerKnownFree = true,
+            )
+        assertTrue(eligible is SearchUiState.Results)
     }
 }

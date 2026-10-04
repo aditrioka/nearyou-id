@@ -2,8 +2,9 @@ package id.nearyou.app.screens.notifications
 
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.PartnerResolution
-import id.nearyou.app.notifications.PostTargetResolution
+import id.nearyou.app.post.PostTargetResolution
 import id.nearyou.app.screens.home.PostDetailTarget
+import id.nearyou.app.screens.home.toPostDetailTarget
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -132,19 +133,4 @@ class NotificationNavTargetResolver(
             }
             NotificationNavIntent.None -> Resolution.None
         }
-
-    private fun PostTargetResolution.Resolved.toPostDetailTarget(): PostDetailTarget =
-        PostDetailTarget(
-            postId = postId,
-            content = content,
-            cityName = cityName,
-            // The by-id single-post-read projection omits coordinates → no distance for a deep-linked post.
-            distanceM = null,
-            createdAtIso = createdAtIso,
-            likedByViewer = likedByViewer,
-            replyCount = replyCount,
-            authorUsername = authorUsername,
-            authorDisplayName = authorDisplayName,
-            imageUrl = imageUrl,
-        )
 }

@@ -1,22 +1,15 @@
-# mobile-search Specification
+## RENAMED Requirements
 
-## Purpose
+- FROM: `### Requirement: The Premium gate renders the Free-tier upsell panel reactively on 403`
+- TO: `### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403`
 
-The mobile **Cari** (search) surface in `:mobile:app` — the consumer for the shipped, frozen `premium-search` endpoint (`GET /api/v1/search?q=<query>&offset=<n>`), closing the discovery half of the authenticated core loop with zero backend work. A parameterless `SearchRoute` (root-stack push, reached from the Home brand app bar's search action icon) hosts a navigation-free `SearchScreen`: an M3 search input + result list over the `mobile-design-system` substrate, behind a `SearchRepository`/`SearchFlow` seam whose sealed `SearchOutcome` maps every HTTP status the endpoint enforces to exactly one state — results (with `next_offset` "Lihat lebih banyak" load-more, de-duplicated by post id), a Free-tier upsell on `403`, the rate-limit modal on `429`, a kill-switch state on `503`, plus idle / loading / empty / error / session-expired. A viewer whose on-entry self-profile read says Free (and who has no confirmed purchase) sees the same upsell in place of the Idle prompt before typing; the field stays usable and the server's `403` stays authoritative. A result tap resolves the post through the shared by-id `single-post-read` before pushing `PostDetailRoute`, so the detail opens with the real city, like state, reply count, and image (the hit's own fields + documented defaults when the read is unavailable). A client-side `2..100` query guard + 500 ms debounce mirrors the backend bound; the result card renders only display fields (never the `author_id` UUID or `rank` score). Mirrors the proven `mobile-global-timeline` / `mobile-post-detail` data seam.
-## Requirements
-### Requirement: SearchRoute is a parameterless serializable NavKey pushed onto the root back stack
+- FROM: `### Requirement: A result tap opens PostDetailRoute with documented default fields`
+- TO: `### Requirement: A result tap opens PostDetailRoute hydrated from the by-id post read`
 
-The change SHALL introduce a `SearchRoute` `NavKey` (in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/NavKeys.kt`) that is a parameterless `@Serializable data object` (the search query is entered IN the screen, so — unlike `PostDetailRoute` — the route carries NO payload and declares no properties). It SHALL be registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (so the back stack is saveable on Kotlin/Native per `mobile-app-scaffold` § "Back stack uses serializable NavKey routes"). `SearchRoute` SHALL be reached by appending it to the **root** navigation back stack (above `HomeRoute`, overlaying the section `NavigationBar`) — mirroring the post-composer FAB's and `PostDetailRoute`'s root-stack push, and deliberately NOT using a per-tab `NavDisplay` back stack.
+- FROM: `### Requirement: Autocomplete and proactive upsell are explicitly deferred`
+- TO: `### Requirement: Username autocomplete is explicitly deferred`
 
-#### Scenario: SearchRoute is registered and survives a serialized back-stack round-trip
-
-- **GIVEN** a `SearchRoute` instance encoded + decoded via the `navSavedStateConfiguration` polymorphic serializer (the iOS-safe saved-state path)
-- **THEN** decoding succeeds and yields a `SearchRoute` AND `SearchRoute` appears in the polymorphic `SerializersModule` registration alongside the other `NavKey` routes
-
-#### Scenario: SearchRoute carries no payload
-
-- **WHEN** inspecting the `SearchRoute` declaration in `NavKeys.kt`
-- **THEN** it is a parameterless `data object` (no `postId`/`query`/coordinate properties) — the search input is owned by the screen, not the route
+## MODIFIED Requirements
 
 ### Requirement: SearchScreen renders the Cari surface and is navigation-free
 
@@ -38,95 +31,26 @@ The mobile app SHALL ship a composable `SearchScreen` (file: `mobile/app/src/com
 - **WHEN** the back affordance is activated
 - **THEN** the `SearchRoute` entry is removed from the root back stack (`removeLastOrNull`) / the recording `onBack` fires, and the prior surface becomes current again
 
-### Requirement: Search fetch targets the canonical endpoint with q and offset parameters
+### Requirement: A client-side query guard mirrors the backend 2..100 bound and debounces requests
 
-`SearchApiClient` SHALL issue `GET /api/v1/search` (the canonical endpoint per `openspec/specs/premium-search/spec.md`) with a `q` query parameter (the trimmed, NFKC-eligible query string) and an `offset` query parameter. The FIRST-page request SHALL send `offset=0` (or omit it). A load-more request SHALL send `offset=<retained next_offset>`. The Bearer `Authorization` header is attached by the shipped `HttpClient` `Auth` plugin (this capability MUST NOT reimplement token attachment). The client MUST NOT add `lat`/`lng`/`radius_m` or any spatial parameter (search is global — no location filter, per `docs/02-Product.md` § Search).
+`SearchScreen` SHALL NOT issue a request until the query, after trimming leading/trailing Unicode whitespace, is between `2` and `100` Unicode code points (mirroring the backend `premium-search` § "Query length guard 2..100"). A below-2 query (including empty) keeps the screen in the Idle state — the on-entry Premium gate for a viewer known Free on entry — and issues NO request. The text field SHALL cap input at `100` code points. A valid query SHALL be issued on a **500 ms** debounce after the last keystroke AND immediately on the keyboard submit action (`docs/03-UX-Design.md:242`). The trim + code-point counting SHALL be a pure commonMain helper, unit-testable without composing UI. This is a UX optimization; the backend guard remains authoritative — a `400 invalid_query_length` (should the bounds ever diverge) maps to `Error`, never a crash (per the § "Fetch outcome mapping" requirement).
 
-#### Scenario: First-page request shape
+#### Scenario: Below-2 query issues no request and stays Idle
 
-- **GIVEN** a Ktor MockEngine capturing outbound requests
-- **WHEN** `SearchApiClient.search(query = "jakarta", offset = 0)` runs
-- **THEN** the captured request is `GET` with path `/api/v1/search` AND carries `q=jakarta` AND `offset=0` (or no `offset`) AND carries NO `lat`/`lng`/`radius_m` parameter
+- **GIVEN** `SearchScreen` over a counting `FakeSearchFlow` for a viewer not known Free
+- **WHEN** the query field holds `a` (post-trim length 1) or `   ` (whitespace, post-trim length 0)
+- **THEN** no fetch is issued (the fake's invocation count stays 0) AND the screen renders the Idle prompt
 
-#### Scenario: Load-more request carries the retained offset
+#### Scenario: 2-char and 100-char boundaries are accepted; 101 is capped
 
-- **GIVEN** a MockEngine capturing outbound requests
-- **WHEN** a load-more fetch runs with the retained `next_offset = 20`
-- **THEN** the captured request carries `offset=20`
+- **WHEN** the query guard helper evaluates a 2-code-point query, a 100-code-point query, and a 101-code-point input
+- **THEN** the 2- and 100-code-point queries are eligible to fetch AND the field caps the 101-code-point input at 100 code points
 
-### Requirement: Response DTOs mirror the SHIPPED snake_case search wire
+#### Scenario: A valid query fires on debounce and on submit
 
-`SearchApiClient` SHALL define `@Serializable` response DTOs whose wire field names match the **shipped** backend serialization in `backend/ktor/src/main/kotlin/id/nearyou/app/search/SearchRoutes.kt` (`SearchResponse` / `SearchResultDto`), which is **snake_case** (NOT the timelines' camelCase `nextCursor`). The mobile DTOs MUST be generated from that shipped source, NOT from any spec's JSON example. Specifically:
-
-- `SearchResponse`: bare `results: List<SearchResultDto>`, `@SerialName("next_offset") nextOffset: Int?`.
-- `SearchResultDto`: `@SerialName("post_id") postId: String`, `@SerialName("author_id") authorId: String`, `@SerialName("author_username") authorUsername: String`, `@SerialName("author_display_name") authorDisplayName: String`, bare `content: String`, `@SerialName("created_at") createdAt: String`, bare `rank: Float`.
-
-The shared `Json` already sets `ignoreUnknownKeys` + `explicitNulls = false`. The `authorId` UUID and `rank` are parsed but NEVER rendered (PII / internal-ranking discipline per the § "Search result card" requirement).
-
-#### Scenario: Full search hit parses against the shipped snake_case wire
-
-- **GIVEN** a MockEngine returning a 200 body whose result object uses the SHIPPED wire keys (`post_id`, `author_id`, `author_username`, `author_display_name`, `created_at` snake; bare `content`, bare `rank`) plus top-level `next_offset`
-- **WHEN** the response is parsed
-- **THEN** parsing succeeds AND the parsed hit exposes `postId`, `authorUsername`, `authorDisplayName`, `content`, `createdAt`, `rank` AND `nextOffset` is present
-
-#### Scenario: camelCase-only body would fail — guards against the casing-drift assumption
-
-- **GIVEN** a MockEngine returning a result object using camelCase `postId` / `authorUsername` / `authorDisplayName` / `createdAt` and a top-level `nextOffset` (a stale-spec / timeline-casing shape, NOT the shipped search wire)
-- **THEN** those fields do NOT populate the mobile DTO (they are absent under the shipped `@SerialName` snake_case names) — a test fixture MUST use the shipped snake_case keys so this regression cannot slip in
-
-### Requirement: Fetch outcome mapping is HTTP-status-driven with no generic fallthrough
-
-`SearchRepository` SHALL map each fetch result to exactly one member of a sealed `SearchOutcome`, keyed on the HTTP **status code** and transport-failure type (NOT on a parsed `error.code`), with no generic "load failed" fallthrough:
-
-- **HTTP 200** → `Results(hits, nextOffset)`.
-- **HTTP 403** (`premium_required`) → a dedicated `PremiumGate` outcome (the Free-tier gate; the screen renders the upsell panel per the § "Premium gate" requirement).
-- **HTTP 429** (`rate_limited`) → `RateLimited(retryAfterSeconds)` where `retryAfterSeconds` is parsed from the `Retry-After` response header (seconds). An absent, stripped, or unparseable `Retry-After` (e.g. proxy-rewritten to an HTTP-date) SHALL map to `RateLimited(0)` (the screen floors a non-positive value to one minute).
-- **HTTP 503** (`search_disabled`) → a dedicated `Disabled` outcome (the kill switch).
-- **HTTP 400** (`invalid_query_length` / `invalid_offset` — not expected given the client-side guard) → a retryable `Error` outcome with a diagnostic emitted to logs (NOT a silent no-op, NOT a crash).
-- **HTTP 401** (terminal — survived the shipped Ktor `Auth` `refreshTokens` because the refresh itself failed) → a dedicated `SessionExpired` outcome. It MUST NOT map to `NetworkError` or `Error`. The shipped `Auth` plugin still owns the refresh attempt and `SessionInvalidator` still owns the re-route to `SignInScreen`; this mapping only guarantees the brief pre-re-route render is a neutral redirect, never the connectivity copy.
-- **HTTP 5xx or network/IO failure** → `NetworkError` (retryable).
-- **Any other unenumerated non-2xx status** → the defined `NetworkError` fallback (retryable). Because the mapping is over an `Int` status, a defined fallback MUST remain — the "no generic fallthrough" rule bans a generic "load failed" *copy*, NOT a `when` `else`/fallback branch. Terminal `401` branches to `SessionExpired` ahead of this fallback.
-
-#### Scenario: Each status maps to exactly one outcome
-
-- **WHEN** inspecting the repository result mapping and the `SearchOutcome` sealed type
-- **THEN** each of HTTP 200, 403, 429, 503, 400, terminal 401, 5xx, and network/IO failure maps to exactly one `SearchOutcome` member (`Results` / `PremiumGate` / `RateLimited` / `Disabled` / `Error` / `SessionExpired` / `NetworkError`) AND any other unenumerated non-2xx falls to the defined `NetworkError` fallback AND there is NO branch emitting a generic "load failed" copy
-
-#### Scenario: 403 maps to PremiumGate, not Error
-
-- **GIVEN** a MockEngine returning `403 {"error":"premium_required","upsell":true}`
-- **WHEN** the repository processes the response
-- **THEN** the outcome is `PremiumGate` AND it is NOT `Error` AND NOT `NetworkError`
-
-#### Scenario: 429 maps to RateLimited carrying the Retry-After seconds
-
-- **GIVEN** a MockEngine returning `429 {"error":"rate_limited"}` with a `Retry-After: 1740` header
-- **WHEN** the repository processes the response
-- **THEN** the outcome is `RateLimited(retryAfterSeconds = 1740)`
-
-#### Scenario: 429 with an absent/unparseable Retry-After floors to RateLimited(0)
-
-- **GIVEN** a MockEngine returning `429 {"error":"rate_limited"}` with no `Retry-After` header (or an HTTP-date value)
-- **WHEN** the repository processes the response
-- **THEN** the outcome is `RateLimited(0)` (the screen later floors it to one minute) AND no crash occurs
-
-#### Scenario: 503 maps to Disabled
-
-- **GIVEN** a MockEngine returning `503 {"error":"search_disabled"}`
-- **WHEN** the repository processes the response
-- **THEN** the outcome is `Disabled`
-
-#### Scenario: Terminal 401 maps to SessionExpired, never NetworkError
-
-- **GIVEN** a MockEngine that responds 401 to the search fetch AND responds 401 to the subsequent `POST /api/v1/auth/refresh` (a terminal 401 surfaced by the `Auth` plugin)
-- **WHEN** the repository processes the result
-- **THEN** the outcome is `SessionExpired` AND it is NOT `NetworkError` AND NOT `Error`
-
-#### Scenario: 5xx / network-IO maps to NetworkError
-
-- **GIVEN** a MockEngine returning bare HTTP 500 (or throwing `IOException`)
-- **WHEN** the repository processes the result
-- **THEN** the outcome is `NetworkError` AND no crash occurs AND the outcome is NOT `SessionExpired`
+- **GIVEN** `SearchScreen` over a counting `FakeSearchFlow`
+- **WHEN** the user types a valid query and pauses (500 ms) — and separately, types and presses the keyboard submit action
+- **THEN** a fetch is issued in each case for the current query (the fake's invocation count increases)
 
 ### Requirement: Screen state mapping covers idle, loading, results, empty, error, gate, rate-limit, and disabled states
 
@@ -174,27 +98,6 @@ An eligible query (post-trim length `2..100`) projects from its outcome exactly 
 - **WHEN** the outcome is `SessionExpired`
 - **THEN** the rendered tree contains the neutral redirect notice (`stringResource(Res.string.timeline_session_redirect)`) AND does NOT contain `stringResource(Res.string.signin_error_network)` AND does NOT contain a `stringResource(Res.string.cta_retry)` control (the connectivity-error state is reserved for `NetworkError` / `Error`)
 
-### Requirement: A client-side query guard mirrors the backend 2..100 bound and debounces requests
-
-`SearchScreen` SHALL NOT issue a request until the query, after trimming leading/trailing Unicode whitespace, is between `2` and `100` Unicode code points (mirroring the backend `premium-search` § "Query length guard 2..100"). A below-2 query (including empty) keeps the screen in the Idle state — the on-entry Premium gate for a viewer known Free on entry — and issues NO request. The text field SHALL cap input at `100` code points. A valid query SHALL be issued on a **500 ms** debounce after the last keystroke AND immediately on the keyboard submit action (`docs/03-UX-Design.md:242`). The trim + code-point counting SHALL be a pure commonMain helper, unit-testable without composing UI. This is a UX optimization; the backend guard remains authoritative — a `400 invalid_query_length` (should the bounds ever diverge) maps to `Error`, never a crash (per the § "Fetch outcome mapping" requirement).
-
-#### Scenario: Below-2 query issues no request and stays Idle
-
-- **GIVEN** `SearchScreen` over a counting `FakeSearchFlow` for a viewer not known Free
-- **WHEN** the query field holds `a` (post-trim length 1) or `   ` (whitespace, post-trim length 0)
-- **THEN** no fetch is issued (the fake's invocation count stays 0) AND the screen renders the Idle prompt
-
-#### Scenario: 2-char and 100-char boundaries are accepted; 101 is capped
-
-- **WHEN** the query guard helper evaluates a 2-code-point query, a 100-code-point query, and a 101-code-point input
-- **THEN** the 2- and 100-code-point queries are eligible to fetch AND the field caps the 101-code-point input at 100 code points
-
-#### Scenario: A valid query fires on debounce and on submit
-
-- **GIVEN** `SearchScreen` over a counting `FakeSearchFlow`
-- **WHEN** the user types a valid query and pauses (500 ms) — and separately, types and presses the keyboard submit action
-- **THEN** a fetch is issued in each case for the current query (the fake's invocation count increases)
-
 ### Requirement: Pagination is a "Lihat lebih banyak" load-more that appends pages
 
 When the current `Results` outcome carries a non-null `nextOffset`, `SearchScreen` SHALL render a "Lihat lebih banyak" control via `stringResource(Res.string.search_load_more)` below the result list. Activating it SHALL issue a fetch with `offset = nextOffset`, **append** the returned hits to the retained list (NOT replace it), and update the retained `nextOffset`. The append SHALL drop any returned hit whose `postId` the retained list already holds — `OFFSET` paging over rank ties can repeat a hit when the result set shifts between pages, and the result list keys its items on `postId` (a duplicate key would crash it). A `nextOffset == null` SHALL hide the control (terminal). A returned empty page SHALL be treated as terminal (the control is hidden) even if a non-null `nextOffset` was returned — clients treat `results = []` as terminal per `premium-search` § "Pagination via OFFSET". During a load-more fetch the existing results SHALL remain rendered (the list is never torn down) with at most one in-list progress indicator; the screen state stays `Results`, NOT `Loading`.
@@ -215,85 +118,6 @@ When the current `Results` outcome carries a non-null `nextOffset`, `SearchScree
 - **GIVEN** a `SearchViewModel` whose retained `Results` hold `p1`, `p2` with `nextOffset = 2`, over a flow whose load-more returns `p2`, `p3`
 - **WHEN** the load-more is requested
 - **THEN** the retained hits are exactly `p1`, `p2`, `p3` (in that order — `p2` is not appended twice)
-
-### Requirement: The search result card renders only API display fields and no PII
-
-`SearchScreen` result cards (a search-specific card composable; the shipped search wire carries NO city, distance, or like/reply state) SHALL render only: the author **display identity** (the letter avatar + `authorDisplayName` + the `@authorUsername` handle, reusing the `mobile-post-card` avatar/identity sub-treatments so they cannot drift), the post `content`, and the `created_at` date treatment (the shared `localDateLabel` device-local-date helper — true relative formatting stays deferred to the `mobile-timeline-relative-timestamp` follow-up). The card SHALL render NO engagement action row (no like/reply affordance — the wire returns no such state), NO city label, and NO distance. The `author_id` (a UUID) and the `rank` score MUST NOT be rendered in any UI node. Tokens, the `author_id`, the `rank`, and response bodies MUST NOT be logged: the shipped `HttpClientFactory` `LogLevel.HEADERS` already excludes response bodies, and this capability MUST NOT widen logging. (Precision note: `LogLevel.HEADERS` logs the request line, so the user-typed `q=<query>` term travels in the logged URL in debug builds — this is the documented `LogLevel.HEADERS` posture inherited from `mobile-global-timeline`, NOT a regression this change introduces; the query term is user-typed content, not a token/`author_id`/`rank`/coordinate, and the existing coordinate-masking is unaffected. No `q`-masking is added here.)
-
-#### Scenario: author_id and rank are not in the rendered tree while display identity is
-
-- **GIVEN** a search hit with `author_id = "11111111-1111-1111-1111-111111111111"`, `authorUsername = "dewi.kuliner"`, `authorDisplayName = "Dewi Lestari"`, `rank = 0.83`
-- **WHEN** the card is rendered
-- **THEN** the rendered tree contains NO node whose text contains `"11111111-1111-1111-1111-111111111111"` AND NO node whose text contains `"0.83"` AND contains the "Dewi Lestari" display-name node and the "@dewi.kuliner" handle node AND renders no like/reply action row and no city/distance
-
-### Requirement: The rate-limit state renders the docs/03 modal with a live countdown
-
-While the search outcome is `RateLimited(retryAfterSeconds)`, `SearchScreen` SHALL render the rate-limit surface with the `docs/03-UX-Design.md:245` copy via `stringResource(Res.string.search_rate_limited)` ("Kamu sudah mencapai batas pencarian. Reset dalam %1$d menit.") formatted with a live countdown derived from `retryAfterSeconds`. (The shipped resource takes the minute count as an integer `%1$d` with the "menit" unit in the resource — reusing the `mobile-cap-upsell-dialog` `capCountdownMinutes` formatter directly — rather than a pre-formatted `%1$s` countdown string; a cosmetically-equivalent simplification.) The minute count SHALL be computed by the pure commonMain `capCountdownMinutes` formatter (minutes rounded up) and decremented via monotonic coroutine `delay` (NO wall-clock platform API). A non-positive `retryAfterSeconds` SHALL be floored to one minute (the shipped floor precedent — never a flash-clear on entry). When the countdown reaches zero the cap has reset: the countdown SHALL be replaced by a retry control (`stringResource(Res.string.search_rate_limit_reset)` + a `stringResource(Res.string.cta_retry)` button) so the user MAY re-issue the query — a deliberate user action, NOT an auto-fetch (which would silently re-consume the hourly quota).
-
-#### Scenario: A 429 renders the rate-limit copy with the countdown
-
-- **GIVEN** a `FakeSearchFlow` returning `SearchOutcome.RateLimited(retryAfterSeconds = 1740)` for a valid query
-- **WHEN** `SearchScreen` renders
-- **THEN** the rendered tree contains a node whose text matches `stringResource(Res.string.search_rate_limited)` formatted with the countdown ("29 menit") derived from `1740`
-
-#### Scenario: A non-positive Retry-After floors to one minute and does not flash-clear
-
-- **GIVEN** `SearchOutcome.RateLimited(retryAfterSeconds = 0)`
-- **WHEN** the rate-limit surface renders
-- **THEN** it shows the one-minute countdown ("1 menit") AND does NOT immediately clear on entry
-
-#### Scenario: The rate-limit surface shows a retry control when the countdown reaches zero
-
-- **GIVEN** the rate-limit surface shown with a small `retryAfterSeconds` and a test clock advancing the monotonic countdown
-- **WHEN** the countdown reaches zero
-- **THEN** the countdown is replaced by a retry control (`search_rate_limit_reset` copy + a `cta_retry` button) AND activating it re-issues the query (the user MAY re-issue; it is NOT an auto-fetch)
-
-### Requirement: SearchApiClient and SearchRepository are Koin singletons behind a testable seam
-
-`SearchApiClient` and `SearchRepository` SHALL be registered in the commonMain Koin `mobileModule`. `SearchRepository` SHALL be bound behind a `SearchFlow` interface (`single<SearchFlow> { get<SearchRepository>() }`) so a `FakeSearchFlow` can drive the screen + ViewModel tests, mirroring the timeline seams. `SearchFlow` SHALL declare both `search(query, offset)` and `resolvePostTarget(postId): PostTargetResolution`; `SearchRepository` SHALL implement `resolvePostTarget` over the shared `SinglePostApiClient` Koin singleton's `fetchFullPost` through the shared `SinglePostFullResult` → `PostTargetResolution` mapping (the one `NotificationsRepository` also uses), logging only a type tag on `Unavailable` (never the post id, body, or any PII).
-
-The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `SearchRoute`, the pushed-route precedent). It takes the `SearchFlow`, the `ProfileFlow` + `SelfUserIdProvider` self-read seam, and the fail-safe `purchaseConfirmed` signal. It holds the query, the in-flight flags, the retained outcome, the retained `nextOffset`, the resolved tier, the resolving card id, and the consumed-once pending detail target, and it issues the search via the `SearchFlow` seam (debounced + on submit). It SHALL expose ONE `uiState: StateFlow<SearchScreenUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), …)` (docs/11 §2.2) whose surface is the pure `searchUiState(...)` projection; the raw `outcome` MAY stay exposed as the white-box test seam (the `GlobalTimelineViewModel` precedent). The query/results state is owned by the ViewModel, NOT composition-scoped `remember`.
-
-#### Scenario: Koin registers the search graph behind the flow interface
-
-- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt`
-- **THEN** `mobileModule` declares singletons for `SearchApiClient` and `SearchRepository` (the latter over `SearchApiClient` + the shared `SinglePostApiClient`) AND binds `single<SearchFlow> { get<SearchRepository>() }`
-
-#### Scenario: SearchViewModel issues the query through the SearchFlow seam
-
-- **GIVEN** a commonTest `SearchViewModel` over a `FakeSearchFlow`
-- **WHEN** a valid query is submitted and, separately, a load-more is requested
-- **THEN** the ViewModel invokes `SearchFlow.search(query, offset = 0)` for the query and `SearchFlow.search(query, offset = <nextOffset>)` for the load-more, exposing the resulting outcome + retained `nextOffset`
-
-#### Scenario: resolvePostTarget maps the full by-id read
-
-- **GIVEN** a MockEngine-backed `SearchRepository` whose `GET /api/v1/posts/p1` returns `200` with the shipped mixed-case full projection (bare `id`/`authorUsername`/`authorDisplayName`/`content`/`createdAt`/`imageUrl`, snake `city_name`/`liked_by_viewer`/`reply_count`), and separately returns `404 post_not_found`
-- **WHEN** `resolvePostTarget("p1")` runs for each
-- **THEN** the `200` yields `PostTargetResolution.Resolved` carrying those values AND the `404` yields `PostTargetResolution.Unavailable`
-
-#### Scenario: The ViewModel exposes one screen state
-
-- **WHEN** inspecting `SearchViewModel`
-- **THEN** the screen collects a single `uiState: StateFlow<SearchScreenUiState>` (query + surface + resolving card id + pending nav target) AND `isLoading` / `isLoadingMore` / the resolved tier are not public flows
-
-### Requirement: Test coverage for the screen, projection, query guard, networking, and route
-
-The change SHALL ship: (1) a Robolectric `SearchScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the search input + clear, each visual state (Idle / Loading / Results / EmptyResults / Error / PremiumGate / RateLimited / Disabled / SessionExpired) via a `FakeSearchFlow`, the "Lihat lebih banyak" append, and the result-tap `onOpenPost` payload — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (2) a commonTest `SearchUiStateTest` for the pure outcome→state projection; (3) commonTest for the query guard (trim, 2/100 boundaries, below-2 no-fetch) and the `SearchRoute` serialized round-trip; (4) MockEngine-backed `SearchApiClient` / `SearchRepository` tests verifying the endpoint path + `q`/`offset` params, the shipped snake_case wire parse, the camelCase negative-guard, the `next_offset` parse, the `Retry-After` parse on 429 (including the absent→`RateLimited(0)` floor), and each status→outcome mapping; (5) an `iosTest` flow test (`SearchFlowIosTest`) mirroring `NearbyTimelineFlowIosTest` / `PostDetailFlowIosTest` — exercising the search flow on the iOS/Native target via a `FakeSearchFlow` so the new `SearchRoute` + data seam compile and run on Kotlin/Native (the universal per-screen `*FlowIosTest` convention).
-
-#### Scenario: Test classes exist and are discoverable
-
-- **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
-- **THEN** `SearchScreenTest`, `SearchUiStateTest`, the query-guard + `SearchRoute` round-trip tests, and the `SearchApiClient`/`SearchRepository` MockEngine tests are discovered AND each documented state / mapping corresponds to at least one `@Test`
-
-#### Scenario: The iOS flow test exists for the Native target
-
-- **WHEN** inspecting `mobile/app/src/iosTest/...`
-- **THEN** a `SearchFlowIosTest` exists (mirroring `NearbyTimelineFlowIosTest`) exercising the search flow over a `FakeSearchFlow` on the iOS/Native target
-
-#### Scenario: Screen test is excluded from the Release variant
-
-- **WHEN** inspecting `mobile/app/build.gradle.kts`
-- **THEN** the Release-variant exclude block lists `**/SearchScreenTest*` alongside the existing `*ScreenTest` exclusions AND `:mobile:app:testDevReleaseUnitTest` passes
 
 ### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403
 
@@ -473,6 +297,34 @@ The payload SHALL never carry `latitude`/`longitude` or the `author_id` UUID. Th
 - **WHEN** the screen recomposes (or the ViewModel's `uiState` is re-collected)
 - **THEN** `onOpenPost` was invoked exactly once (the pending target was cleared via `onNavConsumed()`)
 
+### Requirement: SearchApiClient and SearchRepository are Koin singletons behind a testable seam
+
+`SearchApiClient` and `SearchRepository` SHALL be registered in the commonMain Koin `mobileModule`. `SearchRepository` SHALL be bound behind a `SearchFlow` interface (`single<SearchFlow> { get<SearchRepository>() }`) so a `FakeSearchFlow` can drive the screen + ViewModel tests, mirroring the timeline seams. `SearchFlow` SHALL declare both `search(query, offset)` and `resolvePostTarget(postId): PostTargetResolution`; `SearchRepository` SHALL implement `resolvePostTarget` over the shared `SinglePostApiClient` Koin singleton's `fetchFullPost` through the shared `SinglePostFullResult` → `PostTargetResolution` mapping (the one `NotificationsRepository` also uses), logging only a type tag on `Unavailable` (never the post id, body, or any PII).
+
+The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `SearchRoute`, the pushed-route precedent). It takes the `SearchFlow`, the `ProfileFlow` + `SelfUserIdProvider` self-read seam, and the fail-safe `purchaseConfirmed` signal. It holds the query, the in-flight flags, the retained outcome, the retained `nextOffset`, the resolved tier, the resolving card id, and the consumed-once pending detail target, and it issues the search via the `SearchFlow` seam (debounced + on submit). It SHALL expose ONE `uiState: StateFlow<SearchScreenUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), …)` (docs/11 §2.2) whose surface is the pure `searchUiState(...)` projection; the raw `outcome` MAY stay exposed as the white-box test seam (the `GlobalTimelineViewModel` precedent). The query/results state is owned by the ViewModel, NOT composition-scoped `remember`.
+
+#### Scenario: Koin registers the search graph behind the flow interface
+
+- **WHEN** inspecting `mobile/app/src/commonMain/kotlin/id/nearyou/app/di/MobileModule.kt`
+- **THEN** `mobileModule` declares singletons for `SearchApiClient` and `SearchRepository` (the latter over `SearchApiClient` + the shared `SinglePostApiClient`) AND binds `single<SearchFlow> { get<SearchRepository>() }`
+
+#### Scenario: SearchViewModel issues the query through the SearchFlow seam
+
+- **GIVEN** a commonTest `SearchViewModel` over a `FakeSearchFlow`
+- **WHEN** a valid query is submitted and, separately, a load-more is requested
+- **THEN** the ViewModel invokes `SearchFlow.search(query, offset = 0)` for the query and `SearchFlow.search(query, offset = <nextOffset>)` for the load-more, exposing the resulting outcome + retained `nextOffset`
+
+#### Scenario: resolvePostTarget maps the full by-id read
+
+- **GIVEN** a MockEngine-backed `SearchRepository` whose `GET /api/v1/posts/p1` returns `200` with the shipped mixed-case full projection (bare `id`/`authorUsername`/`authorDisplayName`/`content`/`createdAt`/`imageUrl`, snake `city_name`/`liked_by_viewer`/`reply_count`), and separately returns `404 post_not_found`
+- **WHEN** `resolvePostTarget("p1")` runs for each
+- **THEN** the `200` yields `PostTargetResolution.Resolved` carrying those values AND the `404` yields `PostTargetResolution.Unavailable`
+
+#### Scenario: The ViewModel exposes one screen state
+
+- **WHEN** inspecting `SearchViewModel`
+- **THEN** the screen collects a single `uiState: StateFlow<SearchScreenUiState>` (query + surface + resolving card id + pending nav target) AND `isLoading` / `isLoadingMore` / the resolved tier are not public flows
+
 ### Requirement: Username autocomplete is explicitly deferred
 
 The Cari surface SHALL NOT implement username autocomplete / typeahead (`docs/03-UX-Design.md` § Search UX "Autocomplete: username from the top 5 results (pg_trgm)"): it requires a NEW backend autocomplete endpoint that is not shipped. Until that endpoint lands, the search field SHALL issue only the `premium-search` request (`GET /api/v1/search`) and render no suggestion list. The deferral is tracked by GitHub issue [#252](https://github.com/aditrioka/nearyou-id/issues/252) (`follow-up`), so the follow-up change can MODIFY this requirement. The proactive "upsell on tap before typing" is NO LONGER deferred — it is implemented per the § "The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403" requirement (GitHub issue #253) — and paywall navigation is NO LONGER deferred either (the gate CTA routes to `PaywallRoute`).
@@ -487,4 +339,3 @@ The Cari surface SHALL NOT implement username autocomplete / typeahead (`docs/03
 - **GIVEN** `SearchScreen` over a counting `FakeSearchFlow` (a Premium viewer)
 - **WHEN** the viewer types a 2+-character query
 - **THEN** the only fetch issued is `SearchFlow.search(...)` AND no suggestion / typeahead list is rendered apart from the result cards
-

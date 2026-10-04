@@ -559,7 +559,9 @@ val mobileModule =
         // SearchRepository, bound behind the SearchFlow seam so a FakeSearchFlow drives the screen +
         // ViewModel tests. diagnosticLog wired to the real coordinate-/query-safe sink (status/type only).
         single { SearchApiClient(get()) }
-        single { SearchRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        // The shared SinglePostApiClient backs a result tap's by-id resolution (the notification deep-link's
+        // full-projection read, mapped by the shared toPostTargetResolution — no second resolver).
+        single { SearchRepository(get(), get<SinglePostApiClient>(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<SearchFlow> { get<SearchRepository>() }
 
         // image-attached-posts (Phase 5, upload data layer) — the premium image-upload seam over

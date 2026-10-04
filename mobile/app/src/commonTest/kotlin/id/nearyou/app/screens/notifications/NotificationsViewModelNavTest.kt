@@ -3,8 +3,8 @@ package id.nearyou.app.screens.notifications
 import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.PartnerResolution
-import id.nearyou.app.notifications.PostTargetResolution
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.post.PostTargetResolution
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher

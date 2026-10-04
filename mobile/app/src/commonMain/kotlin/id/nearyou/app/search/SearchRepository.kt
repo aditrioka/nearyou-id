@@ -1,5 +1,9 @@
 package id.nearyou.app.search
 
+import id.nearyou.app.post.PostTargetResolution
+import id.nearyou.app.post.SinglePostApiClient
+import id.nearyou.app.post.toPostTargetResolution
+
 /**
  * Orchestrates a search fetch: call `GET /api/v1/search?q=&offset=` → map the HTTP **status** to exactly
  * one [SearchOutcome] (design D4). There is no generic "load failed" fallthrough; `401` is delegated to
@@ -9,6 +13,8 @@ package id.nearyou.app.search
  */
 class SearchRepository(
     private val apiClient: SearchApiClient,
+    // mobile-search #255: the shared by-id read behind a result tap (the notification deep-link's client).
+    private val singlePostApiClient: SinglePostApiClient,
     // Diagnostic sink for non-user-facing error detail. Wired to the real coordinate-free DiagnosticSink
     // in Koin (no-op default for tests). MUST NOT carry tokens or the raw query.
     private val diagnosticLog: (String) -> Unit = {},
@@ -56,5 +62,11 @@ class SearchRepository(
                     // copy, not a `when` else). Mirrors GlobalTimelineRepository.
                     else -> SearchOutcome.NetworkError
                 }
+        }
+
+    override suspend fun resolvePostTarget(postId: String): PostTargetResolution =
+        singlePostApiClient.fetchFullPost(postId).toPostTargetResolution().also {
+            // Type only — never the post id / body / any PII.
+            if (it == PostTargetResolution.Unavailable) diagnosticLog("search_post_resolve_unavailable")
         }
 }

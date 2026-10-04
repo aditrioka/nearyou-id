@@ -78,21 +78,7 @@ private fun parseBodyData(routing: PushTapRouting): JsonElement {
 
 private fun NavBackStack<NavKey>.push(target: NotificationNavTarget) {
     when (target) {
-        is NotificationNavTarget.Post ->
-            add(
-                PostDetailRoute(
-                    postId = target.target.postId,
-                    content = target.target.content,
-                    cityName = target.target.cityName,
-                    distanceM = target.target.distanceM,
-                    createdAtIso = target.target.createdAtIso,
-                    likedByViewer = target.target.likedByViewer,
-                    replyCount = target.target.replyCount,
-                    authorUsername = target.target.authorUsername,
-                    authorDisplayName = target.target.authorDisplayName,
-                    imageUrl = target.target.imageUrl,
-                ),
-            )
+        is NotificationNavTarget.Post -> add(target.target.toRoute())
         is NotificationNavTarget.Profile -> add(ProfileRoute(userId = target.userId))
         // No push is sent for appeal_decided today (in-app only); kept for the exhaustive shared resolver.
         NotificationNavTarget.Appeal -> add(AppealRoute)

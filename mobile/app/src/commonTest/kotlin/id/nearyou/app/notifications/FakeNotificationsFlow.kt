@@ -1,5 +1,6 @@
 package id.nearyou.app.notifications
 
+import id.nearyou.app.post.PostTargetResolution
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
