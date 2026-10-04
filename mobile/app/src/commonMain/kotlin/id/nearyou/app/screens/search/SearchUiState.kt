@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.search
 
+import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.search.SearchOutcome
 import id.nearyou.app.search.SearchQueryGuard
 import id.nearyou.app.search.SearchResultDto
@@ -55,7 +56,7 @@ sealed interface SearchUiState {
     /** `NetworkError` or retryable `Error` → network copy + a retry control. */
     data object Error : SearchUiState
 
-    /** `PremiumGate` (403) → the Free-tier upsell panel. */
+    /** `PremiumGate` (403), or a below-2 query for a viewer known Free on entry → the Free-tier upsell panel. */
     data object PremiumGate : SearchUiState
 
     /** `RateLimited` (429) → the rate-limit modal + a live countdown from [retryAfterSeconds]. */
@@ -70,11 +71,28 @@ sealed interface SearchUiState {
 }
 
 /**
- * Maps the trimmed [query] + the current [outcome] (null = nothing fetched yet) + the in-flight flags to
- * the screen state. Exhaustive over [SearchOutcome] — no generic fallthrough (design D4):
+ * The ONE screen state `SearchViewModel` exposes (docs/11 §2.2, the `SignInScreenUiState` wrapper shape):
+ * the text field's [query], the [surface] from the pure [searchUiState] projection, the id of the result
+ * card whose by-id read is in flight ([resolvingPostId] — drives that card's spinner), and the consumed-once
+ * [pendingNavTarget] the screen forwards to the host's detail push then clears (`onNavConsumed()`; the
+ * `NotificationsViewModel` naming). [pendingNavTarget] carries display fields only — no author UUID, no
+ * coordinate.
+ */
+data class SearchScreenUiState(
+    val query: String,
+    val surface: SearchUiState,
+    val resolvingPostId: String?,
+    val pendingNavTarget: PostDetailTarget?,
+)
+
+/**
+ * Maps the trimmed [query] + the current [outcome] (null = nothing fetched yet) + the in-flight flags +
+ * the on-entry tier to the screen state. Exhaustive over [SearchOutcome] — no generic fallthrough (design D4):
  *
  * - trimmed query below the guard's minimum ⇒ [Idle] (regardless of outcome — typing back below 2
- *   returns to the prompt).
+ *   returns to the prompt), or [PremiumGate] when [viewerKnownFree] — the on-entry upsell a known-Free
+ *   viewer sees before typing (#253). An eligible query ignores [viewerKnownFree]: the server's answer
+ *   governs once a query is issued.
  * - [isLoading] (first-page fetch in flight, no results yet) ⇒ [Loading].
  * - `Results` empty ⇒ [EmptyResults]; non-empty ⇒ [Results] (load-more shown when `nextOffset != null`).
  * - `PremiumGate` ⇒ [PremiumGate]; `RateLimited` ⇒ [RateLimited]; `Disabled` ⇒ [Disabled].
@@ -86,8 +104,11 @@ fun searchUiState(
     outcome: SearchOutcome?,
     isLoading: Boolean,
     isLoadingMore: Boolean,
+    viewerKnownFree: Boolean,
 ): SearchUiState {
-    if (!SearchQueryGuard.isEligible(query)) return SearchUiState.Idle
+    if (!SearchQueryGuard.isEligible(query)) {
+        return if (viewerKnownFree) SearchUiState.PremiumGate else SearchUiState.Idle
+    }
     if (isLoading) return SearchUiState.Loading
     val trimmed = SearchQueryGuard.normalize(query)
     return when (outcome) {

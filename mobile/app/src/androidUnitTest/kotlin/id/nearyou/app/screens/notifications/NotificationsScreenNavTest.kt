@@ -9,8 +9,8 @@ import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.PartnerResolution
-import id.nearyou.app.notifications.PostTargetResolution
 import id.nearyou.app.notifications.fakeNotification
+import id.nearyou.app.post.PostTargetResolution
 import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.serialization.json.buildJsonObject

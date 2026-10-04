@@ -5,6 +5,8 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.post.PostTargetResolution
+import id.nearyou.app.post.SinglePostApiClient
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -41,7 +43,7 @@ class SearchRepositoryTest {
                 installLogging = false,
                 nowMillis = { 0L },
             )
-        return SearchRepository(SearchApiClient(client))
+        return SearchRepository(SearchApiClient(client), SinglePostApiClient(client))
     }
 
     @Test
@@ -141,5 +143,52 @@ class SearchRepositoryTest {
         runTest {
             val repo = repository { respond("", HttpStatusCode.NotFound, JSON_HEADERS) }
             assertEquals(SearchOutcome.NetworkError, repo.search("jakarta", 0))
+        }
+
+    // ---- #255: the result tap's by-id read (the shared single-post-read resolution) ----
+
+    @Test
+    fun `resolvePost maps the full mixed-case by-id read to Resolved`() =
+        runTest {
+            var path: String? = null
+            val repo =
+                repository { request ->
+                    path = request.url.encodedPath
+                    respond(
+                        """{"id":"p1","authorUsername":"budi","authorDisplayName":"Budi","content":"halo",""" +
+                            """"createdAt":"2026-10-03T09:00:00Z","city_name":"Jakarta","liked_by_viewer":true,""" +
+                            """"reply_count":5,"imageUrl":"https://img.example.test/p1.jpg"}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+
+            val resolution = repo.resolvePost("p1")
+
+            assertEquals("/api/v1/posts/p1", path)
+            assertEquals(
+                PostTargetResolution.Resolved(
+                    postId = "p1",
+                    authorUsername = "budi",
+                    authorDisplayName = "Budi",
+                    content = "halo",
+                    cityName = "Jakarta",
+                    createdAtIso = "2026-10-03T09:00:00Z",
+                    likedByViewer = true,
+                    replyCount = 5,
+                    imageUrl = "https://img.example.test/p1.jpg",
+                ),
+                resolution,
+            )
+        }
+
+    @Test
+    fun `resolvePost maps a 404 to Unavailable`() =
+        runTest {
+            val repo =
+                repository {
+                    respond("""{"error":{"code":"post_not_found"}}""", HttpStatusCode.NotFound, JSON_HEADERS)
+                }
+            assertEquals(PostTargetResolution.Unavailable, repo.resolvePost("p1"))
         }
 }

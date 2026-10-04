@@ -1,5 +1,7 @@
 package id.nearyou.app.search
 
+import id.nearyou.app.post.PostTargetResolution
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 
 /**
@@ -8,6 +10,10 @@ import kotlinx.coroutines.awaitCancellation
  * (when set) for any `offset > 0` — and records the (query, offset) of every call so a test can assert
  * the debounce/submit/load-more wiring. With [suspendForever] = true, `search` never returns (the screen
  * stays Loading). [calls] exposes the captured arguments; [invocationCount] is their size.
+ *
+ * `resolvePost` (the result-tap by-id read, #255) returns [resolutions]`[postId]` (default
+ * [PostTargetResolution.Unavailable]), suspends first on [resolveGates]`[postId]` when one is set, throws
+ * [resolveThrows] when set, and records every requested id in [resolvedIds].
  */
 class FakeSearchFlow(
     private val firstOutcome: SearchOutcome = SearchOutcome.Results(emptyList(), null),
@@ -19,6 +25,11 @@ class FakeSearchFlow(
     val calls: MutableList<Call> = mutableListOf()
     val invocationCount: Int get() = calls.size
 
+    val resolutions: MutableMap<String, PostTargetResolution> = mutableMapOf()
+    val resolveGates: MutableMap<String, CompletableDeferred<Unit>> = mutableMapOf()
+    var resolveThrows: Throwable? = null
+    val resolvedIds: MutableList<String> = mutableListOf()
+
     override suspend fun search(
         query: String,
         offset: Int,
@@ -26,6 +37,13 @@ class FakeSearchFlow(
         calls += Call(query, offset)
         if (suspendForever) awaitCancellation()
         return if (offset > 0 && loadMoreOutcome != null) loadMoreOutcome else firstOutcome
+    }
+
+    override suspend fun resolvePost(postId: String): PostTargetResolution {
+        resolvedIds += postId
+        resolveGates[postId]?.await()
+        resolveThrows?.let { throw it }
+        return resolutions[postId] ?: PostTargetResolution.Unavailable
     }
 }
 

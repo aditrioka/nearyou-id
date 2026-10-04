@@ -1,5 +1,7 @@
 package id.nearyou.app.notifications
 
+import id.nearyou.app.post.PostTargetResolution
+
 /**
  * The notifications orchestration contract consumed by `NotificationsScreen` (+ the shell's unread
  * badge). The production binding is [NotificationsRepository]; commonTest substitutes a
@@ -55,30 +57,6 @@ interface NotificationsFlow {
      * degrades to its existing placeholder).
      */
     suspend fun resolvePartner(userId: String): PartnerResolution
-}
-
-/**
- * Neutral resolution of a `post`-target deep-link (NOT a screens type — the data seam stays free of
- * `PostDetailTarget`; the ViewModel maps [Resolved] → `PostDetailTarget(distanceM = null, …)`). No author
- * UUID / coordinate is carried (the by-id projection has none — no-PII).
- */
-sealed interface PostTargetResolution {
-    data class Resolved(
-        val postId: String,
-        val authorUsername: String,
-        val authorDisplayName: String,
-        val content: String,
-        val cityName: String,
-        val createdAtIso: String,
-        val likedByViewer: Boolean,
-        val replyCount: Int,
-        // image-attached-posts (#388): the post's public image URL from the by-id read, or null for a
-        // text-only post. NO default — every mapper states it explicitly (a silent default-null is how
-        // the notification deep-link lost the image in the first place).
-        val imageUrl: String?,
-    ) : PostTargetResolution
-
-    data object Unavailable : PostTargetResolution
 }
 
 /** Neutral resolution of a chat partner's DISPLAY identity (no user UUID — display strings only). */

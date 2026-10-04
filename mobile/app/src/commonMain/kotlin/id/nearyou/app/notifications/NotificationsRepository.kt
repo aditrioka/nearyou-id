@@ -1,7 +1,8 @@
 package id.nearyou.app.notifications
 
+import id.nearyou.app.post.PostTargetResolution
 import id.nearyou.app.post.SinglePostApiClient
-import id.nearyou.app.post.SinglePostFullResult
+import id.nearyou.app.post.toPostTargetResolution
 import id.nearyou.app.profile.ProfileApiClient
 import id.nearyou.app.profile.ProfileReadApiResult
 
@@ -113,24 +114,9 @@ class NotificationsRepository(
     override suspend fun markAllRead(): MarkAllReadResult = apiClient.markAllRead()
 
     override suspend fun resolvePostTarget(postId: String): PostTargetResolution =
-        when (val result = singlePostApiClient.fetchFullPost(postId)) {
-            is SinglePostFullResult.Success ->
-                PostTargetResolution.Resolved(
-                    postId = result.post.id,
-                    authorUsername = result.post.authorUsername,
-                    authorDisplayName = result.post.authorDisplayName,
-                    content = result.post.content,
-                    cityName = result.post.cityName,
-                    createdAtIso = result.post.createdAt,
-                    likedByViewer = result.post.likedByViewer,
-                    replyCount = result.post.replyCount,
-                    imageUrl = result.post.imageUrl,
-                )
-            SinglePostFullResult.Unavailable -> {
-                // Type only — never the post id / body / any PII.
-                diagnosticLog("notifications_post_target_unavailable")
-                PostTargetResolution.Unavailable
-            }
+        singlePostApiClient.fetchFullPost(postId).toPostTargetResolution().also {
+            // Type only — never the post id / body / any PII.
+            if (it == PostTargetResolution.Unavailable) diagnosticLog("notifications_post_target_unavailable")
         }
 
     override suspend fun resolvePartner(userId: String): PartnerResolution =

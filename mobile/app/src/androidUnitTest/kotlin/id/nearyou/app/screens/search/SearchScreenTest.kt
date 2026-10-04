@@ -1,5 +1,8 @@
 package id.nearyou.app.screens.search
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -12,20 +15,38 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.billing.confirmedPremiumSession
+import id.nearyou.app.data.block.BlockSubmitter
+import id.nearyou.app.data.block.FakeBlockSubmitter
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
+import id.nearyou.app.post.FakePostDetailFlow
+import id.nearyou.app.post.FakePostEditFlow
+import id.nearyou.app.post.PostDetailFlow
+import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.post.PostTargetResolution
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.screens.home.PostDetailTarget
+import id.nearyou.app.screens.home.toPostDetailTarget
 import id.nearyou.app.screens.paywall.FakePurchaseController
 import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.routing.PaywallRoute
+import id.nearyou.app.screens.routing.PostDetailRoute
 import id.nearyou.app.screens.routing.SearchRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
+import id.nearyou.app.screens.username.selfProfile
 import id.nearyou.app.search.FakeSearchFlow
 import id.nearyou.app.search.SearchFlow
 import id.nearyou.app.search.SearchOutcome
 import id.nearyou.app.search.fakeSearchHit
 import id.nearyou.app.theme.NearYouTheme
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -85,6 +106,8 @@ class SearchScreenTest {
         suspendForever: Boolean = false,
         // #517: bind a session whose purchase is confirmed (the webhook-lag window).
         confirmedPurchase: Boolean = false,
+        // #253: the on-entry self read — Premium by default (the pre-#253 behavior the state tests assume).
+        selfPremium: Boolean = true,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeSearchFlow(firstOutcome = firstOutcome, loadMoreOutcome = loadMoreOutcome, suspendForever = suspendForever)
@@ -92,6 +115,13 @@ class SearchScreenTest {
             modules(
                 module {
                     single<SearchFlow> { fake }
+                    single<ProfileFlow> { FakeProfileFlow(selfProfile(isPremium = selfPremium)) }
+                    single<SelfUserIdProvider> { FakeSelfUserIdProvider("self-id") }
+                    // A result tap under the host pushes PostDetailRoute, whose screen injects these seams.
+                    single<PostDetailFlow> { FakePostDetailFlow() }
+                    single<PostEditFlow> { FakePostEditFlow() }
+                    single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<BlockSubmitter> { FakeBlockSubmitter() }
                     // The host-push test navigates onward to PaywallRoute, whose screen injects a
                     // PurchaseController (Unavailable → the fail-soft Unconfigured state; the test asserts the
                     // route push, not paywall content). Unused by the screen-level tests, which never push it.
@@ -120,7 +150,26 @@ class SearchScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}) } } }
             onNodeWithText(IDLE_PROMPT).assertExists()
+            // #253: a Premium self read opens to the prompt, never the on-entry upsell.
+            onNodeWithText(GATE_BODY).assertDoesNotExist()
             assertEquals(0, fake.invocationCount, "an empty query issues no fetch")
+        }
+    }
+
+    // #253: a known-Free viewer sees the upsell the moment Cari opens — before typing, with no search issued.
+    @Test
+    fun onEntry_freeRead_showsTheUpsellBeforeTyping_noFetch() {
+        installKoin(selfPremium = false)
+        runComposeUiTest {
+            var activated = 0
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}, onActivatePremium = { activated++ }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(GATE_BODY).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(GATE_CTA).assertExists()
+            onNodeWithText(IDLE_PROMPT).assertDoesNotExist()
+            assertEquals(0, fake.invocationCount, "the on-entry gate issues no search")
+            onNodeWithTag(SEARCH_PREMIUM_CTA_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, activated, "the on-entry CTA opens the paywall like the 403 gate")
         }
     }
 
@@ -336,8 +385,9 @@ class SearchScreenTest {
         }
     }
 
+    // #255: an unavailable by-id read (the fake's default) opens the detail from the hit + documented defaults.
     @Test
-    fun resultTap_invokesOnOpenPostWithTheFullHitPayload() {
+    fun resultTap_unavailableRead_opensWithTheHitAndDocumentedDefaults() {
         installKoin(
             SearchOutcome.Results(
                 listOf(
@@ -353,18 +403,111 @@ class SearchScreenTest {
             ),
         )
         runComposeUiTest {
-            var tapped: SearchHit? = null
+            var tapped: PostDetailTarget? = null
             setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}, onOpenPost = { tapped = it }) } } }
             submitQuery()
             onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { tapped != null }
+            assertEquals(
+                PostDetailTarget(
+                    postId = "p1",
+                    content = "HALO_CARI",
+                    cityName = "",
+                    distanceM = null,
+                    createdAtIso = "2026-05-31T10:00:00Z",
+                    likedByViewer = false,
+                    replyCount = 0,
+                    authorUsername = "dewi.kuliner",
+                    authorDisplayName = "Dewi Lestari",
+                    imageUrl = null,
+                ),
+                tapped,
+            )
+        }
+    }
+
+    // #255: a resolved by-id read hydrates the target — delivered exactly once, even across recomposition.
+    @Test
+    fun resultTap_resolvedRead_opensTheHydratedTarget_exactlyOnce() {
+        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1", content = "HALO_CARI")), null))
+        fake.resolutions["p1"] = hydrated("p1")
+        runComposeUiTest {
+            val opened = mutableListOf<PostDetailTarget>()
+            var tick by mutableStateOf(0)
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        // Reading `tick` here lets the test force a recomposition of the screen's caller.
+                        if (tick >= 0) SearchScreen(onBack = {}, onOpenPost = { opened += it })
+                    }
+                }
+            }
+            submitQuery()
+            onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { opened.isNotEmpty() }
+            tick++
             waitForIdle()
-            // The hit carries the non-PII display fields the appEntryProvider call site turns into a
-            // PostDetailRoute (with documented defaults for the wire-absent city/distance/like/reply).
-            assertEquals("p1", tapped?.postId)
-            assertEquals("dewi.kuliner", tapped?.authorUsername)
-            assertEquals("Dewi Lestari", tapped?.authorDisplayName)
-            assertEquals("HALO_CARI", tapped?.content)
-            assertEquals("2026-05-31T10:00:00Z", tapped?.createdAt)
+            assertEquals(listOf(hydrated("p1").toPostDetailTarget()), opened, "one hydrated delivery, no re-fire")
+        }
+    }
+
+    @Test
+    fun resultTap_inFlightRead_showsTheCardSpinner() {
+        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1", content = "HALO_CARI")), null))
+        fake.resolveGates["p1"] = CompletableDeferred()
+        runComposeUiTest {
+            var opened = 0
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}, onOpenPost = { opened++ }) } } }
+            submitQuery()
+            onNodeWithTag(SEARCH_RESULT_RESOLVING_TAG).assertDoesNotExist()
+            onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SEARCH_RESULT_RESOLVING_TAG).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(0, opened, "no navigation while the by-id read is in flight")
+        }
+    }
+
+    // #255 host half: under the REAL appEntryProvider the hydrated target becomes the pushed PostDetailRoute.
+    @Test
+    fun resultTap_underHost_pushesTheHydratedPostDetailRoute() {
+        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1", content = "HALO_CARI")), null))
+        fake.resolutions["p1"] = hydrated("p1")
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(SearchRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SEARCH_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            submitQuery()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SEARCH_RESULT_CARD_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PostDetailRoute }
+            assertEquals(
+                PostDetailRoute(
+                    postId = "p1",
+                    content = "HALO_CARI",
+                    cityName = "Jakarta Selatan",
+                    distanceM = null,
+                    createdAtIso = "2026-10-03T09:00:00Z",
+                    likedByViewer = true,
+                    replyCount = 4,
+                    authorUsername = "dewi.kuliner",
+                    authorDisplayName = "Dewi Lestari",
+                    imageUrl = "https://img.example/p1.jpg",
+                ),
+                backStack.last(),
+            )
+            assertEquals(1, backStack.count { it is PostDetailRoute }, "exactly one detail pushed")
+        }
+    }
+
+    // The username-autocomplete deferral (#252): typing renders only result cards — no typeahead, no extra fetch.
+    @Test
+    fun typedQuery_rendersNoTypeahead_andOnlySearches() {
+        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1"), fakeSearchHit(postId = "p2")), null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = {}) } } }
+            submitQuery("kopi")
+            assertEquals(2, onAllNodesWithTag(SEARCH_RESULT_CARD_TAG).fetchSemanticsNodes().size, "only the hits render")
+            assertTrue(fake.calls.all { it.query == "kopi" }, "every fetch is the search itself: ${fake.calls}")
+            assertTrue(fake.resolvedIds.isEmpty(), "no other read is issued while typing")
         }
     }
 
@@ -381,4 +524,17 @@ class SearchScreenTest {
             onNodeWithText("HALO_CARI").assertDoesNotExist()
         }
     }
+
+    private fun hydrated(postId: String) =
+        PostTargetResolution.Resolved(
+            postId = postId,
+            authorUsername = "dewi.kuliner",
+            authorDisplayName = "Dewi Lestari",
+            content = "HALO_CARI",
+            cityName = "Jakarta Selatan",
+            createdAtIso = "2026-10-03T09:00:00Z",
+            likedByViewer = true,
+            replyCount = 4,
+            imageUrl = "https://img.example/$postId.jpg",
+        )
 }

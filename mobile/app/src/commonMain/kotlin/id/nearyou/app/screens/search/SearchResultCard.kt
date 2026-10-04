@@ -5,12 +5,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,13 +32,16 @@ import org.jetbrains.compose.resources.stringResource
  * helper — true relative formatting stays deferred to `mobile-timeline-relative-timestamp`). NO action
  * row, NO city/distance. PII discipline: the `author_id` UUID and the `rank` score are absent from
  * [SearchHit] (the projection dropped them) so they structurally cannot be rendered. The whole card is
- * the single tap target → [onOpen]; built from `NearYouTheme` tokens only.
+ * the single tap target → [onOpen]; built from `NearYouTheme` tokens only. While the tap's by-id read is
+ * in flight ([isResolving], #255) a small trailing spinner marks the card — an action affordance on the
+ * tapped card (the `NotificationsScreen` row idiom), not a list loading indicator.
  */
 @Composable
 fun SearchResultCard(
     hit: SearchHit,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
+    isResolving: Boolean = false,
 ) {
     OutlinedCard(
         onClick = onOpen,
@@ -48,7 +54,7 @@ fun SearchResultCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LetterAvatar(displayName = hit.authorDisplayName, username = hit.authorUsername)
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = hit.authorDisplayName,
                         style = MaterialTheme.typography.titleSmall,
@@ -81,6 +87,12 @@ fun SearchResultCard(
                             maxLines = 1,
                         )
                     }
+                }
+                if (isResolving) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(16.dp).testTag(SEARCH_RESULT_RESOLVING_TAG),
+                    )
                 }
             }
             Text(

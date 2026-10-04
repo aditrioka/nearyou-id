@@ -1,5 +1,7 @@
 package id.nearyou.app.search
 
+import id.nearyou.app.post.PostTargetResolution
+
 /**
  * The search orchestration contract consumed by `SearchScreen` / `SearchViewModel`. The production
  * binding is [SearchRepository]; commonTest substitutes a `FakeSearchFlow` so the screen + ViewModel
@@ -16,6 +18,14 @@ interface SearchFlow {
         query: String,
         offset: Int,
     ): SearchOutcome
+
+    /**
+     * Resolves a tapped hit's post through the full-projection `single-post-read` (`GET /api/v1/posts/{id}`)
+     * — the SAME by-id resolution the notification deep-link uses — so the detail opens with the real city,
+     * like state, reply count, and image. [PostTargetResolution.Unavailable] (any non-200 / transport
+     * failure) → the caller opens the detail from the hit's own payload with the documented defaults.
+     */
+    suspend fun resolvePost(postId: String): PostTargetResolution
 }
 
 /**

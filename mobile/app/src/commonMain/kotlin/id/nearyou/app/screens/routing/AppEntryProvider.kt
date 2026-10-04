@@ -19,6 +19,7 @@ import id.nearyou.app.screens.chat.ConversationListScreen
 import id.nearyou.app.screens.chat.ConversationPickerScreen
 import id.nearyou.app.screens.consent.ConsentScreen
 import id.nearyou.app.screens.followlist.FollowListScreen
+import id.nearyou.app.screens.home.PostDetailTarget
 import id.nearyou.app.screens.paywall.PaywallScreen
 import id.nearyou.app.screens.post.EditPostScreen
 import id.nearyou.app.screens.post.PostCreationScreen
@@ -128,45 +129,13 @@ fun appEntryProvider(
                         ),
                     )
                 },
-                onOpenPost = { target ->
-                    backStack.add(
-                        PostDetailRoute(
-                            postId = target.postId,
-                            content = target.content,
-                            cityName = target.cityName,
-                            distanceM = target.distanceM,
-                            createdAtIso = target.createdAtIso,
-                            likedByViewer = target.likedByViewer,
-                            replyCount = target.replyCount,
-                            authorUsername = target.authorUsername,
-                            authorDisplayName = target.authorDisplayName,
-                            // image-attached-posts: carry the tapped card's image URL so detail renders it
-                            // with no by-id re-fetch (null = text-only).
-                            imageUrl = target.imageUrl,
-                        ),
-                    )
-                },
+                // image-attached-posts: the target carries the tapped card's image URL so detail renders it with
+                // no by-id re-fetch (null = text-only) — via the ONE target→route mapping (toRoute).
+                onOpenPost = { target -> backStack.add(target.toRoute()) },
                 // The cards' reply shortcut (mobile-inline-post-actions): the SAME detail push with
                 // focusReplyComposer = true, so the entry autofocuses the reply composer. The
                 // whole-card onOpenPost above keeps the default false.
-                onOpenPostReply = { target ->
-                    backStack.add(
-                        PostDetailRoute(
-                            postId = target.postId,
-                            content = target.content,
-                            cityName = target.cityName,
-                            distanceM = target.distanceM,
-                            createdAtIso = target.createdAtIso,
-                            likedByViewer = target.likedByViewer,
-                            replyCount = target.replyCount,
-                            authorUsername = target.authorUsername,
-                            authorDisplayName = target.authorDisplayName,
-                            focusReplyComposer = true,
-                            // image-attached-posts: same image URL carry-through as the whole-card open.
-                            imageUrl = target.imageUrl,
-                        ),
-                    )
-                },
+                onOpenPostReply = { target -> backStack.add(target.toRoute(focusReplyComposer = true)) },
                 // The card identity tap (mobile-profile): push the author's profile onto the root stack.
                 // The host receives the resolved authorUserId (the screens resolve it from the VM's raw
                 // DTO outcome — never on the PII-free card model); ProfileRoute carries only that id.
@@ -346,9 +315,9 @@ fun appEntryProvider(
                 route = route,
                 onBack = { backStack.removeLastOrNull() },
                 // chat-embedded-posts: tapping a live shared-post context card opens that post's detail.
-                // The PostDetailRoute is built from the immutable snapshot's display fields (the same
-                // nav-arg pattern a feed-card / search-result tap uses); the detail's /likes + /replies
-                // fetches are authoritative for the defaulted likedByViewer/replyCount/distanceM.
+                // The PostDetailRoute is built from the immutable snapshot's display fields (the nav-arg
+                // pattern a feed-card tap uses); the detail's /likes + /replies fetches are authoritative
+                // for the defaulted likedByViewer/replyCount/distanceM.
                 // cap-upsell-parity: the 50/day chat cap dialog opens the paywall as CHAT_CAP.
                 onActivatePremium = { backStack.openPaywall(PaywallEntry.CHAT_CAP) },
                 onOpenSharedPost = { postId, snapshot ->
@@ -385,30 +354,16 @@ fun appEntryProvider(
         }
         entry<SearchRoute> {
             // The Cari surface (mobile-search). `removeLastOrNull()` is size-safe: SearchRoute is only
-            // ever appended ATOP HomeRoute (the app-bar search action). A result tap pushes
-            // PostDetailRoute built from the hit's non-PII fields PLUS documented defaults — the search
-            // wire carries no cityName/distanceM/likedByViewer/replyCount, so those default
-            // ("", null, false, 0); the detail screen's /likes/count + /replies fetches are authoritative
-            // (mobile-search § "A result tap opens PostDetailRoute with documented default fields").
+            // ever appended ATOP HomeRoute (the app-bar search action). A result tap is resolved by the
+            // screen's ViewModel through the by-id single-post-read BEFORE this push (#255), so the target
+            // carries the real city / like state / reply count / image (distanceM = null — search has no
+            // spatial origin); an unavailable read falls back to the hit's fields + documented defaults
+            // (mobile-search § "A result tap opens PostDetailRoute hydrated from the by-id post read").
             SearchScreen(
                 onBack = { backStack.removeLastOrNull() },
-                // mobile-paywall-screen (#254): the 403 Premium-gate CTA pushes the paywall.
+                // mobile-paywall-screen (#254): the 403 / on-entry Premium-gate CTA pushes the paywall.
                 onActivatePremium = { backStack.openPaywall(PaywallEntry.SEARCH_GATE) },
-                onOpenPost = { hit ->
-                    backStack.add(
-                        PostDetailRoute(
-                            postId = hit.postId,
-                            content = hit.content,
-                            cityName = "",
-                            distanceM = null,
-                            createdAtIso = hit.createdAt,
-                            likedByViewer = false,
-                            replyCount = 0,
-                            authorUsername = hit.authorUsername,
-                            authorDisplayName = hit.authorDisplayName,
-                        ),
-                    )
-                },
+                onOpenPost = { target -> backStack.add(target.toRoute()) },
             )
         }
         entry<PaywallRoute> { route ->
@@ -447,3 +402,23 @@ fun appEntryProvider(
 private fun NavBackStack<NavKey>.openPaywall(entry: PaywallEntry) {
     if (lastOrNull() !is PaywallRoute) add(PaywallRoute(entry))
 }
+
+/**
+ * The ONE [PostDetailTarget] → [PostDetailRoute] mapping every detail push shares (the Home feed card open +
+ * reply shortcut, the search-result tap, the notification push-tap) — so no call site can drop a field the
+ * route carries (the `imageUrl` miss, #388). [focusReplyComposer] is the reply shortcut's autofocus flag.
+ */
+internal fun PostDetailTarget.toRoute(focusReplyComposer: Boolean = false): PostDetailRoute =
+    PostDetailRoute(
+        postId = postId,
+        content = content,
+        cityName = cityName,
+        distanceM = distanceM,
+        createdAtIso = createdAtIso,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
+        focusReplyComposer = focusReplyComposer,
+        imageUrl = imageUrl,
+    )
