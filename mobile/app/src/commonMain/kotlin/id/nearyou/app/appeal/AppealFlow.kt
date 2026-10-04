@@ -12,7 +12,9 @@ interface AppealFlow {
         appealToken: String,
     ): AppealSubmitOutcome
 
-    suspend fun status(appealToken: String): AppealStatusOutcome
+    /** Own-status read. A null [appealToken] reads through the signed-in session (no token → no session →
+     *  [AppealStatusOutcome.SessionExpired] without a request). */
+    suspend fun status(appealToken: String?): AppealStatusOutcome
 }
 
 /** Outcome of `POST /api/v1/appeals`. */

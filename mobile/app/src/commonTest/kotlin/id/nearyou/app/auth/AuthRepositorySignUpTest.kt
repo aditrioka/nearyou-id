@@ -1,5 +1,6 @@
 package id.nearyou.app.auth
 
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.infra.amplitude.AnalyticsTracker
 import id.nearyou.app.infra.amplitude.NoOpAnalyticsTracker
@@ -45,6 +46,7 @@ class AuthRepositorySignUpTest {
         diagnosticLog: (String) -> Unit = {},
         analytics: AnalyticsTracker = NoOpAnalyticsTracker,
         premiumEntitlement: PremiumEntitlementSession? = null,
+        appealSession: AppealSession = AppealSession(),
         handler: MockRequestHandler,
     ): AuthRepository {
         val sessionInvalidator = SessionInvalidator(tokenStore)
@@ -66,8 +68,28 @@ class AuthRepositorySignUpTest {
             diagnosticLog = diagnosticLog,
             analytics = analytics,
             premiumEntitlement = premiumEntitlement,
+            appealSession = appealSession,
         )
     }
+
+    // appeal-decision-notification (#390): sign-up success also drops a stale appeal token (reachable: a
+    // banned 403 on one Google account, then a fresh account's 404 → age gate → sign-up in the same process).
+    @Test
+    fun `201 signup drops an appeal token held from an earlier banned attempt`() =
+        runTest {
+            val session = AppealSession().apply { set("appeal-tok-stale") }
+            val repo =
+                repository(FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)), appealSession = session) {
+                    respond(
+                        """{"access_token":"$SUB_USER_123_JWT","refresh_token":"rt-1","expires_in":900}""",
+                        HttpStatusCode.Created,
+                        JSON_HEADERS,
+                    )
+                }
+
+            assertEquals(SignUpOutcome.Success, repo.signUpWithGoogle("g-id", DOB))
+            assertNull(session.peek(), "the stale appeal token is cleared on sign-up success")
+        }
 
     // premium-entitlement-lifecycle: sign-up success binds the RevenueCat identity to the new users.id.
     @Test

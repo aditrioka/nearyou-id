@@ -117,6 +117,9 @@ fun appEntryProvider(
                 // mobile-chat-screen (task 10.1): the Home brand app-bar "Pesan" action pushes the
                 // conversation list onto the root stack (overlaying the section bar, like PostDetailRoute).
                 onOpenChat = { backStack.add(ConversationListRoute) },
+                // Notification appeal_decided deep-link (appeal-decision-notification, #390): the signed-in
+                // user opens the shipped appeal screen, which reads their own status via the session.
+                onOpenAppeal = { backStack.add(AppealRoute) },
                 // Notification chat_message deep-link (mobile-notifications-deep-link-targets): push the
                 // thread directly atop the shell (the VM resolved the partner identity via user-profile-read).
                 onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
@@ -287,10 +290,11 @@ fun appEntryProvider(
             ReferralScreen(onBack = { backStack.removeLastOrNull() })
         }
         entry<AppealRoute> {
-            // The ban/suspension appeal surface (mobile-appeal). Reached from the banned/suspended session
-            // (the 5.4 wiring). onBack pops; a no-token / 401 / approved state routes to sign-in via
-            // `replaceAll` — the appeal token is one-shot, so re-sign-in re-mints it (or picks up the lifted
-            // ban). The screen reads the token from the in-memory AppealSession holder.
+            // The ban/suspension appeal surface (mobile-appeal). Reached from the banned/suspended sign-in
+            // (the 5.4 wiring, appeal token held) OR from an appeal_decided notification (signed in, no token —
+            // the status read goes through the session). onBack pops; an approved decision on the banned path
+            // offers re-sign-in via `replaceAll` (picks up the lifted ban). The session-redirect state renders no
+            // action of its own — SessionExpiryEffect re-routes an invalidated session (banned-path gap: #581).
             AppealScreen(
                 onBack = { backStack.removeLastOrNull() },
                 onReSignIn = { backStack.replaceAll(SignInRoute) },

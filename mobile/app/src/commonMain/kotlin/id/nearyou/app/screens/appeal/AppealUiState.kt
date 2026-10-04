@@ -22,10 +22,16 @@ sealed interface AppealStatus {
      *  null right after a fresh submit (the screen shows generic "sedang ditinjau"). */
     data class Pending(val actionType: String?) : AppealStatus
 
-    /** A decided appeal — [approved] true = ban lifted, false = rejected (with optional [decisionReason]). */
-    data class Decided(val approved: Boolean, val decisionReason: String?) : AppealStatus
+    /** A decided appeal — [approved] true = ban lifted, false = rejected (with optional [decisionReason]).
+     *  [viaSession] = read through the signed-in session (opened from a notification, no appeal token), so
+     *  the user already holds a live session and an approval needs no re-sign-in. */
+    data class Decided(
+        val approved: Boolean,
+        val decisionReason: String?,
+        val viaSession: Boolean = false,
+    ) : AppealStatus
 
-    /** No appeal token (process death / not banned) or a `401` — the screen routes back to sign-in. */
+    /** A `401`, or neither an appeal token nor a stored session — the screen routes back to sign-in. */
     data object SessionRedirect : AppealStatus
 
     /** The on-entry own-status read failed (transport / 5xx) — retryable. */

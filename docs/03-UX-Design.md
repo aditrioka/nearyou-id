@@ -176,6 +176,7 @@ Backed by the `notifications` table (`05-Implementation.md`). Pull-to-refresh + 
 - `privacy_flip_warning`: "Private profile akan jadi public dalam {countdown}. Tap untuk Premium ulang."
 - `username_release_scheduled`: "Username lama kamu akan dilepas pada {released_at}."
 - `apple_relay_email_changed`: "Email bayangan Apple kamu sudah diperbarui."
+- `appeal_decided` (keyed by `body_data.decision`): approved → "Banding kamu diterima — akunmu aktif kembali"; rejected → "Banding kamu ditolak"; decision absent → "Ada keputusan atas banding kamu". Tapping opens the appeal screen (status + reason).
 
 ### User Toggle in Settings
 

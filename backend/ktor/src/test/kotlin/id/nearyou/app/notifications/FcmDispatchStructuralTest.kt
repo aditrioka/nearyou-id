@@ -82,5 +82,28 @@ class FcmDispatchStructuralTest : StringSpec(
                     .toList()
             offenders shouldBe emptyList()
         }
+
+        // appeal-decision-notification: `appeal_decided` is in-app only (operator decision 2026-10-04).
+        // FCM dispatch is call-site driven, so the decision path can only push if a dispatcher is threaded
+        // into it — the moment one is, this fails.
+        "appeal_decided is in-app only: the appeal-review decision path holds no dispatcher, PushCopy has no case" {
+            val decisionPath =
+                backendKtorMain.resolve("admin/appealreview").walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() +
+                    backendKtorMain.resolve("admin/routes/AdminAppealReviewRoute.kt")
+            (decisionPath.size >= 2) shouldBe true
+            decisionPath.forEach { f ->
+                f.exists() shouldBe true
+                val text = f.readText()
+                text.contains("NotificationDispatcher") shouldBe false
+                text.contains("FcmDispatcher") shouldBe false
+            }
+            val repoRoot =
+                generateSequence(File(System.getProperty("user.dir")).canonicalFile) { it.parentFile }
+                    .first { File(it, "settings.gradle.kts").exists() }
+            val pushCopy = File(repoRoot, "infra/fcm/src/main/kotlin/id/nearyou/app/infra/fcm/PushCopy.kt")
+            pushCopy.exists() shouldBe true
+            // Case-insensitive: a real case would read `NotificationType.APPEAL_DECIDED.wire`, not the wire string.
+            Regex("appeal_decided", RegexOption.IGNORE_CASE).containsMatchIn(pushCopy.readText()) shouldBe false
+        }
     },
 )

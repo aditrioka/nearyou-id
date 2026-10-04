@@ -29,6 +29,7 @@ import id.nearyou.app.appeal.AppealFlow
 import id.nearyou.app.appeal.AppealSession
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.appeal_approved_body
+import id.nearyou.resources.generated.resources.appeal_approved_body_active
 import id.nearyou.resources.generated.resources.appeal_approved_title
 import id.nearyou.resources.generated.resources.appeal_back_cd
 import id.nearyou.resources.generated.resources.appeal_char_counter
@@ -63,10 +64,14 @@ const val APPEAL_RESIGNIN_TAG: String = "appealReSignIn"
 
 /**
  * The ban/suspension **Ajukan Banding** surface (`mobile-appeal`) — reached from the banned/suspended
- * session state. Injects [AppealFlow] + [AppealSession] and observes a route-scoped [AppealViewModel] that
- * reads the limited appeal token from the holder, loads the caller's own appeal status on entry, and gates
- * the submit. Navigation-free: back invokes [onBack]; a no-token / `401` / approved state invokes
- * [onReSignIn] (the caller routes to sign-in to re-mint the token / pick up the lifted ban). All copy via
+ * sign-in state, or signed-in from an `appeal_decided` notification. Injects [AppealFlow] + [AppealSession]
+ * and observes a route-scoped [AppealViewModel] that reads the limited appeal token from the holder (else
+ * the signed-in session), loads the caller's own appeal status on entry, and gates the submit.
+ * Navigation-free: back invokes [onBack]; an approval read on the banned path offers [onReSignIn] (re-sign-in
+ * picks up the lifted ban). The session-redirect state (a `401`, or neither an appeal token nor a stored
+ * session) renders a redirect placeholder with no action — an invalidated session is re-routed app-wide by
+ * `SessionExpiryEffect`; the banned-path dead-end is tracked in #581. An approval read through the session
+ * renders no re-sign-in action — the user is already signed in. All copy via
  * `stringResource`; renders under `NearYouTheme`.
  */
 @Composable
@@ -199,7 +204,12 @@ private fun DecidedSurface(
     status: AppealStatus.Decided,
     onReSignIn: () -> Unit,
 ) {
-    if (status.approved) {
+    if (status.approved && status.viaSession) {
+        CenteredOutcome(
+            title = stringResource(Res.string.appeal_approved_title),
+            body = stringResource(Res.string.appeal_approved_body_active),
+        )
+    } else if (status.approved) {
         CenteredMessageWithAction(
             title = stringResource(Res.string.appeal_approved_title),
             message = stringResource(Res.string.appeal_approved_body),

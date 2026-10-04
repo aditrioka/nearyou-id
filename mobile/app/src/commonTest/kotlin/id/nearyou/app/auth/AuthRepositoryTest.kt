@@ -201,6 +201,22 @@ class AuthRepositoryTest {
             assertEquals("appeal-tok-1", session.peek(), "the limited appeal token is stashed for the appeal screen")
         }
 
+    // appeal-decision-notification (#390): a held appeal token means "on the banned sign-in path", so a
+    // successful sign-in drops a stale one — otherwise the signed-in appeal-screen read (opened from an
+    // appeal_decided notification) would go through the old token instead of the live session.
+    @Test
+    fun `a successful sign-in drops an appeal token held from an earlier banned attempt`() =
+        runTest {
+            val session = AppealSession().apply { set("appeal-tok-stale") }
+            val repo =
+                repository(
+                    FakeGoogleSignInGateway(GoogleSignInResult.Success("g-id", null, null)),
+                    appealSession = session,
+                ) { respond(SIGNIN_OK, HttpStatusCode.OK, JSON_HEADERS) }
+            assertEquals(SignInOutcome.Success, repo.signInWithGoogle())
+            assertNull(session.peek(), "the stale appeal token is cleared on sign-in success")
+        }
+
     // appeal-sign-in-ban-distinction (5.5a): a non-null PAST suspended_until still parses to a
     // non-null Instant ⇒ the suspension sub-state (null-ness, not future-ness, is the discriminator).
     @Test

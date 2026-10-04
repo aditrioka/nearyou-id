@@ -1,14 +1,21 @@
 package id.nearyou.app.appeal
 
+import id.nearyou.app.auth.TokenStore
+
 /**
  * Maps each appeal HTTP **status** to exactly one [AppealSubmitOutcome] / [AppealStatusOutcome] (design
  * D4; the `UsernameRepository` precedent). The nested `error.code` is read ONLY to split the two
  * same-status `409`s (appeal_already_pending vs no_actionable_moderation). No generic "load failed"
  * fallthrough; a `401` is surfaced as [AppealSubmitOutcome.SessionExpired] for the ViewModel to re-route
  * to sign-in (the appeal token is NOT auto-refreshed — it is a one-shot sign-in-issued credential).
+ *
+ * A null-token [status] read goes through the signed-in session — unless [tokenStore] holds no session, in
+ * which case it is [AppealStatusOutcome.SessionExpired] with NO request (a 401 on the shared client would
+ * fire the app-wide session-invalidation path instead of today's quiet re-sign-in redirect).
  */
 class AppealRepository(
     private val apiClient: AppealApiClient,
+    private val tokenStore: TokenStore,
     // Diagnostic sink for non-user-facing error detail (no-op default for tests). MUST NOT carry tokens.
     private val diagnosticLog: (String) -> Unit = {},
 ) : AppealFlow {
@@ -41,8 +48,9 @@ class AppealRepository(
                 }
         }
 
-    override suspend fun status(appealToken: String): AppealStatusOutcome =
-        when (val result = apiClient.status(appealToken)) {
+    override suspend fun status(appealToken: String?): AppealStatusOutcome {
+        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired
+        return when (val result = apiClient.status(appealToken)) {
             is AppealStatusApiResult.Success -> {
                 val body = result.body
                 when {
@@ -68,4 +76,5 @@ class AppealRepository(
                     else -> AppealStatusOutcome.TransportError
                 }
         }
+    }
 }
