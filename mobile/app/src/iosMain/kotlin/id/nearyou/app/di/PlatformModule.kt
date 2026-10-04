@@ -14,7 +14,9 @@ import id.nearyou.app.location.IosLocationPermissionController
 import id.nearyou.app.location.IosLocationProvider
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.notifications.IosNotificationPermissionController
+import id.nearyou.app.notifications.IosNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
+import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.IosFcmTokenProvider
 import id.nearyou.app.push.IosNotificationContentPreferenceStore
@@ -40,6 +42,8 @@ actual val platformModule: Module =
         single<LocationPermissionController> { IosLocationPermissionController() }
         // mobile-chat-screen (task 9.4) — UNUserNotificationCenter-backed permission controller.
         single<NotificationPermissionController> { IosNotificationPermissionController() }
+        // The first-send rationale one-shot, persisted once per install (#494).
+        single<NotificationPromptOneShot> { IosNotificationPromptOneShot() }
         // mobile-fcm-token-registration — the iOS FCM token provider (Firebase Messaging Pod). The
         // vendor SDK import is confined to this actual (FcmPushSourceGuardTest enforces the boundary).
         single<FcmTokenProvider> { IosFcmTokenProvider() }

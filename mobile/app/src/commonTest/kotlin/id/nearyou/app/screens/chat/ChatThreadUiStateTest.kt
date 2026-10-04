@@ -190,6 +190,21 @@ class ChatThreadUiStateTest {
         assertEquals(SendBarState.Idle, sendBarState(SendOutcome.SessionExpired, inFlight = false))
     }
 
+    // mobile-chat § "Over-length content blocked client-side": the bar shows too-long BEFORE any request.
+    @Test
+    fun `an over-limit input projects to TooLong and an at-cap input does not`() {
+        val over = "a".repeat(MAX_CHAT_CONTENT_CODE_POINTS + 1)
+        assertEquals(SendBarState.TooLong, sendBarState(outcome = null, inFlight = false, input = over))
+        // The over-limit input outranks a stale failed-send outcome (the user is now editing).
+        assertEquals(SendBarState.TooLong, sendBarState(SendOutcome.NetworkError, inFlight = false, input = over))
+        assertEquals(
+            SendBarState.Idle,
+            sendBarState(outcome = null, inFlight = false, input = "a".repeat(MAX_CHAT_CONTENT_CODE_POINTS)),
+        )
+        // Code points, not UTF-16 units: 2000 emoji (4000 chars) are still within the cap.
+        assertEquals(SendBarState.Idle, sendBarState(outcome = null, inFlight = false, input = "😀".repeat(MAX_CHAT_CONTENT_CODE_POINTS)))
+    }
+
     // ---- client send guard ----
 
     @Test

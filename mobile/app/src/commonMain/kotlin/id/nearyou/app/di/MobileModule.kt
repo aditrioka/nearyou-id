@@ -80,7 +80,6 @@ import id.nearyou.app.infra.supabaserealtime.SupabaseChatRealtimeSubscriber
 import id.nearyou.app.location.CachingLocationProvider
 import id.nearyou.app.location.LocationTuning
 import id.nearyou.app.network.HttpClientFactory
-import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationsApiClient
 import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsRepository
@@ -533,7 +532,7 @@ val mobileModule =
         //  - SupabaseChatRealtimeSubscriber (the ONLY supabase-kt consumer) bound behind the vendor-free
         //    ChatRealtimeSubscriber seam, fed the non-secret project URL + anon key from flavor config.
         //  - TokenViewerIdProvider supplies the viewer's own id (JWT sub) for own-vs-other alignment.
-        //  - NotificationPromptOneShot gates the first-send permission rationale (per-process one-shot).
+        //  - NotificationPromptOneShot (the first-send rationale, once per install) is a platformModule binding.
         single { ConversationsApiClient(get()) }
         single { ChatMessagesApiClient(get()) }
         single { RealtimeTokenApiClient(get()) }
@@ -553,7 +552,6 @@ val mobileModule =
             )
         }
         single<ViewerIdProvider> { TokenViewerIdProvider(get()) }
-        single { NotificationPromptOneShot() }
 
         // mobile-search — the Premium-gated Cari graph (GET /api/v1/search). Reuses the shared HttpClient
         // (Bearer attached by the Auth plugin; NO X-Session-Id — search is not session-soft-capped). The

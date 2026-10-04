@@ -185,11 +185,14 @@ fun chatThreadUiState(
 }
 
 /**
- * The input-bar state, projected from the last [SendOutcome] + the in-flight flag (task 7.3):
+ * The input-bar state, projected from the last [SendOutcome] + the in-flight flag + the current input
+ * (task 7.3):
  *  - in-flight ⇒ [Sending] (send disabled);
+ *  - an over-limit [input] (> [MAX_CHAT_CONTENT_CODE_POINTS] code points) ⇒ [TooLong] — the client guard
+ *    already disabled send; this surfaces WHY, before any request;
  *  - `Blocked` ⇒ [Blocked] (the canonical block banner);
- *  - `TooLong` ⇒ [TooLong] (inline over-limit hint — defensive; the client gate already blocks it);
- *  - `NetworkError`/`Error` ⇒ [NetworkRetry] (retry the send);
+ *  - `TooLong` ⇒ [TooLong] (the server's 400 — defensive; the client gate already blocks it);
+ *  - `NetworkError`/`Error` ⇒ [NetworkRetry] (a retry affordance re-sends the kept input);
  *  - `RateLimited` ⇒ [Idle] (the Free 50/day cap is surfaced by the chat cap dialog, not the bar — the bar
  *    stays usable; cap-upsell-parity);
  *  - `SessionExpired` ⇒ [Idle] (the `SessionInvalidator` re-route owns the transition; no send chrome);
@@ -210,8 +213,10 @@ sealed interface SendBarState {
 fun sendBarState(
     outcome: SendOutcome?,
     inFlight: Boolean,
+    input: String = "",
 ): SendBarState {
     if (inFlight) return SendBarState.Sending
+    if (input.codePointLength() > MAX_CHAT_CONTENT_CODE_POINTS) return SendBarState.TooLong
     return when (outcome) {
         null, is SendOutcome.Sent, SendOutcome.SessionExpired -> SendBarState.Idle
         SendOutcome.Blocked -> SendBarState.Blocked
