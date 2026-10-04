@@ -7,6 +7,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_close
@@ -31,12 +32,21 @@ const val RADIUS_UPSELL_DIALOG_CLOSE_TAG: String = "radiusUpsellDialogClose"
  * The "Aktifkan Premium" button routes to the paywall via the hoisted [onActivatePremium]; "Tutup" / scrim
  * dismisses. Holds no navigation reference; show/hide is the host's one-shot state (docs/11 § 2.2). All
  * copy via `stringResource` (zero literals).
+ *
+ * While [premiumActivating] (a purchase is confirmed but the server still sent `radius_premium_only`, #517)
+ * it renders [PremiumActivatingDialog] instead, with no paywall CTA. The default reads the signal itself; a
+ * test composing this dialog with no Koin started passes it explicitly.
  */
 @Composable
 fun RadiusPremiumUpsellDialog(
     onDismiss: () -> Unit,
     onActivatePremium: () -> Unit,
+    premiumActivating: Boolean = rememberPremiumActivating(),
 ) {
+    if (premiumActivating) {
+        PremiumActivatingDialog(onDismiss = onDismiss)
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag(RADIUS_UPSELL_DIALOG_TAG),

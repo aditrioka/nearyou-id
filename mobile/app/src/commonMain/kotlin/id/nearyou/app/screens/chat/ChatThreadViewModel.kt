@@ -74,6 +74,11 @@ class ChatThreadViewModel(
 
     private val initialLoad = MutableStateFlow(true)
 
+    // The pull-to-refresh indicator over retained content (mobile-design-system § "Canonical list loading and
+    // refresh pattern") — set ONLY by the user's [retry]; the realtime loop's background resync stays silent.
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     /**
      * The single content screen state (docs/11 §2.2): the pure [chatThreadUiState] projection folded into
      * the ViewModel via [stateIn] over the three message-state inputs — the raw history [historyOutcome] +
@@ -134,7 +139,15 @@ class ChatThreadViewModel(
 
     /** Pull-to-refresh + error-retry: re-fetch the newest page and merge (keeps the list mounted). */
     fun retry() {
-        viewModelScope.launch { resyncFirstPage(initial = false) }
+        if (_isRefreshing.value || initialLoad.value) return
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                resyncFirstPage(initial = false)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
     }
 
     /** Load-older on scroll-up: fetch the next OLDER page via the cursor and merge by id. No-op at the end. */
@@ -203,7 +216,7 @@ class ChatThreadViewModel(
         }
     }
 
-    /** Clears a transient send banner (after the user dismisses / edits the input). */
+    /** Clears the one-shot send outcome: a dismissed cap dialog, or a `Sent` the screen has consumed. */
     fun clearSendOutcome() {
         _sendOutcome.value = null
     }

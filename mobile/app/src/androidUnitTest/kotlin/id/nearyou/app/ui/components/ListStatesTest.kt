@@ -2,6 +2,7 @@ package id.nearyou.app.ui.components
 
 import androidx.compose.material3.Text
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,7 +21,9 @@ import kotlin.test.assertEquals
  * `PullToRefreshBox` recognizes the pull gesture from it; this suite pins that the tag is present in every
  * state, the hoisted copy renders, and the error-state retry fires its callback. The per-screen behaviours
  * (which copy maps to which outcome, the skeleton-on-timelines-only split) stay covered by the screen
- * suites; this asserts the extracted primitives directly.
+ * suites; this asserts the extracted primitives directly. The read-limit states (soft banner, hard state)
+ * are composed with no Koin started, so they pass `premiumActivating` explicitly: both the Free CTA and
+ * the webhook-lag activating notice (#516 / #517).
  *
  * `@Suppress("DEPRECATION")`: keeps the v1 `runComposeUiTest` API the sibling component/screen tests use
  * — migrating to v2 is the tracked follow-up per docs/11 § 2.7, not drive-by churn.
@@ -36,6 +39,12 @@ class ListStatesTest {
         // Canonical copy (byte-identical to shared/resources strings.xml) — ListErrorState bakes these in.
         const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
         const val RETRY = "Coba lagi"
+
+        // …and the read-limit states bake these in (#516 / #517).
+        const val LIMIT_SOFT = "Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas."
+        const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya."
+        const val ACTIVATE = "Aktifkan Premium"
+        const val ACTIVATING = "Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya."
     }
 
     @Test
@@ -108,14 +117,83 @@ class ListStatesTest {
     }
 
     @Test
-    fun softLimitBanner_showsItsText() {
+    fun softLimitBanner_showsItsCopy_andTheCtaFiresOnce() {
+        var activated = 0
         runComposeUiTest {
             setContent {
                 NearYouTheme {
-                    SoftLimitBanner(text = "BANNER_SOFT_LIMIT")
+                    SoftLimitBanner(onActivatePremium = { activated++ }, premiumActivating = false)
                 }
             }
-            onNodeWithText("BANNER_SOFT_LIMIT").assertExists()
+            onNodeWithText(LIMIT_SOFT).assertExists()
+            onNodeWithTag(SOFT_LIMIT_PREMIUM_TAG).assertTextEquals(ACTIVATE).performClick()
+            waitForIdle()
+            assertEquals(1, activated, "the banner CTA fires onActivatePremium exactly once")
+        }
+    }
+
+    @Test
+    fun softLimitBanner_whileActivating_rendersNothing() {
+        runComposeUiTest {
+            setContent {
+                NearYouTheme {
+                    SoftLimitBanner(onActivatePremium = {}, premiumActivating = true)
+                }
+            }
+            onNodeWithText(LIMIT_SOFT).assertDoesNotExist()
+            onNodeWithText(ACTIVATING).assertDoesNotExist()
+            onNodeWithTag(SOFT_LIMIT_PREMIUM_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun hardLimitState_showsItsCopy_andTheCtaFiresOnce() {
+        var activated = 0
+        var retries = 0
+        runComposeUiTest {
+            setContent {
+                NearYouTheme {
+                    HardLimitState(
+                        onActivatePremium = { activated++ },
+                        onRetry = { retries++ },
+                        testTag = TAG,
+                        premiumActivating = false,
+                    )
+                }
+            }
+            onNodeWithTag(TAG).assertExists()
+            onNodeWithText(LIMIT_HARD).assertExists()
+            onNodeWithTag(HARD_LIMIT_RETRY_TAG).assertDoesNotExist()
+            onNodeWithTag(HARD_LIMIT_PREMIUM_TAG).assertTextEquals(ACTIVATE).performClick()
+            waitForIdle()
+            assertEquals(1, activated, "the hard-state CTA fires onActivatePremium exactly once")
+            assertEquals(0, retries)
+        }
+    }
+
+    @Test
+    fun hardLimitState_whileActivating_showsTheActivatingBody_andARetry() {
+        var activated = 0
+        var retries = 0
+        runComposeUiTest {
+            setContent {
+                NearYouTheme {
+                    HardLimitState(
+                        onActivatePremium = { activated++ },
+                        onRetry = { retries++ },
+                        testTag = TAG,
+                        premiumActivating = true,
+                    )
+                }
+            }
+            onNodeWithTag(TAG).assertExists()
+            onNodeWithText(ACTIVATING).assertExists()
+            onNodeWithText(LIMIT_HARD).assertDoesNotExist()
+            onNodeWithTag(HARD_LIMIT_PREMIUM_TAG).assertDoesNotExist()
+            onNodeWithTag(HARD_LIMIT_RETRY_TAG).assertTextEquals(RETRY).performClick()
+            waitForIdle()
+            assertEquals(1, retries, "the activating retry fires onRetry exactly once")
+            assertEquals(0, activated, "the activating state never reaches the paywall callback")
         }
     }
 }

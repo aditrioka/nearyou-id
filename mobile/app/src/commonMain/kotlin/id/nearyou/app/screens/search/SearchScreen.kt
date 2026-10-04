@@ -39,14 +39,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.search.SearchFlow
+import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.app.ui.billing.rememberPremiumConfirmed
+import id.nearyou.app.ui.components.PremiumGateAction
 import id.nearyou.app.ui.components.capCountdownMinutes
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_action_clear
 import id.nearyou.resources.generated.resources.ic_action_search
 import id.nearyou.resources.generated.resources.ic_nav_back
+import id.nearyou.resources.generated.resources.premium_activating_body
 import id.nearyou.resources.generated.resources.search_back_cd
 import id.nearyou.resources.generated.resources.search_clear_cd
 import id.nearyou.resources.generated.resources.search_disabled
@@ -86,6 +88,9 @@ const val SEARCH_LOAD_MORE_TAG: String = "searchLoadMore"
 
 /** Test tag on the error-state retry control. */
 const val SEARCH_RETRY_TAG: String = "searchRetry"
+
+/** Test tag on the Premium gate's "Coba lagi" (shown while Premium is activating, #517). */
+const val SEARCH_GATE_RETRY_TAG: String = "searchGateRetry"
 
 /** Test tag on the Premium-gate "Aktifkan Premium" CTA. */
 const val SEARCH_PREMIUM_CTA_TAG: String = "searchPremiumCta"
@@ -149,7 +154,7 @@ fun SearchScreen(
                 is SearchUiState.EmptyResults ->
                     CenteredMessage(stringResource(Res.string.search_empty_results, state.query))
                 SearchUiState.Error -> ErrorState(onRetry = viewModel::retry)
-                SearchUiState.PremiumGate -> PremiumGateState(onActivatePremium = onActivatePremium)
+                SearchUiState.PremiumGate -> PremiumGateState(onActivatePremium = onActivatePremium, onRetry = viewModel::retry)
                 is SearchUiState.RateLimited ->
                     RateLimitedState(retryAfterSeconds = state.retryAfterSeconds, onRetry = viewModel::retry)
                 SearchUiState.Disabled -> CenteredMessage(stringResource(Res.string.search_disabled))
@@ -317,28 +322,40 @@ private fun ErrorState(onRetry: () -> Unit) {
  * The Free-tier upsell panel (the reactive 403 gate). An informational body + an "Aktifkan Premium" CTA
  * that invokes the hoisted [onActivatePremium]; the host (`appEntryProvider`) pushes
  * `PaywallRoute(SEARCH_GATE)` (mobile-paywall-screen, #254). The panel itself holds no back-stack
- * reference — `SearchScreen` stays navigation-free.
+ * reference — `SearchScreen` stays navigation-free. After a confirmed purchase the 403 is the server tier
+ * lagging the webhook, so the panel shows the activating notice and a "Coba lagi" ([onRetry], the same
+ * query again) in place of the paywall CTA (#517).
  */
 @Composable
-private fun PremiumGateState(onActivatePremium: () -> Unit) {
+private fun PremiumGateState(
+    onActivatePremium: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val activating = rememberPremiumActivating()
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = stringResource(Res.string.search_premium_gate_body),
+                text =
+                    stringResource(
+                        if (activating) Res.string.premium_activating_body else Res.string.search_premium_gate_body,
+                    ),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            Button(
-                // mobile-paywall-screen (#254): the CTA now pushes PaywallRoute(SEARCH_GATE) via the host.
-                onClick = onActivatePremium,
-                modifier = Modifier.padding(top = 16.dp).testTag(SEARCH_PREMIUM_CTA_TAG),
-            ) {
-                Text(text = stringResource(Res.string.cta_activate_premium))
-            }
+            // mobile-paywall-screen (#254): the CTA pushes PaywallRoute(SEARCH_GATE) via the host; while
+            // activating (#517) it is "Coba lagi" re-running the query.
+            PremiumGateAction(
+                premiumActivating = activating,
+                onActivatePremium = onActivatePremium,
+                onRetry = onRetry,
+                premiumTag = SEARCH_PREMIUM_CTA_TAG,
+                retryTag = SEARCH_GATE_RETRY_TAG,
+                modifier = Modifier.padding(top = 16.dp),
+            )
         }
     }
 }

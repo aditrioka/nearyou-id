@@ -22,6 +22,7 @@ import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.notifications.FakeNotificationPermissionController
+import id.nearyou.app.notifications.FakeNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
@@ -81,7 +82,7 @@ class ChatThreadReportFlowIosTest {
                 single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
                 single<ReportSubmitter> { FakeReportSubmitter(ReportOutcome.Submitted) }
                 single<NotificationPermissionController> { FakeNotificationPermissionController() }
-                single { NotificationPromptOneShot() }
+                single<NotificationPromptOneShot> { FakeNotificationPromptOneShot() }
             },
         )
     }

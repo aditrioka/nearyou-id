@@ -26,6 +26,7 @@ import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.HardLimitState
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
@@ -40,8 +41,6 @@ import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_see_global
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
 import id.nearyou.resources.generated.resources.timeline_following_placeholder
-import id.nearyou.resources.generated.resources.timeline_limit_hard
-import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
@@ -139,6 +138,8 @@ fun FollowingTimelineScreen(
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
+        // The read-cap banner/state CTA opens the paywall as TIMELINE_CAP via the host (#516).
+        onReadCapUpsell = { onActivatePremium(PaywallEntry.TIMELINE_CAP) },
         // The empty-state "lihat Global" CTA — a host-level tab-switch callback (the tab host selects
         // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
         onSeeGlobal = onSeeGlobal,
@@ -201,6 +202,7 @@ private fun FollowingTimelineContent(
     onRetryLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onReadCapUpsell: () -> Unit,
     onSeeGlobal: () -> Unit,
     onOpenPost: (FollowingTimelinePost) -> Unit,
     onToggleLike: (FollowingTimelinePost) -> Unit,
@@ -237,11 +239,9 @@ private fun FollowingTimelineContent(
             // The DIVERGENCE from Global: a directive empty (placeholder copy + "Lihat Global" CTA), NOT
             // the loading skeleton — Following-empty is a real expected state (docs/03 § Empty State).
             FollowingTimelineUiState.Empty -> FollowingEmptyState(onSeeGlobal = onSeeGlobal)
+            // The Free read cap (Free-only, so never a Premium reader): copy + "Aktifkan Premium" → TIMELINE_CAP.
             FollowingTimelineUiState.HardLimit ->
-                ListCenteredMessageState(
-                    message = stringResource(Res.string.timeline_limit_hard),
-                    testTag = FOLLOWING_TIMELINE_LIST_TAG,
-                )
+                HardLimitState(onActivatePremium = onReadCapUpsell, onRetry = onRetry, testTag = FOLLOWING_TIMELINE_LIST_TAG)
             FollowingTimelineUiState.Error -> ListErrorState(onRetry = onRetry, testTag = FOLLOWING_TIMELINE_LIST_TAG)
             // Terminal 401 → neutral redirect placeholder: the redirect copy with NO retry control and
             // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
@@ -285,7 +285,7 @@ private fun FollowingTimelineContent(
                     onOpenProfile = onOpenProfile,
                     listTag = FOLLOWING_TIMELINE_LIST_TAG,
                     cardTag = FOLLOWING_POST_CARD_TAG,
-                    banner = stringResource(Res.string.timeline_limit_soft),
+                    softLimitUpsell = onReadCapUpsell,
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,

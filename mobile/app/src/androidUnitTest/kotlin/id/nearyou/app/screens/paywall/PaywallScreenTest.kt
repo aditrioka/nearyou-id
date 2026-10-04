@@ -44,6 +44,7 @@ private val SUBHEAD_BY_ENTRY =
         PaywallEntry.POST_CAP to "Posting tanpa batas setiap hari",
         PaywallEntry.EDIT_GATE to "Edit postingan hingga 30 menit",
         PaywallEntry.RADIUS_GATE to "Jelajahi radius hingga 100 km",
+        PaywallEntry.TIMELINE_CAP to "Baca timeline tanpa batas",
     )
 private const val BENEFIT_UNLIMITED = "Post, balasan & like tanpa batas"
 private const val BENEFIT_RADIUS = "Radius Sekitar 10/20/50/100 km"

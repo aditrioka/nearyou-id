@@ -25,6 +25,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.screens.routing.EditPostRoute
+import id.nearyou.app.ui.billing.rememberPremiumActivating
+import id.nearyou.app.ui.components.PremiumActivatingDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_cancel
@@ -172,12 +174,19 @@ private fun EditTopBar(
 }
 
 /** The reactive `403 premium_required` upsell — an "Aktifkan Premium" CTA (reuses the shared
- *  `cta_activate_premium` string) that routes to the paywall via the host; the cancel button only dismisses. */
+ *  `cta_activate_premium` string) that routes to the paywall via the host; the cancel button only dismisses.
+ *  After a confirmed purchase the 403 can only be the server tier lagging the webhook, so it shows the shared
+ *  activating notice instead, with no paywall CTA (#517). The signal picks the rendering only; the edit
+ *  attempt itself never reads a premium flag. */
 @Composable
 private fun EditPremiumUpsellDialog(
     onDismiss: () -> Unit,
     onActivatePremium: () -> Unit,
 ) {
+    if (rememberPremiumActivating()) {
+        PremiumActivatingDialog(onDismiss = onDismiss)
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(Res.string.post_edit_premium_title)) },

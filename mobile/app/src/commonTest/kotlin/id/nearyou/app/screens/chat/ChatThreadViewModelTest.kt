@@ -13,6 +13,7 @@ import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -260,6 +261,101 @@ class ChatThreadViewModelTest {
             assertTrue(viewModel.rows.value.isEmpty(), "a rate-limited send drops the optimistic bubble")
             viewModel.clearSendOutcome()
             assertEquals(null, viewModel.sendOutcome.value, "dismissing the cap dialog clears the one-shot")
+        }
+
+    // #494: a failed send (transport / 5xx) holds the outcome the bar renders as network-retry, and a retry
+    // re-sends through the same path.
+    @Test
+    fun networkErrorSendHoldsRetryOutcomeAndARetrySendsAgain() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow =
+                FakeChatFlow(
+                    historyOutcomes = listOf(ChatThreadOutcome.Loaded(emptyList(), null)),
+                    sendOutcome = SendOutcome.NetworkError,
+                )
+            val viewModel = vm(flow, sub)
+            advanceUntilIdle()
+            viewModel.send("halo")
+            advanceUntilIdle()
+            assertEquals(SendOutcome.NetworkError, viewModel.sendOutcome.value)
+            assertEquals(SendBarState.NetworkRetry, sendBarState(viewModel.sendOutcome.value, viewModel.sendInFlight.value))
+            assertTrue(viewModel.rows.value.isEmpty(), "the failed optimistic bubble is dropped")
+            flow.sendOutcome = SendOutcome.Sent(dto(SERVER_MSG, sender = VIEWER, content = "halo"))
+            viewModel.send("halo")
+            advanceUntilIdle()
+            assertEquals(2, flow.sendCount, "the retry re-sends via REST")
+            assertEquals(listOf(SERVER_MSG), viewModel.rows.value.map { it.id })
+            assertEquals(SendBarState.Idle, sendBarState(viewModel.sendOutcome.value, viewModel.sendInFlight.value))
+        }
+
+    // --- pull-to-refresh (#494, mobile-design-system § "Canonical list loading and refresh pattern") ---
+
+    @Test
+    fun retryShowsRefreshingOverRetainedContentThenClears() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(dto("m1")), null)))
+            val viewModel = vm(flow, sub)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertFalse(viewModel.isRefreshing.value, "the initial load is not a refresh")
+            val loadsBefore = flow.loadHistoryCount
+            val gate = CompletableDeferred<Unit>()
+            flow.historyGate = gate
+            viewModel.retry()
+            testScheduler.runCurrent()
+            assertTrue(viewModel.isRefreshing.value, "a pull shows the refresh indicator")
+            assertTrue(viewModel.uiState.value is ChatThreadUiState.Content, "the thread stays mounted during the refresh")
+            viewModel.retry()
+            testScheduler.runCurrent()
+            assertEquals(loadsBefore + 1, flow.loadHistoryCount, "a second pull while refreshing is ignored")
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(viewModel.isRefreshing.value, "the indicator clears when the resync lands")
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun retryFromErrorRetainsErrorWhileRefreshingThenShowsContent() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow =
+                FakeChatFlow(
+                    listOf(ChatThreadOutcome.NetworkError, ChatThreadOutcome.Loaded(listOf(dto("m1")), null)),
+                )
+            val viewModel = vm(flow, sub)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertEquals(ChatThreadUiState.Error, viewModel.uiState.value)
+            val gate = CompletableDeferred<Unit>()
+            flow.historyGate = gate
+            viewModel.retry()
+            testScheduler.runCurrent()
+            assertTrue(viewModel.isRefreshing.value)
+            assertEquals(ChatThreadUiState.Error, viewModel.uiState.value, "a refresh from Error retains Error (no skeleton flash)")
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value is ChatThreadUiState.Content)
+            assertFalse(viewModel.isRefreshing.value)
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun retryDuringInitialLoadIsANoOp() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val gate = CompletableDeferred<Unit>()
+            val flow = FakeChatFlow(historyGate = gate)
+            val viewModel = vm(flow, sub)
+            testScheduler.runCurrent()
+            viewModel.retry()
+            testScheduler.runCurrent()
+            assertFalse(viewModel.isRefreshing.value, "no refresh indicator over the initial-load skeleton")
+            assertEquals(1, flow.loadHistoryCount, "the initial load is the only fetch")
+            gate.complete(Unit)
+            advanceUntilIdle()
+            viewModel.tearDown()
         }
 
     // --- single-uiState fold (audit #414): the content uiState delegates to the pure 3-arg projection ---

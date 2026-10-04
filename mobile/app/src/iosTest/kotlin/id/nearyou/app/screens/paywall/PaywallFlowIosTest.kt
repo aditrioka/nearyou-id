@@ -30,6 +30,7 @@ import kotlin.test.assertTrue
 private const val TITLE = "NearYouID Premium"
 private const val UNAVAILABLE_TITLE = "Premium belum tersedia"
 private const val SUBHEAD_CHAT_CAP = "Kirim pesan tanpa batas" // cap-upsell-parity: paywall_subhead_chat_cap
+private const val SUBHEAD_TIMELINE_CAP = "Baca timeline tanpa batas" // #516: paywall_subhead_timeline_cap
 private const val PENDING = "Pembayaran sedang diproses. Premium aktif setelah pembayaran dikonfirmasi."
 
 /**
@@ -152,6 +153,17 @@ class PaywallFlowIosTest {
             setContent { KoinContext { NearYouTheme { PaywallScreen(entry = PaywallEntry.CHAT_CAP, onClose = {}) } } }
             waitForIdle()
             onNodeWithText(SUBHEAD_CHAT_CAP).assertExists()
+        }
+    }
+
+    // #516: the read-cap entry renders its own hero headline on Kotlin/Native.
+    @Test
+    fun timelineCapEntry_showsItsOwnHeadline() {
+        installKoin(OfferingsResult.Loaded(listOf(pkg(PaywallPeriod.MONTHLY, "Rp29.000", 29_000_000_000L))))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PaywallScreen(entry = PaywallEntry.TIMELINE_CAP, onClose = {}) } } }
+            waitForIdle()
+            onNodeWithText(SUBHEAD_TIMELINE_CAP).assertExists()
         }
     }
 
