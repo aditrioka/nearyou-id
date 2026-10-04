@@ -24,6 +24,6 @@ The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its 
 
 #### Scenario: The settings gear is absent on the other-user profile overlay
 
-- **GIVEN** `ProfileScreen` rendered as an other-user profile overlay (a non-null `targetUserId`)
+- **GIVEN** `ProfileScreen` rendered as an other-user profile overlay (a non-null `onBack`, as the `ProfileRoute` entry passes)
 - **WHEN** the loaded profile renders
 - **THEN** no settings-gear node (test tag `PROFILE_SETTINGS_TAG`) exists
