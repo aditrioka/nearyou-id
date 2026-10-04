@@ -75,6 +75,16 @@
 
 - [x] 5.8 commonTest `SearchViewModelTest`: same-card double-tap keeps the in-flight read; a load-more page repeating a retained hit is de-duplicated
 
+- [x] 5.9 Review round (test-coverage lens):
+  - **Consumed once:** a second tap after delivery reads and delivers again. Fails if `onNavConsumed` is not called (mutation-checked).
+  - **Leaves composition:** a read in flight when `SearchScreen` leaves composition never navigates on return. Fails without the `DisposableEffect` cancel (mutation-checked).
+  - **Back affordance:** invokes `onBack` once.
+  - **Edits too:** a query edit (not only a clear) cancels an in-flight read.
+  - **Positive control:** the rate-limited test asserts the gate before typing.
+  - **Load-more:** re-asserts page one stays.
+  - **Host push:** asserts the header renders the hydrated city.
+  - **`resolvePostTarget` 404:** logs a type tag only.
+
 ## 6. Docs
 
 - [x] 6.1 `docs/11-Engineering-Standards.md` §2.2 known-debt sentence: drop `SearchViewModel` (now one `uiState`); count 10 → 9

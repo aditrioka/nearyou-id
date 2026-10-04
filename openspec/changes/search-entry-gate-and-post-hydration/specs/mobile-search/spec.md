@@ -1,28 +1,7 @@
 ## RENAMED Requirements
 
 - FROM: `### Requirement: The Premium gate renders the Free-tier upsell panel reactively on 403`
-- TO: `### Requirement: Pagination is a "Lihat lebih banyak" load-more that appends pages
-
-When the current `Results` outcome carries a non-null `nextOffset`, `SearchScreen` SHALL render a "Lihat lebih banyak" control via `stringResource(Res.string.search_load_more)` below the result list. Activating it SHALL issue a fetch with `offset = nextOffset`, **append** the returned hits to the retained list (NOT replace it), and update the retained `nextOffset`. The append SHALL drop any returned hit whose `postId` the retained list already holds — `OFFSET` paging over rank ties can repeat a hit when the result set shifts between pages, and the result list keys its items on `postId` (a duplicate key would crash it). A `nextOffset == null` SHALL hide the control (terminal). A returned empty page SHALL be treated as terminal (the control is hidden) even if a non-null `nextOffset` was returned — clients treat `results = []` as terminal per `premium-search` § "Pagination via OFFSET". During a load-more fetch the existing results SHALL remain rendered (the list is never torn down) with at most one in-list progress indicator; the screen state stays `Results`, NOT `Loading`.
-
-#### Scenario: Load-more appends the next page and keeps the list mounted
-
-- **GIVEN** `SearchScreen` in the `Results` state with a first page of 20 hits and `nextOffset = 20`, over a `FakeSearchFlow` whose load-more returns 5 more hits with `nextOffset = null`
-- **WHEN** the "Lihat lebih banyak" control is activated
-- **THEN** the list renders 25 hits (the 5 appended to the original 20) AND the existing 20 stayed rendered during the fetch AND the load-more control is now hidden (`nextOffset == null`)
-
-#### Scenario: A null nextOffset hides the load-more control
-
-- **WHEN** the `Results` outcome carries `nextOffset = null`
-- **THEN** no "Lihat lebih banyak" control is rendered
-
-#### Scenario: A load-more page repeating a retained hit does not duplicate it
-
-- **GIVEN** a `SearchViewModel` whose retained `Results` hold `p1`, `p2` with `nextOffset = 2`, over a flow whose load-more returns `p2`, `p3`
-- **WHEN** the load-more is requested
-- **THEN** the retained hits are exactly `p1`, `p2`, `p3` (in that order — `p2` is not appended twice)
-
-### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403`
+- TO: `### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403`
 
 - FROM: `### Requirement: A result tap opens PostDetailRoute with documented default fields`
 - TO: `### Requirement: A result tap opens PostDetailRoute hydrated from the by-id post read`
@@ -118,6 +97,27 @@ An eligible query (post-trim length `2..100`) projects from its outcome exactly 
 
 - **WHEN** the outcome is `SessionExpired`
 - **THEN** the rendered tree contains the neutral redirect notice (`stringResource(Res.string.timeline_session_redirect)`) AND does NOT contain `stringResource(Res.string.signin_error_network)` AND does NOT contain a `stringResource(Res.string.cta_retry)` control (the connectivity-error state is reserved for `NetworkError` / `Error`)
+
+### Requirement: Pagination is a "Lihat lebih banyak" load-more that appends pages
+
+When the current `Results` outcome carries a non-null `nextOffset`, `SearchScreen` SHALL render a "Lihat lebih banyak" control via `stringResource(Res.string.search_load_more)` below the result list. Activating it SHALL issue a fetch with `offset = nextOffset`, **append** the returned hits to the retained list (NOT replace it), and update the retained `nextOffset`. The append SHALL drop any returned hit whose `postId` the retained list already holds — `OFFSET` paging over rank ties can repeat a hit when the result set shifts between pages, and the result list keys its items on `postId` (a duplicate key would crash it). A `nextOffset == null` SHALL hide the control (terminal). A returned empty page SHALL be treated as terminal (the control is hidden) even if a non-null `nextOffset` was returned — clients treat `results = []` as terminal per `premium-search` § "Pagination via OFFSET". During a load-more fetch the existing results SHALL remain rendered (the list is never torn down) with at most one in-list progress indicator; the screen state stays `Results`, NOT `Loading`.
+
+#### Scenario: Load-more appends the next page and keeps the list mounted
+
+- **GIVEN** `SearchScreen` in the `Results` state with a first page of 20 hits and `nextOffset = 20`, over a `FakeSearchFlow` whose load-more returns 5 more hits with `nextOffset = null`
+- **WHEN** the "Lihat lebih banyak" control is activated
+- **THEN** the list renders 25 hits (the 5 appended to the original 20) AND the existing 20 stayed rendered during the fetch AND the load-more control is now hidden (`nextOffset == null`)
+
+#### Scenario: A null nextOffset hides the load-more control
+
+- **WHEN** the `Results` outcome carries `nextOffset = null`
+- **THEN** no "Lihat lebih banyak" control is rendered
+
+#### Scenario: A load-more page repeating a retained hit does not duplicate it
+
+- **GIVEN** a `SearchViewModel` whose retained `Results` hold `p1`, `p2` with `nextOffset = 2`, over a flow whose load-more returns `p2`, `p3`
+- **WHEN** the load-more is requested
+- **THEN** the retained hits are exactly `p1`, `p2`, `p3` (in that order — `p2` is not appended twice)
 
 ### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403
 

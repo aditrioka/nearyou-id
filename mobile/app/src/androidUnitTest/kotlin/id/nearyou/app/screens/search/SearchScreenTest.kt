@@ -381,6 +381,7 @@ class SearchScreenTest {
             onNodeWithTag(SEARCH_LOAD_MORE_TAG).performClick()
             waitForIdle()
             onNodeWithText("PAGE_TWO").assertExists()
+            onNodeWithText("PAGE_ONE").assertExists() // appended, not replaced
             onNodeWithText(LOAD_MORE).assertDoesNotExist() // nextOffset = null → load-more hidden
         }
     }
@@ -448,6 +449,55 @@ class SearchScreenTest {
             tick++
             waitForIdle()
             assertEquals(listOf(hydrated("p1").toPostDetailTarget()), opened, "one hydrated delivery, no re-fire")
+            // The delivery was consumed (onNavConsumed cleared the target): a second tap is NOT swallowed by the
+            // pending-target guard — it reads and delivers again.
+            onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { opened.size == 2 }
+            assertEquals(listOf("p1", "p1"), fake.resolvedIds)
+        }
+    }
+
+    // #255: leaving composition (e.g. covered by the pushed detail) cancels a read still in flight, so a late
+    // resolution never navigates when the screen comes back.
+    @Test
+    fun resultTap_readStillInFlight_whenTheScreenLeaves_neverNavigatesOnReturn() {
+        installKoin(SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1", content = "HALO_CARI")), null))
+        val gate = CompletableDeferred<Unit>()
+        fake.resolutions["p1"] = hydrated("p1")
+        fake.resolveGates["p1"] = gate
+        runComposeUiTest {
+            val opened = mutableListOf<PostDetailTarget>()
+            var show by mutableStateOf(true)
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        // The VM is scoped to the activity's store here, so it outlives the screen's composition.
+                        if (show) SearchScreen(onBack = {}, onOpenPost = { opened += it })
+                    }
+                }
+            }
+            submitQuery()
+            onNodeWithTag(SEARCH_RESULT_CARD_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SEARCH_RESULT_RESOLVING_TAG).fetchSemanticsNodes().isNotEmpty() }
+            show = false
+            waitForIdle()
+            gate.complete(Unit) // the read lands while the screen is gone
+            waitForIdle()
+            show = true
+            waitForIdle()
+            assertTrue(opened.isEmpty(), "a read cancelled on leaving composition never opens a detail: $opened")
+        }
+    }
+
+    @Test
+    fun backAffordance_invokesOnBack() {
+        installKoin()
+        runComposeUiTest {
+            var backs = 0
+            setContent { KoinContext { NearYouTheme { SearchScreen(onBack = { backs++ }) } } }
+            onNodeWithTag(SEARCH_BACK_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, backs, "the back affordance invokes the hoisted onBack once")
         }
     }
 
@@ -495,6 +545,10 @@ class SearchScreenTest {
                 backStack.last(),
             )
             assertEquals(1, backStack.count { it is PostDetailRoute }, "exactly one detail pushed")
+            // The pushed detail's header renders from the hydrated payload (mobile-post-detail search entry).
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText("Jakarta Selatan", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
         }
     }
 

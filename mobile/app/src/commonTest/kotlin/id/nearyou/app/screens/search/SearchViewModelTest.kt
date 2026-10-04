@@ -142,6 +142,7 @@ class SearchViewModelTest {
 
         assertEquals(0, fake.invocationCount, "a below-2 query issues no request")
         assertEquals(null, vm.outcome, "outcome stays null (Idle)")
+        assertEquals(SearchUiState.Idle, vm.surface())
         assertEquals("a", vm.uiState.value.query)
     }
 
@@ -349,7 +350,12 @@ class SearchViewModelTest {
 
     @Test
     fun freeViewer_rateLimitedAnswer_provesPremium_soClearingIsIdle() {
-        val vm = searchVm(FakeSearchFlow(SearchOutcome.RateLimited(60)), profile = freeProfile())
+        val profile = freeProfile()
+        val vm = searchVm(FakeSearchFlow(SearchOutcome.RateLimited(60)), profile = profile)
+        scheduler.advanceUntilIdle()
+        assertEquals(1, profile.loadCalls)
+        assertEquals(SearchUiState.PremiumGate, vm.surface(), "positive control: gated before the query")
+
         vm.onQueryChange("kopi")
         vm.onSubmit()
         scheduler.advanceUntilIdle()
@@ -647,5 +653,25 @@ class SearchViewModelTest {
         val outcome = vm.outcome
         assertTrue(outcome is SearchOutcome.Results)
         assertEquals(listOf("p1", "p2", "p3"), outcome.hits.map { it.postId }, "the repeated p2 is not appended twice")
+    }
+
+    @Test
+    fun queryEdit_alsoCancelsAnInFlightRead() {
+        val gate = CompletableDeferred<Unit>()
+        val fake =
+            FakeSearchFlow(SearchOutcome.Results(listOf(hitP1), null)).apply {
+                resolutions["p1"] = resolved("p1")
+                resolveGates["p1"] = gate
+            }
+        val vm = searchVm(fake).loaded()
+        vm.onResultTap(hitP1.asHit())
+        scheduler.advanceUntilIdle()
+        assertEquals("p1", vm.uiState.value.resolvingPostId)
+
+        vm.onQueryChange("kopi tubruk") // an eligible edit starts a new search
+        assertNull(vm.uiState.value.resolvingPostId, "the card spinner clears on a new search")
+        gate.complete(Unit)
+        scheduler.advanceUntilIdle()
+        assertNull(vm.uiState.value.pendingNavTarget, "the superseded results' post is never opened")
     }
 }

@@ -30,6 +30,7 @@ private val JSON_HEADERS = headersOf("Content-Type", "application/json")
 class SearchRepositoryTest {
     private fun repository(
         tokenStore: TokenStore = InMemoryTokenStore(),
+        diagnosticLog: (String) -> Unit = {},
         handler: MockRequestHandler,
     ): SearchRepository {
         val client: HttpClient =
@@ -43,7 +44,7 @@ class SearchRepositoryTest {
                 installLogging = false,
                 nowMillis = { 0L },
             )
-        return SearchRepository(SearchApiClient(client), SinglePostApiClient(client))
+        return SearchRepository(SearchApiClient(client), SinglePostApiClient(client), diagnosticLog)
     }
 
     @Test
@@ -183,12 +184,14 @@ class SearchRepositoryTest {
         }
 
     @Test
-    fun `resolvePostTarget maps a 404 to Unavailable`() =
+    fun `resolvePostTarget maps a 404 to Unavailable and logs a type tag only`() =
         runTest {
+            val logged = mutableListOf<String>()
             val repo =
-                repository {
+                repository(diagnosticLog = { logged += it }) {
                     respond("""{"error":{"code":"post_not_found"}}""", HttpStatusCode.NotFound, JSON_HEADERS)
                 }
             assertEquals(PostTargetResolution.Unavailable, repo.resolvePostTarget("p1"))
+            assertEquals(listOf("search_post_resolve_unavailable"), logged, "a type tag only — never the post id")
         }
 }
