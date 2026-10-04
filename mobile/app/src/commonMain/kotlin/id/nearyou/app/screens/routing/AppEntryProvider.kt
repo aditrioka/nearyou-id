@@ -1,5 +1,12 @@
 package id.nearyou.app.screens.routing
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
@@ -42,14 +49,21 @@ import org.koin.compose.koinInject
  *  - [AgeGateRoute] → [AgeGateScreen] — success → `replaceAll(ConsentRoute)`; account-exists / absent
  *    identity → `replaceAll(SignInRoute)`.
  *  - [ConsentRoute] → [ConsentScreen] — done (Success or post-failure skip) → `replaceAll(HomeRoute)`.
- *  - [PostCreationRoute] → [PostCreationScreen] — success → `removeLastOrNull()`.
+ *  - [PostCreationRoute] → [PostCreationScreen] — success → raise `postCreated` + `removeLastOrNull()`; the
+ *    [HomeRoute] entry consumes the flag into its feed reload key, so Nearby + Global re-fetch page 1 (#173).
  *  - [PostDetailRoute] → [PostDetailScreen] — back → `removeLastOrNull()` (pop off the root stack).
  *
  * Adding a new screen requires only declaring its `NavKey` (NavKeys.kt) + one `entry<…>` mapping
  * here (`mobile-app-scaffold` § "Typed navigation host with start destination").
  */
 
-fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavKey> =
+fun appEntryProvider(
+    backStack: NavBackStack<NavKey>,
+    // feed-refresh-on-post (#173): the one-shot "a post just succeeded" signal, raised by the composer entry and
+    // consumed by the HomeRoute entry. Hoisted state — not an event bus. Defaulted so App.kt / TestNavHost keep
+    // their single `remember(backStack) { appEntryProvider(backStack) }` call (one instance per back stack).
+    postCreated: MutableState<Boolean> = mutableStateOf(false),
+): (NavKey) -> NavEntry<NavKey> =
     entryProvider {
         entry<RootRoute> {
             RootRouterScreen(
@@ -85,7 +99,20 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // the section bar). This absorbs #159's onOpenPost wiring through the shell (design D9 /
             // tasks.md 14.5): the call site moved from HomeScreen to AppShellScreen, which forwards
             // onOpenPost to the Home section's HomeScreen.
+            //
+            // The feed reload key (#173): saveable IN this entry, so it is saved/restored together with the
+            // HomeRoute-scoped feed ViewModels that compare against it (a provider-level counter would reset on
+            // an Activity recreation while the VMs survive → a spurious read). A successful post bumps it once;
+            // the Nearby + Global VMs re-fetch page 1 on the change (Following never shows own posts).
+            var feedReloadKey by rememberSaveable { mutableIntStateOf(0) }
+            LaunchedEffect(postCreated.value) {
+                if (postCreated.value) {
+                    postCreated.value = false
+                    feedReloadKey++
+                }
+            }
             AppShellScreen(
+                feedReloadKey = feedReloadKey,
                 onOpenComposer = { backStack.add(PostCreationRoute) },
                 // mobile-chat-screen (task 10.1): the Home brand app-bar "Pesan" action pushes the
                 // conversation list onto the root stack (overlaying the section bar, like PostDetailRoute).
@@ -182,7 +209,11 @@ fun appEntryProvider(backStack: NavBackStack<NavKey>): (NavKey) -> NavEntry<NavK
             // (which NavDisplay would reject). No defensive size guard is added, so a future misuse that
             // makes PostCreationRoute the sole entry fails loudly rather than silently no-op'ing.
             PostCreationScreen(
-                onPostCreated = { backStack.removeLastOrNull() },
+                // Raise the post-created signal BEFORE popping, so the HomeRoute entry sees it as it re-enters.
+                onPostCreated = {
+                    postCreated.value = true
+                    backStack.removeLastOrNull()
+                },
                 // The composer's two gates name their entry: IMAGE_ATTACH (a Free viewer tapping attach,
                 // image-attached-posts) and POST_CAP (the 10/day cap dialog, cap-upsell-parity). The
                 // composer holds no back-stack reference.

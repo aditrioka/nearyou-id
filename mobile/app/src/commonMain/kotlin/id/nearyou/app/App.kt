@@ -27,7 +27,8 @@ import id.nearyou.app.theme.NearYouTheme
  * state) THEN `rememberViewModelStoreNavEntryDecorator()` (per-entry `ViewModelStore`), so a screen's
  * `koinViewModel` is scoped to its `NavEntry` — it survives the entry going off-screen (e.g. Home
  * while the composer is on top) and is cleared only when the entry is popped (design Decision 5;
- * this is why returning from the composer does NOT re-fetch the Nearby feed).
+ * this is why returning from the composer without posting does NOT re-fetch the Nearby feed; a successful
+ * post re-fetches explicitly through the HomeRoute feed reload key, #173).
  *
  * image-attached-posts (D5): the singleton Coil [ImageLoader] is configured once here with the
  * [KtorNetworkFetcherFactory] so network image URLs load (Coil 3.x does NOT auto-register a network

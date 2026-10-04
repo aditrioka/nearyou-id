@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +60,8 @@ const val GLOBAL_BLOCK_DIALOG_TAG: String = "globalBlockDialog"
  * [GlobalTimelineOutcome] + the split `isInitialLoad`/`isRefreshing` flags and (re)loads page 1
  * (pull-to-refresh + error-retry both re-fetch). Because the screen composes directly under `HomeRoute`
  * (design D1/D2), the `viewModel { }` resolves to the `HomeRoute` store and the loaded feed survives
- * swipes/tab switches + the composer round-trip with no re-fetch.
+ * swipes/tab switches + the composer round-trip with no re-fetch — except after a successful post, when
+ * [feedReloadKey] changes and page 1 is re-fetched once (#173).
  *
  * The screen is **inset-free**: it declares NO `Scaffold` and NO `TopAppBar` — the app section shell
  * owns the single inset-owning `Scaffold` (mobile-design-system § "The app shell owns a single Scaffold
@@ -79,6 +81,8 @@ const val GLOBAL_BLOCK_DIALOG_TAG: String = "globalBlockDialog"
  */
 @Composable
 fun GlobalTimelineScreen(
+    // The HomeRoute feed reload key (#173) — a change re-fetches page 1 once (a successful post).
+    feedReloadKey: Int = 0,
     onOpenPost: (GlobalTimelinePost) -> Unit = {},
     onOpenPostReply: (GlobalTimelinePost) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
@@ -96,6 +100,9 @@ fun GlobalTimelineScreen(
     val blockSubmitter = koinInject<BlockSubmitter>()
     val viewModel =
         viewModel { GlobalTimelineViewModel(flow, likeFlow, reportSubmitter, selfUserIdProvider, blockSubmitter) }
+    // #173: hand the HomeRoute feed reload key to the VM — it records the first key and re-fetches page 1 on a
+    // change (a successful post). Re-entering composition with the same key is a no-op in the VM.
+    LaunchedEffect(viewModel, feedReloadKey) { viewModel.onFeedReloadKey(feedReloadKey) }
     // The single screen state — the globalTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

@@ -77,6 +77,10 @@ This is the shape the code actually has (2026-10-03 audit § 1: 60 of the files 
 - Predictive back: use `NavigationEventHandler`; `PredictiveBackHandler` is deprecated since CMP 1.10. iOS start-edge swipe-back comes via navigationevent — do not hand-roll gesture handling.
 - Deep links: manual URI→NavKey mapping at app entry for now; migrate to `UriDeepLinkMatcher`/`DeepLinkUri` when the JetBrains 1.2 port ships (androidx 1.2.0-alpha03 added first-class deep links).
 - Tabs/sections inside the Home shell are pager/Tab state, NOT NavKeys (per `mobile-design-system`); the back stack holds screen-level destinations only.
+- **Refreshing a screen after an overlay returns** — pick by what changed, never a `Channel`/`SharedFlow` bus or a Nav3 result (registered by `feed-refresh-on-post-and-radius-backstop`):
+  - **Data the overlay itself edited that this screen shows.** A silent `ON_RESUME` re-read in the screen's VM, e.g. post detail after an edit, the self profile.
+  - **An app-wide fact.** A Koin-single `StateFlow` the VM observes, e.g. `PremiumEntitlementSession.purchaseConfirmed`.
+  - **A per-navigation outcome that must refresh specific HomeRoute feeds** (a successful post). The host (`appEntryProvider`) raises a one-shot flag; the HomeRoute entry consumes it into a `rememberSaveable` key passed down to the feed VMs (`onFeedReloadKey`). The key is saveable so it survives rotation together with the VMs.
 
 ### 2.4 Compose performance
 

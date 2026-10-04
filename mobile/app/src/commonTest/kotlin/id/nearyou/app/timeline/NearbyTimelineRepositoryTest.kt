@@ -5,6 +5,7 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.distance.LatLng
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
@@ -16,9 +17,14 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 private val JSON_HEADERS = headersOf("Content-Type", "application/json")
+
+/** The page-1 outcome of a NON-gated fetch (every case here except the radius_premium_only ones). */
+private suspend fun NearbyTimelineRepository.firstPageOutcome(): NearbyTimelineOutcome =
+    assertIs<NearbyFetchResult.Loaded>(loadFirstPage()).outcome
 
 private fun postJson(id: String): String =
     """{"id":"$id","authorUserId":"a-$id","authorUsername":"raka.jkt","authorDisplayName":"Raka Pratama",""" +
@@ -34,6 +40,7 @@ class NearbyTimelineRepositoryTest {
     private fun repository(
         tokenStore: TokenStore = InMemoryTokenStore(),
         log: (String) -> Unit = {},
+        locationProvider: LocationProvider = StubLocationProvider(),
         handler: MockRequestHandler,
     ): NearbyTimelineRepository {
         val httpClient =
@@ -49,7 +56,7 @@ class NearbyTimelineRepositoryTest {
             )
         return NearbyTimelineRepository(
             apiClient = NearbyTimelineApiClient(httpClient),
-            locationProvider = StubLocationProvider(),
+            locationProvider = locationProvider,
             sessionIdProvider = SessionIdProvider(),
             diagnosticLog = log,
         )
@@ -81,7 +88,7 @@ class NearbyTimelineRepositoryTest {
             val body = """{"posts":[${postJson("p1")},${postJson("p2")},${postJson("p3")}],"nextCursor":"tok","upsell":{"soft":true}}"""
             val repo = repository { respond(body, HttpStatusCode.OK, JSON_HEADERS) }
 
-            val outcome = repo.loadFirstPage()
+            val outcome = repo.firstPageOutcome()
             assertTrue(outcome is NearbyTimelineOutcome.Loaded)
             assertEquals(3, outcome.posts.size)
             assertEquals("tok", outcome.nextCursor)
@@ -93,7 +100,7 @@ class NearbyTimelineRepositoryTest {
         runTest {
             val repo = repository { respond("""{"posts":[],"nextCursor":null,"upsell":{"hard":true}}""", HttpStatusCode.OK, JSON_HEADERS) }
 
-            val outcome = repo.loadFirstPage()
+            val outcome = repo.firstPageOutcome()
             assertTrue(outcome is NearbyTimelineOutcome.Loaded, "hard cap is a 200, not an error outcome")
             assertTrue(outcome.posts.isEmpty())
             assertEquals(true, outcome.upsell?.hard)
@@ -103,7 +110,7 @@ class NearbyTimelineRepositoryTest {
     fun `5xx maps to NetworkError not SessionExpired`() =
         runTest {
             val repo = repository { respond("", HttpStatusCode.InternalServerError, JSON_HEADERS) }
-            assertEquals(NearbyTimelineOutcome.NetworkError, repo.loadFirstPage())
+            assertEquals(NearbyTimelineOutcome.NetworkError, repo.firstPageOutcome())
         }
 
     @Test
@@ -115,7 +122,7 @@ class NearbyTimelineRepositoryTest {
                 repository(tokenStore = InMemoryTokenStore(TokenPair("at", "rt", 1L))) {
                     throw RuntimeException("connection refused")
                 }
-            assertEquals(NearbyTimelineOutcome.NetworkError, repo.loadFirstPage())
+            assertEquals(NearbyTimelineOutcome.NetworkError, repo.firstPageOutcome())
         }
 
     @Test
@@ -139,7 +146,7 @@ class NearbyTimelineRepositoryTest {
                 }
 
             // SessionExpired is a distinct data object, so this also asserts it is NOT NetworkError/Error.
-            assertEquals(NearbyTimelineOutcome.SessionExpired, repo.loadFirstPage())
+            assertEquals(NearbyTimelineOutcome.SessionExpired, repo.firstPageOutcome())
         }
 
     @Test
@@ -151,7 +158,51 @@ class NearbyTimelineRepositoryTest {
                     respond("""{"error":{"code":"invalid_request"}}""", HttpStatusCode.BadRequest, JSON_HEADERS)
                 }
 
-            assertEquals(NearbyTimelineOutcome.Error, repo.loadFirstPage())
+            assertEquals(NearbyTimelineOutcome.Error, repo.firstPageOutcome())
             assertTrue(logs.any { it.contains("400") }, "a diagnostic must be emitted on 400 (not a silent no-op): $logs")
+        }
+
+    // ---- #518: ONE radius_premium_only mapping for every Nearby fetch (mobile-nearby-radius-slider) ----
+
+    private fun gate403(code: String) =
+        repository {
+            respond("""{"error":{"code":"$code","message":"requires Premium"}}""", HttpStatusCode.Forbidden, JSON_HEADERS)
+        }
+
+    @Test
+    fun `a radius_premium_only 403 is PremiumGated from loadFirstPage`() =
+        runTest {
+            assertEquals(NearbyFetchResult.PremiumGated, gate403("radius_premium_only").loadFirstPage(50_000))
+        }
+
+    @Test
+    fun `a radius_premium_only 403 is PremiumGated from loadMore too`() =
+        runTest {
+            assertEquals(
+                NearbyFetchResult.PremiumGated,
+                gate403("radius_premium_only").loadMore("c1", LatLng(-6.2, 106.8), 50_000),
+            )
+        }
+
+    @Test
+    fun `any other 403 keeps the frozen mapping - Loaded wrapping NetworkError`() =
+        runTest {
+            val repo = gate403("forbidden")
+            assertEquals(NearbyFetchResult.Loaded(NearbyTimelineOutcome.NetworkError), repo.loadFirstPage(50_000))
+            assertEquals(
+                NearbyFetchResult.Loaded(NearbyTimelineOutcome.NetworkError),
+                repo.loadMore("c1", LatLng(-6.2, 106.8), 50_000),
+            )
+        }
+
+    @Test
+    fun `a position failure is Loaded wrapping NetworkError - never the Premium gate`() =
+        runTest {
+            val noFix =
+                object : LocationProvider {
+                    override suspend fun current(): LatLng = throw IllegalStateException("no fix")
+                }
+            val repo = repository(locationProvider = noFix) { error("no HTTP call is expected without a fix") }
+            assertEquals(NearbyFetchResult.Loaded(NearbyTimelineOutcome.NetworkError), repo.loadFirstPage(50_000))
         }
 }

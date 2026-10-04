@@ -101,8 +101,8 @@ const val NEARBY_BLOCK_DIALOG_TAG: String = "nearbyBlockDialog"
  * branch ([NearbyFeed]) observes a `HomeRoute`-scoped [NearbyTimelineViewModel] that holds the
  * [NearbyTimelineOutcome] + the split `isInitialLoad`/`isRefreshing` flags and (re)loads page 1
  * (pull-to-refresh + error-retry both re-fetch). Hoisting that load state into a NavEntry-scoped
- * ViewModel is what makes returning from the composer (or swiping away and back) reuse the loaded feed
- * instead of re-fetching (design Decision 5). Renders the six fetch states (loading / content / empty
+ * ViewModel is what makes returning from the composer without posting (or swiping away and back) reuse the
+ * loaded feed instead of re-fetching (design Decision 5); a successful post re-fetches via `feedReloadKey` (#173). Renders the six fetch states (loading / content / empty
  * / error / rate-limit-hard / rate-limit-soft) per the screen-state-mapping spec, all copy via
  * `stringResource` (zero literals), under `NearYouTheme` tokens.
  *
@@ -127,6 +127,8 @@ const val NEARBY_BLOCK_DIALOG_TAG: String = "nearbyBlockDialog"
  */
 @Composable
 fun NearbyTimelineScreen(
+    // The HomeRoute feed reload key (#173) — a change re-fetches page 1 once (a successful post).
+    feedReloadKey: Int = 0,
     onSeeGlobal: () -> Unit = {},
     onOpenPost: (NearbyTimelinePost) -> Unit = {},
     onOpenPostReply: (NearbyTimelinePost) -> Unit = {},
@@ -163,6 +165,7 @@ fun NearbyTimelineScreen(
         LocationGateUiState.Denied -> LocationDeniedState(onOpenSettings = gateViewModel::openAppSettings)
         LocationGateUiState.Granted ->
             NearbyFeed(
+                feedReloadKey = feedReloadKey,
                 onSeeGlobal = onSeeGlobal,
                 onOpenPost = onOpenPost,
                 onOpenPostReply = onOpenPostReply,
@@ -181,11 +184,13 @@ fun NearbyTimelineScreen(
  * reload-on-return fix (mobile-nav-swap-to-navigation3 Decision 5): the VM survives `HomeRoute` going
  * off-screen while the
  * composer is on top OR while another feed page is shown, so popping/swiping back reuses the loaded
- * feed. A coordinate-acquisition failure still maps to the EXISTING retryable error state in the VM —
+ * feed — except after a SUCCESSFUL post, when the HomeRoute `feedReloadKey` changes and the VM re-fetches
+ * page 1 once (#173). A coordinate-acquisition failure still maps to the EXISTING retryable error state in the VM —
  * NO new [NearbyTimelineOutcome] member.
  */
 @Composable
 private fun NearbyFeed(
+    feedReloadKey: Int,
     onSeeGlobal: () -> Unit,
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onOpenPostReply: (NearbyTimelinePost) -> Unit,
@@ -221,6 +226,9 @@ private fun NearbyFeed(
                 premiumConfirmed,
             )
         }
+    // #173: hand the HomeRoute feed reload key to the VM — it records the first key and re-fetches page 1 on a
+    // change (a successful post). Re-entering composition with the same key is a no-op in the VM.
+    LaunchedEffect(viewModel, feedReloadKey) { viewModel.onFeedReloadKey(feedReloadKey) }
     // The single screen state — the nearbyTimelineUiState projection now lives in the VM (docs/11 §2.2),
     // collected here instead of re-derived in the composable.
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

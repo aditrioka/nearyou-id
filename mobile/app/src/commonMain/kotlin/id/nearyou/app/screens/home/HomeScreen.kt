@@ -65,7 +65,9 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
  * [Tab.Nearby]). There is **no** per-tab `NavDisplay` and **no** new tab-root `NavKey`: each feed page
  * composes directly under the shell's `HomeRoute` `NavEntry`, so its `viewModel { }` resolves to the
  * `HomeRoute` store and the feed state survives feed swipes/tab taps, section switches, AND the composer
- * round-trip with no re-fetch (design D1/D2/D3). Per-tab back stacks are deferred (follow-up issue
+ * round-trip with no re-fetch (design D1/D2/D3) — except after a SUCCESSFUL post: [feedReloadKey] changes and
+ * the Nearby + Global pages re-fetch page 1 once (an off-screen page on its next display); Following gets no
+ * key, since own posts never appear there (#173). Per-tab back stacks are deferred (follow-up issue
  * #189, `mobile-home-tab-host-per-tab-backstacks`).
  *
  * Three callbacks are hoisted (all wired by the shell + `appEntryProvider` call site to root-stack pushes):
@@ -84,6 +86,7 @@ const val HOME_FEED_PAGER_TAG: String = "homeFeedPager"
 @Composable
 fun HomeScreen(
     onOpenComposer: () -> Unit,
+    feedReloadKey: Int = 0,
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},
@@ -131,6 +134,7 @@ fun HomeScreen(
                 when (Tab.entries[page]) {
                     Tab.Nearby ->
                         NearbyTimelineScreen(
+                            feedReloadKey = feedReloadKey,
                             onSeeGlobal = { scope.launch { pagerState.animateScrollToPage(Tab.Global.ordinal) } },
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
                             onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
@@ -147,6 +151,7 @@ fun HomeScreen(
                         )
                     Tab.Global ->
                         GlobalTimelineScreen(
+                            feedReloadKey = feedReloadKey,
                             onOpenPost = { post -> onOpenPost(post.toTarget()) },
                             onOpenPostReply = { post -> onOpenPostReply(post.toTarget()) },
                             onOpenProfile = onOpenProfile,

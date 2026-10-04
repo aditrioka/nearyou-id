@@ -6,6 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -29,6 +32,11 @@ import androidx.compose.ui.unit.dp
  * interleaved after every [adFrequency] posts via [interleaveNativeAds] (the canonical list seam carries
  * ads — no second list pattern, design D5). Callers with ads OFF pass `adFrequency = null` and behave
  * identically to before (every entry is a post).
+ *
+ * A viewer AT the top stays pinned to the top when posts are prepended (a refresh, or the reload after their
+ * own post — #173, mobile-design-system § "A feed list stays pinned to the top when posts are prepended").
+ * LazyColumn otherwise keeps the old first item's key in view, hiding the new post just above the viewport.
+ * A scrolled-down viewer keeps their position.
  */
 @Composable
 fun <T> PostFeedList(
@@ -57,6 +65,18 @@ fun <T> PostFeedList(
 ) {
     val listState = rememberLazyListState()
     LoadMoreOnScrollEnd(listState = listState, onLoadMore = onLoadMore)
+    // Pin-to-top: runs after this composition applies the new posts but BEFORE the remeasure that would
+    // re-anchor on the old first key, so "was at the top" still reads the pre-change scroll position.
+    val firstKey = posts.firstOrNull()?.let(keyOf)
+    val seenFirstKey = remember { mutableStateOf(firstKey) }
+    SideEffect {
+        if (firstKey != seenFirstKey.value) {
+            if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                listState.requestScrollToItem(0)
+            }
+            seenFirstKey.value = firstKey
+        }
+    }
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize().testTag(listTag),

@@ -10,7 +10,6 @@ import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyPostDto
 import id.nearyou.app.timeline.NearbyTimelineOutcome
-import id.nearyou.app.timeline.RadiusChangeResult
 import id.nearyou.app.timeline.fakeNearbyPost
 import id.nearyou.distance.LatLng
 import kotlinx.coroutines.CompletableDeferred
@@ -367,17 +366,17 @@ class NearbyTimelineViewModelTest {
     }
 
     @Test
-    fun selectRadius_premiumViewer_adoptsRadius_andFetchesViaChangeRadius() {
+    fun selectRadius_premiumViewer_adoptsRadius_andReloadsPage1AtIt() {
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
         val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
         assertEquals(true, viewModel.isPremiumKnown.value, "the Premium self-read resolves the gate")
         viewModel.selectRadius(50_000)
         assertEquals(50_000, viewModel.selectedRadiusM.value, "a Premium selection adopts the new radius")
-        assertEquals(listOf(50_000), fake.changeRadiusCalls, "the change fetches via changeRadius at 50 km")
+        assertEquals(listOf(20_000, 50_000), fake.loadFirstPageRadii, "the change is a page-1 load at 50 km")
         assertFalse(viewModel.radiusUpsell.value, "no upsell for a permitted Premium selection")
         // A subsequent refresh reuses the selected radius (stable across the load path).
         viewModel.reload()
-        assertEquals(listOf(20_000, 50_000), fake.loadFirstPageRadii, "refresh reuses the selected 50 km")
+        assertEquals(listOf(20_000, 50_000, 50_000), fake.loadFirstPageRadii, "refresh reuses the selected 50 km")
     }
 
     @Test
@@ -388,7 +387,7 @@ class NearbyTimelineViewModelTest {
         viewModel.selectRadius(50_000)
         assertEquals(20_000, viewModel.selectedRadiusM.value, "a Free non-20km selection snaps back to 20 km")
         assertTrue(viewModel.radiusUpsell.value, "a Free selection raises the upsell one-shot")
-        assertTrue(fake.changeRadiusCalls.isEmpty(), "no fetch is issued for a snapped-back Free selection")
+        assertEquals(listOf(20_000), fake.loadFirstPageRadii, "no fetch is issued for a snapped-back Free selection")
         viewModel.onRadiusUpsellShown()
         assertFalse(viewModel.radiusUpsell.value, "the upsell one-shot clears")
     }
@@ -406,13 +405,14 @@ class NearbyTimelineViewModelTest {
 
     @Test
     fun radiusPremiumOnly403_revertsTo20km_raisesUpsell_andAddsNoNewOutcomeMember() {
-        // The stale-tier backstop: a Premium-believed viewer whose changeRadius 403s (radius_premium_only).
+        // The stale-tier backstop: a Premium-believed viewer whose radius selection 403s (radius_premium_only).
         val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        fake.changeRadiusResult = RadiusChangeResult.PremiumGated
+        fake.gatedRadii = setOf(50_000)
         val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
         viewModel.selectRadius(50_000)
         assertEquals(20_000, viewModel.selectedRadiusM.value, "a radius_premium_only 403 reverts to 20 km")
         assertTrue(viewModel.radiusUpsell.value, "and raises the same upsell as the client snap-back")
+        assertEquals(listOf(20_000, 50_000, 20_000), fake.loadFirstPageRadii, "the gated 50 km is re-fetched at 20 km")
         // The 403 is interpreted in the VM; the outcome stays a normal Loaded (the 20 km re-fetch).
         assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded, "no new NearbyTimelineOutcome member; the 20 km re-fetch lands")
     }
@@ -420,16 +420,7 @@ class NearbyTimelineViewModelTest {
     @Test
     fun loadMore_reusesTheSelectedNonDefaultRadius() {
         // A Premium selection at 50 km whose first page carries a cursor, so a load-more is possible.
-        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
-        fake.changeRadiusResult =
-            RadiusChangeResult.Loaded(
-                NearbyTimelineOutcome.Loaded(
-                    posts = listOf(fakeNearbyPost(id = "p1")),
-                    nextCursor = "c1",
-                    upsell = null,
-                    anchor = LatLng(-6.2, 106.8),
-                ),
-            )
+        val fake = FakeNearbyTimelineFlow(loadedPage1("c1", fakeNearbyPost(id = "p1")))
         val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
         viewModel.selectRadius(50_000)
         assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium 50 km selection is adopted")
@@ -452,7 +443,7 @@ class NearbyTimelineViewModelTest {
 
         assertEquals(true, viewModel.isPremiumKnown.value, "the confirmed purchase flips the gate without re-entry")
         assertEquals(50_000, viewModel.selectedRadiusM.value, "the Premium radius is applied")
-        assertEquals(listOf(50_000), fake.changeRadiusCalls, "a page-1 fetch at 50 km is issued")
+        assertEquals(listOf(20_000, 50_000), fake.loadFirstPageRadii, "a page-1 fetch at 50 km is issued")
         assertFalse(viewModel.radiusUpsell.value, "no upsell for a confirmed buyer")
     }
 
@@ -469,6 +460,189 @@ class NearbyTimelineViewModelTest {
         gate.complete(Unit) // the lagging Free read lands
 
         assertEquals(true, viewModel.isPremiumKnown.value, "a lagging Free read must not re-lock the buyer")
+    }
+
+    // ---- #518: the radius_premium_only backstop on EVERY Nearby fetch path ----
+
+    @Test
+    fun errorRetryAt50km_radiusPremiumOnly403_showsTheUpsell_notTheNetworkError() {
+        // The #518 repro: the self read degraded optimistically to Premium-known, the 50 km selection's fetch
+        // failed before any HTTP call (no location fix → NetworkError), and "Coba lagi" re-issues 50 km → 403.
+        val fake = FakeNearbyTimelineFlow(loadedPage1(null, fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        fake.firstPageOutcome = NearbyTimelineOutcome.NetworkError
+        viewModel.selectRadius(50_000)
+        assertEquals(NearbyTimelineOutcome.NetworkError, viewModel.outcome.value, "the 50 km fetch failed pre-HTTP")
+        assertEquals(50_000, viewModel.selectedRadiusM.value, "the control is still on 50 km")
+
+        fake.gatedRadii = setOf(50_000)
+        fake.firstPageOutcome = loadedPage1(null, fakeNearbyPost(id = "p1"))
+        viewModel.reload() // the error-state retry ("Coba lagi")
+
+        assertTrue(viewModel.radiusUpsell.value, "the retry's 403 raises the radius upsell")
+        assertEquals(20_000, viewModel.selectedRadiusM.value, "the control reverts to 20 km")
+        assertEquals(listOf(20_000, 50_000, 50_000, 20_000), fake.loadFirstPageRadii, "the gated retry re-fetches at 20 km")
+        assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded, "the 403 is NOT rendered as the connectivity error")
+    }
+
+    @Test
+    fun pullToRefreshAt50km_radiusPremiumOnly403_revertsTo20km_andRaisesUpsell() {
+        val fake = FakeNearbyTimelineFlow(loadedPage1(null, fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        viewModel.selectRadius(50_000)
+        assertFalse(viewModel.radiusUpsell.value)
+
+        fake.gatedRadii = setOf(50_000) // the tier went stale mid-session
+        viewModel.reload() // pull-to-refresh
+
+        assertTrue(viewModel.radiusUpsell.value, "the refresh's 403 raises the radius upsell")
+        assertEquals(20_000, viewModel.selectedRadiusM.value, "the control reverts to 20 km")
+        assertEquals(listOf(20_000, 50_000, 50_000, 20_000), fake.loadFirstPageRadii, "page 1 is re-fetched at 20 km")
+        assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded)
+        assertFalse(viewModel.isRefreshing.value, "the refresh completes")
+    }
+
+    @Test
+    fun gatedLoadMore_dropsTheStalePage_revertsTo20km_andReloadsPage1_withNoErrorFooter() {
+        val fake = FakeNearbyTimelineFlow(loadedPage1("c1", fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        viewModel.selectRadius(50_000)
+
+        fake.gatedRadii = setOf(50_000)
+        fake.firstPageOutcome = loadedPage1(null, fakeNearbyPost(id = "p20")) // the distinct 20 km page
+        viewModel.onLoadMore()
+
+        assertEquals(listOf(50_000), fake.loadMoreRadii, "the load-more went out at 50 km and was gated")
+        assertTrue(viewModel.radiusUpsell.value, "a gated load-more raises the radius upsell")
+        assertEquals(20_000, viewModel.selectedRadiusM.value, "the control reverts to 20 km")
+        assertEquals(listOf(20_000, 50_000, 20_000), fake.loadFirstPageRadii, "page 1 is reloaded at 20 km")
+        assertFalse(viewModel.loadMoreError.value, "the stale gated page is dropped — no retry footer")
+        assertEquals(
+            listOf("p20"),
+            (viewModel.outcome.value as NearbyTimelineOutcome.Loaded).posts.map { it.id },
+            "nothing is appended — the list is the fresh 20 km page 1",
+        )
+        assertFalse(viewModel.isLoadingMore.value, "no load-more spinner is left behind")
+        assertFalse(viewModel.isRefreshing.value, "the 20 km reload completes")
+    }
+
+    @Test
+    fun aStaleGatedLoadMore_afterTheRefreshAlreadyReverted_appliesNothingTwice() {
+        // F1: a 50 km load-more is in flight when a pull-to-refresh hits the gate (→ 20 km + upsell, dismissed);
+        // the stale load-more's 403 then lands. It must not re-raise the upsell or spend another 20 km read.
+        val fake = FakeNearbyTimelineFlow(loadedPage1("c1", fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        viewModel.selectRadius(50_000)
+        val loadMoreGate = CompletableDeferred<Unit>()
+        fake.loadMoreGate = loadMoreGate
+        viewModel.onLoadMore() // held in flight at 50 km
+
+        fake.gatedRadii = setOf(50_000)
+        viewModel.reload() // the refresh's 403 → revert + upsell + one 20 km re-fetch
+        assertEquals(20_000, viewModel.selectedRadiusM.value)
+        viewModel.onRadiusUpsellShown()
+        val radiiBefore = fake.loadFirstPageRadii.toList()
+
+        loadMoreGate.complete(Unit) // the stale 50 km load-more's 403 lands
+
+        assertFalse(viewModel.radiusUpsell.value, "a stale gated load-more must not re-raise the upsell")
+        assertEquals(radiiBefore, fake.loadFirstPageRadii, "and must not spend another page-1 read")
+        assertFalse(viewModel.loadMoreError.value, "its stale Failure is dropped — no retry footer")
+    }
+
+    @Test
+    fun aGated20kmLoadMore_isThePlainRetryFooter_withNoUpsell_andNoReload() {
+        // D4 on the load-more path: a gated 20 km page is a server fault, not a Premium gate.
+        val fake = FakeNearbyTimelineFlow(loadedPage1("c1", fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake)
+        fake.gatedRadii = setOf(20_000)
+
+        viewModel.onLoadMore()
+
+        assertEquals(listOf(20_000), fake.loadMoreRadii, "the load-more went out at 20 km")
+        assertTrue(viewModel.loadMoreError.value, "→ the ordinary non-destructive retry footer")
+        assertFalse(viewModel.radiusUpsell.value, "no Premium upsell for a server fault at the Free anchor")
+        assertEquals(listOf(20_000), fake.loadFirstPageRadii, "no page-1 reload")
+        assertEquals(listOf("p1"), (viewModel.outcome.value as NearbyTimelineOutcome.Loaded).posts.map { it.id })
+    }
+
+    @Test
+    fun aGated20kmRefetch_mapsToTheRetryableError_withoutLooping() {
+        // A server fault: even the Free 20 km anchor answers radius_premium_only — exactly ONE re-fetch, no loop.
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        fake.gatedRadii = setOf(50_000, 20_000)
+        viewModel.selectRadius(50_000)
+
+        assertEquals(listOf(20_000, 50_000, 20_000), fake.loadFirstPageRadii, "one 20 km re-fetch only")
+        assertEquals(NearbyTimelineOutcome.NetworkError, viewModel.outcome.value, "→ the retryable error")
+        assertEquals(20_000, viewModel.selectedRadiusM.value)
+    }
+
+    @Test
+    fun aGated20kmRefresh_isTheRetryableError_withNoUpsell_andNoRefetch() {
+        val fake = FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        val viewModel = viewModelWith(fake, profileFlow = premiumProfile())
+        fake.gatedRadii = setOf(20_000)
+
+        viewModel.reload() // a pull-to-refresh at the 20 km default
+
+        assertEquals(listOf(20_000, 20_000), fake.loadFirstPageRadii, "no re-fetch after a gated 20 km fetch")
+        assertEquals(NearbyTimelineOutcome.NetworkError, viewModel.outcome.value, "→ the retryable error")
+        assertFalse(viewModel.radiusUpsell.value, "a server fault at the Free anchor raises no Premium upsell")
+    }
+
+    // ---- #173: the HomeRoute feed reload key (a successful post re-fetches page 1) ----
+
+    @Test
+    fun feedReloadKey_firstObservationAndRepeats_doNotFetch_aChangeReloadsOnce() {
+        val fake = FakeNearbyTimelineFlow(loadedPage1(null, fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake)
+        assertEquals(1, fake.loadInvocationCount)
+
+        // A NON-zero first key (a VM created after posts were made / restored after process death): it is
+        // only recorded — a zero-initialised "last key" would wrongly re-fetch here.
+        viewModel.onFeedReloadKey(3)
+        viewModel.onFeedReloadKey(3)
+        assertEquals(1, fake.loadInvocationCount, "the first key is only recorded; a repeat is a no-op")
+
+        viewModel.onFeedReloadKey(4)
+        assertEquals(2, fake.loadInvocationCount, "a changed key re-fetches page 1 once")
+        viewModel.onFeedReloadKey(4)
+        assertEquals(2, fake.loadInvocationCount, "re-observing the same key does not fetch again")
+    }
+
+    @Test
+    fun feedReloadKey_changeDuringAnInFlightRefresh_reFetchesOnceMoreWhenItLands() {
+        // F3: a post made while a (slow) refresh is in flight — that refresh predates the post, so when it lands
+        // the VM re-fetches once more instead of silently dropping the key change.
+        val fake = FakeNearbyTimelineFlow(loadedPage1(null, fakeNearbyPost(id = "p1")))
+        val viewModel = viewModelWith(fake)
+        viewModel.onFeedReloadKey(3)
+        val gate = CompletableDeferred<Unit>()
+        fake.firstPageGate = gate
+        viewModel.reload() // pull-to-refresh, held in flight
+        assertEquals(2, fake.loadInvocationCount)
+
+        viewModel.onFeedReloadKey(4) // the post lands while the refresh is in flight → suppressed for now
+        assertEquals(2, fake.loadInvocationCount, "one fetch at a time")
+
+        gate.complete(Unit)
+        assertEquals(3, fake.loadInvocationCount, "the stale refresh landed → one follow-up page-1 fetch")
+        assertFalse(viewModel.isRefreshing.value)
+    }
+
+    @Test
+    fun feedReloadKey_change_keepsThePriorOutcome_whileTheRefreshIsInFlight() {
+        // suspendFromCall = 2 → the key-driven reload suspends, so the in-flight refresh is observable.
+        val fake = FakeNearbyTimelineFlow(loadedPage1(null, fakeNearbyPost(id = "p1")), suspendFromCall = 2)
+        val viewModel = viewModelWith(fake)
+        viewModel.onFeedReloadKey(0)
+
+        viewModel.onFeedReloadKey(1)
+
+        assertTrue(viewModel.isRefreshing.value, "the key-driven reload is a refresh (isRefreshing), not a re-skeleton")
+        assertTrue(viewModel.outcome.value is NearbyTimelineOutcome.Loaded, "the prior list stays mounted")
     }
 
     // Activates the WhileSubscribed(5000) uiState share (on the Unconfined Main) so uiState.value reflects

@@ -21,10 +21,10 @@ private fun String.stripComments(): String {
  * Covers: the no-hardcoded-UI-strings discipline on the composer; the never-widen-logging discipline
  * (HttpClientFactory stays `LogLevel.HEADERS`; the create client + repository never `println`/log the
  * body or coordinate, and the repository's diagnostic sink is coordinate-free by construction);
- * automatic-location-only (no map / pin / manual coordinate-entry / place-search affordance); no
- * Nearby reload signalled on success (only `navigator.pop()`); and deferral bookkeeping (tracked as
- * `follow-up` GitHub issues) (the Nearby-refresh follow-up — issue #173 — is present; NO manual-location
- * follow-up exists — that scope was dropped by #144, not deferred).
+ * automatic-location-only (no map / pin / manual coordinate-entry / place-search affordance); a
+ * feed-agnostic composer whose success only calls `onPostCreated()`, with the Nearby/Global refresh hoisted
+ * into `appEntryProvider` as saveable state, not an event bus (#173, `feed-refresh-on-post-and-radius-backstop`).
+ * NO manual-location follow-up exists — that scope was dropped by #144, not deferred.
  */
 class PostCreationSourceGuardTest {
     private val repoRoot: File = findRepoRoot()
@@ -96,7 +96,7 @@ class PostCreationSourceGuardTest {
         )
     }
 
-    // ---- 7.8: automatic-location-only; no Nearby reload on success; deferral bookkeeping ----
+    // ---- 7.8: automatic-location-only; a feed-agnostic composer (the host hoists the feed reload, #173) ----
 
     @Test
     fun postCreationScreen_hasNoManualLocationAffordance() {
@@ -110,20 +110,37 @@ class PostCreationSourceGuardTest {
     }
 
     @Test
-    fun postCreationScreen_popsOnSuccess_andSignalsNoNearbyReload() {
-        // Success invokes the hoisted pop callback (appEntryProvider wires it to
-        // backStack.removeLastOrNull(), the Nav3 equivalent of pop — mobile-nav-swap-to-navigation3).
-        assertTrue(screen.contains("onPostCreated()"), "success must invoke the pop callback")
-        // No cross-screen Nearby reload is signalled on success (deferred to the follow-up): no shared
-        // reload trigger, and no Nav3 ResultEventBus / nav result consumed by the Nearby feed.
-        assertFalse(screen.contains("NearbyTimeline"), "the composer must not reference NearbyTimeline (no reload signal)")
-        assertFalse(screen.contains("reload"), "the composer must not signal a Nearby reload on success")
+    fun postCreationScreen_staysFeedAgnostic_successOnlyInvokesOnPostCreated() {
+        // Success invokes the hoisted callback; the composer knows nothing about the feeds it refreshes
+        // (mobile-post-creation § "Successful post returns to Home and refreshes the Nearby and Global feeds").
+        assertTrue(screen.contains("onPostCreated()"), "success must invoke the hoisted onPostCreated callback")
+        assertFalse(screen.contains("NearbyTimeline"), "the composer must not reference NearbyTimeline")
+        assertFalse(screen.contains("GlobalTimeline"), "the composer must not reference GlobalTimeline")
+        assertFalse(screen.contains("reload"), "the composer must not trigger a feed reload itself")
         assertFalse(screen.contains("ResultEventBus"), "the composer must not consume a Nav3 ResultEventBus result")
     }
 
-    // Note: the deferred Nearby-refresh-on-return follow-up is tracked as a GitHub issue (label
-    // `follow-up`), not in a repo file; the manual-location scope was dropped by #144 (not deferred).
-    // No source-file assertion covers the deferral bookkeeping here.
+    @Test
+    fun feedReloadSignal_isHoistedSaveableState_notAnEventBus() {
+        // #173: the signal lives in appEntryProvider — a one-shot flag raised BEFORE the pop, consumed by the
+        // HomeRoute entry into a rememberSaveable reload key — never a Channel/SharedFlow bus.
+        val provider = code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/routing/AppEntryProvider.kt")
+        assertTrue(provider.contains("rememberSaveable { mutableIntStateOf(0) }"), "the HomeRoute entry holds a saveable key")
+        assertTrue(provider.contains("feedReloadKey = feedReloadKey"), "the key is passed down to the shell")
+        assertTrue(
+            Regex("""postCreated\.value = true\s+backStack\.removeLastOrNull\(\)""").containsMatchIn(provider),
+            "onPostCreated raises the signal, then pops the composer",
+        )
+        val feedViewModels =
+            listOf("Nearby", "Global").map {
+                code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/timeline/${it}TimelineViewModel.kt")
+            }
+        for (source in listOf(provider) + feedViewModels) {
+            for (bus in listOf("Channel", "SharedFlow", "ResultEventBus")) {
+                assertFalse(source.contains(bus), "the feed reload signal must not be an event bus ($bus)")
+            }
+        }
+    }
 
     private companion object {
         /** Walks up from the test working directory to the repo root (the dir holding settings.gradle.kts),

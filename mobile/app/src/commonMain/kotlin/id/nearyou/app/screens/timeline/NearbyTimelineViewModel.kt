@@ -10,10 +10,10 @@ import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.timeline.NEARBY_RADIUS_M
+import id.nearyou.app.timeline.NearbyFetchResult
 import id.nearyou.app.timeline.NearbyPostDto
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
-import id.nearyou.app.timeline.RadiusChangeResult
 import id.nearyou.app.ui.timeline.InlineLikeController
 import id.nearyou.app.ui.timeline.LoadMoreController
 import id.nearyou.app.ui.timeline.LoadMorePage
@@ -39,7 +39,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * is on top — and is cleared only when `HomeRoute` is popped. That is the fix for the
  * reload-on-return papercut: returning from the composer reuses the already-loaded feed instead of
  * re-running `loadFirstPage()` (which would re-acquire location + re-hit the network). This is the
- * canonical Navigation 3 state-retention pattern (design Decision 5).
+ * canonical Navigation 3 state-retention pattern (design Decision 5). The one exception is a SUCCESSFUL
+ * post: the HomeRoute feed reload key changes and [onFeedReloadKey] re-fetches page 1 once (#173).
  *
  * The first load runs once on construction; [reload] re-fetches (pull-to-refresh + error retry). A
  * coordinate-acquisition failure maps to the EXISTING retryable [NearbyTimelineOutcome.NetworkError]
@@ -144,9 +145,25 @@ class NearbyTimelineViewModel(
                 if (anchor == null) {
                     LoadMorePage.Failure
                 } else {
-                    when (val outcome = flow.loadMore(cursor, anchor, _selectedRadiusM.value)) {
-                        is NearbyTimelineOutcome.Loaded -> LoadMorePage.Success(outcome.posts, outcome.nextCursor)
-                        else -> LoadMorePage.Failure
+                    val radiusM = _selectedRadiusM.value
+                    when (val result = flow.loadMore(cursor, anchor, radiusM)) {
+                        is NearbyFetchResult.Loaded ->
+                            (result.outcome as? NearbyTimelineOutcome.Loaded)
+                                ?.let { LoadMorePage.Success(it.posts, it.nextCursor) }
+                                ?: LoadMorePage.Failure
+                        // The radius_premium_only backstop on a load-more (#518): revert + upsell, then a page-1
+                        // reload at 20 km. reload() resets this controller's generation, so the Failure below is
+                        // dropped as stale — no retry footer for a page that can never load. Invariant this relies
+                        // on: every path that sets _isRefreshing goes through reload() → loadMoreController.reset().
+                        // A gated 20 km load-more is a server fault (D4): the plain retry footer, no upsell/reload.
+                        // A STALE gated load-more (a refresh already moved the radius) applies nothing twice.
+                        NearbyFetchResult.PremiumGated -> {
+                            if (radiusM != NEARBY_RADIUS_M && _selectedRadiusM.value == radiusM) {
+                                applyPremiumGate()
+                                reload()
+                            }
+                            LoadMorePage.Failure
+                        }
                     }
                 }
             },
@@ -200,6 +217,10 @@ class NearbyTimelineViewModel(
     // Null until resolved (or unresolvable) → NO kebab (fail-closed: never offer an action we can't gate).
     private val _selfUserId = MutableStateFlow<String?>(null)
     val selfUserId: StateFlow<String?> = _selfUserId.asStateFlow()
+
+    // The last HomeRoute feed reload key this VM observed (#173); null until the first observation.
+    // Declared before `init` — the first load() reads it.
+    private var feedReloadKey: Int? = null
 
     init {
         load(initial = true)
@@ -282,7 +303,17 @@ class NearbyTimelineViewModel(
     fun authorUserIdForPost(postId: String): String? =
         (_outcome.value as? NearbyTimelineOutcome.Loaded)?.posts?.firstOrNull { it.id == postId }?.authorUserId
 
-    /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
+    /** The HomeRoute feed reload key (bumped by each successful post, `mobile-post-creation`). The first key
+     *  is only recorded — this VM's own load is already current; every later change re-fetches page 1 so the
+     *  viewer's new post shows (prior list kept mounted, like a pull-to-refresh). */
+    fun onFeedReloadKey(key: Int) {
+        val previous = feedReloadKey
+        feedReloadKey = key
+        if (previous != null && previous != key) reload()
+    }
+
+    /** Pull-to-refresh, error-retry, and a radius selection all call this — re-fetches page 1 while keeping
+     *  content mounted. */
     fun reload() {
         // Reentrancy guard (2026-06-10 audit, 06 medium): stacked PTR + retry taps
         // raced concurrent fetches — latest-writer-wins on outcome and a flickering
@@ -295,12 +326,16 @@ class NearbyTimelineViewModel(
     }
 
     private fun load(initial: Boolean) {
+        // #173: the reload key this load was issued under; a key that changed while it was in flight (a post made
+        // during a slow refresh) re-fetches once more when it lands. Null = issued before any key was observed
+        // (the VM's own first load, already current) — no follow-up.
+        val keyAtStart = feedReloadKey
         viewModelScope.launch {
             // A refresh keeps the prior outcome + flips only isRefreshing (the list stays mounted, the
             // screen keeps rendering Content). The initial load keeps isInitialLoad = true (skeleton).
             if (!initial) _isRefreshing.value = true
             try {
-                _outcome.value = flow.loadFirstPage(_selectedRadiusM.value)
+                _outcome.value = fetchFirstPage()
             } catch (cancellation: CancellationException) {
                 // Never swallow cancellation — let structured concurrency unwind (mirrors AuthApiClient).
                 throw cancellation
@@ -314,7 +349,33 @@ class NearbyTimelineViewModel(
                 initialLoad.value = false
                 _isRefreshing.value = false
             }
+            if (keyAtStart != null && keyAtStart != feedReloadKey) reload()
         }
+    }
+
+    /**
+     * The ONE page-1 fetch every path routes through — the initial load, pull-to-refresh, the error retry and a
+     * radius selection (#518). A `radius_premium_only` 403 at a Premium radius is the stale-tier backstop:
+     * [applyPremiumGate], then ONE re-fetch at 20 km. A gated 20 km fetch (original or re-fetch) is a server
+     * fault — the Free anchor is never gated — so it maps to the retryable error: no upsell, no further fetch.
+     * No new [NearbyTimelineOutcome] member.
+     */
+    private suspend fun fetchFirstPage(): NearbyTimelineOutcome {
+        val radiusM = _selectedRadiusM.value
+        val result = flow.loadFirstPage(radiusM)
+        if (result is NearbyFetchResult.Loaded) return result.outcome
+        if (radiusM == NEARBY_RADIUS_M) return NearbyTimelineOutcome.NetworkError
+        applyPremiumGate()
+        return (flow.loadFirstPage(NEARBY_RADIUS_M) as? NearbyFetchResult.Loaded)?.outcome
+            ?: NearbyTimelineOutcome.NetworkError
+    }
+
+    /** The `radius_premium_only` backstop for any Nearby fetch: revert the control to 20 km + raise the SAME
+     *  upsell one-shot as the client snap-back. `isPremiumKnown` is left alone (a webhook-lag buyer stays
+     *  unlocked; only this selection is reverted). */
+    private fun applyPremiumGate() {
+        _selectedRadiusM.value = NEARBY_RADIUS_M
+        _radiusUpsell.value = true
     }
 
     /** Slider selection from the screen. The pure [radiusSelectionDecision] decides: a Premium-permitted
@@ -322,15 +383,16 @@ class NearbyTimelineViewModel(
      *  raises the upsell one-shot (no fetch issued). */
     fun selectRadius(radiusM: Int) {
         // The slider is inert during the initial load or an in-flight reload (one fetch at a time). The
-        // guard is race-free because viewModelScope dispatches Dispatchers.Main.immediate: changeRadiusAndReload
-        // sets _isRefreshing = true synchronously (before the first suspension) so a second rapid selectRadius
-        // sees it set — the same reentrancy discipline reload() relies on.
+        // guard is race-free because viewModelScope dispatches Dispatchers.Main.immediate: reload() sets
+        // _isRefreshing = true synchronously (before the first suspension) so a second rapid selectRadius
+        // sees it set — the same reentrancy discipline reload() itself relies on.
         if (initialLoad.value || _isRefreshing.value) return
         when (val decision = radiusSelectionDecision(_isPremiumKnown.value, radiusM)) {
             is RadiusSelectionDecision.Apply -> {
                 if (decision.radiusM == _selectedRadiusM.value) return // no-op when unchanged
+                // A new radius is a fresh page-1 load at it (new cursor lineage) — the same fetch as a refresh.
                 _selectedRadiusM.value = decision.radiusM
-                changeRadiusAndReload(decision.radiusM)
+                reload()
             }
             RadiusSelectionDecision.SnapBackAndUpsell -> _radiusUpsell.value = true
         }
@@ -361,32 +423,6 @@ class NearbyTimelineViewModel(
                     is ProfileOutcome.Loaded -> outcome.profile.isPremium || premiumConfirmed.value
                     else -> true // NotFound / NetworkError → reactive-403 backstops correctness.
                 }
-        }
-    }
-
-    /** Re-fetch page 1 at the newly-selected [radiusM] via the radius-aware flow. A `radius_premium_only`
-     *  403 (stale-tier backstop) reverts to 20 km, raises the upsell, and re-fetches at 20 km — never a
-     *  raw error. Any other result reuses the frozen outcome mapping. Mirrors [reload]'s refresh discipline. */
-    private fun changeRadiusAndReload(radiusM: Int) {
-        loadMoreController.reset()
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            try {
-                when (val result = flow.changeRadius(radiusM)) {
-                    is RadiusChangeResult.Loaded -> _outcome.value = result.outcome
-                    RadiusChangeResult.PremiumGated -> {
-                        _selectedRadiusM.value = NEARBY_RADIUS_M
-                        _radiusUpsell.value = true
-                        _outcome.value = flow.loadFirstPage(NEARBY_RADIUS_M)
-                    }
-                }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                _outcome.value = NearbyTimelineOutcome.NetworkError
-            } finally {
-                _isRefreshing.value = false
-            }
         }
     }
 }

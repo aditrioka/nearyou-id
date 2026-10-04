@@ -165,9 +165,9 @@ fun PostCreationScreen(
         )
 
     // Navigate from an effect (never mutate the back stack during composition). On Success the
-    // composer pops back to the home surface (via onPostCreated → backStack.removeLastOrNull());
-    // Nearby auto-refresh on return is deferred (mobile-post-creation-refresh-nearby-on-return) —
-    // NO Nearby feed signal is emitted here.
+    // composer pops back to the home surface (via onPostCreated → backStack.removeLastOrNull()). The host
+    // (appEntryProvider) raises the feed-reload signal so Nearby + Global show the new post (#173); the composer
+    // itself stays feed-agnostic and emits no feed signal.
     LaunchedEffect(outcome) {
         if (outcome is PostCreationOutcome.Success) {
             onPostCreated()

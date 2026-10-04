@@ -1,5 +1,6 @@
 package id.nearyou.app.timeline
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 
 /**
@@ -27,9 +28,17 @@ class FakeGlobalTimelineFlow(
     /** Records the cursor of each [loadMore] call (cursor-only — Global has no anchor). */
     val loadMoreCalls: MutableList<String> = mutableListOf()
 
+    /** When set, the next page-1 call suspends until it completes (consumed by that call) — holds a refresh in
+     *  flight so a test can act mid-flight, then resolve it. */
+    var firstPageGate: CompletableDeferred<Unit>? = null
+
     override suspend fun loadFirstPage(): GlobalTimelineOutcome {
         loadInvocationCount++
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
+        firstPageGate?.let { gate ->
+            firstPageGate = null
+            gate.await()
+        }
         failWith?.let { throw it }
         return outcome
     }
