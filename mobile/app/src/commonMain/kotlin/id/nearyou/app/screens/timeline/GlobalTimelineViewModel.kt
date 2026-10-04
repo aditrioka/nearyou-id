@@ -241,6 +241,18 @@ class GlobalTimelineViewModel(
     fun authorUserIdForPost(postId: String): String? =
         (_outcome.value as? GlobalTimelineOutcome.Loaded)?.posts?.firstOrNull { it.id == postId }?.authorUserId
 
+    // The last HomeRoute feed reload key this VM observed (#173); null until the first observation.
+    private var feedReloadKey: Int? = null
+
+    /** The HomeRoute feed reload key (bumped by each successful post, `mobile-post-creation`). The first key
+     *  is only recorded — this VM's own load is already current; every later change re-fetches page 1 so the
+     *  viewer's new post shows (prior list kept mounted, like a pull-to-refresh). */
+    fun onFeedReloadKey(key: Int) {
+        val previous = feedReloadKey
+        feedReloadKey = key
+        if (previous != null && previous != key) reload()
+    }
+
     /** Pull-to-refresh + error-retry both call this — re-fetches page 1 while keeping content mounted. */
     fun reload() {
         // Reentrancy guard (2026-06-10 audit, 06 medium): stacked PTR + retry taps

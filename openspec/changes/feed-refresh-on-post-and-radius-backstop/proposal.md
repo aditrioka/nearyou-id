@@ -27,7 +27,10 @@ None.
 - `mobile-post-creation`: the "Nearby auto-refresh on return is deferred" requirement is renamed and rewritten. A successful post now refreshes the Nearby and Global feeds on return, not Following; the signal is hoisted state in the entry provider, not an event bus.
 - `mobile-nearby-timeline`: "Nearby feed load state … survives the composer round-trip". Returning without posting still does not re-fetch. A successful post re-fetches page 1 once through the reload key.
 - `mobile-global-timeline`: "Global feed load state … survives tab switch and the composer round-trip". Same amendment as Nearby.
-- `mobile-nearby-radius-slider`: "On-entry tier resolution and reactive 403 backstop". The backstop covers every Nearby fetch path (initial load, pull-to-refresh, error retry, radius change, load-more) through one mapping, with scenarios for the retry and load-more paths.
+- `mobile-nearby-radius-slider`: "On-entry tier resolution and reactive 403 backstop". The backstop covers every Nearby fetch path (initial load, pull-to-refresh, error retry, radius change, load-more) through one mapping, with scenarios for the retry and load-more paths. A gated fetch at 20 km is a server fault: the retryable error, with no upsell.
+- `mobile-nearby-timeline` (also): "Fetch outcome mapping is HTTP-status-driven …". This requirement gets the one `error.code` carve-out: `radius_premium_only` → `NearbyFetchResult.PremiumGated` ahead of the unchanged mapping.
+- `mobile-home-tab-host`: "Tab switching preserves each tab's state and never re-fetches". A successful post is the one exception: an off-screen Nearby or Global page re-fetches once when next shown.
+- `mobile-app-scaffold`: "NavDisplay scopes per-entry saveable state …". Its parenthetical now notes that a successful post re-fetches explicitly through the reload key, not through a lost ViewModel.
 
 ## Impact
 

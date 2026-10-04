@@ -14,9 +14,9 @@ const val NEARBY_RADIUS_M: Int = 20_000
  * `GET /api/v1/timeline/nearby` (at the caller-supplied `radiusM`, default [NEARBY_RADIUS_M]; per-process
  * [SessionIdProvider] header) → map the HTTP **status** to exactly one [NearbyTimelineOutcome] (design
  * D6). There is no generic "load failed" fallthrough; `401` is delegated to the shipped `Auth` plugin
- * (this repository MUST NOT reimplement token refresh / re-route). [changeRadius] adds the radius-select
- * path that surfaces the `radius_premium_only` 403 as [RadiusChangeResult.PremiumGated]
- * (`mobile-nearby-radius-slider`).
+ * (this repository MUST NOT reimplement token refresh / re-route). Every fetch goes through ONE gate-aware
+ * mapping ([toResult]) that surfaces the `radius_premium_only` 403 as [NearbyFetchResult.PremiumGated]
+ * (`mobile-nearby-radius-slider`, #518).
  */
 class NearbyTimelineRepository(
     private val apiClient: NearbyTimelineApiClient,
@@ -26,7 +26,7 @@ class NearbyTimelineRepository(
     // no-op for now. MUST NOT carry tokens or coordinates (none are passed here).
     private val diagnosticLog: (String) -> Unit = {},
 ) : NearbyTimelineFlow {
-    override suspend fun loadFirstPage(radiusM: Int): NearbyTimelineOutcome {
+    override suspend fun loadFirstPage(radiusM: Int): NearbyFetchResult {
         // Catch the location failure AT the repository boundary (docs/11 §2.6: exceptions
         // don't cross into ViewModels) — previously LocationUnavailableException escaped to
         // the VM's blanket catch, which mapped it to NetworkError with ZERO diagnostics
@@ -41,7 +41,7 @@ class NearbyTimelineRepository(
                 // "position", not "location", in the tag: DiagnosticSinkWiringTest's source scan
                 // rejects the latter substring inside diagnosticLog(...) arguments.
                 diagnosticLog("nearby_position_unavailable: ${failure::class.simpleName}")
-                return NearbyTimelineOutcome.NetworkError
+                return NearbyFetchResult.Loaded(NearbyTimelineOutcome.NetworkError)
             }
         val result =
             apiClient.fetchNearby(
@@ -52,7 +52,7 @@ class NearbyTimelineRepository(
                 cursor = null,
             )
         // Retain the page-1 anchor so load-more reuses it (design D4); VM-held, never rendered/logged.
-        return result.toOutcome(
+        return result.toResult(
             anchor = location,
             networkErrorTag = "nearby_network_error",
             invalidRequestTag = "nearby_invalid_request",
@@ -63,7 +63,7 @@ class NearbyTimelineRepository(
         cursor: String,
         anchor: LatLng,
         radiusM: Int,
-    ): NearbyTimelineOutcome {
+    ): NearbyFetchResult {
         // Reuse the first-page [anchor] — NO fresh GPS acquisition. The backend cursor is chronological,
         // so ordering is anchor-independent; reuse keeps the [radiusM] stable + avoids redundant location
         // work (design D4). Same status→outcome mapping as loadFirstPage.
@@ -75,55 +75,33 @@ class NearbyTimelineRepository(
                 sessionId = sessionIdProvider.sessionId,
                 cursor = cursor,
             )
-        return result.toOutcome(
+        return result.toResult(
             anchor = anchor,
             networkErrorTag = "nearby_loadmore_error",
             invalidRequestTag = "nearby_loadmore_invalid_request",
         )
     }
 
-    override suspend fun changeRadius(radiusM: Int): RadiusChangeResult {
-        // Acquire a fresh page-1 anchor at the newly-selected radius (same coordinate-hygiene as
-        // loadFirstPage: catch the provider failure here, log the exception TYPE only — never a coordinate).
-        val location =
-            try {
-                locationProvider.current()
-            } catch (cancellation: kotlin.coroutines.cancellation.CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                diagnosticLog("nearby_radius_position_unavailable: ${failure::class.simpleName}")
-                return RadiusChangeResult.Loaded(NearbyTimelineOutcome.NetworkError)
-            }
-        val result =
-            apiClient.fetchNearby(
-                lat = location.lat,
-                lng = location.lng,
-                radiusM = radiusM,
-                sessionId = sessionIdProvider.sessionId,
-                cursor = null,
-            )
-        // Server Premium gate: a 403 radius_premium_only is surfaced as PremiumGated so the VM shows the
-        // upsell + reverts to 20 km — NOT folded into the frozen status→outcome contract. A stale-tier
-        // backstop; the client gate normally stops a Free session from ever issuing a non-20 km radius.
-        if (result is NearbyApiResult.HttpError &&
-            result.status == 403 &&
-            result.errorCode == "radius_premium_only"
-        ) {
-            return RadiusChangeResult.PremiumGated
+    /**
+     * The ONE gate-aware mapping every Nearby fetch passes through (#518). The server Premium gate — a 403
+     * `radius_premium_only` — is surfaced as [NearbyFetchResult.PremiumGated] so the VM shows the upsell +
+     * reverts to 20 km, NOT folded into the frozen status→outcome contract. A stale-tier backstop; the client
+     * gate normally stops a Free session from ever issuing a non-20 km radius. Anything else → [toOutcome].
+     */
+    private fun NearbyApiResult.toResult(
+        anchor: LatLng,
+        networkErrorTag: String,
+        invalidRequestTag: String,
+    ): NearbyFetchResult =
+        if (this is NearbyApiResult.HttpError && status == 403 && errorCode == "radius_premium_only") {
+            NearbyFetchResult.PremiumGated
+        } else {
+            NearbyFetchResult.Loaded(toOutcome(anchor, networkErrorTag, invalidRequestTag))
         }
-        // Any other result reuses the frozen mapping (200 → Loaded, 401 → SessionExpired, else retryable).
-        return RadiusChangeResult.Loaded(
-            result.toOutcome(
-                anchor = location,
-                networkErrorTag = "nearby_radius_error",
-                invalidRequestTag = "nearby_radius_invalid_request",
-            ),
-        )
-    }
 
     /**
-     * The frozen status→outcome mapping shared by [loadFirstPage], [loadMore], and [changeRadius]
-     * (rule-of-three extraction, follow-up #386). The two diagnostic tags are the only per-site
+     * The frozen status→outcome mapping shared by [loadFirstPage] and [loadMore] via [toResult]
+     * (extracted in follow-up #386). The two diagnostic tags are the only per-site
      * variation; each call site passes its exact literal so the per-surface diagnostic strings
      * (asserted by `DiagnosticSinkWiringTest`) are unchanged.
      */

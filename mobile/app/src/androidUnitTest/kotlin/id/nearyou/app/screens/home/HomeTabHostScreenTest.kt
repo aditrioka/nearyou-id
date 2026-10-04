@@ -1,5 +1,8 @@
 package id.nearyou.app.screens.home
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -10,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeLeft
@@ -42,6 +46,7 @@ import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
+import id.nearyou.app.screens.post.POST_CONTENT_FIELD_TAG
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.routing.PaywallRoute
@@ -394,6 +399,68 @@ class HomeTabHostScreenTest {
                 globalFake.loadInvocationCount,
                 "returning from the composer must not re-fetch the Global feed (the HomeRoute-scoped VM is retained)",
             )
+        }
+    }
+
+    // feed-refresh-on-post (#173, mobile-post-creation § "An off-screen Global feed refreshes when next shown,
+    // Following never does"): a feed reload key change while Nearby is on screen re-fetches Nearby at once,
+    // Global when its page is next shown, and NEVER Following (own posts never appear there).
+    @Test
+    fun feedReloadKeyChange_reFetchesNearbyNow_GlobalWhenShown_neverFollowing() {
+        installKoin()
+        runComposeUiTest {
+            var feedReloadKey by mutableIntStateOf(0)
+            setContent { KoinContext { NearYouTheme { HomeScreen(onOpenComposer = {}, feedReloadKey = feedReloadKey) } } }
+            // Load all three feeds once (Nearby → Following → Global), then swipe back to Nearby.
+            waitUntil(timeoutMillis = 5_000) { nearbyFake.loadInvocationCount == 1 }
+            onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
+            waitUntil(timeoutMillis = 5_000) { followingFake.loadInvocationCount == 1 }
+            onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
+            waitUntil(timeoutMillis = 5_000) { globalFake.loadInvocationCount == 1 }
+            onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeRight() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeRight() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(1, nearbyFake.loadInvocationCount, "no re-fetch before the key changes")
+
+            runOnIdle { feedReloadKey = 1 } // a successful post
+            // waitForIdle (not just waitUntil) drives the recomposition that the external state write scheduled.
+            waitForIdle()
+            assertEquals(2, nearbyFake.loadInvocationCount, "the on-screen Nearby feed re-fetches once on the key change")
+
+            onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(FOLLOWING_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(HOME_FEED_PAGER_TAG).performTouchInput { swipeLeft() }
+            waitUntil(timeoutMillis = 5_000) { globalFake.loadInvocationCount == 2 }
+            waitForIdle()
+            assertEquals(2, nearbyFake.loadInvocationCount, "Nearby re-fetched exactly once")
+            assertEquals(1, followingFake.loadInvocationCount, "Following is never refreshed by a post")
+            assertEquals(2, globalFake.loadInvocationCount, "Global re-fetched once when its page was shown")
+        }
+    }
+
+    // #173 under the REAL appEntryProvider: posting while the Global tab is on screen re-fetches Global on return.
+    @Test
+    fun successfulPostFromTheGlobalTab_reFetchesGlobalOnReturn() {
+        installKoin()
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(TAB_GLOBAL).performClick()
+            waitUntil(timeoutMillis = 5_000) { globalFake.loadInvocationCount == 1 }
+
+            onNodeWithContentDescription(FAB_POST).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(COMPOSER_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
+            onNodeWithText(FAB_POST).performClick() // the composer CTA (same "Posting" copy) → Success
+
+            waitUntil(timeoutMillis = 5_000) { globalFake.loadInvocationCount == 2 }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(GLOBAL_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+            assertEquals(2, globalFake.loadInvocationCount, "a successful post re-fetches the on-screen Global feed once")
+            // The Global tab-tap animation may or may not compose the Following page in passing (0 or 1 loads),
+            // but a post must never add a Following re-fetch on top of that.
+            assertTrue(followingFake.loadInvocationCount <= 1, "Following is never refreshed by a post")
         }
     }
 

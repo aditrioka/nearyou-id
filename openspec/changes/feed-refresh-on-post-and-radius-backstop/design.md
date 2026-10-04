@@ -32,6 +32,7 @@ The composer already reports success to its host through `onPostCreated`, and `a
 The ViewModel records the first key it sees, because a freshly constructed ViewModel's own initial load is already current. On any later change it calls its existing `reload()`, so the list stays mounted and only `isRefreshing` toggles.
 
 - *Alternative: a shared `MutableSharedFlow` / Koin-singleton signal.* Rejected. docs/11 §2.2 names `Channel`/`SharedFlow` event buses an anti-pattern, and the operator asked for no new bus.
+- *Alternative: the `PremiumEntitlementSession.purchaseConfirmed` precedent* (a Koin single holding a `StateFlow`, injected into `NearbyTimelineViewModel`). It is state, not a bus, but it is process-wide mutable state that outlives the back stack. Here the signal only matters to the HomeRoute entry, and the composer already reports success to its host through `onPostCreated`. Hoisting through the host keeps the signal scoped to the entry that consumes it, lets an off-screen Global refresh lazily when shown, and adds no new singleton. `purchaseConfirmed` stays the pattern for app-wide facts such as "this account is Premium"; per-navigation results go through the host.
 - *Alternative: a Nav3 result-passing mechanism (the `ResultEventBus` recipe).* Rejected. No screen in this app passes nav results, so adopting it for one signal would add a second navigation pattern (docs/11 Pattern Registry).
 - *Alternative: `ON_RESUME` → `reload()`.* Rejected. HomeRoute re-enters composition, and so fires `ON_RESUME`, on every overlay pop and every foreground return. That would undo Decision 5's retention and spend a timeline read each time.
 - *Alternative: a `HomeRoute` NavKey parameter.* Rejected. It needs a `NavKeys.kt` change, and a parallel session (#516/#517) owns that file.
@@ -54,9 +55,9 @@ The root cause is that page-1 and load-more each have their own mapping, and onl
 - *Alternative: also map the 403 inside `loadFirstPage`'s `NearbyTimelineOutcome`.* Rejected; the spec forbids a new outcome member.
 - *Alternative: patch `reload()` to call `changeRadius`.* Rejected. It fixes the one caller the issue names, but leaves load-more and the duplicate method in place: a per-caller patch, not the root cause.
 
-### D4 — Re-fetch at 20 km is non-recursive
+### D4 — The 20 km re-fetch is non-recursive, and a gated 20 km is a fault
 
-After `PremiumGated` the ViewModel re-fetches once at `NEARBY_RADIUS_M`. If even that is gated (a server fault: the Free anchor is never gated), the result maps to the retryable `NetworkError` instead of recursing.
+After a `PremiumGated` result at a Premium radius, the ViewModel re-fetches once at `NEARBY_RADIUS_M`. The Free anchor is never gated, so a gated fetch *at* 20 km is a server fault. That covers both the re-fetch and an original 20 km fetch (for example the load-more backstop's `reload()`). It maps straight to the retryable `NetworkError`, with no upsell and no further fetch. Recursing could loop, and a Premium upsell for a server fault would be misleading.
 
 ### Standards conformance (docs/11)
 

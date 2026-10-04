@@ -70,6 +70,36 @@ class GlobalTimelineViewModelTest {
         assertEquals(2, fake.loadInvocationCount, "reload re-fetches page 1 (pull-to-refresh / error retry)")
     }
 
+    // #173: the HomeRoute feed reload key (a successful post re-fetches page 1; the own post shows in Global).
+    @Test
+    fun feedReloadKey_firstObservationAndRepeats_doNotFetch_aChangeReloadsOnce() {
+        val fake = FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "X")), null, null))
+        val viewModel = viewModelWith(fake)
+        assertEquals(1, fake.loadInvocationCount)
+
+        viewModel.onFeedReloadKey(0)
+        viewModel.onFeedReloadKey(0)
+        assertEquals(1, fake.loadInvocationCount, "the first key is only recorded; a repeat is a no-op")
+
+        viewModel.onFeedReloadKey(1)
+        assertEquals(2, fake.loadInvocationCount, "a changed key re-fetches page 1 once")
+        viewModel.onFeedReloadKey(1)
+        assertEquals(2, fake.loadInvocationCount, "re-observing the same key does not fetch again")
+    }
+
+    @Test
+    fun feedReloadKey_change_keepsThePriorOutcome_whileTheRefreshIsInFlight() {
+        val fake =
+            FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "X")), null, null), suspendFromCall = 2)
+        val viewModel = viewModelWith(fake)
+        viewModel.onFeedReloadKey(0)
+
+        viewModel.onFeedReloadKey(1)
+
+        assertTrue(viewModel.isRefreshing.value, "the key-driven reload is a refresh (isRefreshing), not a re-skeleton")
+        assertTrue(viewModel.outcome.value is GlobalTimelineOutcome.Loaded, "the prior list stays mounted")
+    }
+
     @Test
     fun reload_keepsPriorOutcome_andTogglesIsRefreshing_uiStateStaysContent() {
         // First load completes; the SECOND call (reload) suspends, so we observe the in-flight refresh:

@@ -117,6 +117,9 @@ import org.koin.compose.koinInject
 @Composable
 fun AppShellScreen(
     onOpenComposer: () -> Unit,
+    // The HomeRoute feed reload key (#173): bumped by `appEntryProvider` on each successful post; forwarded to
+    // HomeScreen so the Nearby + Global feeds re-fetch page 1 once on a change.
+    feedReloadKey: Int = 0,
     onOpenChat: () -> Unit = {},
     onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit =
         { _, _, _ -> },
@@ -206,6 +209,7 @@ fun AppShellScreen(
                 Section.Home ->
                     HomeScreen(
                         onOpenComposer = onOpenComposer,
+                        feedReloadKey = feedReloadKey,
                         onOpenPost = onOpenPost,
                         onOpenPostReply = onOpenPostReply,
                         onOpenProfile = onOpenProfile,

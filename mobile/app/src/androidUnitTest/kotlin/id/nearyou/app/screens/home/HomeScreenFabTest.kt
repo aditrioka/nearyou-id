@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -31,6 +32,7 @@ import id.nearyou.app.post.FakeCreatePostFlow
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.fakeFcmTokenRegistrar
+import id.nearyou.app.screens.post.POST_CONTENT_FIELD_TAG
 import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.screens.timeline.FakeSelfUserId
@@ -55,6 +57,7 @@ import kotlin.test.assertEquals
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val FAB_CD = "Posting" // cta_post — the icon-only FAB contentDescription (no visible label)
 private const val COMPOSER_TITLE = "Buat postingan" // post_create_title — the appended composer surface
+private const val CTA_POST = "Posting" // cta_post — the composer's submit CTA text
 
 /**
  * Render + navigation coverage of the `HomeScreen` **icon-only** compose FAB (mobile-home-shell-redesign
@@ -163,6 +166,31 @@ class HomeScreenFabTest {
                 nearbyFake.loadInvocationCount,
                 "returning from the composer must not re-fetch the Nearby feed (the HomeRoute ViewModel is retained)",
             )
+        }
+    }
+
+    // feed-refresh-on-post (#173, mobile-post-creation § "Successful post returns to Home and refreshes the
+    // Nearby and Global feeds"): under the REAL appEntryProvider, a SUCCESSFUL post pops the composer AND the
+    // HomeRoute feed reload key re-fetches the Nearby feed exactly once, so the new post shows on return with no
+    // manual pull-to-refresh. (The back-without-posting case above stays at 1.)
+    @Test
+    fun successfulPost_popsTheComposer_andReFetchesTheNearbyFeedOnce() {
+        installKoin()
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { nearbyFake.loadInvocationCount == 1 }
+
+            onNodeWithContentDescription(FAB_CD).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(COMPOSER_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(POST_CONTENT_FIELD_TAG).performTextInput("halo")
+            onNodeWithText(CTA_POST).performClick() // FakeCreatePostFlow → Success → onPostCreated
+
+            waitUntil(timeoutMillis = 5_000) { nearbyFake.loadInvocationCount == 2 }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(NEARBY_TIMELINE_LIST_TAG).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(listOf<NavKey>(HomeRoute), backStack.toList(), "the composer entry was popped")
+            waitForIdle()
+            assertEquals(2, nearbyFake.loadInvocationCount, "a successful post re-fetches the Nearby feed exactly once")
         }
     }
 }

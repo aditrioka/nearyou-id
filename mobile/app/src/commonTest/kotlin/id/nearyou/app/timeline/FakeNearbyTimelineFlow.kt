@@ -12,7 +12,9 @@ import kotlinx.coroutines.awaitCancellation
  * and a subsequent `reload()` can be observed mid-flight (`isRefreshing = true`, the prior outcome
  * retained). With [failWith] set, `loadFirstPage` throws it after counting the invocation — used to
  * simulate the granted-but-no-fix path (the real `LocationProvider` throwing
- * `LocationUnavailableException`), which the screen maps to the existing retryable error state.
+ * `LocationUnavailableException`), which the screen maps to the existing retryable error state. Radii in
+ * [gatedRadii] answer the server Premium gate ([NearbyFetchResult.PremiumGated]) on BOTH page-1 and
+ * load-more — the fake "server" rejecting a Free viewer's non-20 km radius (`radius_premium_only`).
  */
 class FakeNearbyTimelineFlow(
     private val outcome: NearbyTimelineOutcome = NearbyTimelineOutcome.Loaded(emptyList(), null, null),
@@ -35,34 +37,33 @@ class FakeNearbyTimelineFlow(
     /** Records the radiusM of each [loadMore] call. */
     val loadMoreRadii: MutableList<Int> = mutableListOf()
 
-    /** Records the radiusM of each [changeRadius] call. */
-    val changeRadiusCalls: MutableList<Int> = mutableListOf()
+    /** Radii the fake server gates with `403 radius_premium_only` (page-1 AND load-more) — mutable so a test
+     *  can gate a radius mid-session (a stale tier). Empty = nothing gated. */
+    var gatedRadii: Set<Int> = emptySet()
 
-    /** Programmable result for [changeRadius]; defaults to `Loaded` wrapping [outcome]. */
-    var changeRadiusResult: RadiusChangeResult = RadiusChangeResult.Loaded(outcome)
+    /** Programmable page-1 outcome for a non-gated radius; defaults to the constructor [outcome]. */
+    var firstPageOutcome: NearbyTimelineOutcome = outcome
 
-    override suspend fun loadFirstPage(radiusM: Int): NearbyTimelineOutcome {
+    override suspend fun loadFirstPage(radiusM: Int): NearbyFetchResult {
         loadInvocationCount++
         loadFirstPageRadii += radiusM
         if (suspendForever || loadInvocationCount >= suspendFromCall) awaitCancellation()
         failWith?.let { throw it }
-        return outcome
+        return if (radiusM in gatedRadii) NearbyFetchResult.PremiumGated else NearbyFetchResult.Loaded(firstPageOutcome)
     }
 
     override suspend fun loadMore(
         cursor: String,
         anchor: LatLng,
         radiusM: Int,
-    ): NearbyTimelineOutcome {
+    ): NearbyFetchResult {
         loadMoreCalls += cursor to anchor
         loadMoreRadii += radiusM
+        if (radiusM in gatedRadii) return NearbyFetchResult.PremiumGated
         // Default to an end page (empty + null cursor) so a test that programs no pages still terminates.
-        return if (pages.isEmpty()) NearbyTimelineOutcome.Loaded(emptyList(), null, null) else pages.removeFirst()
-    }
-
-    override suspend fun changeRadius(radiusM: Int): RadiusChangeResult {
-        changeRadiusCalls += radiusM
-        return changeRadiusResult
+        return NearbyFetchResult.Loaded(
+            if (pages.isEmpty()) NearbyTimelineOutcome.Loaded(emptyList(), null, null) else pages.removeFirst(),
+        )
     }
 }
 
