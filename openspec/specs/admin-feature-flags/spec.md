@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The `admin-feature-flags` capability is the operator's in-product control surface for Firebase Remote Config flags — `GET /admin/feature-flags` in the admin panel (mockup frame 20). It renders the canonical flag catalog (the `*_enabled` boolean toggles, the `attestation_mode` enum, and the `moderation_match_threshold` integer) with their current **Server-template** values, and applies single-flag writes to the Remote Config Server template via the REST API with `If-Match` ETag optimistic concurrency (the Admin SDK cannot publish the server template the backend reads). Every write is owner/admin-role- and CSRF-gated, rate-limited at 5 per admin per trailing hour (a bucket distinct from the 20/hour destructive-action cap), reason-required, value-validated, and recorded as exactly one immutable `feature_flag_toggled` audit row; the panel degrades to a read-only render when Remote Config write credentials are absent. The two content-moderation wordlist parameters are surfaced read-only — array-content editing is out of scope here (deferred to `admin-moderation-wordlist-editor`).
+The `admin-feature-flags` capability is the operator's in-product control surface for Firebase Remote Config flags — `GET /admin/feature-flags` in the admin panel (mockup frame 20). It renders the canonical flag catalog (the `*_enabled` and `premium_like_cap_override` boolean toggles, the `attestation_mode` enum, and the `moderation_match_threshold` and `premium_image_upload_cap_override` integers) with their current **Server-template** values, and applies single-flag writes to the Remote Config Server template via the REST API with `If-Match` ETag optimistic concurrency (the Admin SDK cannot publish the server template the backend reads). Every write is owner/admin-role- and CSRF-gated, rate-limited at 5 per admin per trailing hour (a bucket distinct from the 20/hour destructive-action cap), reason-required, value-validated, and recorded as exactly one immutable `feature_flag_toggled` audit row; the panel degrades to a read-only render when Remote Config write credentials are absent. The two content-moderation wordlist parameters are surfaced read-only here, with an edit affordance linking to the dedicated `admin-moderation-wordlist-editor`, which owns array-content editing.
 ## Requirements
 ### Requirement: Authenticated GET /admin/feature-flags renders the Feature Flag Admin panel
 
@@ -22,11 +22,11 @@ The admin panel SHALL expose `GET /admin/feature-flags` behind the standard admi
 
 ### Requirement: The panel renders the canonical flag catalog with typed controls and the active environment
 
-The page SHALL render exactly the canonical flag catalog: `image_upload_enabled`, `search_enabled`, `perspective_api_enabled`, `premium_username_customization_enabled`, `premium_like_cap_override` as boolean toggles; `attestation_mode` as a three-valued enum control (`enforce` / `warn` / `off`); and `moderation_match_threshold` as an editable integer. It SHALL render `moderation_profanity_list` and `moderation_uu_ite_list` as read-only summaries (entry count + template version) with no content-editing control. It SHALL surface the active environment (e.g., `STAGING` / `PRODUCTION`) of the Remote Config project the running service is bound to. All rendered Remote Config values SHALL be HTML-escaped.
+The page SHALL render exactly the canonical flag catalog: `image_upload_enabled`, `search_enabled`, `perspective_api_enabled`, `premium_username_customization_enabled`, `premium_like_cap_override` as boolean toggles; `attestation_mode` as a three-valued enum control (`enforce` / `warn` / `off`); `moderation_match_threshold` as an editable integer; and `premium_image_upload_cap_override` as an editable integer (the Premium daily image-upload cap override consumed by `premium-image-upload`, default 50 when unset). It SHALL render `moderation_profanity_list` and `moderation_uu_ite_list` as read-only summaries (entry count + template version) with no content-editing control. It SHALL surface the active environment (e.g., `STAGING` / `PRODUCTION`) of the Remote Config project the running service is bound to. All rendered Remote Config values SHALL be HTML-escaped.
 
 #### Scenario: Catalog renders with the correct control type per parameter
 - **WHEN** the page renders
-- **THEN** `attestation_mode` shows a three-valued enum control (not a boolean toggle) AND `moderation_match_threshold` shows an integer input AND the five boolean flags show on/off toggles
+- **THEN** `attestation_mode` shows a three-valued enum control (not a boolean toggle) AND `moderation_match_threshold` and `premium_image_upload_cap_override` each show an integer input AND the five boolean flags show on/off toggles
 
 #### Scenario: Active environment is shown
 - **WHEN** the running admin service is bound to the staging Firebase project
@@ -118,7 +118,7 @@ A write to `moderation_match_threshold` SHALL accept only an integer within `[1,
 
 ### Requirement: A flag write validates the submitted value against the parameter type
 
-A write SHALL validate the submitted value against the target parameter's type before any publish: `attestation_mode` accepts only `enforce` / `warn` / `off`; a boolean flag accepts only a boolean value. An invalid value SHALL be rejected inline with no publish and no `feature_flag_toggled` audit row.
+A write SHALL validate the submitted value against the target parameter's type before any publish: `attestation_mode` accepts only `enforce` / `warn` / `off`; a boolean flag accepts only a boolean value; `premium_image_upload_cap_override` accepts only an integer within `[1, 10000]` (it is an integer parameter, not a boolean). An invalid value SHALL be rejected inline with no publish and no `feature_flag_toggled` audit row.
 
 #### Scenario: Each attestation_mode value is accepted
 - **WHEN** an authorized admin submits `attestation_mode` = `enforce`, `warn`, or `off` (each in turn) with a reason and the gates pass
@@ -131,6 +131,11 @@ A write SHALL validate the submitted value against the target parameter's type b
 #### Scenario: A non-boolean value for a boolean flag is rejected
 - **WHEN** an admin submits a non-boolean value for a boolean flag (e.g. `search_enabled = maybe`)
 - **THEN** the write is rejected inline with no publish AND no `feature_flag_toggled` audit row
+
+#### Scenario: premium_image_upload_cap_override validates as an in-range integer
+
+- **WHEN** the catalog validates `premium_image_upload_cap_override` = `100`, `50`, `true`, and `0`
+- **THEN** `100` and `50` are valid (normalized to `100` / `50`) while `true` (a boolean for an integer parameter) and `0` (below the minimum of 1) are invalid — an invalid value is rejected inline with no publish and no `feature_flag_toggled` audit row
 
 ### Requirement: Publishes use optimistic concurrency to prevent silent clobbering
 

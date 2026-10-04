@@ -1,7 +1,7 @@
 # mobile-post-detail Specification
 
 ## Purpose
-The `:mobile:app` post-detail surface — the screen that closes the core engagement loop (like + reply) on a single post, consuming the shipped V7 `post-likes` + V8 `post-replies` endpoints with no backend change. `PostDetailScreen` is reached by tapping a Nearby/Global feed card — a payload-carrying `PostDetailRoute` pushed onto the root back stack (overlaying the tab bar, mirroring the composer-FAB pattern) — and renders the post header (`content` + posted-from, empty-city tolerated), an optimistic status-driven like toggle (count + Free-tier cap upsell, graceful count-degradation), a read-only replies list, and a reply composer with a live `N/280` Unicode-code-point counter, mapping every like/reply/list result to exactly one sealed outcome (no generic fallthrough; `401` delegated to the shared `Auth` plugin). PII discipline is enforced: `PostDetailRoute` carries only non-PII display fields and declares no `latitude`/`longitude`, reply cards render content + timestamp only (never `author_id`), and the screen never logs PII (`HttpClientFactory` stays at `LogLevel.HEADERS`). The reply DTOs mirror the SHIPPED snake_case wire (`post_id`/`author_id`/`is_auto_hidden`/`created_at`/`next_cursor`), which differs from the timelines' camelCase `nextCursor` — a negative-guard test asserts the camelCase form does not bind (the PR #128 casing-drift precedent). This is the dependency-upstream of the future in-app notifications list, which deep-links into post/reply detail.
+The `:mobile:app` post-detail surface — the screen that closes the core engagement loop (like + reply) on a single post, consuming the shipped V7 `post-likes` + V8 `post-replies` endpoints with no backend change. `PostDetailScreen` is reached by tapping a feed card or a post-target notification — a payload-carrying `PostDetailRoute` pushed onto the root back stack (overlaying the tab bar, mirroring the composer-FAB pattern) — and renders the post header (`content` + posted-from, empty-city tolerated), an optimistic status-driven like toggle (count + Free-tier cap upsell, graceful count-degradation), a read-only replies list, and a reply composer with a live `N/280` Unicode-code-point counter, mapping every like/reply/list result to exactly one sealed outcome (no generic fallthrough; `401` delegated to the shared `Auth` plugin). PII discipline is enforced: `PostDetailRoute` carries only non-PII display fields and declares no `latitude`/`longitude`, reply cards render content, timestamp, and (when the wire carries it) the author's display identity, never `author_id`, and the screen never logs PII (`HttpClientFactory` stays at `LogLevel.HEADERS`). The reply DTOs mirror the SHIPPED snake_case wire (`post_id`/`author_id`/`is_auto_hidden`/`created_at`/`next_cursor`), which differs from the timelines' camelCase `nextCursor` — a negative-guard test asserts the camelCase form does not bind (the PR #128 casing-drift precedent). The in-app notifications list deep-links into this screen for post targets (reply targets stay non-navigating).
 ## Requirements
 ### Requirement: PostDetailScreen renders the post-detail surface
 
@@ -345,20 +345,6 @@ When `PostDetailScreen` is entered with a `PostDetailRoute` carrying `focusReply
 - **WHEN** the entry's state is saved and restored (configuration-change / process-death path, e.g. via a state-restoration test harness)
 - **THEN** the composer is NOT re-focused on the restored composition (the consumed marker survived restoration)
 
-### Requirement: By-id post fetch is deferred
-
-This change SHALL NOT implement a `GET /api/v1/posts/{post_id}` by-id fetch for the post-detail header — the header is built from the `PostDetailRoute` nav args. (The backend by-id endpoint shipped as the `single-post-read` capability, tracked by GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202); it is consumed by the notifications deep-link change, not this screen.) Replies cursor load-more is **no longer deferred** — it is implemented by this change per the § "Replies list wires cursor load-more via PostDetailViewModel" requirement, which closes the replies half of GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188).
-
-#### Scenario: No by-id fetch is issued for the header
-
-- **WHEN** inspecting the post-detail screen for a `GET /api/v1/posts/{post_id}` by-id call
-- **THEN** the post header is built from the `PostDetailRoute` nav args AND no by-id `GET /api/v1/posts/{post_id}` request is issued by this screen
-
-#### Scenario: By-id deferral is tracked; replies load-more is no longer deferred
-
-- **WHEN** inspecting the project's open GitHub issues (label `follow-up`) and this screen's replies paging
-- **THEN** GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202) tracks the by-id endpoint (shipped as `single-post-read`, unconsumed by this screen) AND the replies list now issues `cursor=`-bearing follow-up `GET /replies` requests (the replies half of issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) is implemented, not deferred)
-
 ### Requirement: Replies list wires cursor load-more via PostDetailViewModel
 
 The post-detail replies list SHALL wire cursor-based load-more following `mobile-design-system` § "Canonical list load-more (infinite-scroll) pattern". To hold the replies list + paging state robustly (rather than in composition-local `var`s), this change SHALL introduce a `PostDetailViewModel` resolved via `viewModel { … }` scoped to the post-detail NavEntry (mirroring the timeline-VM migration in [#167](https://github.com/aditrioka/nearyou-id/pull/167)), owning: the replies list, the current replies `next_cursor`, and the load-more `isLoadingMore` / `endReached` / `loadMoreError` state (via the shared load-more controller). `PostDetailFlow` SHALL gain a cursor-bearing replies load-more path (e.g. `loadMoreReplies(postId, cursor)`) issuing `GET /api/v1/posts/{post_id}/replies?cursor=…`; the reply DTO `next_cursor` is snake_case (`@SerialName("next_cursor")`, distinct from the timelines' bare camelCase `nextCursor`). Migrating the existing like + reply-composer composition-local state into the ViewModel is OUT of scope (a noted follow-up); this requirement moves only the replies-list + paging state.
@@ -540,4 +526,30 @@ The change SHALL extend the Robolectric `PostDetailScreenTest` with: (1) the hea
 
 - **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
 - **THEN** `PostDetailScreenTest` covers the header-tap fire, the degraded-read no-fire, and the reply-tap fire, and all pass
+
+### Requirement: By-id post reads never gate the header's first paint
+
+The post-detail surface SHALL be fed by the `single-post-read` capability (`GET /api/v1/posts/{post_id}`; the backend half of GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202), now closed) in exactly the two shipped ways below — the screen's own resume read, and the deep-link lookup done before the push — and neither SHALL block the header's first paint — the header is always first built from the `PostDetailRoute` nav args (per § "The post header renders from nav args without a single-post re-fetch"):
+
+- **Resume-time freshness read** (owned by `mobile-post-editing` § "Post-detail reads edit state from a single-post-read refresh"): on each resume the screen fetches the minimal projection via `SinglePostApiClient.fetchPost` to refresh the displayed content and resolve `editedAt` / `isAuthor` / `authorUserId`; a non-200 or transport failure degrades silently to the payload (no error state).
+- **No-card entry** (owned by `mobile-notifications-list` § "A post-target notification resolves to a PostDetailTarget via the full-projection single-post fetch"): a notification tap into a post — from the in-app list or a push tap, both via the shared notification target resolver — resolves the FULL projection via `SinglePostApiClient.fetchFullPost` BEFORE `PostDetailRoute` is pushed (the screen itself does not call it), so the pushed route still carries every display field and the header renders from it exactly as on a card tap; a resolution failure pushes nothing.
+
+Replies cursor load-more is **no longer deferred** — it is implemented per the § "Replies list wires cursor load-more via PostDetailViewModel" requirement, which closes the replies half of GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188).
+
+#### Scenario: A failed freshness read keeps the payload header
+
+- **GIVEN** a `PostDetailScreen` composed from a `PostDetailRoute` whose resume-time `GET /api/v1/posts/{id}` returns `404` (or fails at transport)
+- **WHEN** the screen renders
+- **THEN** the header shows the route payload's content AND no error state is rendered
+
+#### Scenario: A notification deep-link builds the route from the full projection
+
+- **GIVEN** a `post`-target notification whose full-projection `GET /api/v1/posts/{target_id}` returns `200`
+- **WHEN** the notification is tapped
+- **THEN** the pushed `PostDetailRoute` carries the projection's display fields (content, city, like state, reply count, author identity) with `distanceM = null`, and the header renders from that payload
+
+#### Scenario: Replies load-more is not deferred
+
+- **WHEN** the replies list scrolls to its end while the last page carried a `next_cursor`
+- **THEN** a `cursor=`-bearing follow-up `GET /replies` request is issued (the replies half of issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) is implemented, not deferred)
 
