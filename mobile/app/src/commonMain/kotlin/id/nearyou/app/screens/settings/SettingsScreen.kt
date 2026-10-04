@@ -37,6 +37,7 @@ import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.NotificationContentPreference
+import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.blocked_users_title
@@ -70,6 +71,7 @@ import id.nearyou.resources.generated.resources.ic_person_add
 import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_privacy_shield
 import id.nearyou.resources.generated.resources.ic_workspace_premium
+import id.nearyou.resources.generated.resources.premium_activating_body
 import id.nearyou.resources.generated.resources.settings_coming_soon
 import id.nearyou.resources.generated.resources.settings_hide_distance_error
 import id.nearyou.resources.generated.resources.settings_hide_distance_premium_only
@@ -179,9 +181,15 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val comingSoonText = stringResource(Res.string.settings_coming_soon)
-    val hideDistanceUpsellText = stringResource(Res.string.settings_hide_distance_premium_only)
+    // #517: after a confirmed purchase a Free read is the server tier lagging the webhook — the toggles'
+    // upsell snackbar reads the activating notice instead of "Aktifkan Premium untuk…".
+    val premiumActivating = rememberPremiumActivating()
+    val activatingText = stringResource(Res.string.premium_activating_body)
+    val hideDistanceUpsellText =
+        if (premiumActivating) activatingText else stringResource(Res.string.settings_hide_distance_premium_only)
     val hideDistanceErrorText = stringResource(Res.string.settings_hide_distance_error)
-    val privateProfileUpsellText = stringResource(Res.string.settings_private_profile_premium_only)
+    val privateProfileUpsellText =
+        if (premiumActivating) activatingText else stringResource(Res.string.settings_private_profile_premium_only)
     val privateProfileErrorText = stringResource(Res.string.settings_private_profile_error)
     var showLogoutDialog by remember { mutableStateOf(false) }
 

@@ -25,6 +25,8 @@ Its CTAs:
 
 The radius upsell MUST NOT open the paywall as `LIKE_CAP`. That entry belongs to the like-cap dialog hosted on the same Nearby surface, which keeps pushing `LIKE_CAP`.
 
+During the post-purchase webhook-lag window (`mobile-premium-entitlement` § "Upsell surfaces show the activating notice during the webhook-lag window") the `RadiusPremiumUpsellDialog` SHALL render the shared `PremiumActivatingDialog` instead (the `premium_activating_title` / `premium_activating_body` copy and a single "Tutup" wired to the dismiss path), with no "Aktifkan Premium" CTA and no `RADIUS_GATE` push. A confirmed purchase already unlocks the client-side gate (§ "On-entry tier resolution and reactive 403 backstop"), so in that window the dialog is raised only by the `radius_premium_only` 403 backstop while the server tier lags. The dialog reads the signal itself, so the Nearby host and `NearbyTimelineViewModel` are unchanged.
+
 A Free viewer's effective `radius_m` SHALL therefore always be `20000`: a non-20 km value SHALL NOT be issued to the backend from a Free session. A viewer whose tier reads as **not Premium** (`is_premium = false`, i.e. `subscription_status != premium_active` per `user-profile-read`) SHALL be treated as Free here. This includes a grace-period `premium_billing_retry` user, by design Decision 6.
 
 #### Scenario: Free drag snaps back and upsells
@@ -46,6 +48,11 @@ A Free viewer's effective `radius_m` SHALL therefore always be `20000`: a non-20
 - **GIVEN** a viewer whose `subscription_status = premium_billing_retry` (so the wire `is_premium = false` and `isPremiumKnown = false`), even though the backend would admit a wider radius for that tier
 - **WHEN** the viewer drags the radius control to 50 km
 - **THEN** the control returns to 20 km AND the Premium upsell is shown AND no `radius_m=50000` fetch is issued (the client is conservative; the server stays authoritative — the wider radius is simply never requested)
+
+#### Scenario: The radius upsell shows the activating notice after a confirmed purchase
+- **GIVEN** `RadiusPremiumUpsellDialog` composed with `premiumActivating = true` and recording `onDismiss` / `onActivatePremium` callbacks
+- **WHEN** the dialog renders and "Tutup" is tapped
+- **THEN** it shows `premium_activating_title` and `premium_activating_body` AND no "Aktifkan Premium" control AND `onDismiss` fires once AND `onActivatePremium` is never invoked
 
 ### Requirement: Premium tier selects freely
 

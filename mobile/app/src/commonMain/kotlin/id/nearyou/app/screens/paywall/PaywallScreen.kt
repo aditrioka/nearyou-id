@@ -71,6 +71,7 @@ import id.nearyou.resources.generated.resources.paywall_subhead_post_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_radius
 import id.nearyou.resources.generated.resources.paywall_subhead_reply_cap
 import id.nearyou.resources.generated.resources.paywall_subhead_search
+import id.nearyou.resources.generated.resources.paywall_subhead_timeline_cap
 import id.nearyou.resources.generated.resources.paywall_title
 import id.nearyou.resources.generated.resources.paywall_unavailable_body
 import id.nearyou.resources.generated.resources.paywall_unavailable_title
@@ -262,6 +263,7 @@ private fun PaywallHero(entry: PaywallEntry) {
             PaywallEntry.POST_CAP -> Res.string.paywall_subhead_post_cap
             PaywallEntry.EDIT_GATE -> Res.string.paywall_subhead_edit
             PaywallEntry.RADIUS_GATE -> Res.string.paywall_subhead_radius
+            PaywallEntry.TIMELINE_CAP -> Res.string.paywall_subhead_timeline_cap
             // Deliberately generic: image upload is a Month-6 launch behind image_upload_enabled
             // (default false), and docs/01 + docs/03 § Paywall & Premium Disclosure forbid advertising it
             // before it ships — a photo-led headline would promise a feature the buyer may not get.

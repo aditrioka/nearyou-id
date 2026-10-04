@@ -8,9 +8,12 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.billing.PremiumEntitlementSession
+import id.nearyou.app.billing.confirmedPremiumSession
 import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.post.FakePostEditFlow
@@ -22,6 +25,8 @@ import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.routing.PaywallRoute
 import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.PREMIUM_ACTIVATING_DIALOG_CLOSE_TAG
+import id.nearyou.app.ui.components.PREMIUM_ACTIVATING_DIALOG_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -48,7 +53,11 @@ private const val CTA_CANCEL = "Batal" // cta_cancel
 @Config(sdk = [33], qualifiers = "w360dp-h800dp")
 @OptIn(ExperimentalTestApi::class)
 class EditPostScreenTest {
-    private fun installKoin(editFlow: PostEditFlow) {
+    // confirmedPurchase (#517): bind a session whose purchase is confirmed (the webhook-lag window).
+    private fun installKoin(
+        editFlow: PostEditFlow,
+        confirmedPurchase: Boolean = false,
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         // PurchaseController: the host-push test navigates onward to PaywallRoute (Unconfigured fail-soft).
         startKoin {
@@ -56,6 +65,7 @@ class EditPostScreenTest {
                 module {
                     single { editFlow }
                     single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
+                    if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
                 },
             )
         }
@@ -157,6 +167,31 @@ class EditPostScreenTest {
             waitForIdle()
             assertEquals(0, activated, "dismiss only dismisses")
             onNodeWithTag(EDIT_POST_PREMIUM_CTA_TAG).assertDoesNotExist()
+        }
+    }
+
+    // #517: after a confirmed purchase the 403 is the server tier lagging the webhook — the upsell becomes
+    // the activating notice ("Tutup" only, never the paywall) and the typed edit survives for a retry.
+    @Test
+    fun confirmedPurchase_premiumRequired_showsActivatingNotice_keepsTheEdit() {
+        installKoin(FakePostEditFlow(editOutcome = PostEditOutcome.PremiumRequired), confirmedPurchase = true)
+        var activated = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme { EditPostScreen(route = route(), onBack = {}, onPostEdited = {}, onActivatePremium = { activated++ }) }
+                }
+            }
+            onNodeWithTag(EDIT_POST_FIELD_TAG).performTextReplacement("isi baru")
+            onNodeWithTag(EDIT_POST_SAVE_TAG).performClick()
+            waitUntil(timeoutMillis = 2_000) { onAllNodesWithTag(PREMIUM_ACTIVATING_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Premium sedang diaktifkan").assertExists()
+            onNodeWithTag(EDIT_POST_PREMIUM_CTA_TAG).assertDoesNotExist()
+            onNodeWithTag(PREMIUM_ACTIVATING_DIALOG_CLOSE_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(PREMIUM_ACTIVATING_DIALOG_TAG).assertDoesNotExist()
+            assertEquals(0, activated, "the activating notice never opens the paywall")
+            onNodeWithTag(EDIT_POST_FIELD_TAG).assertTextEquals("isi baru")
         }
     }
 

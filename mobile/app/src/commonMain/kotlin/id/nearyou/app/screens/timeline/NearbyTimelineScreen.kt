@@ -44,6 +44,7 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
 import id.nearyou.app.ui.billing.rememberPremiumConfirmed
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.HardLimitState
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
@@ -64,8 +65,6 @@ import id.nearyou.resources.generated.resources.radius_endpoint_farthest
 import id.nearyou.resources.generated.resources.radius_endpoint_nearest
 import id.nearyou.resources.generated.resources.radius_value_km
 import id.nearyou.resources.generated.resources.timeline_empty_nearby
-import id.nearyou.resources.generated.resources.timeline_limit_hard
-import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
@@ -272,6 +271,8 @@ private fun NearbyFeed(
                 // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
                 onRefresh = viewModel::reload,
                 onRetry = viewModel::reload,
+                // The read-cap banner/state CTA opens the paywall as TIMELINE_CAP via the host (#516).
+                onReadCapUpsell = { onActivatePremium(PaywallEntry.TIMELINE_CAP) },
                 // The empty-state "lihat Global" CTA — a host-level tab-switch callback (the tab host selects
                 // the Global tab), NOT a back-stack reference, so the screen stays navigation-free.
                 onSeeGlobal = onSeeGlobal,
@@ -443,6 +444,7 @@ private fun NearbyTimelineContent(
     onRetryLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onReadCapUpsell: () -> Unit,
     onSeeGlobal: () -> Unit,
     onOpenPost: (NearbyTimelinePost) -> Unit,
     onToggleLike: (NearbyTimelinePost) -> Unit,
@@ -477,11 +479,9 @@ private fun NearbyTimelineContent(
                     showSkeleton = true,
                 )
             NearbyTimelineUiState.Empty -> NearbyEmptyState(onSeeGlobal = onSeeGlobal)
+            // The Free read cap (Free-only, so never a Premium reader): copy + "Aktifkan Premium" → TIMELINE_CAP.
             NearbyTimelineUiState.HardLimit ->
-                ListCenteredMessageState(
-                    message = stringResource(Res.string.timeline_limit_hard),
-                    testTag = NEARBY_TIMELINE_LIST_TAG,
-                )
+                HardLimitState(onActivatePremium = onReadCapUpsell, onRetry = onRetry, testTag = NEARBY_TIMELINE_LIST_TAG)
             NearbyTimelineUiState.Error -> ListErrorState(onRetry = onRetry, testTag = NEARBY_TIMELINE_LIST_TAG)
             // Terminal 401 → neutral redirect placeholder: the redirect copy with NO retry control and
             // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
@@ -525,7 +525,7 @@ private fun NearbyTimelineContent(
                     onOpenProfile = onOpenProfile,
                     listTag = NEARBY_TIMELINE_LIST_TAG,
                     cardTag = NEARBY_POST_CARD_TAG,
-                    banner = stringResource(Res.string.timeline_limit_soft),
+                    softLimitUpsell = onReadCapUpsell,
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,

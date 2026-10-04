@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import id.nearyou.app.auth.SelfUserIdProvider
+import id.nearyou.app.billing.PremiumEntitlementSession
+import id.nearyou.app.billing.confirmedPremiumSession
 import id.nearyou.app.data.block.BlockSubmitter
 import id.nearyou.app.data.block.FakeBlockSubmitter
 import id.nearyou.app.data.like.FakeLikeFlow
@@ -28,12 +30,15 @@ import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.HARD_LIMIT_PREMIUM_TAG
+import id.nearyou.app.ui.components.HARD_LIMIT_RETRY_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_FILLED_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_OUTLINED_TAG
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
+import id.nearyou.app.ui.components.SOFT_LIMIT_PREMIUM_TAG
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -52,6 +57,7 @@ private const val FOLLOWING_PLACEHOLDER = "Kamu belum mengikuti siapa pun. Lihat
 private const val SEE_GLOBAL = "Lihat Global" // cta_see_global
 private const val LIMIT_HARD = "Kamu sudah mencapai batas baca untuk jam ini. Coba lagi sebentar lagi ya."
 private const val LIMIT_SOFT = "Kamu lagi aktif-aktifnya! Premium membuka akses baca tanpa batas."
+private const val ACTIVATING = "Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya." // premium_activating_body
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…" // timeline_session_redirect (terminal 401)
 private const val RETRY = "Coba lagi"
@@ -81,6 +87,8 @@ class FollowingTimelineScreenTest {
         suspendFromCall: Int = Int.MAX_VALUE,
         likeOutcome: LikeOutcome = LikeOutcome.Liked,
         loadMorePages: List<FollowingTimelineOutcome> = emptyList(),
+        // #517: bind a session whose purchase is confirmed (the webhook-lag window).
+        confirmedPurchase: Boolean = false,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake =
@@ -100,6 +108,7 @@ class FollowingTimelineScreenTest {
                     single<ReportSubmitter> { FakeReportSubmitter() }
                     single<BlockSubmitter> { FakeBlockSubmitter() }
                     single<SelfUserIdProvider> { FakeSelfUserId("self") }
+                    if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
                 },
             )
         }
@@ -217,6 +226,70 @@ class FollowingTimelineScreenTest {
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("SOFT_FOLLOWING").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("SOFT_FOLLOWING").assertExists()
             onNodeWithText(LIMIT_SOFT).assertExists()
+        }
+    }
+
+    // #516: the hard read cap offers the Premium path, naming TIMELINE_CAP (the host pushes the paywall).
+    @Test
+    fun hardLimit_premiumCta_invokesOnActivatePremiumWithTimelineCap() {
+        installKoin(FollowingTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)))
+        val activated = mutableListOf<PaywallEntry>()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { FollowingTimelineScreen(onActivatePremium = { activated += it }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(HARD_LIMIT_PREMIUM_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(LIMIT_HARD).assertExists()
+            onNodeWithTag(HARD_LIMIT_PREMIUM_TAG).performClick()
+            waitForIdle()
+            assertEquals(listOf(PaywallEntry.TIMELINE_CAP), activated)
+        }
+    }
+
+    // #516: the soft banner offers the same Premium path above the still-rendered posts.
+    @Test
+    fun softLimit_bannerCta_invokesOnActivatePremiumWithTimelineCap() {
+        installKoin(FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "SOFT_CTA")), null, UpsellDto(soft = true)))
+        val activated = mutableListOf<PaywallEntry>()
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { FollowingTimelineScreen(onActivatePremium = { activated += it }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(SOFT_LIMIT_PREMIUM_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("SOFT_CTA").assertExists()
+            onNodeWithText(LIMIT_SOFT).assertExists()
+            onNodeWithTag(SOFT_LIMIT_PREMIUM_TAG).performClick()
+            waitForIdle()
+            assertEquals(listOf(PaywallEntry.TIMELINE_CAP), activated)
+        }
+    }
+
+    // #517: after a confirmed purchase the hard state reads the activating notice; its button re-fetches
+    // page 1 ("Coba lagi") instead of opening the paywall.
+    @Test
+    fun confirmedPurchase_hardLimit_showsActivatingNotice_andRetryReloads() {
+        installKoin(FollowingTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)), confirmedPurchase = true)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { FollowingTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(ACTIVATING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(LIMIT_HARD).assertDoesNotExist()
+            onNodeWithTag(HARD_LIMIT_PREMIUM_TAG).assertDoesNotExist()
+            onNodeWithTag(HARD_LIMIT_RETRY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { fake.loadInvocationCount == 2 }
+            assertEquals(2, fake.loadInvocationCount, "the activating retry re-fetches page 1")
+        }
+    }
+
+    // #517: the soft cap blocks no reading, so after a confirmed purchase the banner simply goes — no pitch,
+    // no notice — and the posts stay.
+    @Test
+    fun confirmedPurchase_softLimit_rendersNoBanner() {
+        installKoin(
+            FollowingTimelineOutcome.Loaded(listOf(fakeFollowingPost(content = "SOFT_ACTIVATING")), null, UpsellDto(soft = true)),
+            confirmedPurchase = true,
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { FollowingTimelineScreen() } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("SOFT_ACTIVATING").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(LIMIT_SOFT).assertDoesNotExist()
+            onNodeWithText(ACTIVATING).assertDoesNotExist()
+            onNodeWithTag(SOFT_LIMIT_PREMIUM_TAG).assertDoesNotExist()
         }
     }
 

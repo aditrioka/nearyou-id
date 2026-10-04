@@ -1,7 +1,7 @@
 # mobile-settings Specification
 
 ## Purpose
-The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with three backed actions: **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), and **logout** (best-effort server revoke → token wipe → sign-in, per `logout-revocation`). The Premium/DESIGN rows render mockup chrome with no backend write. It owns the `SettingsRoute` root-stack contract + push semantics; the profile-screen entry gear that triggers the push is deferred to [#288](https://github.com/aditrioka/nearyou-id/issues/288). No Flyway migration; the backend logout endpoint it calls is owned by `auth-session`.
+The `mobile-settings` capability is the `:mobile:app` **Settings** surface (mockup frame 16 "Pengaturan") — the last screen of the mobile critical-path live menu. It is reached from the settings gear on the self-profile section. It ships the grouped settings list (AKUN / PREMIUM / PRIVASI / LAINNYA) with these backed rows: the Premium username change (→ `mobile-premium-username`), **blocked-users management** (list + unblock over `GET` / `DELETE /api/v1/blocks`), the post-onboarding **analytics-consent toggle** (reusing the existing `ConsentFlow` `PATCH /api/v1/user/consent` seam), the Premium-gated **hide-distance** and **private-profile** toggles, the device-local chat-preview toggle, the legal link, and **logout** (best-effort server revoke → token wipe → sign-in, per `logout-revocation`). It also ships the off-frame **data export** and **account deletion** (30-day grace + restore) rows, and hosts the "Undang teman" referral entry (`mobile-referral`). The remaining frame-16 rows ("Edit profil", "Perjalanan Premium", "Kelola langganan") show a non-writing "Segera hadir" affordance. It owns the `SettingsRoute` root-stack contract + push semantics. No Flyway migration; each backend endpoint it calls is owned by its own capability.
 ## Requirements
 ### Requirement: SettingsRoute and its sub-routes are serializable parameterless NavKeys pushed onto the root back stack
 
@@ -20,13 +20,31 @@ The mobile app SHALL add three `@Serializable data object` NavKeys to `mobile/ap
 
 ### Requirement: mobile-settings owns the SettingsRoute contract and push semantics
 
-The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its push semantics: `SettingsScreen` is a **root**-stack overlay reached by appending `SettingsRoute` onto the root back stack (above `HomeRoute`, overlaying the bottom `NavigationBar`), with the `entry<SettingsRoute>` → `SettingsScreen` mapping owned in `AppEntryProvider`. `SettingsRoute` SHALL be `@Serializable` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack requirement). The **entry affordance** that triggers this push — a settings gear on the profile self-surface (`mobile-profile`, PR [#245](https://github.com/aditrioka/nearyou-id/pull/245)) — is NOT shipped in this change; it is deferred to follow-up [#288](https://github.com/aditrioka/nearyou-id/issues/288). Until #288 wires the gear, `SettingsRoute` is a defined, serialization-tested route with no in-app trigger (the screen + sub-surfaces are otherwise fully shipped).
+The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its push semantics: `SettingsScreen` is a **root**-stack overlay reached by appending `SettingsRoute` onto the root back stack (above `HomeRoute`, overlaying the bottom `NavigationBar`), with the `entry<SettingsRoute>` → `SettingsScreen` mapping owned in `AppEntryProvider`. `SettingsRoute` SHALL be `@Serializable` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack requirement). The in-app **entry affordance** that triggers this push SHALL be the settings gear on the **self**-profile section (`mobile-profile`'s `ProfileScreen`, which hoists it as `onSettings`): `AppShellScreen` forwards its `onOpenSettings` callback to the Profil section's `ProfileScreen.onSettings`, and the shell call site in `AppEntryProvider` wires `onOpenSettings` to `backStack.add(SettingsRoute)` — neither `ProfileScreen` nor `AppShellScreen` holds a back-stack reference. The gear SHALL render on the self-profile section only and SHALL NOT render on the other-user profile overlay. (The gear shipped in PR [#312](https://github.com/aditrioka/nearyou-id/pull/312), closing [#288](https://github.com/aditrioka/nearyou-id/issues/288).)
 
 #### Scenario: SettingsRoute is a serializable root-stack route mapped to SettingsScreen
 
 - **GIVEN** the app navigation graph
 - **WHEN** `SettingsRoute` is appended onto the root back stack
 - **THEN** `AppEntryProvider` maps it to `SettingsScreen` as a root-stack overlay AND `SettingsRoute` round-trips through the polymorphic `SerializersModule` (iOS-saveable)
+
+#### Scenario: The self-profile settings gear pushes SettingsRoute
+
+- **GIVEN** `ProfileScreen` rendered as the self-profile section with a recording `onSettings` callback
+- **WHEN** the settings gear (test tag `PROFILE_SETTINGS_TAG`) is tapped
+- **THEN** `onSettings` is invoked exactly once
+
+#### Scenario: The shell forwards the gear to onOpenSettings
+
+- **GIVEN** `AppShellScreen` composed with a recording `onOpenSettings` and the Profil section selected
+- **WHEN** the self-profile settings gear (test tag `PROFILE_SETTINGS_TAG`) is tapped
+- **THEN** `onOpenSettings` is invoked (the `AppEntryProvider` call site wires it to `backStack.add(SettingsRoute)`)
+
+#### Scenario: The settings gear is absent on the other-user profile overlay
+
+- **GIVEN** `ProfileScreen` rendered as an other-user profile overlay (a non-null `onBack`, as the `ProfileRoute` entry passes)
+- **WHEN** the loaded profile renders
+- **THEN** no settings-gear node (test tag `PROFILE_SETTINGS_TAG`) exists
 
 ### Requirement: SettingsScreen renders the frame-16 grouped list with its own Scaffold and app bar
 
@@ -54,6 +72,8 @@ Per the operator's mockup-faithful-shell scope decision, `SettingsScreen` SHALL 
 The "Sembunyikan jarak" row is a Material 3 `Switch` row reflecting the caller's current `hide_distance_opt_in` state, **seeded on screen open via `GET /api/v1/user/hide-distance`** (which also returns whether the caller is effectively Premium). For an **effectively-Premium** caller it is interactive: toggling it issues `PATCH /api/v1/user/hide-distance` with the new value and reflects the persisted result; on write failure (5xx / network) it reverts to the prior state and surfaces a non-trapping error (no optimistic stick). For a **Free** caller it is NOT interactive — it renders the Premium upsell / disabled affordance (mirroring the username-customization Premium-entry pattern) and issues no write. Its title/subtitle SHALL be sourced via `:shared:resources` Compose Multiplatform Resources (no hardcoded literals).
 
 The "Profil privat" row is a Material 3 `Switch` row reflecting the caller's current `private_profile_opt_in` state, **seeded on screen open via `GET /api/v1/user/private-profile`** (which also returns whether the caller is effectively Premium). For an **effectively-Premium** caller it is interactive: toggling it issues `PATCH /api/v1/user/private-profile` with the new value and reflects the persisted result; on write failure (5xx / network) it reverts to the prior state and surfaces a non-trapping error (no optimistic stick). For a **Free** caller it is NOT interactive — it renders the Premium upsell / disabled affordance (mirroring the "Sembunyikan jarak" / username-customization Premium-entry pattern) and issues no write. Because `private_profile_opt_in` is on the `@allow-privacy-write` invariant surface, the row's interactive write SHALL go through the new `private-profile` endpoint ONLY (it issues no other `UPDATE users` path). Its title/subtitle SHALL be sourced via `:shared:resources` Compose Multiplatform Resources (no hardcoded literals).
+
+During the post-purchase webhook-lag window (`mobile-premium-entitlement` § "Upsell surfaces show the activating notice during the webhook-lag window") the screen's seed read can still report a caller who just bought as Free, so "Sembunyikan jarak" / "Profil privat" stay non-interactive. Tapping either then SHALL surface `premium_activating_body` in place of its "Aktifkan Premium untuk…" upsell (`settings_hide_distance_premium_only` / `settings_private_profile_premium_only`), and still issue no write. The screen reads `purchaseConfirmed` only to choose that snackbar copy. It is not an `isPremium` signal: it gates no row, and the rows' Free/Premium state still comes from the seed reads. The rows unlock on the next screen open once the server tier has flipped.
 
 The "Tampilkan preview pesan chat di notifikasi" row (`docs/03` § "User Toggle in Settings") is a Material 3 `Switch` row over the **device-local** notification content-privacy preference — NOT Premium-gated, available to all tiers, and issuing **no backend request** in any state. It is seeded on screen open from `NotificationContentPreference.previewEnabled()` (default OFF/private when never written) and toggling it writes via `NotificationContentPreference.setPreviewEnabled(...)` ONLY — no parallel store — so on iOS the value lands in the `group.id.nearyou.shared` App-Group suite the NSE reads. Its title SHALL be sourced via `:shared:resources` Compose Multiplatform Resources (no hardcoded literals).
 
@@ -122,6 +142,12 @@ The "Tampilkan preview pesan chat di notifikasi" row (`docs/03` § "User Toggle 
 - **GIVEN** an in-memory `NotificationContentPreference` whose store holds `true`
 - **WHEN** `SettingsScreen` is composed
 - **THEN** the "Tampilkan preview pesan chat di notifikasi" switch renders in the on state
+
+#### Scenario: A buyer in the lag window gets the activating notice on the Premium toggles
+
+- **GIVEN** `SettingsScreen` whose hide-distance and private-profile seed reads report `premium = false` AND a Koin graph binding a `PremiumEntitlementSession` on which `onPurchaseConfirmed()` has run
+- **WHEN** the caller taps "Sembunyikan jarak", and separately "Profil privat"
+- **THEN** each surfaces `premium_activating_body` AND not its `settings_*_premium_only` upsell AND no `PATCH` is recorded
 
 ### Requirement: Block-list management lists the viewer's blocked users and unblocks them
 

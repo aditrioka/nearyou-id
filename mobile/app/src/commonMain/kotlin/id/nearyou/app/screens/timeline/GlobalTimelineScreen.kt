@@ -20,6 +20,7 @@ import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.ui.ads.rememberTimelineAds
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.HardLimitState
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
@@ -31,8 +32,6 @@ import id.nearyou.app.ui.timeline.TimelineBlockTarget
 import id.nearyou.app.ui.timeline.TimelineReportMessage
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.post_detail_likes_cap_upsell
-import id.nearyou.resources.generated.resources.timeline_limit_hard
-import id.nearyou.resources.generated.resources.timeline_limit_soft
 import id.nearyou.resources.generated.resources.timeline_loading
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
@@ -133,6 +132,8 @@ fun GlobalTimelineScreen(
         // Both pull-to-refresh and the error-retry control re-fetch page 1 via the VM (shared reload path).
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
+        // The read-cap banner/state CTA opens the paywall as TIMELINE_CAP via the host (#516).
+        onReadCapUpsell = { onActivatePremium(PaywallEntry.TIMELINE_CAP) },
         onOpenPost = onOpenPost,
         // Inline like (shared controller in the VM) + the reply shortcut (hoisted to the tab host,
         // which pushes PostDetailRoute(focusReplyComposer = true)).
@@ -192,6 +193,7 @@ private fun GlobalTimelineContent(
     onRetryLoadMore: () -> Unit,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onReadCapUpsell: () -> Unit,
     onOpenPost: (GlobalTimelinePost) -> Unit,
     onToggleLike: (GlobalTimelinePost) -> Unit,
     onReplyShortcut: (GlobalTimelinePost) -> Unit,
@@ -226,11 +228,9 @@ private fun GlobalTimelineContent(
                     testTag = GLOBAL_TIMELINE_LIST_TAG,
                     showSkeleton = true,
                 )
+            // The Free read cap (Free-only, so never a Premium reader): copy + "Aktifkan Premium" → TIMELINE_CAP.
             GlobalTimelineUiState.HardLimit ->
-                ListCenteredMessageState(
-                    message = stringResource(Res.string.timeline_limit_hard),
-                    testTag = GLOBAL_TIMELINE_LIST_TAG,
-                )
+                HardLimitState(onActivatePremium = onReadCapUpsell, onRetry = onRetry, testTag = GLOBAL_TIMELINE_LIST_TAG)
             GlobalTimelineUiState.Error -> ListErrorState(onRetry = onRetry, testTag = GLOBAL_TIMELINE_LIST_TAG)
             // Terminal 401 → neutral redirect placeholder: the redirect copy with NO retry control and
             // NOT signin_error_network (the SessionInvalidator re-route whisks the user to SignInScreen).
@@ -274,7 +274,7 @@ private fun GlobalTimelineContent(
                     onOpenProfile = onOpenProfile,
                     listTag = GLOBAL_TIMELINE_LIST_TAG,
                     cardTag = GLOBAL_POST_CARD_TAG,
-                    banner = stringResource(Res.string.timeline_limit_soft),
+                    softLimitUpsell = onReadCapUpsell,
                     adFrequency = timelineAds.frequency,
                     adSlot = { timelineAds.Slot(it) },
                     reportActionOf = reportActionOf,

@@ -116,12 +116,12 @@ Feature rules: `02-Product.md` § Premium Username Customization.
 
 ### Customization Screen
 
-> Reconciled 2026-07-02 to the shipped wire (`premium-username-customization` backend + `mobile-premium-username` client): the availability probe is **3/day rate-limited and non-authoritative**, and the `409` envelope carries **no unavailability reason** — so validation is local-first and the unavailable message is generic. The fuller UX is tracked: distinct unavailable messages [#334](https://github.com/aditrioka/nearyou-id/issues/334), proactive cooldown entry state [#333](https://github.com/aditrioka/nearyou-id/issues/333), autocomplete [#336](https://github.com/aditrioka/nearyou-id/issues/336).
+> Reconciled 2026-07-02 to the shipped wire (`premium-username-customization` backend + `mobile-premium-username` client): the availability probe is **3/day rate-limited and non-authoritative**, and the `409` envelope carries **no unavailability reason** — so validation is local-first and the unavailable message is generic. The generic message is **final** (operator decision 2026-09-26): a per-reason message would tell a prober whether a handle is reserved, taken, or on its release hold, against the `premium-username-customization` anti-probing rule ([#334](https://github.com/aditrioka/nearyou-id/issues/334) closed as not planned). Still tracked: the proactive cooldown entry state [#333](https://github.com/aditrioka/nearyou-id/issues/333).
 
 - Current username + field for the new one; **live LOCAL format validation** (debounced 500ms; 3–30 chars, lowercase/digit/dot/underscore rules) gates both the probe and submit — format errors surface instantly with no network call ("Username harus 3–30 karakter: huruf kecil, angka, titik, atau garis bawah (tidak di awal/akhir, tanpa titik ganda).")
 - **Budget-aware availability probe**: `GET /api/v1/username/check` fires only for a format-valid, settled, not-yet-probed candidate (NOT per keystroke — the probe is rate-limited 3/user/day). Probe available: "Username tersedia." Probe exhausted degrades gracefully, not an error: "Ketersediaan akan dicek saat kamu simpan." — the authoritative check happens at submit under the row lock.
 - Error states (shipped envelope):
-  - Unavailable (`409 username_unavailable` — reserved / taken / release hold, undistinguished by the wire): one generic "Username ini tidak tersedia. Coba username lain." (distinct per-reason messages: [#334](https://github.com/aditrioka/nearyou-id/issues/334))
+  - Unavailable (`409 username_unavailable` — reserved / taken / release hold, undistinguished by the wire): one generic "Username ini tidak tersedia. Coba username lain." (final; distinct per-reason messages are not planned, see the note above)
   - Profanity/UU ITE soft flag (`422 username_rejected`): "Username ini akan ditinjau tim moderasi. Silakan pilih username lain atau tunggu hasil review."
   - Cooldown active (`429 cooldown_active`, reactive via `Retry-After`): "Ganti username berikutnya tersedia dalam {n} hari."
   - Probe/change rate-limited (`429 rate_limited`): "Terlalu banyak percobaan. Coba lagi dalam {n} menit."
@@ -191,6 +191,8 @@ Toggle "Tampilkan preview pesan chat di notifikasi", default OFF; ON then body =
 - **Free post-cap modal** (10/day): "Kamu sudah membuat 10 postingan hari ini. Upgrade ke Premium untuk posting tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
 - **Free chat-cap modal** (50/day, chat thread + share-to-chat): "Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam {countdown}." Same CTAs.
 - All four caps share ONE modal (the `mobile-cap-upsell-dialog` component, mockup frame 18) — never an inline banner. "Aktifkan Premium" opens the paywall with the cap's entry-context so the hero leads with the matching benefit.
+- **Timeline read cap** (Free 50/session soft, 150/hour hard, docs/01 § Timeline Read Limit Semantics) is a feed state, not a modal. The soft cap is a non-blocking banner over the feed, the hard cap is an empty-feed state. Each carries an "Aktifkan Premium" CTA that opens the paywall as `TIMELINE_CAP` ("Baca timeline tanpa batas").
+- **Just bought, server not caught up yet** (the RevenueCat webhook lag): no upsell may tell a buyer to upgrade or send them to buy again. Every cap modal and Premium-gate upsell shows "Premium sedang diaktifkan" / "Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya." instead, with only "Tutup" in a modal or "Coba lagi" in an inline state. The soft read-cap banner simply hides (`mobile-premium-entitlement`).
 
 ---
 

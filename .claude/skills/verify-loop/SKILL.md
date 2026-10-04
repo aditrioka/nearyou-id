@@ -114,6 +114,8 @@ Recipes (build `:mobile:app:installStagingDebug`; ALWAYS `adb shell pm clear id.
 
 ## §C — iOS simulator
 
+> **Android-first does NOT skip this section.** Per `docs/08` Open Decision #37 the iOS target stays compile/link/test-green and iOS behaviour is verified here for free (Apple ID + Personal Team: simulator, or an on-device dev build with a 7-day profile). The ONLY things not verifiable without the paid Apple Developer Program are the `apple-paid` capabilities — APNs push + NSE, Sign in with Apple, App Attest, StoreKit purchases/Restore — whose iOS actuals are expected to be explicit NoOps (`docs/11` § 2.5); note "apple-paid: not exercised" in the evidence instead of skipping §C.
+
 **ALWAYS pod-install via `dev/scripts/ios-pod-install.sh`, NEVER raw `pod install`.** CMP `compose-resources` (Plus Jakarta Sans `plus_jakarta_sans.ttf`, strings, drawables) are a BUILD artifact; CocoaPods only wires the `[CP] Copy Pods Resources` phase when that dir is already populated at install time. Raw `pod install` on an empty resources dir STRIPS the phase → launch aborts with `MissingResourceException: ...plus_jakarta_sans.ttf` (NearYouTheme `FontFamilyResolver.preload`). The script populates resources (needs `ARCHS=arm64 PLATFORM_NAME=iphonesimulator CONFIGURATION=Debug`) THEN installs.
 
 - **UTF-8 locale** or `pod install` dies (`Unicode Normalization not appropriate for ASCII-8BIT`): `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` (script sets this).

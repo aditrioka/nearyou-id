@@ -71,11 +71,13 @@ import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
+import id.nearyou.app.timeline.UpsellDto
 import id.nearyou.app.timeline.fakeFollowingPost
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.HARD_LIMIT_PREMIUM_TAG
 import id.nearyou.app.ui.components.POST_CARD_LIKE_ACTION_TAG
 import id.nearyou.app.ui.components.POST_CARD_REPLY_ACTION_TAG
 import id.nearyou.app.ui.components.RADIUS_UPSELL_DIALOG_PREMIUM_TAG
@@ -544,6 +546,22 @@ class HomeTabHostScreenTest {
             onNodeWithTag(RADIUS_UPSELL_DIALOG_PREMIUM_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
             assertEquals(PaywallRoute(PaywallEntry.RADIUS_GATE), backStack.last())
+        }
+    }
+
+    // #516 — the read cap names its own entry: under the REAL appEntryProvider the hard read-cap state's CTA
+    // (the start Nearby tab) pushes PaywallRoute(TIMELINE_CAP), with no host wiring beyond the Home path's
+    // existing (PaywallEntry) -> Unit callback.
+    @Test
+    fun hardReadCapPremiumCta_pushesPaywallRouteTimelineCapOntoRootStack() {
+        installKoin(nearbyOutcome = NearbyTimelineOutcome.Loaded(emptyList(), null, UpsellDto(hard = true)))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(HomeRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(HARD_LIMIT_PREMIUM_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(HARD_LIMIT_PREMIUM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
+            assertEquals(PaywallRoute(PaywallEntry.TIMELINE_CAP), backStack.last())
         }
     }
 
