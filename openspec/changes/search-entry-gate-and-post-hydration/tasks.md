@@ -67,7 +67,7 @@
     - a typed query renders no typeahead, and only `search(...)` is called.
   - **Host push:** under `TestNavHost` with the real `appEntryProvider`, a tap pushes `PostDetailRoute` with the hydrated fields. Bind PostDetail's Koin graph the way `HomeTabHostScreenTest` does, and re-run this after rebasing onto the concurrent PostDetail change.
   - **Updated:** the existing payload test asserts the `Unavailable` fallback defaults.
-- [ ] 5.5 iosTest `SearchFlowIosTest` (K/N-legal names): bind a Premium `single<ProfileFlow>` override so the existing three stay green; new `onEntry_freeViewer_showsUpsellBeforeTyping`
+- [x] 5.5 iosTest `SearchFlowIosTest` (K/N-legal names): bind a Premium `single<ProfileFlow>` override so the existing three stay green; new `onEntry_freeViewer_showsUpsellBeforeTyping`
 - [x] 5.6 Notification tests (`NotificationsViewModelNavTest`, `NotificationsScreenNavTest`, `FakeNotificationsFlow`, push-tap tests): imports only; all green unchanged in behavior
 - [x] 5.7 The `mobile-post-detail` search-entry scenarios ("builds the route from the full projection", "failed lookup still opens from the hit") are backed by 5.2 (VM target) + 5.4 (host push)
 
@@ -78,7 +78,7 @@
 
 ## 7. Verification & lifecycle
 
-- [ ] 7.1 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (throwaway Postgres on :5434 if the dev DB is dirty) + `:mobile:app:iosSimulatorArm64Test`
+- [x] 7.1 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (throwaway Postgres on :5434 if the dev DB is dirty) + `:mobile:app:iosSimulatorArm64Test`
 - [ ] 7.2 Manual verify (verify-loop §B/§C) on the local Android emulator AND the iOS simulator (docs/11 §5.3), against a stub backend serving the real wires:
   - a Free self read → the upsell on entry;
   - Premium → Idle;
