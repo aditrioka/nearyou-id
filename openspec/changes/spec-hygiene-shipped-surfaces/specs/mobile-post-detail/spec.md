@@ -1,0 +1,32 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: By-id post fetch is deferred`
+- TO: `### Requirement: By-id post reads never gate the header's first paint`
+
+## MODIFIED Requirements
+
+### Requirement: By-id post reads never gate the header's first paint
+
+`PostDetailScreen` SHALL consume the `single-post-read` capability (`GET /api/v1/posts/{post_id}`; the backend half of GitHub issue [#202](https://github.com/aditrioka/nearyou-id/issues/202), now closed) only in the two shipped ways below, and SHALL NOT block the header's first paint on either — the header is always first built from the `PostDetailRoute` nav args (per § "The post header renders from nav args without a single-post re-fetch"):
+
+- **Resume-time freshness read** (owned by `mobile-post-editing` § "Post-detail reads edit state from a single-post-read refresh"): on each resume the screen fetches the minimal projection via `SinglePostApiClient.fetchPost` to refresh the displayed content and resolve `editedAt` / `isAuthor` / `authorUserId`; a non-200 or transport failure degrades silently to the payload (no error state).
+- **No-card entry** (owned by `mobile-notifications-list` § "A post-target notification resolves to a PostDetailTarget via the full-projection single-post fetch"): a notification deep-link into a post resolves the FULL projection via `SinglePostApiClient.fetchFullPost` BEFORE pushing `PostDetailRoute`, so the pushed route still carries every display field and the header renders from it exactly as on a card tap; a resolution failure pushes nothing.
+
+Replies cursor load-more is **no longer deferred** — it is implemented per the § "Replies list wires cursor load-more via PostDetailViewModel" requirement, which closes the replies half of GitHub issue [#188](https://github.com/aditrioka/nearyou-id/issues/188).
+
+#### Scenario: A failed freshness read keeps the payload header
+
+- **GIVEN** a `PostDetailScreen` composed from a `PostDetailRoute` whose resume-time `GET /api/v1/posts/{id}` returns `404` (or fails at transport)
+- **WHEN** the screen renders
+- **THEN** the header shows the route payload's content AND no error state is rendered
+
+#### Scenario: A notification deep-link builds the route from the full projection
+
+- **GIVEN** a `post`-target notification whose full-projection `GET /api/v1/posts/{target_id}` returns `200`
+- **WHEN** the notification is tapped
+- **THEN** the pushed `PostDetailRoute` carries the projection's display fields (content, city, like state, reply count, author identity) with `distanceM = null`, and the header renders from that payload
+
+#### Scenario: Replies load-more is not deferred
+
+- **WHEN** the replies list scrolls to its end while the last page carried a `next_cursor`
+- **THEN** a `cursor=`-bearing follow-up `GET /replies` request is issued (the replies half of issue [#188](https://github.com/aditrioka/nearyou-id/issues/188) is implemented, not deferred)
