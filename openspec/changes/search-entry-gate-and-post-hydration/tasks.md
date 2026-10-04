@@ -79,7 +79,7 @@
 ## 7. Verification & lifecycle
 
 - [x] 7.1 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` (throwaway Postgres on :5434 if the dev DB is dirty) + `:mobile:app:iosSimulatorArm64Test`
-- [ ] 7.2 Manual verify (verify-loop §B/§C) on the local Android emulator AND the iOS simulator (docs/11 §5.3), against a stub backend serving the real wires:
+- [x] 7.2 Manual verify (verify-loop §B/§C) on the local Android emulator AND the iOS simulator (docs/11 §5.3), against a stub backend serving the real wires:
   - a Free self read → the upsell on entry;
   - Premium → Idle;
   - a result tap → the detail opens with the real city, like state, reply count and image;
