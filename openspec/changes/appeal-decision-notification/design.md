@@ -34,8 +34,8 @@ Per the docs/05 catalog rule, the outer `(target_type, target_id)` is the deep-l
 `body_data` deliberately carries NO `decision_reason` (free-text up to 1000 chars; the `account_action_applied` precedent keeps admin free text out of the feed — the status read already returns it to the appellant), NO `action_type`, NO admin identity, and does not duplicate the appeal id.
 *Alternatives rejected:* `target_type = NULL` with the appeal id in `body_data` (violates the "don't duplicate target into body_data" rule's intent and loses the addressing pair); two types `appeal_approved` / `appeal_rejected` (doubles the CHECK widening and the client mapping for one bit of data).
 
-### D3 — V40: additive constraint swap, re-run-safe
-`ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check, ADD CONSTRAINT notifications_type_check CHECK (type IN (…14 values…))` — one atomic ALTER (the constraint is never absent to a concurrent session), the V36 precedent. `IF EXISTS` keeps the file re-runnable if staging's `repair()` fallback ever marks the branch-applied V40 deleted (memory: branch-deploy V<N> must be idempotent). The re-add validates existing rows; all 13 prior values stay valid, so no data rewrite. V40 is the next free version (`origin/main` tops out at V39; no remote branch or sibling worktree holds a V40).
+### D3 — V40: additive constraint swap, fail-loud on a name mismatch
+`ALTER TABLE notifications DROP CONSTRAINT notifications_type_check, ADD CONSTRAINT notifications_type_check CHECK (type IN (…14 values…))` — one atomic ALTER (the constraint is never absent to a concurrent session), exactly the V36 precedent. It is already re-runnable (the re-add restores the same name, so a `repair()`-driven re-apply finds it again). `IF EXISTS` is deliberately NOT used: if the constraint were ever named differently on some database, `IF EXISTS` would silently leave the old 13-value CHECK in place and every approve/reject would then roll back on 23514 at runtime; a plain `DROP` fails the migration instead. The smoke test + staging smoke additionally assert exactly ONE CHECK on `notifications` references `type`. The re-add validates existing rows; all 13 prior values stay valid, so no data rewrite. V40 is the next free version (`origin/main` tops out at V39; no remote branch or sibling worktree holds a V40).
 
 ### D4 — `NotificationType.APPEAL_DECIDED` is part of the slice (read-path threading)
 Without the enum value the list endpoint's `type IN (…)` filter hides the row while the unread badge counts it — a phantom unread. Adding the value makes the list, unread count, mark-read, and data-export paths all consistent. No `PushCopy` branch is added (no push is ever dispatched for this type; if one ever were, `PushCopy`'s existing `FALLBACK_BODY` applies).
@@ -46,6 +46,12 @@ Without the enum value the list endpoint's `type IN (…)` filter hides the row 
 ### D6 — Appeal screen token source: appeal token if held, else the signed-in session
 `AppealFlow.status(appealToken: String?)`: a non-null token keeps today's raw-client path; `null` reads through the shared bearer-authed `HttpClient` (docs/11 §2.6 — the one shared client; its Auth plugin attaches/refreshes the normal access token, which the appeal realm accepts). `AppealApiClient` takes that shared client as a second constructor arg. A `401` on either path stays `SessionExpired → SessionRedirect` (re-sign-in), so the restored-back-stack-after-process-death case still ends at sign-in. Submit is unchanged (appeal token only; a signed-in, non-banned user has nothing to appeal).
 `AppealStatus.Decided` gains `viaSession: Boolean`; an approved decision read via the session renders the approved title + a new "akunmu sudah aktif kembali" body with NO re-sign-in CTA (the user already holds a live session). Approved via the appeal token (banned sign-in path) keeps the shipped re-sign-in CTA.
+
+Two guards make "token held ⇔ banned sign-in flow" true (round-1 review):
+- **The appeal token is dropped on a successful sign-in** (`AuthRepository`'s `SignInApiResult.Success` branch calls `appealSession.clear()`). Today nothing ever clears it (1 h TTL), so a suspended user who appealed, was approved, and signed in again in the same process would otherwise have the notification tap read through the stale token → the approved surface's "masuk lagi" CTA for a signed-in user, or a 401 → sign-in after the hour. It also stops holding a credential past its use.
+- **No appeal token AND no stored session → `SessionExpired` with no network call** (`AppealRepository` checks `TokenStore.read()` first). Routing that case through the shared client would 401 → `TokenRefresher` finds no refresh token → `SessionInvalidator.invalidate()` → the involuntary "session expired" notice + a saved return destination — not today's quiet redirect. The short-circuit keeps the restored-back-stack behavior identical to today.
+
+The rejected body (`appeal_rejected_body`) is reworded from "Tindakan pada akun tetap berlaku" (false once a suspension has lapsed, which is the only time a rejected appellant can reach the feed) to "Keputusan moderasi atas akunmu tidak diubah" — accurate on both paths, so no rejected-path branching.
 *Alternatives rejected:* reading the stored access token and attaching it to the raw client (no refresh → an expired access token would bounce a signed-in user to sign-in); a separate `AppealStatusRoute` NavKey (a second screen for the same status UI).
 
 ### D7 — Decision-keyed row copy
@@ -61,25 +67,25 @@ Without the enum value the list endpoint's `type IN (…)` filter hides the row 
 ### Cross-layer scope (docs/12)
 | Layer | Shipped in this change |
 |---|---|
-| Backend | V40 CHECK widening, in-tx emit, `NotificationType` enum (feed read path), docs/05 catalog |
+| Backend | V40 CHECK widening, in-tx emit, `NotificationType` enum (feed read path), docs/05 catalog (+ V40 note, in-app-only marker) / docs/02 / docs/03 / docs/08 enum count |
 | Admin | **No surface change** — the emit rides the existing approve/reject actions; the operator observes nothing new (the audit row is unchanged). Not a deferred layer: there is no admin-facing behavior to add. |
-| Mobile (Android + iOS, commonMain) | row copy, `appeal` deep link → `AppealRoute`, signed-in status read on the appeal screen |
+| Mobile (Android + iOS, commonMain) | row copy, `appeal` deep link → `AppealRoute`, signed-in status read on the appeal screen, appeal token dropped on sign-in success |
 | Push (FCM) | **Out of scope by operator decision**, pinned as a positive negative-guard in `content-moderation-appeal` + `in-app-notifications` (not a §3 deferral — no follow-up is planned). |
 
 No layer is deferred, so no §3 deferred requirement is needed.
 
 ## Risks / Trade-offs
 
-- **[A rejected appellant is still banned and cannot read the feed]** → The row is still written; a suspended user sees it once the suspension lapses (unban worker) and they sign in. While banned, the appeal screen reached from the sign-in 403 already shows the decision via the ban-exempt status read (unchanged). A permanently-banned rejected appellant never sees the row (it CASCADE-deletes with the account) — acceptable; the status read is their surface.
+- **[A rejected appellant is still banned and cannot read the feed]** → The row is still written; a suspended user sees it once the suspension lapses (unban worker) and they sign in. While banned, the appeal screen reached from the sign-in 403 already shows the decision via the ban-exempt status read (unchanged). A permanently-banned rejected appellant never reaches the feed, so the row sits unread until the type-agnostic 90-day retention purge (likewise for a suspension longer than 90 days) — acceptable; the status read is their surface.
 - **[The appeal screen shows the LATEST appeal, not necessarily the one the notification names]** → Only reachable if the user had a newer appeal, which requires being banned again (feed unreachable while banned). The `target_id` keeps the precise address for a future by-id read; not built now (YAGNI).
-- **[A signed-in user opening `AppealRoute` hits the shared client's 401→refresh→invalidate path]** → Same terminal outcome as today's no-token redirect (sign-in); covered by a ViewModel test.
+- **[No appeal token and no session would hit the shared client's 401→refresh→invalidate path]** → Short-circuited in `AppealRepository` (D6); a signed-in user whose refresh token is rejected still gets the app-wide session-expiry handling, which is correct for a live-but-dead session.
 - **[V40 on staging via branch deploy, later main deploy without V40]** → Flyway's default `*:future` ignore keeps `main` booting; the squash-merge deploy sees the same checksum. `IF EXISTS` keeps a `repair()` re-apply safe.
 
 ## Migration Plan
 
 1. CI: Flyway V40 against the service-container Postgres (DB-tagged tests) + the supabase-parity migrate lane.
 2. Pre-archive staging branch deploy (`gh workflow run deploy-staging.yml --ref appeal-decision-notification`); smoke = V40 history row `success` + `pg_constraint` contains `appeal_decided` (read-only Supabase MCP) + `/health/ready` 200. The admin decide → notification E2E is verified locally (verify-loop: local Ktor + admin panel + mobile), since a staging admin decision needs a temp admin whose audit rows only the dashboard can delete.
-3. Rollback: forward-only — a later migration re-narrows the CHECK after deleting any `appeal_decided` rows; the code revert alone is safe (the extra enum value is harmless with no writer).
+3. Rollback: forward-only — a later migration deletes the `appeal_decided` rows, then re-narrows the CHECK. A code-only revert that also removed the enum value would hide existing rows from the list while the unread badge still counts them, so delete the rows first (or keep the enum value when reverting only the writer).
 
 ## Open Questions
 

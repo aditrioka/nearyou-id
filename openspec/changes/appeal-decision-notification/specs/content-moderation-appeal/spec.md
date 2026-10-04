@@ -14,9 +14,13 @@ The appeal decision SHALL be surfaced to the user through the own-appeal-status 
 - **WHEN** A next reads their appeal status
 - **THEN** the response reports `status = 'approved'`
 
-#### Scenario: Deciding an appeal inserts one in-app notification for the appellant
-- **WHEN** an admin approves or rejects caller A's pending appeal
-- **THEN** exactly one `notifications` row with `user_id = A` and `type = 'appeal_decided'` is inserted AND it is returned by A's `GET /api/v1/notifications`
+#### Scenario: Approving an appeal surfaces an in-app notification in the appellant's feed
+- **WHEN** an admin approves caller A's pending appeal (lifting the ban)
+- **THEN** exactly one `notifications` row with `user_id = A` and `type = 'appeal_decided'` is inserted AND it is returned by A's next `GET /api/v1/notifications`
+
+#### Scenario: Rejecting an appeal still records the in-app notification
+- **WHEN** an admin rejects caller A's pending appeal (A stays banned, so A's feed read is 403 until access returns)
+- **THEN** exactly one `notifications` row with `user_id = A` and `type = 'appeal_decided'` is inserted (it becomes visible in A's feed once A can authenticate again)
 
 #### Scenario: Deciding an appeal dispatches no FCM push
 - **WHEN** an admin approves or rejects an appeal
