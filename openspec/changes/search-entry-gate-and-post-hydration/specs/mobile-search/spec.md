@@ -1,7 +1,28 @@
 ## RENAMED Requirements
 
 - FROM: `### Requirement: The Premium gate renders the Free-tier upsell panel reactively on 403`
-- TO: `### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403`
+- TO: `### Requirement: Pagination is a "Lihat lebih banyak" load-more that appends pages
+
+When the current `Results` outcome carries a non-null `nextOffset`, `SearchScreen` SHALL render a "Lihat lebih banyak" control via `stringResource(Res.string.search_load_more)` below the result list. Activating it SHALL issue a fetch with `offset = nextOffset`, **append** the returned hits to the retained list (NOT replace it), and update the retained `nextOffset`. The append SHALL drop any returned hit whose `postId` the retained list already holds — `OFFSET` paging over rank ties can repeat a hit when the result set shifts between pages, and the result list keys its items on `postId` (a duplicate key would crash it). A `nextOffset == null` SHALL hide the control (terminal). A returned empty page SHALL be treated as terminal (the control is hidden) even if a non-null `nextOffset` was returned — clients treat `results = []` as terminal per `premium-search` § "Pagination via OFFSET". During a load-more fetch the existing results SHALL remain rendered (the list is never torn down) with at most one in-list progress indicator; the screen state stays `Results`, NOT `Loading`.
+
+#### Scenario: Load-more appends the next page and keeps the list mounted
+
+- **GIVEN** `SearchScreen` in the `Results` state with a first page of 20 hits and `nextOffset = 20`, over a `FakeSearchFlow` whose load-more returns 5 more hits with `nextOffset = null`
+- **WHEN** the "Lihat lebih banyak" control is activated
+- **THEN** the list renders 25 hits (the 5 appended to the original 20) AND the existing 20 stayed rendered during the fetch AND the load-more control is now hidden (`nextOffset == null`)
+
+#### Scenario: A null nextOffset hides the load-more control
+
+- **WHEN** the `Results` outcome carries `nextOffset = null`
+- **THEN** no "Lihat lebih banyak" control is rendered
+
+#### Scenario: A load-more page repeating a retained hit does not duplicate it
+
+- **GIVEN** a `SearchViewModel` whose retained `Results` hold `p1`, `p2` with `nextOffset = 2`, over a flow whose load-more returns `p2`, `p3`
+- **WHEN** the load-more is requested
+- **THEN** the retained hits are exactly `p1`, `p2`, `p3` (in that order — `p2` is not appended twice)
+
+### Requirement: The Premium gate renders the Free-tier upsell panel on entry for a known-Free viewer and reactively on 403`
 
 - FROM: `### Requirement: A result tap opens PostDetailRoute with documented default fields`
 - TO: `### Requirement: A result tap opens PostDetailRoute hydrated from the by-id post read`
@@ -219,7 +240,7 @@ This resolves the v1 informational-placeholder state: the CTA is no longer a no-
 
 ### Requirement: A result tap opens PostDetailRoute hydrated from the by-id post read
 
-A search result card SHALL be tappable. The tap SHALL go to the route-scoped `SearchViewModel` (`onResultTap(hit)`), which resolves the post through the full `single-post-read` projection (`GET /api/v1/posts/{post_id}`) via `SearchFlow.resolvePost(postId)` — the SAME by-id resolution the notification deep-link uses (the shared `PostTargetResolution` + `toPostDetailTarget()` mapping; no second resolver). While the read is in flight the tapped card SHALL show a small progress indicator (test tag `searchResultResolving`) — an action affordance on the tapped card (the `NotificationsScreen` row-resolving precedent), NOT a list load/refresh indicator, so it is outside the `mobile-design-system` "never two progress indicators" list-loading rule. A newer tap SHALL cancel and supersede an in-flight one (latest tap wins). An in-flight resolution SHALL also be cancelled — and its card indicator cleared — when the query changes (an edit, a submit, a clear, or a retry starts a new search) and when the `SearchScreen` leaves composition (e.g. covered by the pushed detail), so a resolution never navigates to a post that is no longer on screen or opens a second detail after the viewer returns. While a resolved target is pending, further taps SHALL be ignored. A non-cancellation exception from the read SHALL be treated like `Unavailable` (the fallback below), never escape the ViewModel scope.
+A search result card SHALL be tappable. The tap SHALL go to the route-scoped `SearchViewModel` (`onResultTap(hit)`), which resolves the post through the full `single-post-read` projection (`GET /api/v1/posts/{post_id}`) via `SearchFlow.resolvePostTarget(postId)` — the SAME by-id resolution the notification deep-link uses (the shared `PostTargetResolution` + `toPostDetailTarget()` mapping; no second resolver). While the read is in flight the tapped card SHALL show a small progress indicator (test tag `searchResultResolving`) — an action affordance on the tapped card (the `NotificationsScreen` row-resolving precedent), NOT a list load/refresh indicator, so it is outside the `mobile-design-system` "never two progress indicators" list-loading rule. A newer tap on a different card SHALL cancel and supersede an in-flight one (latest tap wins); a repeated tap on the card already resolving SHALL be ignored (the in-flight read is kept, not restarted). An in-flight resolution SHALL also be cancelled — and its card indicator cleared — when the query changes (an edit, a submit, a clear, or a retry starts a new search) and when the `SearchScreen` leaves composition (e.g. covered by the pushed detail), so a resolution never navigates to a post that is no longer on screen or opens a second detail after the viewer returns. While a resolved target is pending, further taps SHALL be ignored. A non-cancellation exception from the read SHALL be treated like `Unavailable` (the fallback below), never escape the ViewModel scope.
 
 The resolved destination SHALL be exposed as a nullable, consumed-once `pendingNavTarget: PostDetailTarget?` on the ViewModel's `uiState` (docs/11 §2.2 one-shot-as-state; NO `Channel`/`SharedFlow`; the `NotificationsViewModel` naming — `pendingNavTarget` / `onNavConsumed()` / a resolving id). `SearchScreen` SHALL invoke the hoisted `onOpenPost(target)` with it and then clear it via `onNavConsumed()`, so recomposition or a configuration change never navigates twice. `SearchScreen` SHALL remain navigation-free; the host (the `appEntryProvider` call site) pushes `PostDetailRoute` onto the root back stack through the SAME `PostDetailTarget` → `PostDetailRoute` mapping the Home feed card tap uses.
 
@@ -230,37 +251,43 @@ The payload SHALL never carry `latitude`/`longitude` or the `author_id` UUID. Th
 
 #### Scenario: Tapping a result pushes PostDetailRoute hydrated from the by-id read
 
-- **GIVEN** the search surface with a loaded hit `p1` AND a `SearchFlow` whose `resolvePost("p1")` returns `Resolved` with `cityName = "Jakarta Selatan"`, `likedByViewer = true`, `replyCount = 4`, `imageUrl = "https://img.example/p1.jpg"`
+- **GIVEN** the search surface with a loaded hit `p1` AND a `SearchFlow` whose `resolvePostTarget("p1")` returns `Resolved` with `cityName = "Jakarta Selatan"`, `likedByViewer = true`, `replyCount = 4`, `imageUrl = "https://img.example/p1.jpg"`
 - **WHEN** the result card is tapped
 - **THEN** exactly one `PostDetailRoute` is pushed (or one target delivered to the recording `onOpenPost`) carrying `postId = "p1"` AND `cityName = "Jakarta Selatan"`, `likedByViewer = true`, `replyCount = 4`, `imageUrl = "https://img.example/p1.jpg"`, `distanceM = null` AND no `latitude`/`longitude` and no author UUID
 
 #### Scenario: An unavailable by-id read falls back to the hit payload with documented defaults
 
-- **GIVEN** a loaded hit (`postId`, `content`, `createdAt`, `authorUsername`, `authorDisplayName`) AND `resolvePost` returning `Unavailable`
+- **GIVEN** a loaded hit (`postId`, `content`, `createdAt`, `authorUsername`, `authorDisplayName`) AND `resolvePostTarget` returning `Unavailable`
 - **WHEN** the result card is tapped
 - **THEN** the delivered target carries the hit's `postId`/`content`/`createdAtIso`/`authorUsername`/`authorDisplayName` AND `cityName = ""`, `distanceM = null`, `likedByViewer = false`, `replyCount = 0`, `imageUrl = null`
 
 #### Scenario: The tapped card shows a spinner while its read is in flight
 
-- **GIVEN** a `resolvePost` that has not returned yet
+- **GIVEN** a `resolvePostTarget` that has not returned yet
 - **WHEN** a result card is tapped
 - **THEN** that card renders the `searchResultResolving` progress indicator AND no navigation has happened yet
 
 #### Scenario: A newer tap supersedes an in-flight resolution
 
-- **GIVEN** a `resolvePost` for `p1` still in flight
+- **GIVEN** a `resolvePostTarget` for `p1` still in flight
 - **WHEN** the viewer taps `p2`, then `p1`'s read is released before `p2`'s completes
 - **THEN** `p1`'s result is discarded AND exactly one target is ever delivered, and it is `p2`
 
+#### Scenario: A double-tap on the resolving card keeps the in-flight read
+
+- **GIVEN** a `resolvePostTarget` for `p1` still in flight after a tap
+- **WHEN** the same `p1` card is tapped again
+- **THEN** no second read is issued for `p1` AND the `p1` card still shows the resolving indicator
+
 #### Scenario: A query change cancels an in-flight resolution
 
-- **GIVEN** a `resolvePost` for `p1` still in flight after a tap
+- **GIVEN** a `resolvePostTarget` for `p1` still in flight after a tap
 - **WHEN** the viewer edits or clears the query, then the read completes
 - **THEN** no target is delivered AND the resolving indicator is cleared
 
 #### Scenario: A thrown by-id read falls back instead of crashing
 
-- **GIVEN** a `resolvePost` that throws a non-cancellation exception
+- **GIVEN** a `resolvePostTarget` that throws a non-cancellation exception
 - **WHEN** a result card is tapped
 - **THEN** the fallback target (hit fields + documented defaults) is delivered AND no exception escapes the ViewModel
 
@@ -272,7 +299,7 @@ The payload SHALL never carry `latitude`/`longitude` or the `author_id` UUID. Th
 
 ### Requirement: SearchApiClient and SearchRepository are Koin singletons behind a testable seam
 
-`SearchApiClient` and `SearchRepository` SHALL be registered in the commonMain Koin `mobileModule`. `SearchRepository` SHALL be bound behind a `SearchFlow` interface (`single<SearchFlow> { get<SearchRepository>() }`) so a `FakeSearchFlow` can drive the screen + ViewModel tests, mirroring the timeline seams. `SearchFlow` SHALL declare both `search(query, offset)` and `resolvePost(postId): PostTargetResolution`; `SearchRepository` SHALL implement `resolvePost` over the shared `SinglePostApiClient` Koin singleton's `fetchFullPost` through the shared `SinglePostFullResult` → `PostTargetResolution` mapping (the one `NotificationsRepository` also uses), logging only a type tag on `Unavailable` (never the post id, body, or any PII).
+`SearchApiClient` and `SearchRepository` SHALL be registered in the commonMain Koin `mobileModule`. `SearchRepository` SHALL be bound behind a `SearchFlow` interface (`single<SearchFlow> { get<SearchRepository>() }`) so a `FakeSearchFlow` can drive the screen + ViewModel tests, mirroring the timeline seams. `SearchFlow` SHALL declare both `search(query, offset)` and `resolvePostTarget(postId): PostTargetResolution`; `SearchRepository` SHALL implement `resolvePostTarget` over the shared `SinglePostApiClient` Koin singleton's `fetchFullPost` through the shared `SinglePostFullResult` → `PostTargetResolution` mapping (the one `NotificationsRepository` also uses), logging only a type tag on `Unavailable` (never the post id, body, or any PII).
 
 The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved via `viewModel { … }` under the root `NavDisplay`'s `rememberViewModelStoreNavEntryDecorator()` for `SearchRoute`, the pushed-route precedent). It takes the `SearchFlow`, the `ProfileFlow` + `SelfUserIdProvider` self-read seam, and the fail-safe `purchaseConfirmed` signal. It holds the query, the in-flight flags, the retained outcome, the retained `nextOffset`, the resolved tier, the resolving card id, and the consumed-once pending detail target, and it issues the search via the `SearchFlow` seam (debounced + on submit). It SHALL expose ONE `uiState: StateFlow<SearchScreenUiState>` via `stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), …)` (docs/11 §2.2) whose surface is the pure `searchUiState(...)` projection; the raw `outcome` MAY stay exposed as the white-box test seam (the `GlobalTimelineViewModel` precedent). The query/results state is owned by the ViewModel, NOT composition-scoped `remember`.
 
@@ -287,10 +314,10 @@ The `SearchViewModel` SHALL be scoped to the `SearchRoute` NavEntry (resolved vi
 - **WHEN** a valid query is submitted and, separately, a load-more is requested
 - **THEN** the ViewModel invokes `SearchFlow.search(query, offset = 0)` for the query and `SearchFlow.search(query, offset = <nextOffset>)` for the load-more, exposing the resulting outcome + retained `nextOffset`
 
-#### Scenario: resolvePost maps the full by-id read
+#### Scenario: resolvePostTarget maps the full by-id read
 
 - **GIVEN** a MockEngine-backed `SearchRepository` whose `GET /api/v1/posts/p1` returns `200` with the shipped mixed-case full projection (bare `id`/`authorUsername`/`authorDisplayName`/`content`/`createdAt`/`imageUrl`, snake `city_name`/`liked_by_viewer`/`reply_count`), and separately returns `404 post_not_found`
-- **WHEN** `resolvePost("p1")` runs for each
+- **WHEN** `resolvePostTarget("p1")` runs for each
 - **THEN** the `200` yields `PostTargetResolution.Resolved` carrying those values AND the `404` yields `PostTargetResolution.Unavailable`
 
 #### Scenario: The ViewModel exposes one screen state

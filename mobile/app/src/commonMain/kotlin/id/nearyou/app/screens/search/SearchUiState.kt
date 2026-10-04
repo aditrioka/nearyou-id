@@ -35,8 +35,8 @@ private fun SearchResultDto.toUi(): SearchHit =
  * [SearchHit] (authorId + rank already dropped).
  */
 sealed interface SearchUiState {
-    /** The trimmed query is below the 2-code-point threshold (incl. the empty initial state) → a
-     *  directive prompt; no request is issued. */
+    /** The trimmed query is below the 2-code-point threshold (incl. the empty initial state) and the viewer is
+     *  not known Free → a directive prompt; no request is issued. */
     data object Idle : SearchUiState
 
     /** A first-page query in flight with no prior results → a single loading indicator. */

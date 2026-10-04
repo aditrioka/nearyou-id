@@ -21,6 +21,7 @@ The Cari surface still carries two v1 limitations that `mobile-search` explicitl
 - **`SearchViewModel` exposes one `uiState`.** It gets one `uiState: StateFlow<SearchScreenUiState>` via `stateIn` (docs/11 §2.2 known debt: "consolidate when next touched"). The pure `searchUiState(...)` projection is unchanged, and the raw `outcome` stays as the white-box seam (the `GlobalTimelineViewModel` precedent).
 - **One target→route helper.** The search entry maps the resolved `PostDetailTarget` through the same mapping the Home feed taps and the push-tap effect use. That mapping is factored into one `internal` helper in `screens/routing/`, used by `AppEntryProvider` and `PushTapNavigationEffect`, so the field list is not repeated a fourth time.
 - **Spec.** The `mobile-search` deferral requirement now keeps only username autocomplete deferred (#252).
+- **Load-more de-duplication.** This is a pre-existing crash surfaced in review. A load-more page that repeats a retained hit (`OFFSET` paging over rank ties) no longer appends it twice; the list keys on `postId`.
 
 ## Capabilities
 
@@ -30,20 +31,21 @@ _None._
 
 ### Modified Capabilities
 
-- `mobile-search`: seven requirements change.
+- `mobile-search`: eight requirements change.
   - The Premium gate also renders on entry for a known-Free viewer. Known-Premium is sticky.
   - The screen-state projection gains the explicit `viewerKnownFree` input.
   - The screen and query-guard requirements now say "Idle, or the on-entry gate for a known-Free viewer".
   - A result tap hydrates `PostDetailRoute` from the by-id read, with the v1 defaults as the `Unavailable` fallback. A query change or leaving the screen cancels the read.
   - The `SearchViewModel` seam requirement gains the self-profile and by-id dependencies and the single `uiState`.
   - The deferral requirement drops the proactive upsell (shipped) and keeps autocomplete (#252).
+  - Pagination de-duplicates a repeated hit by `postId`.
 - `mobile-post-detail`: § "By-id post reads never gate the header's first paint" gains the search-result entry as a third pre-push lookup. Unlike the notification entry, its fallback on failure still pushes, because the hit is renderable.
 
 ## Impact
 
 - **Mobile (`:mobile:app` commonMain):**
   - `screens/search/` (`SearchViewModel`, `SearchScreen`, `SearchResultCard`, `SearchUiState`);
-  - `search/` (`SearchFlow` gains `resolvePost`; `SearchRepository` takes `SinglePostApiClient`);
+  - `search/` (`SearchFlow` gains `resolvePostTarget`; `SearchRepository` takes `SinglePostApiClient`);
   - `post/PostTargetResolution.kt` (moved type + shared mapping);
   - `notifications/` (`NotificationsFlow`, `NotificationsRepository`: imports and the shared mapping);
   - `screens/notifications/NotificationNavigation.kt` (shared mapper);
@@ -52,7 +54,7 @@ _None._
   - `screens/search/SearchStates.kt` (the non-result state composables moved out of `SearchScreen.kt`, which is past the docs/11 ~400-line soft cap);
   - `di/MobileModule.kt` (`SearchRepository` wiring).
 - **Tests:**
-  - commonTest: `SearchViewModelTest` (on-entry Free/Premium/failure/confirm/server-evidence, tap hydration + fallback + supersede), a `SearchRepository` `resolvePost` test, and `FakeSearchFlow` + notification fakes (imports);
+  - commonTest: `SearchViewModelTest` (on-entry Free/Premium/failure/confirm/server-evidence, tap hydration + fallback + supersede), a `SearchRepository` `resolvePostTarget` test, and `FakeSearchFlow` + notification fakes (imports);
   - androidUnitTest: `SearchScreenTest` (on-entry upsell before typing, hydrated tap payload, per-card spinner);
   - iosTest: `SearchFlowIosTest`, kept green and extended with the on-entry gate.
 - **Not touched:** the backend, admin, the wire, the DB, `PostDetailScreen` (owned by a concurrent change), dependencies.

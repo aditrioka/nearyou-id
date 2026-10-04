@@ -148,7 +148,7 @@ class SearchRepositoryTest {
     // ---- #255: the result tap's by-id read (the shared single-post-read resolution) ----
 
     @Test
-    fun `resolvePost maps the full mixed-case by-id read to Resolved`() =
+    fun `resolvePostTarget maps the full mixed-case by-id read to Resolved`() =
         runTest {
             var path: String? = null
             val repo =
@@ -163,7 +163,7 @@ class SearchRepositoryTest {
                     )
                 }
 
-            val resolution = repo.resolvePost("p1")
+            val resolution = repo.resolvePostTarget("p1")
 
             assertEquals("/api/v1/posts/p1", path)
             assertEquals(
@@ -183,12 +183,12 @@ class SearchRepositoryTest {
         }
 
     @Test
-    fun `resolvePost maps a 404 to Unavailable`() =
+    fun `resolvePostTarget maps a 404 to Unavailable`() =
         runTest {
             val repo =
                 repository {
                     respond("""{"error":{"code":"post_not_found"}}""", HttpStatusCode.NotFound, JSON_HEADERS)
                 }
-            assertEquals(PostTargetResolution.Unavailable, repo.resolvePost("p1"))
+            assertEquals(PostTargetResolution.Unavailable, repo.resolvePostTarget("p1"))
         }
 }

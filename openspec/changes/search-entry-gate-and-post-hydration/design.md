@@ -55,7 +55,7 @@ The shipped `init` collector (`premiumConfirmed.first { it }` → re-run a `Prem
 1. The VM ignores the tap while a resolved target is still pending.
 2. Otherwise it cancels any prior resolution (latest tap wins).
 3. It marks the card `resolvingPostId`, which drives a small per-card spinner, the `NotificationsScreen` row idiom.
-4. It calls `SearchFlow.resolvePost(postId)`. A non-cancellation throw is treated like `Unavailable`.
+4. It calls `SearchFlow.resolvePostTarget(postId)`. A non-cancellation throw is treated like `Unavailable`.
 5. It stores the `PostDetailTarget` as a nullable **consumed-once** `pendingNavTarget` in `uiState`.
 6. The screen's `LaunchedEffect` invokes the hoisted `onOpenPost(target)` and then `onNavConsumed()`.
 
@@ -64,6 +64,8 @@ Per docs/11 §2.2 this models one-shot events as state; there is no `Channel`/`S
 An in-flight resolution is cancelled, and its spinner cleared, in two cases:
 - **A new search starts** (edit / submit / clear / retry), so it never opens a post that is no longer on screen.
 - **`SearchScreen` leaves composition** (a `DisposableEffect` calling `onNavConsumed()`). Nav3 composes only the top entry, so without this a tap made during the push transition could resolve while Search sits under the detail, and then push a second detail when the viewer comes back.
+
+A repeated tap on the card already resolving is ignored, so a double-tap does not restart the read. Accepted edge: an Android configuration change (rotation) also leaves composition, so a tap whose read is still in flight at that moment is dropped. The spinner clears and the viewer taps again, and nothing navigates wrongly. iOS keeps the composition across rotation.
 
 The per-card spinner is an action affordance on the tapped card, not a list loading indicator, so it sits outside `mobile-design-system`'s "never two progress indicators" list-loading rule. The notification-row spinner already coexists with that list's load-more footer the same way.
 
@@ -77,7 +79,7 @@ A notification has nothing renderable without the read, so it shows a transient 
 **Trade-off:** a post deleted after the search still opens exactly as it did before this change. The detail's own sub-fetches surface their states.
 
 ### D8 — One shared by-id post resolution (move, don't copy)
-`PostTargetResolution` is the neutral "a post resolved by id" type. It moves from `notifications/NotificationsFlow.kt` to `post/PostTargetResolution.kt`, together with one `SinglePostFullResult.toPostTargetResolution()` mapping. `NotificationsRepository.resolvePostTarget` and `SearchRepository.resolvePost` both call that mapping. The `Resolved → PostDetailTarget` mapping moves from `NotificationNavTargetResolver` (private) to a public `toPostDetailTarget()` next to `PostDetailTarget` in `screens/home/HomeScreen.kt`. The notification resolver and `SearchViewModel` both call it.
+`PostTargetResolution` is the neutral "a post resolved by id" type. It moves from `notifications/NotificationsFlow.kt` to `post/PostTargetResolution.kt`, together with one `SinglePostFullResult.toPostTargetResolution()` mapping. `NotificationsRepository.resolvePostTarget` and `SearchRepository.resolvePostTarget` both call that mapping. The `Resolved → PostDetailTarget` mapping moves from `NotificationNavTargetResolver` (private) to a public `toPostDetailTarget()` next to `PostDetailTarget` in `screens/home/HomeScreen.kt`. The notification resolver and `SearchViewModel` both call it.
 
 This is mechanical: no notification behavior changes, and their tests only update imports. The alternative was a second copy of both 9-field mappers in search, which is exactly the "second resolver" `NotificationNavigation.kt` documents against (docs/11 Pattern Registry, rule of three).
 
@@ -91,7 +93,10 @@ docs/11 lists `SearchViewModel` (4 public flows) as debt to "consolidate when ne
 `SearchScreen.kt` is 411 lines, past docs/11's ~400-line soft cap for a UI file, and this change grows it. The non-result state composables (`LoadingState`, `CenteredMessage`, `ErrorState`, `PremiumGateState`, `RateLimitedState`) move unchanged into `SearchStates.kt` in the same package, as `internal`. This is a pure move with no visual or behavioral change.
 
 ### D12 — `SearchViewModel` state shape
-The VM follows the `UsernameCustomizationViewModel` shape: one private `MutableStateFlow<VmState>`, updated with `update { }`, then `.map { it.toUiState() }.stateIn(viewModelScope, WhileSubscribed(5_000), state.value.toUiState())`. The raw `outcome` stays exposed as a `map`ped white-box seam. One state object makes the tier, outcome and resolution writes atomic, and avoids a seven-flow `combine` feeding the text field.
+The VM follows the `UsernameCustomizationViewModel` shape: one private `MutableStateFlow<VmState>`, updated with `update { }`, then `.map { it.toUiState() }.stateIn(viewModelScope, WhileSubscribed(5_000), state.value.toUiState())`. The raw `outcome` stays exposed as a plain read-only getter, the white-box test seam (the role `GlobalTimelineViewModel.outcome` plays). One state object makes the tier, outcome and resolution writes atomic, and avoids a seven-flow `combine` feeding the text field.
+
+### D13 — `loadMore` de-duplicates by post id (review-round finding, pre-existing)
+`OFFSET` paging over rank ties (`ORDER BY rank DESC, created_at DESC`, no unique tie-breaker) can repeat a hit when a matching post lands between two page fetches. The result list keys on `postId`, so a repeated id would crash the `LazyColumn` ("Key was already used"). This predates the change, but sits in the `loadMore` this change refactors. The append becomes `(current.hits + next.hits).distinctBy { it.postId }`, a one-line fix with a test, recorded as a MODIFIED Pagination requirement.
 
 ### Mockup reference (docs/11 §2.8)
 The mockup board has **no Cari frame** (frames 1–19 contain no search screen). This change adds no new visual element:

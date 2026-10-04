@@ -408,7 +408,7 @@ private fun NavBackStack<NavKey>.openPaywall(entry: PaywallEntry) {
 }
 
 /**
- * The ONE [PostDetailTarget] → [PostDetailRoute] mapping every detail push shares (the Home feed card open +
+ * The ONE [PostDetailTarget] → [PostDetailRoute] mapping every target-based detail push shares (the Home feed card open +
  * reply shortcut, the search-result tap, the notification push-tap) — so no call site can drop a field the
  * route carries (the `imageUrl` miss, #388). [focusReplyComposer] is the reply shortcut's autofocus flag.
  */

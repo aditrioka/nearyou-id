@@ -7,9 +7,9 @@
 
 ## 2. Search data seam (#255, design D6/D7)
 
-- [x] 2.1 `SearchFlow` gains `suspend fun resolvePost(postId: String): PostTargetResolution`
-- [x] 2.2 `SearchRepository` takes `SinglePostApiClient` and implements `resolvePost` via `fetchFullPost` + the shared mapping (type-only diagnostic on `Unavailable`); `MobileModule` passes the shared `SinglePostApiClient` single
-- [x] 2.3 `FakeSearchFlow` gains a programmable `resolvePost` (outcome per id, optional per-id suspend gate, optional throw, recorded ids)
+- [x] 2.1 `SearchFlow` gains `suspend fun resolvePostTarget(postId: String): PostTargetResolution`
+- [x] 2.2 `SearchRepository` takes `SinglePostApiClient` and implements `resolvePostTarget` via `fetchFullPost` + the shared mapping (type-only diagnostic on `Unavailable`); `MobileModule` passes the shared `SinglePostApiClient` single
+- [x] 2.3 `FakeSearchFlow` gains a programmable `resolvePostTarget` (outcome per id, optional per-id suspend gate, optional throw, recorded ids)
 
 ## 3. SearchViewModel (#253 + #255, design D1–D7, D9, D12)
 
@@ -18,8 +18,10 @@
 - [x] 3.3 Constructor gains `ProfileFlow` + `SelfUserIdProvider`; on-entry self read → tier `isPremium || purchaseConfirmed.value`; null id / non-`Loaded` → not-known-Free; tier writes are one-way toward Premium (a later read never downgrades `true`)
 - [x] 3.4 A first-page `Results` / `RateLimited` marks the tier known Premium; a `403` never marks it Free
 - [x] 3.5 The existing `purchaseConfirmed` collector also marks the tier known Premium (the once-only `PremiumGate` re-run untouched)
-- [x] 3.6 `onResultTap(hit)`: ignored while `pendingNavTarget != null`; cancel prior → `resolvingPostId = hit.postId` → `flow.resolvePost` (non-cancellation throw → fallback) → `pendingNavTarget` = `Resolved.toPostDetailTarget()` or the v1 fallback target; `resolvingPostId` cleared only by the latest job
+- [x] 3.6 `onResultTap(hit)`: ignored while `pendingNavTarget != null`; cancel prior → `resolvingPostId = hit.postId` → `flow.resolvePostTarget` (non-cancellation throw → fallback) → `pendingNavTarget` = `Resolved.toPostDetailTarget()` or the v1 fallback target; `resolvingPostId` cleared only by the latest job
 - [x] 3.7 Every new search start (edit / submit / clear / retry) cancels an in-flight resolution and clears `resolvingPostId`; `onNavConsumed()` clears the pending target AND cancels any in-flight resolution
+
+- [x] 3.8 Review round: a repeated tap on the card already resolving is ignored (no restarted read); `loadMore` appends `distinctBy { it.postId }` (design D13); naming aligned (`resolvePostTarget`, `viewerPremium`, the private `onResultTap` param) + stale KDoc refreshed
 
 ## 4. Screen + host (design D2, D6, D10, D11)
 
@@ -53,10 +55,10 @@
     - an in-flight tap exposes `resolvingPostId`.
   - **Supersede:** record every non-null `pendingNavTarget`, release `p1` before `p2`, and expect exactly `[p2]`.
   - **Cancellation:** a query change mid-resolution → no target and the resolving id cleared; a tap while a target is pending → ignored; `onNavConsumed` clears the target and cancels.
-  - **Compile fixes for existing tests:** add `resolvePost` to the two anonymous `object : SearchFlow`, and replace `vm.query.value` with `uiState.value.query`. All existing tests stay green.
+  - **Compile fixes for existing tests:** add `resolvePostTarget` to the two anonymous `object : SearchFlow`, and replace `vm.query.value` with `uiState.value.query`. All existing tests stay green.
 - [x] 5.3 commonTest `SearchRepositoryTest`:
   - the helper constructs `SearchRepository(SearchApiClient(client), SinglePostApiClient(client))`;
-  - new `resolvePost` (MockEngine): a `200` mixed-case full body → `Resolved` (snake `city_name` / `liked_by_viewer` / `reply_count`, bare `imageUrl`);
+  - new `resolvePostTarget` (MockEngine): a `200` mixed-case full body → `Resolved` (snake `city_name` / `liked_by_viewer` / `reply_count`, bare `imageUrl`);
   - `404` → `Unavailable`.
 - [x] 5.4 Robolectric `SearchScreenTest`. Koin binds `ProfileFlow` (Premium by default) + `SelfUserIdProvider`.
   - **New tests:**
@@ -70,6 +72,8 @@
 - [x] 5.5 iosTest `SearchFlowIosTest` (K/N-legal names): bind a Premium `single<ProfileFlow>` override so the existing three stay green; new `onEntry_freeViewer_showsUpsellBeforeTyping`
 - [x] 5.6 Notification tests (`NotificationsViewModelNavTest`, `NotificationsScreenNavTest`, `FakeNotificationsFlow`, push-tap tests): imports only; all green unchanged in behavior
 - [x] 5.7 The `mobile-post-detail` search-entry scenarios ("builds the route from the full projection", "failed lookup still opens from the hit") are backed by 5.2 (VM target) + 5.4 (host push)
+
+- [x] 5.8 commonTest `SearchViewModelTest`: same-card double-tap keeps the in-flight read; a load-more page repeating a retained hit is de-duplicated
 
 ## 6. Docs
 

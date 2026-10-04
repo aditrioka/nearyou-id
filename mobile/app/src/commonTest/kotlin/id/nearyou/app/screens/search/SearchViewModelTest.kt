@@ -101,7 +101,7 @@ class SearchViewModelTest {
                     return if (calls.size == 1) SearchOutcome.PremiumGate else SearchOutcome.Results(listOf(fakeSearchHit()), null)
                 }
 
-                override suspend fun resolvePost(postId: String): PostTargetResolution = PostTargetResolution.Unavailable
+                override suspend fun resolvePostTarget(postId: String): PostTargetResolution = PostTargetResolution.Unavailable
             }
         val confirmed = MutableStateFlow(false)
         val vm = searchVm(flow, confirmed)
@@ -240,7 +240,7 @@ class SearchViewModelTest {
                     }
                 }
 
-                override suspend fun resolvePost(postId: String): PostTargetResolution = PostTargetResolution.Unavailable
+                override suspend fun resolvePostTarget(postId: String): PostTargetResolution = PostTargetResolution.Unavailable
             }
         val vm = searchVm(flow)
 
@@ -610,5 +610,42 @@ class SearchViewModelTest {
         scheduler.advanceUntilIdle()
         assertNull(vm.uiState.value.pendingNavTarget, "a cancelled read never re-delivers a target")
         assertNull(vm.uiState.value.resolvingPostId)
+    }
+
+    @Test
+    fun doubleTapOnTheResolvingCard_doesNotRestartTheRead() {
+        val fake = FakeSearchFlow(SearchOutcome.Results(listOf(hitP1), null)).apply { resolveGates["p1"] = CompletableDeferred() }
+        val vm = searchVm(fake).loaded()
+
+        vm.onResultTap(hitP1.asHit())
+        scheduler.advanceUntilIdle()
+        vm.onResultTap(hitP1.asHit())
+        scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("p1"), fake.resolvedIds, "the in-flight read for the same card is kept, not restarted")
+        assertEquals("p1", vm.uiState.value.resolvingPostId)
+    }
+
+    @Test
+    fun loadMore_dropsAHitThePreviousPageAlreadyHolds() {
+        // OFFSET paging over rank ties can repeat a hit when the result set shifts between pages; the list keys
+        // on postId, so a duplicate would crash the LazyColumn.
+        val fake =
+            FakeSearchFlow(
+                firstOutcome = SearchOutcome.Results(listOf(fakeSearchHit(postId = "p1"), fakeSearchHit(postId = "p2")), nextOffset = 2),
+                loadMoreOutcome =
+                    SearchOutcome.Results(
+                        listOf(fakeSearchHit(postId = "p2"), fakeSearchHit(postId = "p3")),
+                        nextOffset = null,
+                    ),
+            )
+        val vm = searchVm(fake).loaded()
+
+        vm.loadMore()
+        scheduler.advanceUntilIdle()
+
+        val outcome = vm.outcome
+        assertTrue(outcome is SearchOutcome.Results)
+        assertEquals(listOf("p1", "p2", "p3"), outcome.hits.map { it.postId }, "the repeated p2 is not appended twice")
     }
 }

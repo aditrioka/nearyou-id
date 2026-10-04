@@ -57,8 +57,9 @@ class SearchViewModel(
     private val flow: SearchFlow,
     private val profileFlow: ProfileFlow,
     private val selfUserIdProvider: SelfUserIdProvider,
-    // premium-entitlement-lifecycle: a purchase confirmed while the 403 gate is shown (the buyer returns from
-    // the paywall pushed atop this route) re-runs the current query once; the server 403 stays authoritative.
+    // premium-entitlement-lifecycle: a purchase confirmed while a gate is shown (the buyer returns from the
+    // paywall pushed atop this route) lifts the on-entry gate and re-runs a 403-gated query once; the server 403
+    // stays authoritative.
     private val premiumConfirmed: StateFlow<Boolean> = MutableStateFlow(false),
 ) : ViewModel() {
     private data class VmState(
@@ -68,7 +69,7 @@ class SearchViewModel(
         val isLoadingMore: Boolean = false,
         // null = the on-entry tier is unknown (read pending / failed / no self id). Writes move only toward
         // true (design D4), so a late Free read never re-gates a viewer the server already answered.
-        val premiumKnown: Boolean? = null,
+        val viewerPremium: Boolean? = null,
         val resolvingPostId: String? = null,
         val pendingNavTarget: PostDetailTarget? = null,
     )
@@ -80,7 +81,8 @@ class SearchViewModel(
             .map { it.toUiState() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), state.value.toUiState())
 
-    /** The raw outcome — the white-box test seam (the `GlobalTimelineViewModel` precedent); the screen reads [uiState]. */
+    /** The raw outcome — a plain read-only white-box test seam (the role `GlobalTimelineViewModel.outcome` plays);
+     *  the screen reads [uiState]. */
     val outcome: SearchOutcome? get() = state.value.outcome
 
     private var searchJob: Job? = null
@@ -92,7 +94,7 @@ class SearchViewModel(
         viewModelScope.launch {
             premiumConfirmed.first { it }
             // A confirmed purchase lifts an on-entry gate (no request) and re-runs a 403-gated query once.
-            state.update { it.copy(premiumKnown = true) }
+            state.update { it.copy(viewerPremium = true) }
             if (state.value.outcome == SearchOutcome.PremiumGate) retry()
         }
     }
@@ -100,7 +102,7 @@ class SearchViewModel(
     private fun VmState.toUiState(): SearchScreenUiState =
         SearchScreenUiState(
             query = query,
-            surface = searchUiState(query, outcome, isLoading, isLoadingMore, viewerKnownFree = premiumKnown == false),
+            surface = searchUiState(query, outcome, isLoading, isLoadingMore, viewerKnownFree = viewerPremium == false),
             resolvingPostId = resolvingPostId,
             pendingNavTarget = pendingNavTarget,
         )
@@ -113,7 +115,7 @@ class SearchViewModel(
             val outcome = profileFlow.loadProfile(id) as? ProfileOutcome.Loaded ?: return@launch
             // OR the confirmed purchase: a read lagging the webhook must not gate a buyer.
             val premium = outcome.profile.isPremium || premiumConfirmed.value
-            state.update { if (it.premiumKnown == true) it else it.copy(premiumKnown = premium) }
+            state.update { if (it.viewerPremium == true) it else it.copy(viewerPremium = premium) }
         }
     }
 
@@ -178,7 +180,7 @@ class SearchViewModel(
                 // Results / RateLimited (a Premium-tier limit) prove Premium access — sticky (design D4).
                 val provesPremium = result is SearchOutcome.Results || result is SearchOutcome.RateLimited
                 state.update {
-                    it.copy(outcome = result, isLoading = false, premiumKnown = if (provesPremium) true else it.premiumKnown)
+                    it.copy(outcome = result, isLoading = false, viewerPremium = if (provesPremium) true else it.viewerPremium)
                 }
             }
     }
@@ -208,8 +210,10 @@ class SearchViewModel(
                     } else {
                         val appended =
                             when {
+                                // De-duplicated by post id: OFFSET paging over rank ties can repeat a retained
+                                // hit when the result set shifts between pages, and the list keys on postId.
                                 next is SearchOutcome.Results && next.hits.isNotEmpty() ->
-                                    SearchOutcome.Results(current.hits + next.hits, next.nextOffset)
+                                    SearchOutcome.Results((current.hits + next.hits).distinctBy { it.postId }, next.nextOffset)
                                 // An empty page is terminal even if nextOffset != null (the documented
                                 // FTS+OFFSET boundary); a non-Results outcome (e.g. a 429 on the next page)
                                 // retains the existing hits and hides the load-more rather than clobbering.
@@ -228,14 +232,15 @@ class SearchViewModel(
      * job writes (after [ensureActive]). `Unavailable` — or a thrown read — opens from the hit's own payload.
      */
     fun onResultTap(hit: SearchHit) {
-        if (state.value.pendingNavTarget != null) return
+        // A target is about to navigate, or this very card is already resolving (a double-tap) — nothing to do.
+        if (state.value.pendingNavTarget != null || state.value.resolvingPostId == hit.postId) return
         resolveJob?.cancel()
         state.update { it.copy(resolvingPostId = hit.postId) }
         resolveJob =
             viewModelScope.launch {
                 val resolution =
                     try {
-                        flow.resolvePost(hit.postId)
+                        flow.resolvePostTarget(hit.postId)
                     } catch (cancellation: CancellationException) {
                         throw cancellation
                     } catch (_: Throwable) {

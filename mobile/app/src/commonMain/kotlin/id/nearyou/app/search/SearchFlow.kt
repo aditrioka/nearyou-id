@@ -25,7 +25,7 @@ interface SearchFlow {
      * like state, reply count, and image. [PostTargetResolution.Unavailable] (any non-200 / transport
      * failure) → the caller opens the detail from the hit's own payload with the documented defaults.
      */
-    suspend fun resolvePost(postId: String): PostTargetResolution
+    suspend fun resolvePostTarget(postId: String): PostTargetResolution
 }
 
 /**

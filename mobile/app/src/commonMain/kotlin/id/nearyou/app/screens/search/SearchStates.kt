@@ -87,8 +87,9 @@ internal fun ErrorState(onRetry: () -> Unit) {
 }
 
 /**
- * The Free-tier upsell panel (the reactive 403 gate). An informational body + an "Aktifkan Premium" CTA
- * that invokes the hoisted [onActivatePremium]; the host (`appEntryProvider`) pushes
+ * The Free-tier upsell panel — the reactive 403 gate, and the on-entry gate a known-Free viewer sees before
+ * typing (#253). An informational body + an "Aktifkan Premium" CTA that invokes the hoisted
+ * [onActivatePremium]; the host (`appEntryProvider`) pushes
  * `PaywallRoute(SEARCH_GATE)` (mobile-paywall-screen, #254). The panel itself holds no back-stack
  * reference — `SearchScreen` stays navigation-free. After a confirmed purchase the 403 is the server tier
  * lagging the webhook, so the panel shows the activating notice and a "Coba lagi" ([onRetry], the same

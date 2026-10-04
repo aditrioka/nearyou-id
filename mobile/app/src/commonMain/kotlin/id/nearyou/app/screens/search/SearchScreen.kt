@@ -121,6 +121,8 @@ fun SearchScreen(
     // #255: forward the resolved detail target to the host exactly once, then clear it (the consumed-once
     // one-shot pattern — NO Channel/SharedFlow). Leaving composition (covered by the pushed detail) also
     // clears it + cancels a read still in flight, so a tap made mid-transition never opens a second detail.
+    // Accepted edge: an Android configuration change (rotation) also leaves composition, so a tap whose read
+    // is still in flight at that moment is dropped (the spinner clears; the viewer taps again).
     LaunchedEffect(uiState.pendingNavTarget) {
         val target = uiState.pendingNavTarget ?: return@LaunchedEffect
         onOpenPost(target)
@@ -147,7 +149,7 @@ fun SearchScreen(
                     ResultsState(
                         state = state,
                         resolvingPostId = uiState.resolvingPostId,
-                        onOpenPost = viewModel::onResultTap,
+                        onResultTap = viewModel::onResultTap,
                         onLoadMore = viewModel::loadMore,
                     )
                 is SearchUiState.EmptyResults ->
@@ -237,7 +239,7 @@ private fun SearchTopBar(
 private fun ResultsState(
     state: SearchUiState.Results,
     resolvingPostId: String?,
-    onOpenPost: (SearchHit) -> Unit,
+    onResultTap: (SearchHit) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     LazyColumn(
@@ -248,7 +250,7 @@ private fun ResultsState(
             SearchResultCard(
                 hit = hit,
                 isResolving = hit.postId == resolvingPostId,
-                onOpen = { onOpenPost(hit) },
+                onOpen = { onResultTap(hit) },
                 modifier = Modifier.testTag(SEARCH_RESULT_CARD_TAG),
             )
         }

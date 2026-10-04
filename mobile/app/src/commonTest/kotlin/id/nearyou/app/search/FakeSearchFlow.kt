@@ -11,7 +11,7 @@ import kotlinx.coroutines.awaitCancellation
  * the debounce/submit/load-more wiring. With [suspendForever] = true, `search` never returns (the screen
  * stays Loading). [calls] exposes the captured arguments; [invocationCount] is their size.
  *
- * `resolvePost` (the result-tap by-id read, #255) returns [resolutions]`[postId]` (default
+ * `resolvePostTarget` (the result-tap by-id read, #255) returns [resolutions]`[postId]` (default
  * [PostTargetResolution.Unavailable]), suspends first on [resolveGates]`[postId]` when one is set, throws
  * [resolveThrows] when set, and records every requested id in [resolvedIds].
  */
@@ -39,7 +39,7 @@ class FakeSearchFlow(
         return if (offset > 0 && loadMoreOutcome != null) loadMoreOutcome else firstOutcome
     }
 
-    override suspend fun resolvePost(postId: String): PostTargetResolution {
+    override suspend fun resolvePostTarget(postId: String): PostTargetResolution {
         resolvedIds += postId
         resolveGates[postId]?.await()
         resolveThrows?.let { throw it }

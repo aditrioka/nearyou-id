@@ -64,7 +64,7 @@ class SearchRepository(
                 }
         }
 
-    override suspend fun resolvePost(postId: String): PostTargetResolution =
+    override suspend fun resolvePostTarget(postId: String): PostTargetResolution =
         singlePostApiClient.fetchFullPost(postId).toPostTargetResolution().also {
             // Type only — never the post id / body / any PII.
             if (it == PostTargetResolution.Unavailable) diagnosticLog("search_post_resolve_unavailable")
