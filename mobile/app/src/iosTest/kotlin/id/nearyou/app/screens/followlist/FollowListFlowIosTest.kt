@@ -11,12 +11,11 @@ import id.nearyou.app.followlist.FollowListOutcome
 import id.nearyou.app.followlist.FollowListPage
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.followlist.FollowListUser
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,14 +30,11 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class FollowListFlowIosTest {
     private fun installKoin(fake: FakeFollowListFlow) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single<FollowListFlow> { fake } }) }
+        startFlowTestKoin(module { single<FollowListFlow> { fake } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun bothTabsRenderOverThePager() =

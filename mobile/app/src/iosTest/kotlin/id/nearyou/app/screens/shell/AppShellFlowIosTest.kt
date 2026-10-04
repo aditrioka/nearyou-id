@@ -20,6 +20,8 @@ import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.screens.profile.PROFILE_FOLLOWERS_TAG
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.screens.timeline.NEARBY_TIMELINE_LIST_TAG
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
@@ -31,10 +33,7 @@ import id.nearyou.app.timeline.NearbyTimelineOutcome
 import id.nearyou.app.timeline.fakeGlobalPost
 import id.nearyou.app.timeline.fakeNearbyPost
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -63,38 +62,33 @@ private class FakeSelfUserId(private val id: String? = "self-1") : SelfUserIdPro
 @OptIn(ExperimentalTestApi::class)
 class AppShellFlowIosTest {
     private fun installKoin(unreadCount: Long? = 0L) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin {
-            modules(
-                module {
-                    single<NearbyTimelineFlow> {
-                        FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "NEARBY_POST")), null, null))
-                    }
-                    single<GlobalTimelineFlow> {
-                        FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "GLOBAL_POST")), null, null))
-                    }
-                    single<NotificationsFlow> {
-                        FakeNotificationsFlow(
-                            outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(type = "post_liked")), null),
-                            unreadCountValue = unreadCount,
-                        )
-                    }
-                    single<ProfileFlow> {
-                        FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
-                    }
-                    single<SelfUserIdProvider> { FakeSelfUserId() }
-                    single<LocationPermissionController> {
-                        FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
-                    }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<NearbyTimelineFlow> {
+                    FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(listOf(fakeNearbyPost(content = "NEARBY_POST")), null, null))
+                }
+                single<GlobalTimelineFlow> {
+                    FakeGlobalTimelineFlow(GlobalTimelineOutcome.Loaded(listOf(fakeGlobalPost(content = "GLOBAL_POST")), null, null))
+                }
+                single<NotificationsFlow> {
+                    FakeNotificationsFlow(
+                        outcome = NotificationsOutcome.Loaded(listOf(fakeNotification(type = "post_liked")), null),
+                        unreadCountValue = unreadCount,
+                    )
+                }
+                single<ProfileFlow> {
+                    FakeProfileFlow(profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(isSelf = true)))
+                }
+                single<SelfUserIdProvider> { FakeSelfUserId() }
+                single<LocationPermissionController> {
+                    FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+                }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun shell_rendersThreeSections_andDefaultsToHome() {

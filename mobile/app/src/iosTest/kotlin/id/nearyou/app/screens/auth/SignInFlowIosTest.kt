@@ -11,12 +11,11 @@ import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
 import id.nearyou.app.screens.routing.SignInRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,33 +58,29 @@ class SignInFlowIosTest {
         outcome: SignInOutcome,
         involuntary: Boolean = false,
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeAuthFlow(outcome = outcome)
         val returnDestination = PendingReturnDestination().apply { if (involuntary) capture(null) }
-        startKoin {
-            modules(
-                module {
-                    single<AuthFlow> { fake }
-                    single { PendingSignupIdentity() }
-                    single { returnDestination }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<AuthFlow> { fake }
+                single { PendingSignupIdentity() }
+                single { returnDestination }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
-    // Initial render shows CTA + title + disclosure (and, implicitly, that resources resolve on iOS).
+    // Initial render shows CTA + disclosure and NO text title (frame 13: the brand logo is the sole
+    // header since #236 — parity with SignInScreenTest) — and, implicitly, that resources resolve on iOS.
     @Test
-    fun initialRender_showsCtaTitleAndDisclosure() {
+    fun initialRender_showsCtaAndDisclosureWithoutTitle() {
         installKoin(SignInOutcome.Cancelled)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { SignInScreen(onSignedIn = {}, onNoAccount = {}) } } }
             onNodeWithText(CTA_GOOGLE).assertExists()
-            onNodeWithText(TITLE).assertExists()
+            onNodeWithText(TITLE).assertDoesNotExist()
             onNodeWithText(DISCLOSURE).assertExists()
         }
     }

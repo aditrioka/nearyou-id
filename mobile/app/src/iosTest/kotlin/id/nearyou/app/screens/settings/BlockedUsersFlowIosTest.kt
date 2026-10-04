@@ -10,12 +10,11 @@ import id.nearyou.app.data.block.BlockedUsersFlow
 import id.nearyou.app.data.block.BlockedUsersOutcome
 import id.nearyou.app.data.block.FakeBlockedUsersFlow
 import id.nearyou.app.data.block.UnblockOutcome
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,14 +36,11 @@ private const val EMPTY = "Belum ada pengguna yang diblokir."
 @OptIn(ExperimentalTestApi::class)
 class BlockedUsersFlowIosTest {
     private fun installKoin(flow: BlockedUsersFlow) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single { flow } }) }
+        startFlowTestKoin(module { single { flow } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     private val raka = BlockedUser(userId = UUID, username = "raka.jkt", displayName = NAME, isPremium = false)
 

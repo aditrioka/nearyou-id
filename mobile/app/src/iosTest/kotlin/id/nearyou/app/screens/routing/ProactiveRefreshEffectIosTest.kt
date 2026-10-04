@@ -12,16 +12,15 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenRefresher
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,9 +50,7 @@ class ProactiveRefreshEffectIosTest {
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun onResume_firesTheProactiveRefreshOnIos() {
@@ -78,7 +75,7 @@ class ProactiveRefreshEffectIosTest {
                 nowMillis = { NOW },
             )
         val trigger = ProactiveTokenRefreshTrigger(store, TokenRefresher(store, invalidator) { NOW }, client) { NOW }
-        startKoin { modules(module { single { trigger } }) }
+        startFlowTestKoin(module { single { trigger } })
 
         runComposeUiTest {
             // Drive a test-owned lifecycle to RESUMED BEFORE composition: the LifecycleEventEffect's

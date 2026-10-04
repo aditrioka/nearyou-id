@@ -14,12 +14,11 @@ import id.nearyou.app.data.dataexport.DataExportStatusOutcome
 import id.nearyou.app.data.dataexport.FakeDataExportFlow
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceState
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -48,24 +47,19 @@ class DataExportFlowIosTest {
     private lateinit var dataExportFlow: FakeDataExportFlow
 
     private fun installKoin(dataExport: FakeDataExportFlow) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         dataExportFlow = dataExport
-        startKoin {
-            modules(
-                module {
-                    single<TokenStore> { InMemoryTokenStore() }
-                    single<AccountDeletionFlow> { FakeAccountDeletionFlow() }
-                    single<DataExportFlow> { dataExportFlow }
-                    single<HideDistanceRepository> { StubHideDistanceRepository() }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<TokenStore> { InMemoryTokenStore() }
+                single<AccountDeletionFlow> { FakeAccountDeletionFlow() }
+                single<DataExportFlow> { dataExportFlow }
+                single<HideDistanceRepository> { StubHideDistanceRepository() }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun confirmingDataExportIssuesOnePost() {

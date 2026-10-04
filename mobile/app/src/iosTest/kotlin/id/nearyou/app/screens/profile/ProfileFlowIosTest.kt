@@ -12,12 +12,11 @@ import id.nearyou.app.chat.FakeChatFlow
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,22 +40,17 @@ class ProfileFlowIosTest {
         selfId: String? = "self-1",
         chat: ChatFlow? = null,
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin {
-            modules(
-                module {
-                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = outcome) }
-                    single<SelfUserIdProvider> { FakeSelfUserId(selfId) }
-                    if (chat != null) single<ChatFlow> { chat }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<ProfileFlow> { FakeProfileFlow(profileOutcome = outcome) }
+                single<SelfUserIdProvider> { FakeSelfUserId(selfId) }
+                if (chat != null) single<ChatFlow> { chat }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun selfProfileRendersIdentityWithoutActions() =

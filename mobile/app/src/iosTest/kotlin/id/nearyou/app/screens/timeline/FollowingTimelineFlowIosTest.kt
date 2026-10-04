@@ -5,16 +5,15 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeFollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineFlow
 import id.nearyou.app.timeline.FollowingTimelineOutcome
 import id.nearyou.app.timeline.fakeFollowingPost
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,17 +38,12 @@ class FollowingTimelineFlowIosTest {
     private lateinit var fake: FakeFollowingTimelineFlow
 
     private fun installKoin(outcome: FollowingTimelineOutcome) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeFollowingTimelineFlow(outcome = outcome)
-        startKoin {
-            modules(module { single<FollowingTimelineFlow> { fake } })
-        }
+        startFlowTestKoin(module { single<FollowingTimelineFlow> { fake } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun content_showsPost() {

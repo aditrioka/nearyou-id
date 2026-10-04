@@ -10,14 +10,13 @@ import id.nearyou.app.notifications.NotificationsFlow
 import id.nearyou.app.notifications.NotificationsOutcome
 import id.nearyou.app.notifications.fakeNotification
 import id.nearyou.app.screens.home.PostDetailTarget
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -48,15 +47,12 @@ class NotificationsFlowIosTest {
         outcome: NotificationsOutcome = NotificationsOutcome.Loaded(emptyList(), null),
         suspendForever: Boolean = false,
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeNotificationsFlow(outcome = outcome, suspendForever = suspendForever)
-        startKoin { modules(module { single<NotificationsFlow> { fake } }) }
+        startFlowTestKoin(module { single<NotificationsFlow> { fake } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun content_showsTitleAndTypeCopyAndExcerpt() {

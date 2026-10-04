@@ -5,16 +5,15 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.timeline.FakeGlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineFlow
 import id.nearyou.app.timeline.GlobalTimelineOutcome
 import id.nearyou.app.timeline.fakeGlobalPost
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -38,17 +37,12 @@ class GlobalTimelineFlowIosTest {
     private lateinit var fake: FakeGlobalTimelineFlow
 
     private fun installKoin(outcome: GlobalTimelineOutcome) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeGlobalTimelineFlow(outcome = outcome)
-        startKoin {
-            modules(module { single<GlobalTimelineFlow> { fake } })
-        }
+        startFlowTestKoin(module { single<GlobalTimelineFlow> { fake } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun content_showsPost() {

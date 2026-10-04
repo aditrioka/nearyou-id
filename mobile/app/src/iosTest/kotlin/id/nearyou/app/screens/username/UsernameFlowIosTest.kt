@@ -9,15 +9,14 @@ import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.profile.FakeProfileFlow
 import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.username.FakeUsernameFlow
 import id.nearyou.app.username.UsernameChangeOutcome
 import id.nearyou.app.username.UsernameFlow
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
@@ -43,23 +42,18 @@ class UsernameFlowIosTest {
         changeOutcome: UsernameChangeOutcome = UsernameChangeOutcome.Success("newhandle"),
         isPremium: Boolean = true,
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         usernameFlow = FakeUsernameFlow(changeOutcome = changeOutcome)
-        startKoin {
-            modules(
-                module {
-                    single<UsernameFlow> { usernameFlow }
-                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfProfile(isPremium = isPremium)) }
-                    single<SelfUserIdProvider> { FakeSelfUserIdProvider() }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<UsernameFlow> { usernameFlow }
+                single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfProfile(isPremium = isPremium)) }
+                single<SelfUserIdProvider> { FakeSelfUserIdProvider() }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun onEntryFree_showsGate() {

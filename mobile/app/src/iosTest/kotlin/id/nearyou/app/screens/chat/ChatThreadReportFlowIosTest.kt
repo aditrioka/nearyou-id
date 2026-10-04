@@ -25,13 +25,12 @@ import id.nearyou.app.notifications.FakeNotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
@@ -73,29 +72,24 @@ class ChatThreadReportFlowIosTest {
         history: ChatThreadOutcome,
         sendOutcome: SendOutcome? = null,
     ) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         val flow = FakeChatFlow(historyOutcomes = listOf(history))
         if (sendOutcome != null) flow.sendOutcome = sendOutcome
-        startKoin {
-            modules(
-                module {
-                    single<ChatFlow> { flow }
-                    single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
-                    single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
-                    single<ReportSubmitter> { FakeReportSubmitter(ReportOutcome.Submitted) }
-                    single<NotificationPermissionController> { FakeNotificationPermissionController() }
-                    single { NotificationPromptOneShot() }
-                },
-            )
-        }
+        startFlowTestKoin(
+            module {
+                single<ChatFlow> { flow }
+                single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
+                single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
+                single<ReportSubmitter> { FakeReportSubmitter(ReportOutcome.Submitted) }
+                single<NotificationPermissionController> { FakeNotificationPermissionController() }
+                single { NotificationPromptOneShot() }
+            },
+        )
     }
 
     private fun route() = ChatThreadRoute(conversationId = CONV, partnerUsername = "dewi.kuliner", partnerDisplayName = "Dewi Lestari")
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     @Test
     fun longPressReceivedMessageOpensReportDialogAndSubmitShowsSuccess() {

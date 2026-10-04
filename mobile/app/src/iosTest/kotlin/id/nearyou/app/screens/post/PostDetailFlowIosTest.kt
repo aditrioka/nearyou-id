@@ -14,12 +14,11 @@ import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.post.fakeReply
 import id.nearyou.app.screens.routing.PostDetailRoute
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -44,14 +43,11 @@ private const val LIKE_CAP_1H =
 @OptIn(ExperimentalTestApi::class)
 class PostDetailFlowIosTest {
     private fun installKoin(flow: PostDetailFlow) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single { flow } }) }
+        startFlowTestKoin(module { single { flow } })
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     private fun route(
         cityName: String = "Jakarta Selatan",

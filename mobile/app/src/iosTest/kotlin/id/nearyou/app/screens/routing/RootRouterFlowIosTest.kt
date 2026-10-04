@@ -6,19 +6,21 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
+import id.nearyou.app.data.consent.ConsentSnapshot
+import id.nearyou.app.data.consent.ConsentSnapshotStore
+import id.nearyou.app.data.consent.InMemoryConsentSnapshotStore
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
 import id.nearyou.app.location.LocationPermissionStatus
 import id.nearyou.app.notifications.FakeNotificationsFlow
 import id.nearyou.app.notifications.NotificationsFlow
+import id.nearyou.app.screens.startFlowTestKoin
+import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.timeline.FakeNearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineFlow
 import id.nearyou.app.timeline.NearbyTimelineOutcome
 import org.koin.compose.KoinContext
-import org.koin.core.context.startKoin
-import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import org.koin.mp.KoinPlatformTools
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
@@ -40,38 +42,41 @@ private const val SIGNIN_MARKER = "Masuk dengan Google"
 @OptIn(ExperimentalTestApi::class)
 class RootRouterFlowIosTest {
     private fun installKoin(authFlow: AuthFlow) {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin {
-            modules(
-                module {
-                    single { authFlow }
-                    // The unauthenticated route lands on SignInScreen, which koinInjects a
-                    // PendingSignupIdentity (the in-memory id_token holder) + a PendingReturnDestination
-                    // (the involuntary-entry flag / return-destination holder, D5).
-                    single { PendingSignupIdentity() }
-                    single { PendingReturnDestination() }
-                    // Authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
-                    // NearbyTimelineFlow + a LocationPermissionController; a fast GRANTED fake lets the
-                    // route reach the feed (its top-bar title is the HOME_MARKER).
-                    single<NearbyTimelineFlow> {
-                        FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+        startFlowTestKoin(
+            module {
+                single { authFlow }
+                // consent-rootrouter-regate (#468): the router consent-gates the authenticated branch on
+                // snapshot presence — seed a completed consent so authenticated→Home keeps its meaning
+                // (parity with RootRouterScreenTest; the harness default store is empty).
+                single<ConsentSnapshotStore> {
+                    InMemoryConsentSnapshotStore().apply {
+                        write(ConsentSnapshot(analytics = false, crash = true, adsPersonalization = false))
                     }
-                    single<LocationPermissionController> {
-                        FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
-                    }
-                    // The authenticated route lands on HomeRoute → AppShellScreen, whose unread badge
-                    // injects a NotificationsFlow (empty/0 fake — the route just needs to reach the Home
-                    // section, whose marker is the HOME_MARKER).
-                    single<NotificationsFlow> { FakeNotificationsFlow() }
-                },
-            )
-        }
+                }
+                // The unauthenticated route lands on SignInScreen, which koinInjects a
+                // PendingSignupIdentity (the in-memory id_token holder) + a PendingReturnDestination
+                // (the involuntary-entry flag / return-destination holder, D5).
+                single { PendingSignupIdentity() }
+                single { PendingReturnDestination() }
+                // Authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
+                // NearbyTimelineFlow + a LocationPermissionController; a fast GRANTED fake lets the
+                // route reach the feed (its top-bar title is the HOME_MARKER).
+                single<NearbyTimelineFlow> {
+                    FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null))
+                }
+                single<LocationPermissionController> {
+                    FakeLocationPermissionController(current = LocationPermissionStatus.GRANTED)
+                }
+                // The authenticated route lands on HomeRoute → AppShellScreen, whose unread badge
+                // injects a NotificationsFlow (empty/0 fake — the route just needs to reach the Home
+                // section, whose marker is the HOME_MARKER).
+                single<NotificationsFlow> { FakeNotificationsFlow() }
+            },
+        )
     }
 
     @AfterTest
-    fun tearDown() {
-        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-    }
+    fun tearDown() = stopFlowTestKoin()
 
     // Authenticated state routes to HomeScreen (Nearby timeline).
     @Test
