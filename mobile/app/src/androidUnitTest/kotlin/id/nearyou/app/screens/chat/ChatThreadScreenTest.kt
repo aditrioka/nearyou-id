@@ -1,8 +1,19 @@
 package id.nearyou.app.screens.chat
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
+import androidx.compose.runtime.saveable.SaveableStateRegistry
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
@@ -49,6 +60,7 @@ import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.resources.theme.NearYouColorScheme
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -72,6 +84,10 @@ private const val NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu
 private const val TOO_LONG = "Pesan maksimal 2000 karakter."
 private const val RATIONALE = "Aktifkan notifikasi agar kamu tahu saat ada pesan baru."
 private const val RATIONALE_CONFIRM = "Izinkan notifikasi"
+
+/** Every indeterminate progress indicator (the initial-load spinner and the refreshing PTR spinner). */
+private val INDETERMINATE =
+    SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate)
 
 // cap-upsell-parity: chat_cap_upsell with the cap dialog's 1140s countdown ("19 mnt").
 private const val CHAT_CAP_19M =
@@ -305,6 +321,98 @@ class ChatThreadScreenTest {
             setContent { KoinContext { NearYouTheme(darkTheme = false) { ChatThreadScreen(route = route(), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Dewi Lestari").fetchSemanticsNodes().isNotEmpty() }
             assertEquals(NearYouColorScheme.light.onBackground, onNodeWithText("Dewi Lestari").textColor())
+        }
+    }
+
+    // mobile-chat § "Input bar renders and loading uses a single indicator": the input bar is present in
+    // both the initial load and a refresh, and exactly one progress indicator shows at a time (the
+    // initial-load spinner, then the pull-to-refresh spinner over the retained thread).
+    @Test
+    fun initialLoadAndRefresh_eachShowExactlyOneIndicator_withTheInputBar() {
+        installKoin(ChatThreadOutcome.Loaded(listOf(dto("m1", content = "STAYS")), null))
+        val initialGate = CompletableDeferred<Unit>()
+        flow.historyGate = initialGate
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodes(INDETERMINATE).assertCountEquals(1)
+            initialGate.complete(Unit)
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("STAYS").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodes(INDETERMINATE).assertCountEquals(0)
+            val refreshGate = CompletableDeferred<Unit>()
+            flow.historyGate = refreshGate
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            waitForIdle()
+            onNodeWithText("STAYS").assertExists()
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).assertExists()
+            onAllNodes(INDETERMINATE).assertCountEquals(1)
+            refreshGate.complete(Unit)
+        }
+    }
+
+    // #494 review: the persisted one-shot is claimed when the rationale opens, so a config change while it
+    // is open must restore it (else the install's only notification-permission request is lost).
+    @Test
+    fun openRationale_survivesAConfigChange_andStillLaunchesTheRequest() {
+        installKoin(notificationStatus = NotificationPermissionStatus.NOT_DETERMINED)
+        runComposeUiTest {
+            val restore = restorableChatThread()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("satu")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(RATIONALE).fetchSemanticsNodes().isNotEmpty() }
+            restore()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(RATIONALE).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(RATIONALE_CONFIRM).performClick()
+            waitUntil(timeoutMillis = 5_000) { notificationController.requestCount == 1 }
+        }
+    }
+
+    // #494 review: the consumed Sent outcome is not replayed by a recreated composition, so a draft typed
+    // after the last successful send survives a config change.
+    @Test
+    fun draftTypedAfterASend_survivesAConfigChange() {
+        installKoin(rationaleAlreadyShown = true)
+        runComposeUiTest {
+            val restore = restorableChatThread()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("satu")
+            onNodeWithTag(CHAT_THREAD_SEND_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { flow.sendCount == 1 }
+            waitForIdle()
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).performTextInput("draf baru")
+            restore()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_INPUT_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_INPUT_TAG).assertTextEquals("draf baru", includeEditableText = true)
+        }
+    }
+
+    /**
+     * Composes the thread under a [SaveableStateRegistry] and returns a `restore()` that simulates a
+     * config change: save, drop the branch, re-enter the SAME slot with the captured values (the
+     * `PostDetailScreenTest` harness — the junit4 `StateRestorationTester` is not on this classpath). The
+     * route-scoped ViewModel survives, as it does across a real recreation.
+     */
+    private fun ComposeUiTest.restorableChatThread(): () -> Unit {
+        var savedState: Map<String, List<Any?>>? = null
+        var registry: SaveableStateRegistry? = null
+        var generation by mutableStateOf(0)
+        setContent {
+            if (generation != -1) {
+                val current = remember(generation) { SaveableStateRegistry(restoredValues = savedState, canBeSaved = { true }) }
+                registry = current
+                CompositionLocalProvider(LocalSaveableStateRegistry provides current) {
+                    KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } }
+                }
+            }
+        }
+        return {
+            runOnIdle { savedState = registry!!.performSave() }
+            runOnIdle { generation = -1 }
+            waitForIdle()
+            runOnIdle { generation = 1 }
+            waitForIdle()
         }
     }
 

@@ -216,7 +216,7 @@ class ChatThreadViewModel(
         }
     }
 
-    /** Clears a transient send banner (after the user dismisses / edits the input). */
+    /** Clears the one-shot send outcome: a dismissed cap dialog, or a `Sent` the screen has consumed. */
     fun clearSendOutcome() {
         _sendOutcome.value = null
     }

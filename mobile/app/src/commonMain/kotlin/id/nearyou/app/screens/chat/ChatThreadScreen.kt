@@ -175,7 +175,8 @@ fun ChatThreadScreen(
     val reportMessage by viewModel.reportMessage.collectAsStateWithLifecycle()
 
     var input by rememberSaveable { mutableStateOf("") }
-    var showNotifRationale by remember { mutableStateOf(false) }
+    // Saveable: the one-shot below is already claimed, so a config change must not drop an open rationale.
+    var showNotifRationale by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -190,17 +191,20 @@ fun ChatThreadScreen(
         }
     }
 
-    // First-send notification-permission prompt (task 9.4): on a successful send, if the per-install
-    // one-shot is unclaimed AND the OS status is NOT_DETERMINED, show the rationale → then the prompt.
-    // Also clears the input on a successful send.
+    // First-send notification-permission prompt (task 9.4): on a successful send, if the OS status is
+    // NOT_DETERMINED AND the per-install one-shot is unclaimed, show the rationale → then the prompt.
+    // Also clears the input on a successful send. The Sent outcome is then consumed (docs/11 §2.2) so a
+    // recreated composition does not replay it — wiping a newer draft or re-claiming the one-shot. The
+    // clear runs LAST: it changes this effect's key, so earlier would cancel the suspending checks.
     LaunchedEffect(sendOutcome) {
         if (sendOutcome is SendOutcome.Sent) {
             input = ""
-            if (notificationOneShot.claim() &&
-                notificationController.status() == NotificationPermissionStatus.NOT_DETERMINED
+            if (notificationController.status() == NotificationPermissionStatus.NOT_DETERMINED &&
+                notificationOneShot.claim()
             ) {
                 showNotifRationale = true
             }
+            viewModel.clearSendOutcome()
         }
     }
 
