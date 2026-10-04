@@ -41,7 +41,7 @@ The swap is made in the shared rendering layer, not per ViewModel. One composabl
 - The shared components (`DailyCapUpsellDialog`, `RadiusPremiumUpsellDialog`, `SoftLimitBanner`, `HardLimitState`) take a `premiumActivating: Boolean` parameter defaulted to it, so every host gets the behavior with no wiring. A test composing one with no Koin context passes the value explicitly.
 - The screen-private surfaces (edit upsell, search gate, username gate, the Settings snackbar text, the composer attach one-shot) call the resolver directly.
 
-No ViewModel, `UiState` or repository changes. The retries reuse each surface's existing path (the feed reload, the search retry, the username candidate change). The server stays authoritative: the viewer retries, and the client never retries on its own.
+No ViewModel, `UiState` or repository changes. The retries reuse each surface's existing path (the feed reload, the search retry, the username candidate change). The server stays authoritative: the viewer retries, and the activating notice itself never retries on its own. Pre-existing confirmation-driven re-evaluation, such as search's once-only re-run and the username gate clearing, is unchanged.
 
 The resolution is fail-safe, like the existing consumers (§ "Premium-gated surfaces resolve the signal fail-safe"). With no `PremiumEntitlementSession` bound, every surface renders its Free upsell exactly as before.
 

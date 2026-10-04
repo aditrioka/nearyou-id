@@ -57,6 +57,8 @@ This is registered in docs/11 § 2.1 in this PR as the pattern for "a shared com
 
 *Why not a `CompositionLocal` provided at the app root:* that would be a second app-state access pattern beside the established Koin-backed `rememberPremiumConfirmed()`.
 
+*Shared action:* the three inline gates (`HardLimitState`, the search panel, the username panel) share one `PremiumGateAction` (`ui/components/`). It shows the "Aktifkan Premium" / "Coba lagi" swap with the surface's tags, per docs/11 § 4's rule of three. Each surface keeps its own body copy and layout.
+
 *Trade-off:* `getKoin()` throws when Koin was never started. A test that composes a shared component bare passes the value explicitly; screen tests already start Koin. Each component's KDoc and the docs/11 entry say so.
 
 ### D5: One activating copy, and a way forward on inline states
@@ -104,6 +106,7 @@ No layer is deferred.
   - A cold start inside the lag window resets the signal, so the Free upsell returns until the webhook lands. → Accepted: the window is normally seconds.
   - If the webhook never lands (a delivery failure), the notice shows for the whole session with no way forward. → Accepted for the client. The fix belongs to the webhook and its alerting, not to the upsell copy.
 - **Surfaces that read the tier once** (composer, Settings) keep showing the notice until they are reopened after the webhook. → Accepted (Non-Goals). Reopening is the natural retry.
+- **The username retry can re-probe.** "Coba lagi" clears the gate through `onCandidateChange(candidate)`. If that candidate was never probed (a submit inside the 500 ms debounce, or the memo cleared by the confirmation), the existing probe runs. During the lag that probe `403`s back to the gate, and it spends one of the 3/day probes. → Accepted: the retry is a re-check of the server, which is what the viewer asked for. Avoiding it would need a ViewModel change, which this change rules out.
 - **Bare component tests need the explicit parameter** (D4). → The KDoc and docs/11 say so, and the existing bare tests are updated in this PR.
 - **Parallel session on the Nearby/Global feeds** (#173/#518, PR #559). It adds a `feedReloadKey` and replaces `changeRadius` / `RadiusChangeResult`. → This change touches neither and keeps its feed edits to the hard and soft branches. Whichever PR merges second rebases and re-runs the mobile gate.
 

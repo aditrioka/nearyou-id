@@ -38,9 +38,9 @@ import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.app.ui.billing.rememberPremiumConfirmed
+import id.nearyou.app.ui.components.PremiumGateAction
 import id.nearyou.app.username.UsernameFlow
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_nav_back
 import id.nearyou.resources.generated.resources.premium_activating_body
@@ -298,18 +298,14 @@ private fun PremiumGate(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            if (activating) {
-                Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp).testTag(USERNAME_GATE_RETRY_TAG)) {
-                    Text(text = stringResource(Res.string.cta_retry))
-                }
-            } else {
-                Button(
-                    onClick = onActivatePremium,
-                    modifier = Modifier.padding(top = 16.dp).testTag(USERNAME_GATE_CTA_TAG),
-                ) {
-                    Text(text = stringResource(Res.string.cta_activate_premium))
-                }
-            }
+            PremiumGateAction(
+                premiumActivating = activating,
+                onActivatePremium = onActivatePremium,
+                onRetry = onRetry,
+                premiumTag = USERNAME_GATE_CTA_TAG,
+                retryTag = USERNAME_GATE_RETRY_TAG,
+                modifier = Modifier.padding(top = 16.dp),
+            )
         }
     }
 }

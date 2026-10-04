@@ -17,7 +17,8 @@ import androidx.compose.ui.unit.dp
  * non-null (it is the banner's "Aktifkan Premium" action), then a [PostCard] per [posts] entry (projected
  * via [cardModelOf], tagged [cardTag]), then the canonical [LoadMoreFooter] as the terminal item. The
  * scroll-end detector ([LoadMoreOnScrollEnd]) drives [onLoadMore]; the footer's spinner/retry are mutually
- * exclusive with the initial-load skeleton (which lives in a separate non-`Content` state). Bottom content padding clears the shell's overlaid composer FAB.
+ * exclusive with the initial-load skeleton (which lives in a separate non-`Content` state). Bottom content
+ * padding clears the shell's overlaid composer FAB.
  *
  * Generic over the feed's PII-free post type [T] so every callback ([onOpenPost] / [onToggleLike] /
  * [onReplyShortcut] / [onOpenProfile]) carries the original post — the host resolves the author UUID off

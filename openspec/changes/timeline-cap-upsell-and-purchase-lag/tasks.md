@@ -13,7 +13,7 @@
 - [x] 2.3 `DailyCapUpsellDialog`: `premiumActivating: Boolean = rememberPremiumActivating()`; when true, early-return `PremiumActivatingDialog(onDismiss)` (before the countdown state); KDoc
 - [x] 2.4 `RadiusPremiumUpsellDialog`: same parameter + early-return; KDoc
 - [x] 2.5 `EditPostScreen.EditPremiumUpsellDialog`: when `rememberPremiumActivating()`, render `PremiumActivatingDialog(onDismiss)`
-- [x] 2.6 `SearchScreen.PremiumGateState(onActivatePremium, onRetry)`: when activating, `premium_activating_body` + a "Coba lagi" (`SEARCH_RETRY_TAG`) → `viewModel::retry`, no CTA
+- [x] 2.6 `SearchScreen.PremiumGateState(onActivatePremium, onRetry)`: when activating, `premium_activating_body` + a "Coba lagi" (`SEARCH_GATE_RETRY_TAG`) → `viewModel::retry`, no CTA
 - [x] 2.7 `UsernameCustomizationScreen.PremiumGate(onActivatePremium, onRetry)`: when activating, `premium_activating_body` + a "Coba lagi" (`USERNAME_GATE_RETRY_TAG`) → `viewModel.onCandidateChange(candidate)` (back to the editor), no CTA
 - [x] 2.8 `SettingsScreen`: the hide-distance / private-profile upsell snackbar text reads `premium_activating_body` when activating
 - [x] 2.9 `PostCreationScreen`: the `routeToPaywall` one-shot pushes `IMAGE_ATTACH` only when not activating; when activating it shows `PremiumActivatingDialog`, whose "Tutup" calls `onPaywallRouted()` (design D6)
@@ -26,6 +26,12 @@
 - [x] 3.4 `Global` / `Following` / `NearbyTimelineScreen`: thread `onReadCapUpsell = { onActivatePremium(PaywallEntry.TIMELINE_CAP) }` into the private content; `HardLimit` → `HardLimitState(onActivatePremium = onReadCapUpsell, onRetry = onRetry, …)`, `SoftLimit` → `softLimitUpsell = onReadCapUpsell`
 - [x] 3.5 `docs/11-Engineering-Standards.md` § 2.1: add `HardLimitState` to the list-state kit + register the "shared component reads an app-wide UI signal through a defaulted parameter" idiom (design D4)
 - [x] 3.6 `docs/03-UX-Design.md` § Rate Limit Communication: the read-cap CTA (`TIMELINE_CAP`) + the webhook-lag activating copy
+- [x] 3.7 Review round 1 (implementation):
+  - extract `PremiumGateAction` (`ui/components/`) for the shared "Aktifkan Premium" / "Coba lagi" swap, used by `HardLimitState` and the search and username gates (docs/11 § 4 rule of three);
+  - give the search gate's retry its own `SEARCH_GATE_RETRY_TAG`;
+  - scope the docs/11 § 2.1 idiom (defaulted resolver vs host-passed opt-in);
+  - KDoc fixes;
+  - Koin-default-path test for `RadiusPremiumUpsellDialog`
 
 ## 4. Tests (one per spec'd scenario)
 
@@ -40,12 +46,12 @@
 - [x] 4.9 Robolectric `PostCreationScreenTest` (Free tier read + confirmed session → attach tap shows the notice, "Tutup" closes it, no paywall, no picker) and `SettingsScreenTest` (both Premium toggles → the activating snackbar, no `settings_*_premium_only`, no `PATCH`)
 - [x] 4.10 Robolectric `PaywallScreenTest`: `TIMELINE_CAP` renders `paywall_subhead_timeline_cap`, not the default
 - [x] 4.11 Robolectric `RememberPremiumActivatingTest` (new): signed-in session → `false`, `onPurchaseConfirmed()` → `true`, sign-out `syncIdentity()` → `false`; unbound → `false`
-- [ ] 4.12 The new UI tests (`PremiumActivatingDialogTest`, `RememberPremiumActivatingTest`) are on the `mobile/app/build.gradle.kts` Release-variant exclude list; `:mobile:app:testDevReleaseUnitTest` passes
-- [ ] 4.13 iosTest (K/N-legal names): `PaywallFlowIosTest` renders the `TIMELINE_CAP` headline; `PremiumActivatingIosTest` (new) renders the activating notice from `DailyCapUpsellDialog` through the default Koin resolution of a confirmed session
+- [x] 4.12 The new UI tests (`PremiumActivatingDialogTest`, `RememberPremiumActivatingTest`) are on the `mobile/app/build.gradle.kts` Release-variant exclude list; `:mobile:app:testDevReleaseUnitTest` passes
+- [x] 4.13 iosTest (K/N-legal names): `PaywallFlowIosTest` renders the `TIMELINE_CAP` headline; `PremiumActivatingIosTest` (new) renders the activating notice from `DailyCapUpsellDialog` through the default Koin resolution of a confirmed session
 
 ## 5. Verification & lifecycle
 
-- [ ] 5.1 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:mobile:app:iosSimulatorArm64Test` (pre-existing #348 drift: compare against an `origin/main` baseline)
-- [ ] 5.2 Mockups: render frames 1, 17, 18; `dev/scripts/mockup-measure.sh dev/mockups/nearyou-screens-mockup.html 18`; confirm `PremiumActivatingDialog` matches the frame-18 component
-- [ ] 5.3 Manual verify (verify-loop §B, local `verify36` emulator) against a stub backend serving the real wires (memory: stub backend for 429/403 upsell verify): soft banner CTA → paywall `TIMELINE_CAP` headline; hard state CTA → paywall; like `429` dialog; then with a confirmed purchase (temporary uncommitted harness flipping `purchaseConfirmed`) → the activating notice on the like dialog, the hard state (+ retry), the soft banner gone, and one `403` gate. Screenshots in the PR body (docs/11 §5 DoD)
+- [x] 5.1 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:mobile:app:iosSimulatorArm64Test` (pre-existing #348 drift: compare against an `origin/main` baseline)
+- [x] 5.2 Mockups: render frames 1, 17, 18; `dev/scripts/mockup-measure.sh dev/mockups/nearyou-screens-mockup.html 18`; confirm `PremiumActivatingDialog` matches the frame-18 component
+- [x] 5.3 Manual verify (verify-loop §B, local `verify36` emulator) against a stub backend serving the real wires (memory: stub backend for 429/403 upsell verify): soft banner CTA → paywall `TIMELINE_CAP` headline; hard state CTA → paywall; like `429` dialog; then with a confirmed purchase (temporary uncommitted harness flipping `purchaseConfirmed`) → the activating notice on the like dialog, the hard state (+ retry), the soft banner gone, and one `403` gate. Screenshots in the PR body (docs/11 §5 DoD)
 - [ ] 5.4 PR title/body current at each phase boundary; body carries `Closes #516` and `Closes #517` on separate lines; archive via `/opsx:archive`. At archive, hand-edit the now-stale `## Purpose` of `mobile-paywall` (entry list), `mobile-premium-entitlement` (consumers) and `mobile-cap-upsell-dialog` (the activating variant), since deltas cannot modify Purpose

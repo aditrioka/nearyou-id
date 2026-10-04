@@ -1,12 +1,19 @@
 package id.nearyou.app.ui.components
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.billing.confirmedPremiumSession
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
+import org.koin.compose.KoinContext
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.module
+import org.koin.mp.KoinPlatformTools
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.Test
@@ -19,7 +26,8 @@ private const val RADIUS_TITLE = "Radius khusus Premium" // radius_upsell_title
 /**
  * The webhook-lag activating notice (`mobile-premium-entitlement`, #517): the shared [PremiumActivatingDialog]
  * renders its copy and a single "Tutup" with no paywall CTA, and [RadiusPremiumUpsellDialog] swaps to it
- * while `premiumActivating`. Composed with no Koin started, so the radius dialog gets the flag explicitly.
+ * while `premiumActivating`. Composed with no Koin started, so the radius dialog gets the flag explicitly —
+ * except the default-path test, which binds a confirmed session in Koin and passes nothing.
  *
  * `@Suppress("DEPRECATION")`: the v1 `runComposeUiTest` API the sibling component tests use (docs/11 § 2.7).
  */
@@ -84,4 +92,21 @@ class PremiumActivatingDialogTest {
             onNodeWithTag(RADIUS_UPSELL_DIALOG_PREMIUM_TAG).assertExists()
             onNodeWithText(TITLE).assertDoesNotExist()
         }
+
+    // The default path: no explicit premiumActivating — the dialog resolves a confirmed session from Koin
+    // itself (rememberPremiumActivating), so the Nearby host needs no wiring (#517).
+    @Test
+    fun radiusUpsell_resolvesAConfirmedSessionByDefault() {
+        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
+        startKoin { modules(module { single { confirmedPremiumSession() } }) }
+        try {
+            runComposeUiTest {
+                setContent { KoinContext { NearYouTheme { RadiusPremiumUpsellDialog(onDismiss = {}, onActivatePremium = {}) } } }
+                waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(TITLE).fetchSemanticsNodes().isNotEmpty() }
+                onNodeWithTag(RADIUS_UPSELL_DIALOG_PREMIUM_TAG).assertDoesNotExist()
+            }
+        } finally {
+            stopKoin()
+        }
+    }
 }

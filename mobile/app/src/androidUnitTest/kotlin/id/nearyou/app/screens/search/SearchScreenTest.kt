@@ -206,7 +206,8 @@ class SearchScreenTest {
             onNodeWithTag(SEARCH_PREMIUM_CTA_TAG).assertDoesNotExist()
             onNodeWithText(GATE_CTA).assertDoesNotExist()
             val before = fake.invocationCount
-            onNodeWithTag(SEARCH_RETRY_TAG).performClick()
+            onNodeWithTag(SEARCH_RETRY_TAG).assertDoesNotExist() // the gate's retry, not the error state's
+            onNodeWithTag(SEARCH_GATE_RETRY_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { fake.invocationCount == before + 1 }
             assertEquals("jakarta", fake.calls.last().query, "the retry re-runs the gated query")
             assertEquals(0, activated, "the activating notice never opens the paywall")

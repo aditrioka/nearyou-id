@@ -45,10 +45,10 @@ const val HARD_LIMIT_RETRY_TAG: String = "hardLimitRetry"
  * copies of these non-Content list states; the drifting 3rd copy is exactly how the notifications
  * skeleton diverged (audit 05-#3). These are the canonical list states — render each inside a paginated
  * list's `PullToRefreshBox` so the pull gesture is recognized from it too (`mobile-design-system` §
- * "Canonical list loading and refresh pattern"). All copy is hoisted (passed as already-resolved
- * `String`s, except the universal copy ListErrorState and the timeline read-limit states bake in) so the
- * kit stays feature-agnostic; hosts pass their per-surface `testTag` so the existing screen tests target
- * the same swipe surface in every state.
+ * "Canonical list loading and refresh pattern"). Copy is hoisted (passed as already-resolved `String`s)
+ * except where one copy serves every host: ListErrorState's network copy, and the timeline read-cap pair
+ * (SoftLimitBanner / HardLimitState), which also reads the app-wide activating signal (#517). Hosts pass
+ * their per-surface `testTag` so the existing screen tests target the same swipe surface in every state.
  */
 
 /**
@@ -231,18 +231,14 @@ fun HardLimitState(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            if (premiumActivating) {
-                Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp).testTag(HARD_LIMIT_RETRY_TAG)) {
-                    Text(text = stringResource(Res.string.cta_retry))
-                }
-            } else {
-                Button(
-                    onClick = onActivatePremium,
-                    modifier = Modifier.padding(top = 16.dp).testTag(HARD_LIMIT_PREMIUM_TAG),
-                ) {
-                    Text(text = stringResource(Res.string.cta_activate_premium))
-                }
-            }
+            PremiumGateAction(
+                premiumActivating = premiumActivating,
+                onActivatePremium = onActivatePremium,
+                onRetry = onRetry,
+                premiumTag = HARD_LIMIT_PREMIUM_TAG,
+                retryTag = HARD_LIMIT_RETRY_TAG,
+                modifier = Modifier.padding(top = 16.dp),
+            )
         }
     }
 }

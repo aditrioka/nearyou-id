@@ -41,9 +41,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.search.SearchFlow
 import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.app.ui.billing.rememberPremiumConfirmed
+import id.nearyou.app.ui.components.PremiumGateAction
 import id.nearyou.app.ui.components.capCountdownMinutes
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.cta_activate_premium
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_action_clear
 import id.nearyou.resources.generated.resources.ic_action_search
@@ -88,6 +88,9 @@ const val SEARCH_LOAD_MORE_TAG: String = "searchLoadMore"
 
 /** Test tag on the error-state retry control. */
 const val SEARCH_RETRY_TAG: String = "searchRetry"
+
+/** Test tag on the Premium gate's "Coba lagi" (shown while Premium is activating, #517). */
+const val SEARCH_GATE_RETRY_TAG: String = "searchGateRetry"
 
 /** Test tag on the Premium-gate "Aktifkan Premium" CTA. */
 const val SEARCH_PREMIUM_CTA_TAG: String = "searchPremiumCta"
@@ -343,19 +346,16 @@ private fun PremiumGateState(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
             )
-            if (activating) {
-                Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp).testTag(SEARCH_RETRY_TAG)) {
-                    Text(text = stringResource(Res.string.cta_retry))
-                }
-            } else {
-                Button(
-                    // mobile-paywall-screen (#254): the CTA now pushes PaywallRoute(SEARCH_GATE) via the host.
-                    onClick = onActivatePremium,
-                    modifier = Modifier.padding(top = 16.dp).testTag(SEARCH_PREMIUM_CTA_TAG),
-                ) {
-                    Text(text = stringResource(Res.string.cta_activate_premium))
-                }
-            }
+            // mobile-paywall-screen (#254): the CTA pushes PaywallRoute(SEARCH_GATE) via the host; while
+            // activating (#517) it is "Coba lagi" re-running the query.
+            PremiumGateAction(
+                premiumActivating = activating,
+                onActivatePremium = onActivatePremium,
+                onRetry = onRetry,
+                premiumTag = SEARCH_PREMIUM_CTA_TAG,
+                retryTag = SEARCH_GATE_RETRY_TAG,
+                modifier = Modifier.padding(top = 16.dp),
+            )
         }
     }
 }
