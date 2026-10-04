@@ -295,6 +295,11 @@
          (frame 18's treatment) / "Y mnt" under an hour. -->
     <string name="cap_dialog_title">Batas harian tercapai</string>
     <string name="cta_activate_premium">Aktifkan Premium</string>
+    <!-- timeline-cap-upsell-and-purchase-lag (#517): the activating notice every Free upsell shows instead of
+         its upgrade pitch while a purchase is confirmed but the server tier still lags the RevenueCat
+         webhook (mobile-premium-entitlement). One copy for the dialogs and the inline gates; no CTA. -->
+    <string name="premium_activating_title">Premium sedang diaktifkan</string>
+    <string name="premium_activating_body">Pembelianmu berhasil dan Premium sedang diaktifkan. Coba lagi sebentar lagi ya.</string>
     <string name="cap_countdown_hours_minutes" formatted="true">%1$d j %2$d mnt</string>
     <string name="cap_countdown_minutes" formatted="true">%1$d mnt</string>
     <string name="post_create_cap_upsell" formatted="true">Kamu sudah membuat 10 postingan hari ini. Upgrade ke Premium untuk posting tanpa batas, atau tunggu reset dalam %1$s.</string>
@@ -496,6 +501,7 @@
     <string name="paywall_subhead_post_cap">Posting tanpa batas setiap hari</string>
     <string name="paywall_subhead_edit">Edit postingan hingga 30 menit</string>
     <string name="paywall_subhead_radius">Jelajahi radius hingga 100 km</string>
+    <string name="paywall_subhead_timeline_cap">Baca timeline tanpa batas</string>
     <string name="paywall_benefit_unlimited">Post, balasan &amp; like tanpa batas</string>
     <string name="paywall_benefit_radius">Radius Sekitar 10/20/50/100 km</string>
     <string name="paywall_benefit_hide_distance">Sembunyikan jarak (nama kota tetap tampil)</string>

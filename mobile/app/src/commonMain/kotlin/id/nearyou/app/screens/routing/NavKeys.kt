@@ -299,6 +299,9 @@ enum class PaywallEntry {
 
     /** The Nearby Premium-radius upsell. */
     RADIUS_GATE,
+
+    /** The Free timeline read cap: the soft-limit banner + the hard-limit state on the three feeds. */
+    TIMELINE_CAP,
 }
 
 /**

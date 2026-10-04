@@ -85,6 +85,7 @@ class NavKeySerializationTest {
                 "POST_CAP",
                 "EDIT_GATE",
                 "RADIUS_GATE",
+                "TIMELINE_CAP",
             ),
             PaywallEntry.entries.map { it.name },
         )

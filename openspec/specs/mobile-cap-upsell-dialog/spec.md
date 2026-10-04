@@ -7,8 +7,7 @@
 - post (the composer);
 - chat (the chat thread + the share-to-chat picker).
 
-The dialog derives its countdown from the 429's `Retry-After` (the cap endpoints' only reset signal). It renders hours+minutes, ticks down per minute via a monotonic delay (no wall-clock, so the formatter is pure and restore-safe), floors to one minute (a stripped/zero header never flash-dismisses), and auto-dismisses when the cap resets. The "Aktifkan Premium" CTA invokes a hoisted callback. Each host dismisses the dialog and pushes `PaywallRoute` with its cap's `PaywallEntry` (`LIKE_CAP` / `REPLY_CAP` / `POST_CAP` / `CHAT_CAP`). The component holds no navigation reference and no rate-limit state of its own: show/hide is the host's one-shot state (docs/11 § 2.2).
-
+The dialog derives its countdown from the 429's `Retry-After` (the cap endpoints' only reset signal). It renders hours+minutes, ticks down per minute via a monotonic delay (no wall-clock, so the formatter is pure and restore-safe), floors to one minute (a stripped/zero header never flash-dismisses), and auto-dismisses when the cap resets. The "Aktifkan Premium" CTA invokes a hoisted callback. Each host dismisses the dialog and pushes `PaywallRoute` with its cap's `PaywallEntry` (`LIKE_CAP` / `REPLY_CAP` / `POST_CAP` / `CHAT_CAP`). The component holds no navigation reference and no rate-limit state of its own: show/hide is the host's one-shot state (docs/11 § 2.2). While a purchase is confirmed but the server tier still lags the webhook (`purchaseConfirmed`, `mobile-premium-entitlement`), the dialog renders the shared `PremiumActivatingDialog` in place of the upsell, with no CTA and no countdown. It reads the signal itself, so no host wires it.
 ## Requirements
 ### Requirement: The shared daily-cap upsell dialog renders per mockup frame 18
 
@@ -24,6 +23,8 @@ The mobile app SHALL ship a shared daily-cap upsell dialog composable (file: `mo
   The reply / post / chat copy SHALL also be recorded in `docs/03-UX-Design.md` § Rate Limit Communication alongside the like copy, so all four are canonical.
 - **Confirm button** (right): a filled `Button` labelled `stringResource(Res.string.cta_activate_premium)` — "Aktifkan Premium" (the docs/03 primary CTA), invoking a hoisted `onActivatePremium` callback (§ "Premium CTA navigates to the paywall").
 - **Dismiss button** (left): a `TextButton` labelled `stringResource(Res.string.cta_close)` — the EXISTING "Tutup" key (the docs/03 secondary CTA), invoking a hoisted `onDismiss` callback. The dialog's `onDismissRequest` (scrim tap / back) SHALL behave as the dismiss button.
+
+**The post-purchase webhook-lag window** (`mobile-premium-entitlement` § "Upsell surfaces show the activating notice during the webhook-lag window"). The title, body and CTA pair above are the **Free upsell**. When the `purchaseConfirmed` signal is `true` at the moment a cap `429` raises this dialog, the buyer has paid and only the server tier still lags. The dialog SHALL then render the shared `PremiumActivatingDialog` instead: the `premium_activating_title` / `premium_activating_body` copy and a single "Tutup" button wired to `onDismiss`. It SHALL show no `cap_dialog_title`, no cap body, no countdown and no "Aktifkan Premium" CTA, and `onActivatePremium` is unreachable. The dialog reads the signal itself, through a `premiumActivating` parameter defaulted to the fail-safe `rememberPremiumActivating()`, so every host gets this behavior with no host or ViewModel change. A test composing the dialog with no Koin context passes the parameter explicitly.
 
 No hardcoded UI string literals SHALL appear in the component source (Compose Multiplatform Resources only); colors/typography SHALL come from `NearYouTheme` tokens (no literals); the component SHALL render correctly under both light and dark schemes. The component holds no navigation reference and no rate-limit state of its own — show/hide is owned by the host surface's state. No surface SHALL render a second, parallel cap surface (e.g. an inline cap banner) for the same `429`.
 
@@ -50,6 +51,18 @@ No hardcoded UI string literals SHALL appear in the component source (Compose Mu
 - **WHEN** inspecting `DailyCapUpsellDialog.kt`
 - **THEN** every user-visible text resolves via `stringResource(Res.string.<name>)` AND the source contains no hex color literals (theme tokens only) AND the component renders without crash under `NearYouTheme` light and dark
 
+#### Scenario: A confirmed purchase swaps the cap upsell for the activating notice
+
+- **GIVEN** the dialog composed with `premiumActivating = true` and recording `onDismiss` / `onActivatePremium` callbacks
+- **WHEN** the dialog renders and "Tutup" is tapped
+- **THEN** the rendered tree contains `premium_activating_title` and `premium_activating_body` AND contains no "Aktifkan Premium" node, no `cap_dialog_title` and no cap body AND `onDismiss` fires exactly once AND `onActivatePremium` is never invoked
+
+#### Scenario: A host gets the activating notice with no host wiring
+
+- **GIVEN** a cap host screen (the Global feed) whose Koin graph binds a `PremiumEntitlementSession` on which `onPurchaseConfirmed()` has run, with a recording `onActivatePremium`
+- **WHEN** an inline like returns the Free like-cap `429` and the notice's "Tutup" is tapped
+- **THEN** the activating notice is shown in place of the like-cap upsell AND it closes AND the host's `onActivatePremium` is never invoked
+
 ### Requirement: The countdown derives from Retry-After and ticks to the reset
 
 The dialog's countdown SHALL be driven by the rate-limited outcome's `retryAfterSeconds` — the `Retry-After` header value the host's repository carries on its `RateLimited` outcome (`LikeOutcome.RateLimited`, `ReplyPostOutcome.RateLimited`, `PostCreationOutcome.RateLimited`, `SendOutcome.RateLimited`). It is the cap endpoints' ONLY reset signal. `docs/03-UX-Design.md` § Rate Limit Communication mentions an `X-RateLimit-Reset` response header, but the shipped cap endpoints send only `Retry-After`, which encodes the same per-user staggered WIB reset (`computeTTLToNextReset`, `docs/05-Implementation.md`). This is a declared divergence, resolved without a backend change.
@@ -58,6 +71,8 @@ The dialog's countdown SHALL be driven by the rate-limited outcome's `retryAfter
 - A non-positive input SHALL be floored to one minute. The shipped clients map a 429 whose `Retry-After` is absent, stripped, or unparseable (e.g. proxy/CDN-rewritten to an HTTP-date) to `RateLimited(0)`, and the backend never legitimately sends < 1 s. So `retryAfterSeconds ≤ 0` renders the 1-minute treatment and the dialog MUST NOT auto-dismiss on entry: it ticks its one floored minute, then auto-dismisses.
 - While the dialog is shown, the rendered countdown SHALL tick **per minute** — decrementing via monotonic coroutine delay (NO wall-clock platform API), updating the formatted body — satisfying the `docs/03-UX-Design.md` § Rate Limit Communication "in-app modal countdown … realtime to the reset moment" mandate at minute granularity.
 - When the remaining time reaches zero, the dialog SHALL auto-dismiss (invoke `onDismiss`): the cap has reset and the user can act again.
+
+The countdown belongs to the Free upsell only. The activating notice that replaces it during the webhook-lag window (§ "The shared daily-cap upsell dialog renders per mockup frame 18") renders no countdown and does not auto-dismiss: it stays until the user taps "Tutup" or dismisses it.
 
 The former post-detail cap **banner** and its coarse hour treatment (`post_detail_reset_hours`, "%1$d jam") are retired. The post-detail like and reply caps now use this dialog and its minute countdown, so there is no longer a second countdown format.
 

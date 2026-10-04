@@ -13,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cap_countdown_hours_minutes
 import id.nearyou.resources.generated.resources.cap_countdown_minutes
@@ -47,6 +48,11 @@ const val DAILY_CAP_DIALOG_CLOSE_TAG: String = "dailyCapDialogClose"
  * platform API, so tests drive it with the compose test clock). Reaching zero auto-dismisses: the cap
  * has reset. The component holds no navigation reference and no rate-limit state of its own — show/hide
  * is the host's one-shot state (docs/11 § 2.2).
+ *
+ * While [premiumActivating] (a purchase is confirmed but the server still sent the Free `429`, #517) it
+ * renders [PremiumActivatingDialog] instead: no upgrade pitch, no countdown, and [onActivatePremium] is
+ * unreachable. The default reads the signal itself, so no host wires it; a test composing this dialog with
+ * no Koin started passes it explicitly.
  */
 @Composable
 fun DailyCapUpsellDialog(
@@ -54,7 +60,12 @@ fun DailyCapUpsellDialog(
     body: @Composable (countdown: String) -> String,
     onDismiss: () -> Unit,
     onActivatePremium: () -> Unit,
+    premiumActivating: Boolean = rememberPremiumActivating(),
 ) {
+    if (premiumActivating) {
+        PremiumActivatingDialog(onDismiss = onDismiss)
+        return
+    }
     // rememberSaveable (keyed on retryAfterSeconds) so a config-change/process recreation while the
     // dialog is up RESTORES the already-decremented minute rather than reverting to the original
     // countdown; a NEW 429 (different retryAfterSeconds) re-seeds. No wall-clock — keeps the formatter

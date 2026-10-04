@@ -45,7 +45,9 @@ import id.nearyou.app.post.CreatePostFlow
 import id.nearyou.app.post.PostCreationOutcome
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.screens.routing.PaywallEntry
+import id.nearyou.app.ui.billing.rememberPremiumActivating
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.PremiumActivatingDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_post
 import id.nearyou.resources.generated.resources.cta_retry
@@ -173,12 +175,18 @@ fun PostCreationScreen(
     }
     // The Free-viewer upsell one-shot (mobile-image-attachment): when the VM raises routeToPaywall (a Free
     // viewer tapped attach — the picker was NOT invoked), route to the shared paywall via the host, then
-    // clear the flag. Mirrors the timeline cap dialog's onActivatePremium hand-off.
-    LaunchedEffect(routeToPaywall) {
-        if (routeToPaywall) {
+    // clear the flag. Mirrors the timeline cap dialog's onActivatePremium hand-off. After a confirmed
+    // purchase the Free read is the server tier lagging the webhook (#517): the same one-shot shows the
+    // activating notice instead, so a buyer is never sent to buy again; dismissing clears it.
+    val premiumActivating = rememberPremiumActivating()
+    LaunchedEffect(routeToPaywall, premiumActivating) {
+        if (routeToPaywall && !premiumActivating) {
             onActivatePremium(PaywallEntry.IMAGE_ATTACH)
             viewModel.onPaywallRouted()
         }
+    }
+    if (routeToPaywall && premiumActivating) {
+        PremiumActivatingDialog(onDismiss = viewModel::onPaywallRouted)
     }
 
     // The Free 10/day post cap (cap-upsell-parity, frame 18): shown while the VM's outcome is RateLimited;

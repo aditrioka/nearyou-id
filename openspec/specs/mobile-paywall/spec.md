@@ -13,10 +13,10 @@ This is backed by the vendor-free `PurchaseController` seam in `:infra:revenueca
 - the premium-username gate (`USERNAME`);
 - the composer image-attach gate (`IMAGE_ATTACH`, which keeps the generic headline until image upload launches);
 - the post-edit 403 gate (`EDIT_GATE`);
-- the Nearby radius gate (`RADIUS_GATE`).
+- the Nearby radius gate (`RADIUS_GATE`);
+- the Free timeline read cap: the soft-limit banner and the hard-limit state on the three feeds (`TIMELINE_CAP`).
 
 It degrades to a fail-soft `Unconfigured` state until RevenueCat billing is provisioned. The subscription contract is owned by the `subscription-billing-webhook` change: `subscription_status` is webhook-driven, and the client premium signal is the RevenueCat `CustomerInfo` entitlement.
-
 ## Requirements
 ### Requirement: PaywallRoute is a payload-carrying serializable NavKey registered for the iOS-saveable back stack
 
@@ -33,6 +33,7 @@ The mobile app SHALL declare a `PaywallRoute` `NavKey` (in `mobile/app/src/commo
 | `POST_CAP` | the post 10/day cap dialog on the composer |
 | `EDIT_GATE` | the post-edit `403 premium_required` upsell |
 | `RADIUS_GATE` | the Nearby Premium-radius upsell |
+| `TIMELINE_CAP` | the Free timeline read cap (`timeline-read-rate-limit`): the soft-limit banner and the hard-limit state on the three feeds |
 
 New values SHALL be appended, never reordered or renamed: kotlinx.serialization encodes the enum by name, so a persisted iOS back stack must keep decoding. A gated surface MUST NOT open the paywall with another surface's entry (e.g. the radius upsell MUST NOT push `LIKE_CAP`).
 
@@ -46,7 +47,7 @@ The route MUST NOT carry any PII, token, coordinate, or user identifier. It SHAL
 #### Scenario: PaywallEntry declares exactly the wired gates
 
 - **WHEN** inspecting the `PaywallEntry` enum
-- **THEN** its values are exactly `LIKE_CAP`, `SEARCH_GATE`, `USERNAME`, `IMAGE_ATTACH`, `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE`, in that declaration order
+- **THEN** its values are exactly `LIKE_CAP`, `SEARCH_GATE`, `USERNAME`, `IMAGE_ATTACH`, `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE`, `TIMELINE_CAP`, in that declaration order
 
 #### Scenario: PaywallRoute carries only the non-PII entry-context
 
@@ -75,6 +76,7 @@ The hero subheadline SHALL be tailored to the route's `PaywallEntry` while alway
 | `POST_CAP` | `paywall_subhead_post_cap` |
 | `EDIT_GATE` | `paywall_subhead_edit` |
 | `RADIUS_GATE` | `paywall_subhead_radius` |
+| `TIMELINE_CAP` | `paywall_subhead_timeline_cap` ("Baca timeline tanpa batas") |
 | `IMAGE_ATTACH` | `paywall_subhead_default` |
 
 `IMAGE_ATTACH` deliberately keeps the generic `paywall_subhead_default` headline. Image upload is a Month-6 feature behind the `image_upload_enabled` flag (default `false`, docs/05), and docs/01 + docs/03 § Paywall & Premium Disclosure forbid advertising image upload before it ships. A photo-led headline would promise a feature a buyer may not receive. A later change MAY tailor it once the image launch is live.
@@ -98,8 +100,8 @@ The hero subheadline SHALL be tailored to the route's `PaywallEntry` while alway
 
 #### Scenario: Every new cap/gate entry renders its own headline
 
-- **GIVEN** `PaywallScreen` composed in the Content state for each of `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE`, and `USERNAME`
-- **THEN** each rendering shows its mapped subheadline (`paywall_subhead_chat_cap`, `paywall_subhead_reply_cap`, `paywall_subhead_post_cap`, `paywall_subhead_edit`, `paywall_subhead_radius`, `username_premium_gate_body` respectively) AND none shows `paywall_subhead_default`
+- **GIVEN** `PaywallScreen` composed in the Content state for each of `CHAT_CAP`, `REPLY_CAP`, `POST_CAP`, `EDIT_GATE`, `RADIUS_GATE`, `TIMELINE_CAP`, and `USERNAME`
+- **THEN** each rendering shows its mapped subheadline (`paywall_subhead_chat_cap`, `paywall_subhead_reply_cap`, `paywall_subhead_post_cap`, `paywall_subhead_edit`, `paywall_subhead_radius`, `paywall_subhead_timeline_cap`, `username_premium_gate_body` respectively) AND none shows `paywall_subhead_default`
 
 #### Scenario: The image-attach entry does not advertise image upload
 
