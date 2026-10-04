@@ -99,4 +99,4 @@
   - a result tap → the detail opens with the real city, like state, reply count and image;
   - a `404` by-id read → the fallback opens.
   - Screenshots go in the PR body (docs/11 §5 DoD).
-- [ ] 7.3 PR title/body current at each phase boundary; body carries `Closes #253` and `Closes #255` on separate lines; archive via `/opsx:archive`, then hand-edit the now-stale `## Purpose` of `mobile-search` (on-entry gate + by-id hydration), since deltas cannot modify Purpose
+- [x] 7.3 PR title/body current at each phase boundary; body carries `Closes #253` and `Closes #255` on separate lines; archive via `/opsx:archive`, then hand-edit the now-stale `## Purpose` of `mobile-search` (on-entry gate + by-id hydration), since deltas cannot modify Purpose

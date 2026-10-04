@@ -228,7 +228,7 @@ class SearchViewModel(
     /**
      * A result card tap (#255): resolve the post through the shared by-id read and expose the detail target
      * as the consumed-once [SearchScreenUiState.pendingNavTarget]. Ignored while a target is still pending
-     * (it is about to navigate). Latest tap wins: a new tap cancels an in-flight read, and only the active
+     * (it is about to navigate) or while this same card is already resolving (a double-tap). Latest tap wins: a new tap cancels an in-flight read, and only the active
      * job writes (after [ensureActive]). `Unavailable` — or a thrown read — opens from the hit's own payload.
      */
     fun onResultTap(hit: SearchHit) {
