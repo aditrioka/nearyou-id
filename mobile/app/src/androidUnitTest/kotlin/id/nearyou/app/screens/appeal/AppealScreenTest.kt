@@ -24,6 +24,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val INTRO = "Kamu bisa mengajukan banding atas tindakan moderasi pada akunmu. Tim kami akan meninjau dan memberi keputusan."
@@ -31,6 +32,10 @@ private const val SUBMIT = "Kirim banding"
 private const val PENDING_TITLE = "Banding sedang ditinjau"
 private const val REJECTED_TITLE = "Banding ditolak"
 private const val REJECTED_REASON = "Alasan: Tidak cukup alasan."
+private const val REJECTED_BODY = "Banding kamu ditolak. Keputusan moderasi atas akunmu tidak diubah." // appeal_rejected_body
+private const val APPROVED_TITLE = "Banding diterima" // appeal_approved_title (also the re-sign-in button label)
+private const val APPROVED_BODY_RESIGNIN = "Tindakan pada akunmu telah dicabut. Masuk lagi untuk melanjutkan." // appeal_approved_body
+private const val APPROVED_BODY_ACTIVE = "Tindakan pada akunmu telah dicabut. Akunmu sudah aktif kembali." // appeal_approved_body_active
 private const val RATE_LIMITED_2 = "Terlalu banyak permintaan. Coba lagi dalam 2 menit."
 private const val COUNTER_FULL = "1000/1000"
 
@@ -38,7 +43,8 @@ private const val COUNTER_FULL = "1000/1000"
  * Render + behavior coverage of `AppealScreen` via the Robolectric-backed CMP UI runner (task 5.5). Drives
  * each state through a `FakeAppealFlow` (the outcome→state projection is covered purely by
  * `AppealViewModelTest`): the editor form, submit→Pending, an on-entry already-pending status, a submit
- * rate-limit, a decided-rejected status + reason, and the 1000-char editor cap. The `KoinContext` +
+ * rate-limit, a decided-rejected status + reason, and the 1000-char editor cap — plus the signed-in read
+ * (no appeal token, opened from an `appeal_decided` notification): an approval renders no re-sign-in action. The `KoinContext` +
  * multi-test startKoin cycle mirrors `SearchScreenTest`.
  */
 @Suppress("DEPRECATION")
@@ -133,6 +139,46 @@ class AppealScreenTest {
             content()
             onNodeWithText(REJECTED_TITLE).assertExists()
             onNodeWithText(REJECTED_REASON, substring = true).assertExists()
+        }
+    }
+
+    @Test
+    fun approvedViaSession_showsActiveCopy_withNoReSignInAction() {
+        installKoin(status = AppealStatusOutcome.Decided(true, "suspension", null, null), token = null)
+        runComposeUiTest {
+            var reSignIns = 0
+            setContent { KoinContext { NearYouTheme { AppealScreen(onBack = {}, onReSignIn = { reSignIns++ }) } } }
+            waitForIdle()
+            onNodeWithText(APPROVED_TITLE).assertExists()
+            onNodeWithText(APPROVED_BODY_ACTIVE).assertExists()
+            onNodeWithTag(APPEAL_RESIGNIN_TAG).assertDoesNotExist()
+            onNodeWithText(APPROVED_BODY_RESIGNIN).assertDoesNotExist()
+            assertEquals(0, reSignIns)
+        }
+    }
+
+    @Test
+    fun approvedViaAppealToken_keepsTheReSignInAction() {
+        installKoin(status = AppealStatusOutcome.Decided(true, "suspension", null, null), token = "tok-1")
+        runComposeUiTest {
+            var reSignIns = 0
+            setContent { KoinContext { NearYouTheme { AppealScreen(onBack = {}, onReSignIn = { reSignIns++ }) } } }
+            waitForIdle()
+            onNodeWithText(APPROVED_BODY_RESIGNIN).assertExists()
+            onNodeWithTag(APPEAL_RESIGNIN_TAG).performClick()
+            assertEquals(1, reSignIns)
+        }
+    }
+
+    @Test
+    fun rejectedViaSession_showsTitleBodyAndReason_withNoReSignInAction() {
+        installKoin(status = AppealStatusOutcome.Decided(false, "suspension", "Tidak cukup alasan.", null), token = null)
+        runComposeUiTest {
+            content()
+            onNodeWithText(REJECTED_TITLE).assertExists()
+            onNodeWithText(REJECTED_BODY, substring = true).assertExists()
+            onNodeWithText(REJECTED_REASON, substring = true).assertExists()
+            onNodeWithTag(APPEAL_RESIGNIN_TAG).assertDoesNotExist()
         }
     }
 

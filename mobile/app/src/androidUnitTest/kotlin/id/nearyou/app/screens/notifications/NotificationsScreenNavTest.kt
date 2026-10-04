@@ -35,6 +35,7 @@ private const val COPY_FOLLOWED = "Seseorang mulai mengikuti kamu" // notif_foll
 private const val COPY_CHAT = "Pesan baru" // notif_chat_message
 private const val COPY_SUB_EXPIRED = "Langganan Premium kamu telah berakhir" // notif_subscription_expired (#343)
 private const val POST_UNAVAILABLE = "Postingan tidak tersedia" // notifications_post_unavailable
+private const val COPY_APPEAL_APPROVED = "Banding kamu diterima — akunmu aktif kembali" // notif_appeal_approved (#390)
 
 /**
  * Deep-link tap-through coverage of `NotificationsScreen` (`mobile-notifications-deep-link-targets` task
@@ -141,6 +142,49 @@ class NotificationsScreenNavTest {
 
             assertEquals("actor-1", capturedUserId, "onOpenProfile should be invoked with the follower's id")
             assertEquals(0, postCalls)
+        }
+    }
+
+    @Test
+    fun appealDecidedTap_invokesOnOpenAppealOnce_andMarksRead() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(
+                    fakeNotification(
+                        id = "n1",
+                        type = "appeal_decided",
+                        actorUserId = null,
+                        targetType = "appeal",
+                        targetId = "appeal-1",
+                        bodyData = buildJsonObject { put("decision", "approved") },
+                    ),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            var appealCalls = 0
+            var otherCalls = 0
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        NotificationsScreen(
+                            onOpenPost = { otherCalls++ },
+                            onOpenProfile = { otherCalls++ },
+                            onOpenChatThread = { _, _, _ -> otherCalls++ },
+                            onOpenAppeal = { appealCalls++ },
+                        )
+                    }
+                }
+            }
+            waitForIdle()
+            onNodeWithText(COPY_APPEAL_APPROVED).performClick()
+            waitForIdle()
+
+            assertEquals(1, appealCalls, "onOpenAppeal is invoked exactly once (consumed-once nav signal)")
+            assertEquals(0, otherCalls)
+            assertEquals(listOf("n1"), fake.markReadIds, "the tap marks the row read")
+            assertTrue(fake.resolvePostTargetIds.isEmpty() && fake.resolvePartnerIds.isEmpty(), "no by-id fetch")
         }
     }
 

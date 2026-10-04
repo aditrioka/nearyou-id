@@ -224,6 +224,11 @@
     <string name="notif_account_action_applied">Ada tindakan moderasi pada akunmu</string>
     <string name="notif_data_export_ready">Ekspor datamu siap diunduh</string>
     <string name="notif_apple_relay_email_changed">Email bayangan Apple kamu sudah diperbarui.</string>
+    <!-- appeal-decision-notification (#390): `appeal_decided` copy keyed by `body_data.decision`;
+         `notif_appeal_decided` is the neutral fallback for an absent/unknown decision. -->
+    <string name="notif_appeal_approved">Banding kamu diterima — akunmu aktif kembali</string>
+    <string name="notif_appeal_rejected">Banding kamu ditolak</string>
+    <string name="notif_appeal_decided">Ada keputusan atas banding kamu</string>
     <!-- mobile-notifications-deep-link-targets: the non-blocking affordance shown when a tapped post
          notification's target no longer resolves (deleted / blocked / shadow-banned / auto-hidden — the
          single-post-read endpoint collapses all to one 404). No navigation occurs; the row is still read. -->
@@ -567,8 +572,11 @@
     <string name="appeal_pending_body">Banding kamu sudah kami terima dan sedang ditinjau. Cek kembali nanti.</string>
     <string name="appeal_approved_title">Banding diterima</string>
     <string name="appeal_approved_body">Tindakan pada akunmu telah dicabut. Masuk lagi untuk melanjutkan.</string>
+    <!-- appeal-decision-notification: the approved body when the screen is opened signed-in (from the
+         `appeal_decided` notification) — no "masuk lagi", the user already holds a live session. -->
+    <string name="appeal_approved_body_active">Tindakan pada akunmu telah dicabut. Akunmu sudah aktif kembali.</string>
     <string name="appeal_rejected_title">Banding ditolak</string>
-    <string name="appeal_rejected_body">Banding kamu ditolak. Tindakan pada akun tetap berlaku.</string>
+    <string name="appeal_rejected_body">Banding kamu ditolak. Keputusan moderasi atas akunmu tidak diubah.</string>
     <string name="appeal_rejected_reason" formatted="true">Alasan: %1$s</string>
     <string name="appeal_error_not_eligible">Tidak ada tindakan moderasi yang bisa dibanding saat ini.</string>
     <string name="appeal_error_rate_limited" formatted="true">Terlalu banyak permintaan. Coba lagi dalam %1$d menit.</string>

@@ -418,3 +418,33 @@ object AdminAuthTestSupport {
         val userAgent: String?,
     )
 }
+
+/**
+ * Install a `NOT VALID CHECK` [constraintName] on [table] enforcing [checkExpr] for the duration of
+ * [block], then drop it. NOT VALID skips existing rows but enforces new INSERTs — the DB-layer
+ * fault-injection the admin repository tests use to prove a mid-transaction write failure rolls back the
+ * whole action (the repository SQL has no app-level injection seam). Shared by the user-moderation,
+ * report-resolution, username-oversight, appeal-review, and suspension-unban-worker specs.
+ */
+inline fun withFailingConstraint(
+    dataSource: DataSource,
+    table: String,
+    constraintName: String,
+    checkExpr: String,
+    block: () -> Unit,
+) {
+    dataSource.connection.use { conn ->
+        conn.createStatement().use { st ->
+            st.execute("ALTER TABLE $table ADD CONSTRAINT $constraintName CHECK ($checkExpr) NOT VALID")
+        }
+    }
+    try {
+        block()
+    } finally {
+        dataSource.connection.use { conn ->
+            conn.createStatement().use { st ->
+                st.execute("ALTER TABLE $table DROP CONSTRAINT IF EXISTS $constraintName")
+            }
+        }
+    }
+}

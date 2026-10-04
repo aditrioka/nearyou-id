@@ -54,7 +54,7 @@ private fun hikari(): HikariDataSource {
 @Tags("database")
 class NotificationReadPathTest : StringSpec({
 
-    val dataSource = hikari()
+    val dataSource = autoClose(hikari())
     val keys = RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "test-notif")
     val jwtIssuer = JwtIssuer(keys)
     val users = JdbcUserRepository(dataSource)
@@ -249,6 +249,46 @@ class NotificationReadPathTest : StringSpec({
                         header(HttpHeaders.Authorization, "Bearer $ta")
                     }
                 Json.parseToJsonElement(resp.bodyAsText()).jsonObject["count"]!!.jsonPrimitive.content shouldBe "3"
+            }
+        } finally {
+            cleanup(alice)
+        }
+    }
+
+    // in-app-notifications § "appeal_decided emit site and body_data shape" — the list read path filters
+    // `type IN (NotificationType.entries)`, so the V40 type must be in the enum to be returned (not just counted).
+    "appeal_decided row is returned by the list endpoint and counted by unread-count" {
+        val (alice, ta) = seedUser()
+        try {
+            val appealId = UUID.randomUUID()
+            val notificationId = UUID.randomUUID()
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    """
+                    INSERT INTO notifications (id, user_id, type, target_type, target_id, body_data)
+                    VALUES (?, ?, 'appeal_decided', 'appeal', ?, '{"decision": "approved"}'::jsonb)
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setObject(1, notificationId)
+                    ps.setObject(2, alice)
+                    ps.setObject(3, appealId)
+                    ps.executeUpdate()
+                }
+            }
+            withApp {
+                val client = createClient { install(ClientCN) { json() } }
+                val list = client.get("/api/v1/notifications") { header(HttpHeaders.Authorization, "Bearer $ta") }
+                list.status shouldBe HttpStatusCode.OK
+                val items = Json.parseToJsonElement(list.bodyAsText()).jsonObject["items"]!!.jsonArray
+                items.size shouldBe 1
+                val row = items[0].jsonObject
+                row["id"]!!.jsonPrimitive.content shouldBe notificationId.toString()
+                row["type"]!!.jsonPrimitive.content shouldBe "appeal_decided"
+                row["target_type"]!!.jsonPrimitive.content shouldBe "appeal"
+                row["target_id"]!!.jsonPrimitive.content shouldBe appealId.toString()
+                row["body_data"]!!.jsonObject["decision"]!!.jsonPrimitive.content shouldBe "approved"
+                val count = client.get("/api/v1/notifications/unread-count") { header(HttpHeaders.Authorization, "Bearer $ta") }
+                Json.parseToJsonElement(count.bodyAsText()).jsonObject["count"]!!.jsonPrimitive.content shouldBe "1"
             }
         } finally {
             cleanup(alice)

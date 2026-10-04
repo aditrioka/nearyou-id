@@ -3,6 +3,7 @@ package id.nearyou.app.admin.reportqueue
 import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.auth.withFailingConstraint
 import id.nearyou.app.admin.moderation.UserModerationRepository
 import id.nearyou.app.admin.moderation.UserModerationTestSupport
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
@@ -504,34 +505,4 @@ private fun afterStateField(
 private fun isRoughlySevenDaysOut(instant: Instant): Boolean {
     val now = Instant.now()
     return instant.isAfter(now.plus(6, ChronoUnit.DAYS)) && instant.isBefore(now.plus(8, ChronoUnit.DAYS))
-}
-
-/**
- * Install a `NOT VALID CHECK` [constraintName] on [table] enforcing [checkExpr]
- * for the duration of [block], then drop it. NOT VALID skips existing rows but
- * enforces new INSERTs — the same DB-layer fault-injection
- * `UserModerationRepositoryTest` 8.4 uses, since the repository SQL has no
- * app-level injection seam.
- */
-private inline fun withFailingConstraint(
-    dataSource: javax.sql.DataSource,
-    table: String,
-    constraintName: String,
-    checkExpr: String,
-    block: () -> Unit,
-) {
-    dataSource.connection.use { conn ->
-        conn.createStatement().use { st ->
-            st.execute("ALTER TABLE $table ADD CONSTRAINT $constraintName CHECK ($checkExpr) NOT VALID")
-        }
-    }
-    try {
-        block()
-    } finally {
-        dataSource.connection.use { conn ->
-            conn.createStatement().use { st ->
-                st.execute("ALTER TABLE $table DROP CONSTRAINT IF EXISTS $constraintName")
-            }
-        }
-    }
 }

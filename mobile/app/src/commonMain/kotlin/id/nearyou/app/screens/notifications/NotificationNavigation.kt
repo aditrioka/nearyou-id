@@ -24,14 +24,18 @@ sealed interface NotificationNavIntent {
 
     data class OpenChat(val conversationId: String, val actorUserId: String) : NotificationNavIntent
 
+    /** `appeal_decided` → the appeal screen, which reads the caller's own status (no payload, no fetch). */
+    data object OpenAppeal : NotificationNavIntent
+
     data object None : NotificationNavIntent
 }
 
 /**
  * Pure mapping of a notification's canonical addressing to a typed nav intent (PII-free; no fetch).
  * `post` target → post detail by [targetId]; `message` target with an actor + a `conversation_id` in
- * [bodyData] → chat thread (`chat_message_redacted` has actor=NULL → none); null target + actor =
- * `followed` → profile; `reply` targets + unknown/future target types → no destination.
+ * [bodyData] → chat thread (`chat_message_redacted` has actor=NULL → none); `appeal` target
+ * (`appeal_decided`) → the appeal screen; null target + actor = `followed` → profile; `reply` targets +
+ * unknown/future target types → no destination.
  */
 fun resolveNotificationNavIntent(
     targetType: String?,
@@ -51,6 +55,9 @@ fun resolveNotificationNavIntent(
                 NotificationNavIntent.None
             }
         }
+        // appeal_decided → the appeal screen; the target_id appeal UUID is NOT a route key (the screen
+        // reads the caller's own latest appeal status).
+        "appeal" -> NotificationNavIntent.OpenAppeal
         // null target + actor present = `followed` (the only such type in the V10 catalog) → profile.
         null -> actorUserId?.let { NotificationNavIntent.OpenProfile(it) } ?: NotificationNavIntent.None
         // "reply" (post_auto_hidden dynamic case) + any unknown/future target_type → no destination.
@@ -79,6 +86,9 @@ sealed interface NotificationNavTarget {
         val partnerUsername: String,
         val partnerDisplayName: String,
     ) : NotificationNavTarget
+
+    /** The appeal screen (`AppealRoute`) — no payload. */
+    data object Appeal : NotificationNavTarget
 }
 
 /**
@@ -102,6 +112,7 @@ class NotificationNavTargetResolver(
         when (intent) {
             is NotificationNavIntent.OpenProfile ->
                 Resolution.Target(NotificationNavTarget.Profile(intent.userId))
+            NotificationNavIntent.OpenAppeal -> Resolution.Target(NotificationNavTarget.Appeal)
             is NotificationNavIntent.OpenPost ->
                 when (val res = flow.resolvePostTarget(intent.postId)) {
                     is PostTargetResolution.Resolved ->

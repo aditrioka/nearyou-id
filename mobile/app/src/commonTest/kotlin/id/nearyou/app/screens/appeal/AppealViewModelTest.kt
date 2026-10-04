@@ -20,8 +20,9 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * Unit coverage of [AppealViewModel] — the on-entry own-status load, the submit→status mapping, the no-token
- * re-route, and the editor cap. The `WhileSubscribed` uiState is activated via a background collector (the
+ * Unit coverage of [AppealViewModel] — the on-entry own-status load (appeal token, or the signed-in session
+ * when none is held), the submit→status mapping, the no-token re-route, and the editor cap. The
+ * `WhileSubscribed` uiState is activated via a background collector (the
  * `FollowListViewModelTest` precedent).
  */
 class AppealViewModelTest {
@@ -46,13 +47,42 @@ class AppealViewModelTest {
     }
 
     @Test
-    fun `no appeal token re-routes to sign-in without any status read`() =
+    fun `no appeal token reads status through the signed-in session and marks the decision viaSession`() =
         runTest {
-            val flow = FakeAppealFlow()
-            val viewModel = vm(flow, token = null)
+            val approved =
+                FakeAppealFlow(statusOutcome = AppealStatusOutcome.Decided(true, "suspension", null, null))
+            val approvedVm = vm(approved, token = null)
+            advanceUntilIdle()
+            assertEquals(1, approved.statusCalls, "the status read IS issued without an appeal token")
+            assertEquals(null, approved.lastStatusToken, "a null token = the signed-in session read")
+            assertEquals(AppealStatus.Decided(approved = true, decisionReason = null, viaSession = true), approvedVm.uiState.value.status)
+
+            val rejected =
+                FakeAppealFlow(statusOutcome = AppealStatusOutcome.Decided(false, "suspension", "Melanggar pedoman.", null))
+            val rejectedVm = vm(rejected, token = null)
+            advanceUntilIdle()
+            assertEquals(
+                AppealStatus.Decided(approved = false, decisionReason = "Melanggar pedoman.", viaSession = true),
+                rejectedVm.uiState.value.status,
+            )
+        }
+
+    @Test
+    fun `no appeal token with no usable session re-routes to sign-in`() =
+        runTest {
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired), token = null)
             advanceUntilIdle()
             assertEquals(AppealStatus.SessionRedirect, viewModel.uiState.value.status)
-            assertEquals(null, flow.lastToken, "no status read is issued without a token")
+        }
+
+    @Test
+    fun `a held appeal token reads status with it and the decision is not viaSession`() =
+        runTest {
+            val flow = FakeAppealFlow(statusOutcome = AppealStatusOutcome.Decided(true, "suspension", null, null))
+            val viewModel = vm(flow, token = "tok-1")
+            advanceUntilIdle()
+            assertEquals("tok-1", flow.lastStatusToken)
+            assertEquals(AppealStatus.Decided(approved = true, decisionReason = null, viaSession = false), viewModel.uiState.value.status)
         }
 
     @Test

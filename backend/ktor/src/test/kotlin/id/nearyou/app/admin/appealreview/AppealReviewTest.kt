@@ -4,6 +4,8 @@ import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.auth.withFailingConstraint
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldNotContain
@@ -20,6 +22,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.formUrlEncode
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import org.postgresql.util.PSQLException
 import java.sql.Date
 import java.sql.Timestamp
 import java.sql.Types
@@ -32,8 +40,10 @@ import java.util.UUID
  * `admin-appeal-review` integration tests (Section 4). Repository-level decision
  * behavior (approve → unban + audit; reject → keep + audit; idempotency; keyset
  * queue pagination) + the route-level admin-auth / CSRF / owner-admin role gates,
- * decision validation, and the no-proactive-notification negative guard. Tagged
- * `database`; per-test `try/finally` cleanup so `autoClose` (pool) is safe.
+ * decision validation, and the `appeal_decided` in-app notification written in the
+ * decision transaction (`appeal-decision-notification`: exact row shape, idempotency,
+ * atomic rollback, route-level emit). Tagged `database`; per-test `try/finally`
+ * cleanup so `autoClose` (pool) is safe (the notifications CASCADE with the user).
  */
 @Tags("database")
 class AppealReviewTest : StringSpec({
@@ -144,17 +154,40 @@ class AppealReviewTest : StringSpec({
             }
         }
 
-    /** `notifications` rows addressed to [userId] — the proactive-delivery observable (FCM dispatch keys off these rows). */
-    fun countNotifications(userId: UUID): Int =
+    data class NotificationRow(
+        val type: String,
+        val actorUserId: UUID?,
+        val targetType: String?,
+        val targetId: UUID?,
+        val bodyData: JsonObject,
+    )
+
+    /** `notifications` rows addressed to [userId] — the in-app delivery observable. */
+    fun loadNotifications(userId: UUID): List<NotificationRow> =
         dataSource.connection.use { conn ->
-            conn.prepareStatement("SELECT COUNT(*) FROM notifications WHERE user_id = ?").use { ps ->
+            conn.prepareStatement(
+                "SELECT type, actor_user_id, target_type, target_id, body_data::text AS body FROM notifications WHERE user_id = ?",
+            ).use { ps ->
                 ps.setObject(1, userId)
                 ps.executeQuery().use { rs ->
-                    rs.next()
-                    rs.getInt(1)
+                    buildList {
+                        while (rs.next()) {
+                            add(
+                                NotificationRow(
+                                    type = rs.getString("type"),
+                                    actorUserId = rs.getObject("actor_user_id", UUID::class.java),
+                                    targetType = rs.getString("target_type"),
+                                    targetId = rs.getObject("target_id", UUID::class.java),
+                                    bodyData = Json.parseToJsonElement(rs.getString("body")).jsonObject,
+                                ),
+                            )
+                        }
+                    }
                 }
             }
         }
+
+    fun decisionBody(decision: String) = buildJsonObject { put("decision", JsonPrimitive(decision)) }
 
     fun cookie(token: String) = "${AdminAuthProvider.COOKIE_NAME}=$token"
 
@@ -522,9 +555,79 @@ class AppealReviewTest : StringSpec({
         }
     }
 
-    // content-moderation-appeal § "Decision outcome surfaced via status read, proactive notification
-    // deferred": FCM dispatch fires only off a `notifications` row, so zero rows ⇒ no push either.
-    "deciding an appeal (approve or reject) inserts no notifications row for the appellant" {
+    // admin-appeal-review § "Appeal decisions insert an appeal_decided notification atomically".
+    "approve inserts exactly one appeal_decided notification: actor NULL, target (appeal, P), body {decision: approved}" {
+        val admin = AdminAuthTestSupport.seedAdmin(dataSource)
+        val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        val appealId = seedAppeal(uid, "suspension")
+        try {
+            repo.approve(appealId, admin.id, ip = "127.0.0.1", userAgent = "t") shouldBe AppealDecisionOutcome.Applied
+            loadNotifications(uid) shouldBe
+                listOf(NotificationRow("appeal_decided", null, "appeal", appealId, decisionBody("approved")))
+        } finally {
+            cleanupUser(uid)
+            AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)
+        }
+    }
+
+    "reject inserts exactly one appeal_decided notification whose body is exactly {decision: rejected} (no reason)" {
+        val admin = AdminAuthTestSupport.seedAdmin(dataSource)
+        val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        val appealId = seedAppeal(uid, "suspension")
+        try {
+            repo.reject(appealId, admin.id, decisionReason = "Melanggar pedoman komunitas", ip = "127.0.0.1", userAgent = "t") shouldBe
+                AppealDecisionOutcome.Applied
+            // Exact equality: the free-text reason, action_type, admin id and appeal id are all absent from body_data.
+            loadNotifications(uid) shouldBe
+                listOf(NotificationRow("appeal_decided", null, "appeal", appealId, decisionBody("rejected")))
+        } finally {
+            cleanupUser(uid)
+            AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)
+        }
+    }
+
+    "a repeated decision (re-approve, then reject) inserts no additional notification" {
+        val admin = AdminAuthTestSupport.seedAdmin(dataSource)
+        val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        val appealId = seedAppeal(uid, "suspension")
+        try {
+            repo.approve(appealId, admin.id, ip = "127.0.0.1", userAgent = "t") shouldBe AppealDecisionOutcome.Applied
+            repo.approve(appealId, admin.id, ip = "127.0.0.1", userAgent = "t") shouldBe AppealDecisionOutcome.NoOpAlreadyResolved
+            repo.reject(appealId, admin.id, decisionReason = null, ip = "127.0.0.1", userAgent = "t") shouldBe
+                AppealDecisionOutcome.NoOpAlreadyResolved
+            loadNotifications(uid).size shouldBe 1 // NOT 2 or 3
+        } finally {
+            cleanupUser(uid)
+            AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)
+        }
+    }
+
+    "a failed notification insert rolls back the whole approve: appeal still pending, user still banned, no audit row" {
+        val admin = AdminAuthTestSupport.seedAdmin(dataSource)
+        val suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS)
+        val uid = seedUser(banned = true, suspendedUntil = suspendedUntil)
+        val appealId = seedAppeal(uid, "suspension")
+        try {
+            // The notification insert runs AFTER the appeal UPDATE, the unban, and the audit row — failing it
+            // proves all three roll back with it.
+            withFailingConstraint(dataSource, "notifications", "zzz_fail_appeal_decided", "type <> 'appeal_decided'") {
+                val e = shouldThrow<PSQLException> { repo.approve(appealId, admin.id, ip = "127.0.0.1", userAgent = "t") }
+                e.sqlState shouldBe "23514" // the injected zzz_fail_appeal_decided CHECK, not an unrelated failure
+                e.message shouldContain "zzz_fail_appeal_decided"
+            }
+            loadAppeal(appealId).status shouldBe "pending"
+            loadUserBanned(uid).first shouldBe true
+            countAudit(admin.id, "appeal_approved", appealId) shouldBe 0
+            loadNotifications(uid).size shouldBe 0
+        } finally {
+            cleanupUser(uid)
+            AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)
+        }
+    }
+
+    // content-moderation-appeal § "Decision outcome surfaced via status read and an in-app notification":
+    // the admin routes (approve + reject) each write one appeal_decided row for the appellant.
+    "deciding an appeal through the admin routes inserts one appeal_decided notification per appellant" {
         val admin = AdminAuthTestSupport.seedAdmin(dataSource)
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         val approveUser = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
@@ -543,8 +646,10 @@ class AppealReviewTest : StringSpec({
             }
             loadAppeal(approveId).status shouldBe "approved"
             loadAppeal(rejectId).status shouldBe "rejected"
-            countNotifications(approveUser) shouldBe 0
-            countNotifications(rejectUser) shouldBe 0
+            loadNotifications(approveUser) shouldBe
+                listOf(NotificationRow("appeal_decided", null, "appeal", approveId, decisionBody("approved")))
+            loadNotifications(rejectUser) shouldBe
+                listOf(NotificationRow("appeal_decided", null, "appeal", rejectId, decisionBody("rejected")))
         } finally {
             cleanupUser(approveUser)
             cleanupUser(rejectUser)

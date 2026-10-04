@@ -15,7 +15,9 @@ import kotlinx.serialization.json.JsonPrimitive
  * [excerpt] pulled from `body_data`. There is deliberately NO `actorUserId` and NO `targetId`, so the
  * rendered state STRUCTURALLY cannot leak either UUID (design D4). [flipDeadlineDate] is set ONLY for
  * `privacy_flip_warning` rows (follow-up #343): the device-local date of `body_data.privacy_flip_scheduled_at`,
- * rendered into the type copy so the 72h privacy-downgrade deadline is explicit.
+ * rendered into the type copy so the 72h privacy-downgrade deadline is explicit. [appealDecision] is set ONLY
+ * for `appeal_decided` rows (#390): the raw `body_data.decision` string (`approved` / `rejected`), keying the
+ * row copy; null when absent or non-string (→ the neutral appeal copy).
  */
 data class NotificationRow(
     val id: String,
@@ -23,6 +25,7 @@ data class NotificationRow(
     val read: Boolean,
     val excerpt: String?,
     val flipDeadlineDate: String? = null,
+    val appealDecision: String? = null,
 )
 
 /** The `body_data` keys that carry a human-readable excerpt (content, never PII). The first present
@@ -53,6 +56,16 @@ private fun extractFlipDeadlineDate(
     return localDateLabel(primitive.content).takeIf { it.isNotBlank() }
 }
 
+/** `appeal_decided` only: the string `body_data.decision`, else null. */
+private fun extractAppealDecision(
+    type: String,
+    bodyData: JsonElement,
+): String? {
+    if (type != "appeal_decided") return null
+    val primitive = (bodyData as? JsonObject)?.get("decision") as? JsonPrimitive ?: return null
+    return primitive.content.takeIf { primitive.isString }
+}
+
 private fun NotificationDto.toRow(): NotificationRow =
     NotificationRow(
         id = id,
@@ -61,6 +74,7 @@ private fun NotificationDto.toRow(): NotificationRow =
         // body_data excerpt only (post/reply text or chat preview) — NEVER actor_user_id / target_id.
         excerpt = extractExcerpt(bodyData),
         flipDeadlineDate = extractFlipDeadlineDate(type, bodyData),
+        appealDecision = extractAppealDecision(type, bodyData),
     )
 
 /**

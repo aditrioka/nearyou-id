@@ -59,6 +59,7 @@ This skill keeps the open backlog accurate: close issues whose work silently shi
    - **`apple-paid`-labelled** (needs the paid Apple Developer Program — `docs/08` Open Decision #37) → `still-valid-defer` until the apple-paid lane opens; never `ready-to-burndown`. **Bucket 2 production spend** (prod env, LB/IAP, PITR, prod alerting, legal — Open Decision #36) → `still-valid-defer` + keep `deferred`; the gate is issue #556.
    - **A linked/closing PR** → `gh pr view <pr> --json mergedAt`. Merged → `resolved-silently`; else `still-valid`.
    - **Assignee OR linked open PR** → `in-progress`; leave alone.
+   - **Claims about live external state** (e.g. "no Scheduler job exists", "slot X not provisioned on staging") → verify read-only when credentials are available (`gcloud … list|describe`, Supabase MCP). If the claim is wrong, note the real state on the issue before labelling `ready-to-burndown`; otherwise the executor builds on a false premise (precedent: #535 claimed zero Scheduler jobs; staging had 3). If unverifiable, mark the claim unverified in the triage note.
 
 5. **Classify into one of:**
    - `resolved-silently` — action items already done → **close**

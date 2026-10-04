@@ -80,6 +80,8 @@ private fun NavBackStack<NavKey>.push(target: NotificationNavTarget) {
     when (target) {
         is NotificationNavTarget.Post -> add(target.target.toRoute())
         is NotificationNavTarget.Profile -> add(ProfileRoute(userId = target.userId))
+        // No push is sent for appeal_decided today (in-app only); kept for the exhaustive shared resolver.
+        NotificationNavTarget.Appeal -> add(AppealRoute)
         is NotificationNavTarget.ChatThread ->
             add(
                 ChatThreadRoute(
