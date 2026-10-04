@@ -25,6 +25,7 @@ No migration. No mobile or admin UI change. No new secret slot (SA emails are no
 ### Modified Capabilities
 - `internal-endpoint-auth`: the OIDC gate gains a fourth check (caller principal allowlist, 403 on mismatch); new requirement for the allowlist config with fail-closed empty behaviour; the sanitized rejection vocabulary gains `principal_not_allowed` (403).
 - `backend-bootstrap`: new requirement — a global `RequestBodyLimit` (64 KiB default + path overrides) rejects oversize bodies 413 before handler/deserialisation.
+- `admin-reserved-usernames-editor`: the bulk-add requirement states that its `400` oversize guardrail applies up to the path's 1 MiB transport limit; a body above it is `413 payload_too_large` (previously the spec promised `400` for any size).
 
 ## Impact
 
