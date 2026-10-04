@@ -330,7 +330,7 @@ jobs:
 
   # Single required-status-check that the `main-protection` ruleset blocks on.
   # Always runs (`if: always()`) so docs-only PRs — where `lint`/`test`/
-  # `migrate-supabase-parity` (and `ios-test`, on non-mobile pushes) correctly
+  # `migrate-supabase-parity` (and `ios-test`, on non-mobile PRs) correctly
   # skip via the `changes` outputs — still produce a final status. Treats `success` and `skipped` as OK;
   # fails the gate on `failure` or `cancelled`. The `changes` job is included
   # so a bug in the per-push docs-only filter (which would skip every heavy
