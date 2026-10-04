@@ -50,6 +50,12 @@ A triaged issue can go stale between triage and execution — it may have silent
 
 - **Silently resolved?** Re-run the issue's own staleness check against latest `origin/main` (the action items may already be present — grep for the prescribed file/spec change; check whether a referenced change archived). If done → close it with evidence (`gh issue close <N> --reason completed --comment "Resolved by <file:line / PR #>. (issue-burndown <date>)"`); do NOT open an empty PR. Pick another or stop.
 - **Collided with in-flight work?** Diff `<branch-base>..origin/main` and scan open PRs for overlap (precedent: an item gets folded into a sibling's sweep after triage labeled it — e.g. a VM `stateIn` fold absorbed by a broader sweep PR). If blocked/overlapping → un-claim, surface to the operator, recommend re-triage or sequencing behind the claim. Do NOT force-code into a collision.
+- **Claims about live external state still true?** The repo can't tell you this. Check any claim an issue (or the doc it cites) makes about deployed or provisioned state against the real thing, read-only, before you design around it. Examples of such claims: "no job/secret/bucket exists", "staging isn't provisioned", "nothing calls X". Use `gcloud … list|describe`, the Supabase MCP, or a dashboard. On a mismatch:
+  - Adapt the scope: adopt and converge the existing resources, never create duplicates.
+  - Record the discrepancy in the PR body.
+  - Fix the doc line that made the stale claim.
+
+  Precedent: #535 and the docs/07 status line both said "no Cloud Scheduler job exists in any environment". A read-only `gcloud scheduler jobs list` showed 3 hand-made staging jobs on a legacy SA. The script then updated them in place under their existing names instead of duplicating them. If the external state can't be read (no credentials), say so and treat the claim as unverified. Don't build on it as fact.
 
 Only a still-valid, un-blocked issue proceeds to step 3. **When stale or blocked, throw it back — don't manufacture work.**
 
