@@ -24,9 +24,11 @@ import kotlin.coroutines.cancellation.CancellationException
  *
  * It reads the limited appeal token from [AppealSession] (captured at the banned/suspended sign-in `403`).
  * On entry it loads the caller's own appeal status (so a returning user sees Pending/Decided rather than a
- * blank form). The single-in-flight submit maps each [AppealSubmitOutcome] to the screen status, and a
- * fresh submit (or `AlreadyPending`) transitions to [AppealStatus.Pending]. A missing token or a `401`
- * surfaces [AppealStatus.SessionRedirect] (the token is one-shot — re-sign-in re-mints it).
+ * blank form) — with the appeal token when held, else through the signed-in session (the screen opened from
+ * an `appeal_decided` notification; the repository short-circuits to `SessionExpired` when there is no
+ * session either). The single-in-flight submit maps each [AppealSubmitOutcome] to the screen status, and a
+ * fresh submit (or `AlreadyPending`) transitions to [AppealStatus.Pending]. A submit without a token or a
+ * `401` surfaces [AppealStatus.SessionRedirect] (the token is one-shot — re-sign-in re-mints it).
  */
 class AppealViewModel(
     private val flow: AppealFlow,
@@ -61,13 +63,9 @@ class AppealViewModel(
         )
     }
 
-    /** On-entry: read the appeal token, then load the caller's own appeal status. No token → re-sign-in. */
+    /** On-entry: load the caller's own appeal status — via the appeal token when held, else the session. */
     private fun loadOnEntry() {
         val token = session.peek()
-        if (token == null) {
-            state.update { it.copy(status = AppealStatus.SessionRedirect) }
-            return
-        }
         state.update { it.copy(status = AppealStatus.Loading) }
         viewModelScope.launch {
             val outcome =
@@ -79,15 +77,15 @@ class AppealViewModel(
                     AppealStatusOutcome.TransportError
                 }
             ensureActive()
-            state.update { it.copy(status = outcome.toStatus()) }
+            state.update { it.copy(status = outcome.toStatus(viaSession = token == null)) }
         }
     }
 
-    private fun AppealStatusOutcome.toStatus(): AppealStatus =
+    private fun AppealStatusOutcome.toStatus(viaSession: Boolean): AppealStatus =
         when (this) {
             AppealStatusOutcome.None -> AppealStatus.Form()
             is AppealStatusOutcome.Pending -> AppealStatus.Pending(actionType)
-            is AppealStatusOutcome.Decided -> AppealStatus.Decided(approved, decisionReason)
+            is AppealStatusOutcome.Decided -> AppealStatus.Decided(approved, decisionReason, viaSession)
             AppealStatusOutcome.SessionExpired -> AppealStatus.SessionRedirect
             AppealStatusOutcome.TransportError -> AppealStatus.LoadError
         }

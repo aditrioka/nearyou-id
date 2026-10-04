@@ -556,7 +556,7 @@ The UNIQUE constraint prevents duplicate queue entries for the same item + trigg
 
 ## Notifications Schema (DB-Persisted)
 
-> Mirrors V10 (`V10__notifications.sql`) + `backend/ktor/src/main/kotlin/id/nearyou/app/notifications/NotificationEmitter.kt`. V10 is the canonical authority for the type catalog.
+> Mirrors V10 (`V10__notifications.sql`) + `backend/ktor/src/main/kotlin/id/nearyou/app/notifications/NotificationEmitter.kt`. V10 is the canonical authority for the type catalog, as widened by V40 (`V40__notifications_type_appeal_decided.sql`, +`appeal_decided` — the same inline `notifications_type_check` constraint, swapped in place).
 
 ```sql
 CREATE TABLE notifications (
@@ -567,7 +567,8 @@ CREATE TABLE notifications (
         'subscription_billing_issue', 'subscription_expired',
         'post_auto_hidden', 'account_action_applied', 'data_export_ready',
         'chat_message_redacted', 'privacy_flip_warning', 'username_release_scheduled',
-        'apple_relay_email_changed'
+        'apple_relay_email_changed',
+        'appeal_decided'  -- V40
     )),
     actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     target_type VARCHAR(16),
@@ -604,6 +605,7 @@ CREATE INDEX notifications_user_all_idx
 | `privacy_flip_warning` | Downgrade-to-Free with private profile, flip scheduled | NULL | NULL | `{privacy_flip_scheduled_at}` |
 | `username_release_scheduled` | Custom username change confirmed; old handle releases at `released_at` | NULL | NULL | `{old_username, released_at}` |
 | `apple_relay_email_changed` | Apple S2S `email-disabled`/`email-enabled` event | NULL | NULL | `{relay_enabled}` |
+| `appeal_decided` | Admin approved/rejected the user's appeal (V40) — **in-app only, no FCM** | NULL | `appeal` | `{decision}` (`approved`/`rejected`; never the free-text reason) |
 
 Amended 2026-07-11 (follow-up [#433](https://github.com/aditrioka/nearyou-id/issues/433)): `apple_relay_email_changed` body_data was specced as `{new_email_masked}`, but the S2S `email-disabled`/`email-enabled` events carry no email — the shipped writer (`AppleS2SRoutes`) records the new flag state as `{relay_enabled}`. A masked email belongs to the separate sign-in-time relay-change detection path (§ Apple Sign-In Specifics above), which may extend this shape when it ships.
 

@@ -122,6 +122,30 @@ class NotificationsViewModelNavTest {
     }
 
     @Test
+    fun appealDecidedTap_setsAppealNavTarget_noFetch_rowRead() {
+        val (viewModel, fake) =
+            vm(
+                fakeNotification(
+                    id = "n1",
+                    type = "appeal_decided",
+                    targetType = "appeal",
+                    targetId = "appeal-1",
+                    actorUserId = null,
+                    bodyData = buildJsonObject { put("decision", "approved") },
+                ),
+            )
+
+        viewModel.onRowTap("n1")
+
+        assertEquals(NotificationNavTarget.Appeal, viewModel.pendingNavTarget.value)
+        assertTrue(fake.resolvePostTargetIds.isEmpty(), "appeal_decided does not fetch a post")
+        assertTrue(fake.resolvePartnerIds.isEmpty(), "appeal_decided does not fetch a partner profile")
+        assertNull(viewModel.resolvingRowId.value, "no per-row resolving indicator for a fetch-free destination")
+        val loaded = viewModel.outcome.value as NotificationsOutcome.Loaded
+        assertNotNull(loaded.items.first { it.id == "n1" }.readAt, "the row is marked read")
+    }
+
+    @Test
     fun chatMessageTap_fetchesPartner_setsChatThreadNavTarget() {
         val (viewModel, fake) =
             vm(

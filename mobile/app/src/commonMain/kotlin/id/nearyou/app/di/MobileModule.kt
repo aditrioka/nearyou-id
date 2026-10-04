@@ -600,8 +600,15 @@ val mobileModule =
         // single, never persisted, never on a NavKey — the PendingSignupIdentity precedent). AppealFlow is
         // the testable seam (FakeAppealFlow drives the screen + ViewModel tests).
         single { AppealSession() }
-        single { AppealApiClient(HttpClientFactory.createUnauthenticated(apiBaseUrl, httpClientEngine(), isDebugBuild)) }
-        single { AppealRepository(get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        // sessionClient = the shared bearer-authed client: the signed-in status read from an appeal_decided
+        // notification (appeal-decision-notification, #390) — no appeal token is held on that path.
+        single {
+            AppealApiClient(
+                client = HttpClientFactory.createUnauthenticated(apiBaseUrl, httpClientEngine(), isDebugBuild),
+                sessionClient = get(),
+            )
+        }
+        single { AppealRepository(get(), tokenStore = get(), diagnosticLog = get<DiagnosticSink>()::log) }
         single<AppealFlow> { get<AppealRepository>() }
 
         // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared

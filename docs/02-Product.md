@@ -236,7 +236,7 @@ One-tap report from a post and profile; recorded in `reports` with reporter, tar
 
 Real-time in-app notification list backed by `notifications`; FCM push triggers the client to fetch it.
 
-- Event types (canonical: V10 `notifications.type` CHECK constraint, 13 values): `post_liked`, `post_replied`, `followed`, `chat_message`, `subscription_billing_issue`, `subscription_expired`, `post_auto_hidden`, `account_action_applied`, `data_export_ready`, `chat_message_redacted`, `privacy_flip_warning`, `username_release_scheduled`, `apple_relay_email_changed`. First four have shipped writers; the remaining nine are reserved for their owning features (chat redaction, billing webhook, admin moderation, privacy-flip worker, etc.) — see the V10 migration header.
+- Event types (canonical: `notifications.type` CHECK constraint — 13 values at V10, 14 since V40): `post_liked`, `post_replied`, `followed`, `chat_message`, `subscription_billing_issue`, `subscription_expired`, `post_auto_hidden`, `account_action_applied`, `data_export_ready`, `chat_message_redacted`, `privacy_flip_warning`, `username_release_scheduled`, `apple_relay_email_changed`, `appeal_decided` (V40; in-app only). First four have shipped writers; the remaining nine are reserved for their owning features (chat redaction, billing webhook, admin moderation, privacy-flip worker, etc.) — see the V10 migration header.
 - Read state per notification (`read_at` timestamp)
 - Retention: 90 days, auto-purge via weekly cleanup worker
 

@@ -274,6 +274,11 @@ class NotificationsViewModel(
                 _resolvingRowId.value = null
                 _pendingNavTarget.value = NotificationNavTarget.Profile(intent.userId)
             }
+            NotificationNavIntent.OpenAppeal -> {
+                // No fetch — the appeal screen reads the caller's own status itself.
+                _resolvingRowId.value = null
+                _pendingNavTarget.value = NotificationNavTarget.Appeal
+            }
             NotificationNavIntent.None -> _resolvingRowId.value = null
             is NotificationNavIntent.OpenPost, is NotificationNavIntent.OpenChat ->
                 resolveJob =

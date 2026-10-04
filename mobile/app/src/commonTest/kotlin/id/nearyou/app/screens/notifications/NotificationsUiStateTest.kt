@@ -113,6 +113,30 @@ class NotificationsUiStateTest {
     }
 
     @Test
+    fun `appeal decision is projected only for appeal_decided string values`() {
+        val approved = fakeNotification(id = "a", type = "appeal_decided", bodyData = buildJsonObject { put("decision", "approved") })
+        val rejected = fakeNotification(id = "b", type = "appeal_decided", bodyData = buildJsonObject { put("decision", "rejected") })
+        val unknown = fakeNotification(id = "c", type = "appeal_decided", bodyData = buildJsonObject { put("decision", "foo") })
+        val nonString = fakeNotification(id = "d", type = "appeal_decided", bodyData = buildJsonObject { put("decision", 1) })
+        val absent = fakeNotification(id = "e", type = "appeal_decided", bodyData = buildJsonObject {})
+        val otherType = fakeNotification(id = "f", type = "post_liked", bodyData = buildJsonObject { put("decision", "approved") })
+        val rows =
+            assertIs<NotificationsUiState.Content>(
+                notificationsUiState(
+                    NotificationsOutcome.Loaded(listOf(approved, rejected, unknown, nonString, absent, otherType), null),
+                    isInitialLoad = false,
+                ),
+            ).rows.associateBy { it.id }
+        assertEquals("approved", rows.getValue("a").appealDecision)
+        assertEquals("rejected", rows.getValue("b").appealDecision)
+        assertEquals("foo", rows.getValue("c").appealDecision, "an unknown string passes through → the neutral copy")
+        assertNull(rows.getValue("d").appealDecision, "a non-string decision is dropped")
+        assertNull(rows.getValue("e").appealDecision, "an absent decision yields null")
+        assertNull(rows.getValue("f").appealDecision, "the decision projects for appeal_decided only")
+        assertNull(rows.getValue("a").excerpt, "appeal_decided carries no excerpt")
+    }
+
+    @Test
     fun `projected content carries no actor or target UUID`() {
         val piiRow =
             fakeNotification(

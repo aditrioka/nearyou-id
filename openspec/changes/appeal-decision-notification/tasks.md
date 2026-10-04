@@ -1,30 +1,30 @@
 ## 1. Schema + read path (design D3, D4)
 
-- [ ] 1.1 Add `backend/ktor/src/main/resources/db/migration/V40__notifications_type_appeal_decided.sql` — header comment (purpose, V36 precedent, additive, why no `IF EXISTS`) + one `ALTER TABLE notifications DROP CONSTRAINT notifications_type_check, ADD CONSTRAINT notifications_type_check CHECK (type IN (…14 values…))`; re-confirm V40 is still free on `origin/main` right before pushing
-- [ ] 1.2 Add `APPEAL_DECIDED("appeal_decided")` to `NotificationType` (`core/data/.../NotificationRepository.kt`) and refresh its KDoc counts (13 → 14)
+- [x] 1.1 Add `backend/ktor/src/main/resources/db/migration/V40__notifications_type_appeal_decided.sql` — header comment (purpose, V36 precedent, additive, why no `IF EXISTS`) + one `ALTER TABLE notifications DROP CONSTRAINT notifications_type_check, ADD CONSTRAINT notifications_type_check CHECK (type IN (…14 values…))`; re-confirm V40 is still free on `origin/main` right before pushing
+- [x] 1.2 Add `APPEAL_DECIDED("appeal_decided")` to `NotificationType` (`core/data/.../NotificationRepository.kt`) and refresh its KDoc counts (13 → 14)
 
 ## 2. Admin decision emit (design D1, D2)
 
-- [ ] 2.1 `AppealReviewRepository`: private `insertDecisionNotification(conn, userId, appealId, decision)` — raw `INSERT INTO notifications (user_id, type, target_type, target_id, body_data) VALUES (?, 'appeal_decided', 'appeal', ?, ?::jsonb)` with `body_data = {"decision": …}`; call it inside `approve` and `reject` AFTER `auditLogger.logAppeal*` and before `commit()` (so a failed insert provably rolls back the audit row too); update the class/function KDoc
+- [x] 2.1 `AppealReviewRepository`: private `insertDecisionNotification(conn, userId, appealId, decision)` — raw `INSERT INTO notifications (user_id, type, target_type, target_id, body_data) VALUES (?, 'appeal_decided', 'appeal', ?, ?::jsonb)` with `body_data = {"decision": …}`; call it inside `approve` and `reject` AFTER `auditLogger.logAppeal*` and before `commit()` (so a failed insert provably rolls back the audit row too); update the class/function KDoc
 - [ ] 2.2 Confirm no `PushCopy` case, no `NotificationDispatcher` call, and no `Application.kt` / `admin()` change in the diff
 
 ## 3. Mobile — notifications list (design D5, D7)
 
-- [ ] 3.1 `:shared:resources` strings: `notif_appeal_approved`, `notif_appeal_rejected`, `notif_appeal_decided`, `appeal_approved_body_active`; reword `appeal_rejected_body` to be accurate whether or not the action is still in effect
-- [ ] 3.2 `NotificationsUiState.kt`: `NotificationRow.appealDecision` projected from `body_data.decision` for `appeal_decided` rows only (string values only)
-- [ ] 3.3 `NotificationsScreen.notificationCopy`: `appeal_decided` → decision-keyed copy (approved / rejected / neutral fallback); update KDoc
-- [ ] 3.4 `NotificationNavigation.kt`: `"appeal"` target → `NotificationNavIntent.OpenAppeal` → `NotificationNavTarget.Appeal` (no fetch); `NotificationsViewModel.resolveNavTarget`'s `when (intent)` gains the `OpenAppeal` branch
-- [ ] 3.5 `NotificationsScreen` hoisted `onOpenAppeal: () -> Unit = {}` consumed from the VM nav signal (the screen's `when` over `NotificationNavTarget`); `AppShellScreen` forwards it; `appEntryProvider` wires it to `backStack.add(AppealRoute)`
-- [ ] 3.6 `PushTapNavigationEffect.push`: `NotificationNavTarget.Appeal -> add(AppealRoute)`
+- [x] 3.1 `:shared:resources` strings: `notif_appeal_approved`, `notif_appeal_rejected`, `notif_appeal_decided`, `appeal_approved_body_active`; reword `appeal_rejected_body` to be accurate whether or not the action is still in effect
+- [x] 3.2 `NotificationsUiState.kt`: `NotificationRow.appealDecision` projected from `body_data.decision` for `appeal_decided` rows only (string values only)
+- [x] 3.3 `NotificationsScreen.notificationCopy`: `appeal_decided` → decision-keyed copy (approved / rejected / neutral fallback); update KDoc
+- [x] 3.4 `NotificationNavigation.kt`: `"appeal"` target → `NotificationNavIntent.OpenAppeal` → `NotificationNavTarget.Appeal` (no fetch); `NotificationsViewModel.resolveNavTarget`'s `when (intent)` gains the `OpenAppeal` branch
+- [x] 3.5 `NotificationsScreen` hoisted `onOpenAppeal: () -> Unit = {}` consumed from the VM nav signal (the screen's `when` over `NotificationNavTarget`); `AppShellScreen` forwards it; `appEntryProvider` wires it to `backStack.add(AppealRoute)`
+- [x] 3.6 `PushTapNavigationEffect.push`: `NotificationNavTarget.Appeal -> add(AppealRoute)`
 - [ ] 3.7 UI DoD pass: consult the screens-board Notifikasi frame (4) for the row copy register; run the `mobile-ui-foundation` checklist over the changed row copy + the approved-via-session appeal surface (both reuse shipped composables — no layout/spacing change, so the measurement annex is N/A; record that in the PR body)
 
 ## 4. Mobile — appeal screen signed-in read (design D6)
 
-- [ ] 4.1 `AppealApiClient(client, sessionClient)`: `status(appealToken: String?)` — null token → `sessionClient` GET with no explicit `Authorization` header; `MobileModule` passes the shared `HttpClient` as `sessionClient`
-- [ ] 4.2 `AppealFlow.status(appealToken: String?)` + `AppealRepository`: null token AND `TokenStore.read() == null` → `SessionExpired` with no request; null token with a session → the session client (KDoc: null = signed-in session)
-- [ ] 4.3 `AuthRepository`: `SignInApiResult.Success` branch calls `appealSession.clear()`
-- [ ] 4.4 `AppealViewModel.loadOnEntry`: read with `session.peek()` (nullable) instead of short-circuiting; `AppealStatus.Decided.viaSession`
-- [ ] 4.5 `AppealScreen.DecidedSurface`: approved + `viaSession` → approved title + `appeal_approved_body_active`, no re-sign-in action; KDoc updates (screen + `entry<AppealRoute>` comment)
+- [x] 4.1 `AppealApiClient(client, sessionClient)`: `status(appealToken: String?)` — null token → `sessionClient` GET with no explicit `Authorization` header; `MobileModule` passes the shared `HttpClient` as `sessionClient`
+- [x] 4.2 `AppealFlow.status(appealToken: String?)` + `AppealRepository`: null token AND `TokenStore.read() == null` → `SessionExpired` with no request; null token with a session → the session client (KDoc: null = signed-in session)
+- [x] 4.3 `AuthRepository`: `SignInApiResult.Success` branch calls `appealSession.clear()`
+- [x] 4.4 `AppealViewModel.loadOnEntry`: read with `session.peek()` (nullable) instead of short-circuiting; `AppealStatus.Decided.viaSession`
+- [x] 4.5 `AppealScreen.DecidedSurface`: approved + `viaSession` → approved title + `appeal_approved_body_active`, no re-sign-in action; KDoc updates (screen + `entry<AppealRoute>` comment)
 
 ## 5. Tests (one per spec'd scenario)
 

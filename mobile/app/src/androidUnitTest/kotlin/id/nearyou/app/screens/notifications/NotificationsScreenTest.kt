@@ -56,6 +56,12 @@ private const val COPY_CHAT_REDACTED = "Sebuah pesan di percakapanmu dihapus ole
 private const val COPY_ACCOUNT_ACTION = "Ada tindakan moderasi pada akunmu" // notif_account_action_applied
 private const val COPY_DATA_EXPORT = "Ekspor datamu siap diunduh" // notif_data_export_ready
 private const val COPY_APPLE_RELAY = "Email bayangan Apple kamu sudah diperbarui." // notif_apple_relay_email_changed (#433)
+
+// appeal-decision-notification (#390): `appeal_decided` copy keyed by body_data.decision.
+private const val COPY_APPEAL_APPROVED = "Banding kamu diterima — akunmu aktif kembali" // notif_appeal_approved
+private const val COPY_APPEAL_REJECTED = "Banding kamu ditolak" // notif_appeal_rejected
+private const val COPY_APPEAL_DECIDED = "Ada keputusan atas banding kamu" // notif_appeal_decided
+private const val APPEAL_UUID = "33333333-3333-3333-3333-333333333333"
 private const val ACTOR_UUID = "11111111-1111-1111-1111-111111111111"
 private const val TARGET_UUID = "22222222-2222-2222-2222-222222222222"
 
@@ -261,6 +267,53 @@ class NotificationsScreenTest {
             onNodeWithText(COPY_APPLE_RELAY, substring = true).assertExists()
             // None of the six fell through to the generic fallback.
             assertEquals(0, onAllNodesWithText(COPY_GENERIC, substring = true).fetchSemanticsNodes().size)
+        }
+    }
+
+    @Test
+    fun appealDecided_rendersDecisionKeyedCopy_withNoUuid() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(
+                    fakeNotification(
+                        id = "n1",
+                        type = "appeal_decided",
+                        actorUserId = null,
+                        targetType = "appeal",
+                        targetId = APPEAL_UUID,
+                        bodyData = buildJsonObject { put("decision", "approved") },
+                    ),
+                    fakeNotification(
+                        id = "n2",
+                        type = "appeal_decided",
+                        actorUserId = null,
+                        targetType = "appeal",
+                        targetId = APPEAL_UUID,
+                        bodyData = buildJsonObject { put("decision", "rejected") },
+                    ),
+                    fakeNotification(
+                        id = "n3",
+                        type = "appeal_decided",
+                        actorUserId = null,
+                        targetType = "appeal",
+                        targetId = APPEAL_UUID,
+                        bodyData = buildJsonObject {},
+                    ),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { NotificationsScreen() } } }
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText(COPY_APPEAL_APPROVED, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            onNodeWithText(COPY_APPEAL_APPROVED, substring = true).assertExists()
+            // `substring = false`: "Banding kamu ditolak" must match the rejected row exactly, not a prefix.
+            onNodeWithText(COPY_APPEAL_REJECTED).assertExists()
+            onNodeWithText(COPY_APPEAL_DECIDED, substring = true).assertExists()
+            assertEquals(0, onAllNodesWithText(COPY_GENERIC, substring = true).fetchSemanticsNodes().size)
+            assertEquals(0, onAllNodesWithText(APPEAL_UUID, substring = true).fetchSemanticsNodes().size)
         }
     }
 

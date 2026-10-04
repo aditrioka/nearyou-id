@@ -130,6 +130,7 @@ fun AppShellScreen(
     onOpenSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
     onActivatePremium: (PaywallEntry) -> Unit = {},
+    onOpenAppeal: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     var selectedSection by rememberSaveable { mutableStateOf(Section.Home) }
@@ -217,11 +218,13 @@ fun AppShellScreen(
                     )
                 Section.Notifikasi -> {
                     // Deep-link tap-through (mobile-notifications-deep-link-targets): forward the shell's
-                    // already-hoisted post/profile pushes + a chat-thread push (wired in appEntryProvider).
+                    // already-hoisted post/profile pushes + a chat-thread push and an appeal-screen push
+                    // (appeal_decided, #390) — both wired in appEntryProvider.
                     NotificationsScreen(
                         onOpenPost = onOpenPost,
                         onOpenProfile = onOpenProfile,
                         onOpenChatThread = onOpenChatThread,
+                        onOpenAppeal = onOpenAppeal,
                     )
                     // Refresh the badge once when leaving Notifikasi (the user likely read some). One-shot,
                     // not a live subscription — onDispose fires when the section body leaves composition and

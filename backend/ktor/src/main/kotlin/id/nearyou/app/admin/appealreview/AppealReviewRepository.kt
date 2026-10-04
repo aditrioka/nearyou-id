@@ -27,7 +27,10 @@ data class AppealQueuePage(
 
 /** Typed result of an appeal decision (approve / reject). */
 sealed interface AppealDecisionOutcome {
-    /** The appeal transitioned `pending → approved | rejected` (+ the unban on approve) + one audit row. */
+    /**
+     * The appeal transitioned `pending → approved | rejected` (+ the unban on approve) + one audit row
+     * + one `appeal_decided` notification.
+     */
     data object Applied : AppealDecisionOutcome
 
     /** The appeal was already decided — benign no-op, no enforcement, no second audit row. */
@@ -51,7 +54,13 @@ sealed interface AppealDecisionOutcome {
  * Idempotency + the two-admins race are serialized by the `SELECT … FOR UPDATE`
  * lock + the `WHERE status = 'pending'` precondition (the report-resolution
  * precedent): a re-decision of an already-decided appeal is a benign no-op with
- * no `users` write and no second audit row.
+ * no `users` write, no second audit row, and no second notification.
+ *
+ * Each applied decision also writes one `appeal_decided` notification for the
+ * appellant (`appeal-decision-notification`) via the shipped admin notification
+ * pattern — a RAW in-tx `INSERT INTO notifications` (like `account_action_applied`
+ * / `chat_message_redacted`), NOT the social `NotificationEmitter`. In-app feed
+ * only: nothing is handed to the push dispatcher, so no FCM push.
  */
 class AppealReviewRepository(
     private val dataSource: DataSource,
@@ -112,7 +121,8 @@ class AppealReviewRepository(
      * Approve a pending appeal: transition `pending → approved` (+ `reviewed_by` /
      * `reviewed_at`), LIFT the moderation action on the appellant (`is_banned =
      * FALSE`, `suspended_until = NULL` — the unban shape the suspension worker
-     * applies), and write one `appeal_approved` audit row — all in ONE transaction.
+     * applies), write one `appeal_approved` audit row, and insert one `appeal_decided`
+     * notification for the appellant — all in ONE transaction.
      *
      * The unban UPDATE is unconditional on the user, so an appeal approved AFTER
      * the daily unban worker already cleared `is_banned` still transitions cleanly
@@ -164,6 +174,7 @@ class AppealReviewRepository(
                     ip = ip,
                     userAgent = userAgent,
                 )
+                insertDecisionNotification(conn, locked.userId, appealId, decision = "approved")
 
                 conn.commit()
                 AppealDecisionOutcome.Applied
@@ -177,9 +188,10 @@ class AppealReviewRepository(
 
     /**
      * Reject a pending appeal: transition `pending → rejected` (+ optional
-     * `decision_reason`, `reviewed_by` / `reviewed_at`) and write one
-     * `appeal_rejected` audit row in ONE transaction. The moderation action is
-     * LEFT INTACT (no `users` write) — the appellant stays banned/suspended.
+     * `decision_reason`, `reviewed_by` / `reviewed_at`), write one
+     * `appeal_rejected` audit row, and insert one `appeal_decided` notification in
+     * ONE transaction. The moderation action is LEFT INTACT (no `users` write) —
+     * the appellant stays banned/suspended (they see the row once access returns).
      */
     fun reject(
         appealId: UUID,
@@ -220,6 +232,7 @@ class AppealReviewRepository(
                     ip = ip,
                     userAgent = userAgent,
                 )
+                insertDecisionNotification(conn, locked.userId, appealId, decision = "rejected")
 
                 conn.commit()
                 AppealDecisionOutcome.Applied
@@ -230,6 +243,31 @@ class AppealReviewRepository(
                 runCatching { conn.autoCommit = true }
             }
         }
+
+    /**
+     * Insert the appellant's `appeal_decided` notification on [conn] (joins the
+     * decision transaction). `(target_type, target_id) = ('appeal', appealId)` is
+     * the deep-link address; `body_data` is exactly `{"decision": …}` — never the
+     * admin's free-text `decision_reason` (the appellant reads it through the
+     * own-status read), never the appeal id (it is `target_id`). `actor_user_id`
+     * stays NULL (the actor is an admin, not a `public.users` row).
+     */
+    private fun insertDecisionNotification(
+        conn: Connection,
+        userId: UUID,
+        appealId: UUID,
+        decision: String,
+    ) {
+        conn.prepareStatement(
+            "INSERT INTO notifications (user_id, type, target_type, target_id, body_data) " +
+                "VALUES (?, 'appeal_decided', 'appeal', ?, ?::jsonb)",
+        ).use { ps ->
+            ps.setObject(1, userId)
+            ps.setObject(2, appealId)
+            ps.setString(3, buildJsonObject { put("decision", JsonPrimitive(decision)) }.toString())
+            ps.executeUpdate()
+        }
+    }
 
     /** `SELECT … FOR UPDATE` the appeal's user_id + status, locking the row for the tx. */
     private fun lockAppeal(

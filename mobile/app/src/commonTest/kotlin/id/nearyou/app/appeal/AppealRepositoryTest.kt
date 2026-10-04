@@ -1,5 +1,7 @@
 package id.nearyou.app.appeal
 
+import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.TokenPair
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -25,7 +27,9 @@ private fun OutgoingContent.bodyText(): String = (this as? OutgoingContent.ByteA
  * MockEngine-backed coverage of [AppealRepository] (task 5.5): the HTTP status + nested `error.code` →
  * [AppealSubmitOutcome] / [AppealStatusOutcome] mapping (no generic fallthrough), plus the invariant that
  * the limited **appeal token** is attached EXPLICITLY (the caller has no normal token). Uses a RAW client
- * (no `Auth` plugin) — the production shape for the ban-exempt appeal calls.
+ * (no `Auth` plugin) — the production shape for the ban-exempt appeal calls. A null-token status read goes
+ * through the separate session client (the shared bearer client in production) — or, with no stored
+ * session, short-circuits to `SessionExpired` with no request at all.
  */
 class AppealRepositoryTest {
     private fun rawClient(handler: MockRequestHandler): HttpClient =
@@ -41,7 +45,28 @@ class AppealRepositoryTest {
             defaultRequest { url("http://test.local") }
         }
 
-    private fun repository(handler: MockRequestHandler): AppealRepository = AppealRepository(AppealApiClient(rawClient(handler)))
+    /** The appeal-token paths: the session client must never be touched, so it fails the test if called. */
+    private fun repository(handler: MockRequestHandler): AppealRepository =
+        AppealRepository(
+            AppealApiClient(rawClient(handler), sessionClient = rawClient { error("session client must not be used") }),
+            tokenStore = InMemoryTokenStore(),
+        )
+
+    private fun sessionRepository(
+        stored: TokenPair?,
+        appealClientCalls: MutableList<String> = mutableListOf(),
+        sessionHandler: MockRequestHandler,
+    ): AppealRepository =
+        AppealRepository(
+            AppealApiClient(
+                rawClient { request ->
+                    appealClientCalls += request.url.encodedPath
+                    error("appeal client must not be used without a token")
+                },
+                sessionClient = rawClient(sessionHandler),
+            ),
+            tokenStore = InMemoryTokenStore(stored),
+        )
 
     @Test
     fun `submit 201 maps to Submitted and sends the appeal token + appeal_text`() =
@@ -175,5 +200,58 @@ class AppealRepositoryTest {
         runTest {
             val repo = repository { respond("", HttpStatusCode.Unauthorized, JSON_HEADERS) }
             assertEquals(AppealStatusOutcome.SessionExpired, repo.status("t"))
+        }
+
+    @Test
+    fun `null token with a stored session reads through the session client with no explicit header`() =
+        runTest {
+            var path: String? = null
+            var authHeader: String? = "unset"
+            val repo =
+                sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE)) { request ->
+                    path = request.url.encodedPath
+                    authHeader = request.headers["Authorization"]
+                    respond(
+                        """{"has_appeal":true,"action_type":"suspension","status":"approved","reviewed_at":"2026-10-04T00:00:00Z"}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(
+                AppealStatusOutcome.Decided(
+                    approved = true,
+                    actionType = "suspension",
+                    decisionReason = null,
+                    reviewedAt = "2026-10-04T00:00:00Z",
+                ),
+                repo.status(null),
+            )
+            assertEquals("/api/v1/appeals", path)
+            assertEquals(null, authHeader, "the bearer comes from the session client's Auth plugin, never attached here")
+        }
+
+    @Test
+    fun `null token and no stored session is SessionExpired with no request`() =
+        runTest {
+            val appealCalls = mutableListOf<String>()
+            var sessionCalls = 0
+            val repo =
+                sessionRepository(stored = null, appealClientCalls = appealCalls) {
+                    sessionCalls++
+                    respond("", HttpStatusCode.OK, JSON_HEADERS)
+                }
+            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(0, sessionCalls, "no session read without a stored session")
+            assertEquals(emptyList(), appealCalls)
+        }
+
+    @Test
+    fun `null token session read 401 maps to SessionExpired`() =
+        runTest {
+            val repo =
+                sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE)) {
+                    respond("", HttpStatusCode.Unauthorized, JSON_HEADERS)
+                }
+            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
         }
 }
