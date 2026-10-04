@@ -77,7 +77,7 @@ Domain `nearyou.id` terdaftar di Hostinger. Langkah berikut memindah DNS managem
 - [ ] Enable APIs di tiap project:
   - [ ] Cloud Run
   - [ ] Cloud Run Jobs
-  - [ ] Cloud Scheduler
+  - [~] Cloud Scheduler — staging done: API enabled 2026-04-27, all nine `/internal/*` worker jobs provisioned 2026-10-04 by `dev/scripts/provision-schedulers.sh` (the script also enables the API; runbook `dev/docs/cloud-scheduler.md`; status in `docs/07` § Internal worker schedules). Prod: re-run the script once the prod project exists
   - [ ] Secret Manager
   - [ ] Cloud Vision API (Safe Search)
   - [ ] Cloud Build (untuk CI/CD)
