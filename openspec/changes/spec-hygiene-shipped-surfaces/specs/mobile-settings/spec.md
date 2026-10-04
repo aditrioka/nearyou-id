@@ -14,7 +14,13 @@ The `mobile-settings` capability SHALL own the `SettingsRoute` contract and its 
 
 - **GIVEN** `ProfileScreen` rendered as the self-profile section with a recording `onSettings` callback
 - **WHEN** the settings gear (test tag `PROFILE_SETTINGS_TAG`) is tapped
-- **THEN** `onSettings` is invoked exactly once AND, in the composed app, the shell's `onOpenSettings` (wired in `AppEntryProvider`) appends `SettingsRoute` onto the root back stack
+- **THEN** `onSettings` is invoked exactly once
+
+#### Scenario: The shell forwards the gear to onOpenSettings
+
+- **GIVEN** `AppShellScreen` composed with a recording `onOpenSettings` and the Profil section selected
+- **WHEN** the self-profile settings gear (test tag `PROFILE_SETTINGS_TAG`) is tapped
+- **THEN** `onOpenSettings` is invoked (the `AppEntryProvider` call site wires it to `backStack.add(SettingsRoute)`)
 
 #### Scenario: The settings gear is absent on the other-user profile overlay
 

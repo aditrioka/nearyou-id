@@ -57,11 +57,11 @@ This capability SHALL NOT implement the four items below. The two **deferred** i
 
 #### Scenario: Unavailable stays one generic message with no reason discriminator
 
-- **GIVEN** change attempts answered `409 username_unavailable` for a reserved handle, a taken handle, and a handle on release hold
-- **WHEN** each outcome renders
-- **THEN** all three render the same `stringResource(Res.string.username_unavailable_generic)` copy AND the client reads no reason field from the `409` body
+- **GIVEN** a change attempt answered `409` with the constant body `{"error":"username_unavailable"}` (the same body for a reserved, taken, or release-hold handle)
+- **WHEN** the repository maps it and the screen renders it
+- **THEN** the outcome is `Unavailable` AND the tree contains `stringResource(Res.string.username_unavailable_generic)` AND the parsed error body declares only `error` (no reason field)
 
 #### Scenario: The username field offers no autocomplete
 
-- **WHEN** the user types into the Ganti Username field
-- **THEN** no suggestion list renders AND no suggestion endpoint is called (the only network calls are the budget-aware `GET /api/v1/username/check` probe and the `PATCH` submit)
+- **WHEN** inspecting `UsernameApiClient` and `UsernameCustomizationScreen`
+- **THEN** the only network calls are the budget-aware `GET /api/v1/username/check` probe and the `PATCH /api/v1/user/username` submit AND the screen renders no suggestion list

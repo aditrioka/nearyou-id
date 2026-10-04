@@ -34,5 +34,5 @@ A write SHALL validate the submitted value against the target parameter's type b
 
 #### Scenario: premium_image_upload_cap_override validates as an in-range integer
 
-- **WHEN** an admin submits `premium_image_upload_cap_override` = `100`, and separately `true` and `0`
-- **THEN** `100` passes validation and is published as `100`, while `true` (a boolean for an integer parameter) and `0` (below the minimum of 1) are each rejected inline with no publish AND no `feature_flag_toggled` audit row
+- **WHEN** the catalog validates `premium_image_upload_cap_override` = `100`, `50`, `true`, and `0`
+- **THEN** `100` and `50` are valid (normalized to `100` / `50`) while `true` (a boolean for an integer parameter) and `0` (below the minimum of 1) are invalid — an invalid value is rejected inline with no publish and no `feature_flag_toggled` audit row

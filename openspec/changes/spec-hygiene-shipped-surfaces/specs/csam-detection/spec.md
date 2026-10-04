@@ -11,10 +11,10 @@ The `csam-detection` capability SHALL NOT itself expose an admin-facing CSAM sur
 
 #### Scenario: csam-detection's own routes expose no archive read or decrypt
 
-- **WHEN** `POST /internal/csam-webhook` or `POST /internal/csam-archive-purge` is invoked
-- **THEN** neither response body contains `csam_detection_archive` rows or decrypted `encrypted_metadata` AND every admin read / decrypt / file route for the archive lives under `/admin/csam` (`admin-csam-detection-log`)
+- **WHEN** inspecting the `csam-detection` routes and their responses
+- **THEN** `POST /internal/csam-webhook` answers with a status only and `POST /internal/csam-archive-purge` with a `purged_count` only, neither returning `csam_detection_archive` rows or decrypted `encrypted_metadata`, AND every admin read / decrypt / file route for the archive is mounted under `/admin/csam` by `admin-csam-detection-log`
 
 #### Scenario: Kominfo filing fields are set only by the admin filing action
 
-- **WHEN** a match is archived (via the webhook, or via the admin-triggered takedown calling `handleDetection`)
-- **THEN** the new archive row has `kominfo_report_id IS NULL` AND `kominfo_reported_at IS NULL`, AND those columns are later set only by `POST /admin/csam/{id}/kominfo-report` (per `admin-csam-detection-log` § "Kominfo report tracking")
+- **WHEN** a match is archived
+- **THEN** the new archive row has `kominfo_reported_at IS NULL` AND the only code path that sets `kominfo_report_id` / `kominfo_reported_at` is the `POST /admin/csam/{id}/kominfo-report` filing action (per `admin-csam-detection-log` § "Kominfo report tracking")

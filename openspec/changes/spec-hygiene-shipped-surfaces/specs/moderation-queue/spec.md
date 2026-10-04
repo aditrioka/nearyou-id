@@ -16,8 +16,8 @@ A new reader SHALL land as an admin capability under `/admin/*`, never as a user
 
 #### Scenario: No user-facing route returns moderation_queue rows
 
-- **WHEN** the backend is fully deployed and any `/api/v1/*` route is called
-- **THEN** no response contains `moderation_queue` rows (no user-facing reader exists)
+- **WHEN** inspecting the backend's `/api/v1/*` route handlers and the repositories they call
+- **THEN** none reads `moderation_queue` (every `SELECT` against it sits behind an `/admin/*` route), so no user-facing response can contain `moderation_queue` rows
 
 #### Scenario: The admin readers sit behind the admin session
 
