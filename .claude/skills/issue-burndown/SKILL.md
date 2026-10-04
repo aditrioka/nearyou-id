@@ -30,14 +30,14 @@ git worktree list                                                  # sibling wor
 gh issue list --label follow-up --state open --limit 200 --json number,title,labels,body,assignees
 ```
 
-An issue is **claimed** (skip it) if it's labeled `burning-down`, labeled `triaging` (a triage sweep owns it), assigned, or has an open linked PR / sibling-worktree branch. Work from a fresh branch off `origin/main`.
+An issue is **claimed** (skip it) if it's labeled `burning-down`, labeled `triaging` (a triage sweep owns it), assigned, or has an open linked PR / sibling-worktree branch. An issue is **out of the current gate** (also skip it unless the operator names it explicitly) if it's labeled `apple-paid` (needs the paid Apple Developer Program — `docs/08` Open Decision #37) or `deferred` (Bucket 2 production spend, or a trigger that has not fired — Open Decision #36). Work from a fresh branch off `origin/main`.
 
 ## 1 — Resolve & pick ONE issue
 
 Pick order:
 
 1. **Explicit issue number given as argument** (`/issue-burndown 372`) → take it (after the claim-survey + audit-dedup checks below).
-2. **No argument** → default to the highest-value **unclaimed** issue labeled `ready-to-burndown` (the queue `/triage-follow-ups` populates for still-valid, code-shaped debt). Tie-break by area/impact in the body, preferring smaller, self-contained slices first.
+2. **No argument** → default to the highest-value **unclaimed** issue labeled `ready-to-burndown` (the queue `/triage-follow-ups` populates for still-valid, code-shaped debt) that is inside the **"100 %" gate** (issue #556 — not `apple-paid`, not `deferred`). Prefer, in order: trust-boundary + staging-proof items (allowlist/body-limit/audit-trigger/REVOKE/admin headers, schedulers, backup drill, keep-warm), behaviour bugs, then polish. Tie-break by area/impact in the body, preferring smaller, self-contained slices first.
 3. **No `ready-to-burndown` issues exist** (the queue is empty — e.g. before triage has run) → do NOT re-triage the whole backlog from scratch (that's `/triage-follow-ups`' job, and the boundary that keeps this skill an executor). Instead, make the operator's explicit pick easy without classifying: scan the unclaimed `follow-up` issues for obviously code-shaped ones (body has concrete file refs / action items, not "decide whether to…"), surface a short candidate list (`#N` · slug · one-line what), and recommend either `/triage-follow-ups` (to populate the queue properly) or naming one of the shortlist to burn down now. This is a *shortlist, not triage* — it does not close, migrate, or label anything. Then stop and wait for the operator's pick.
 
 **Audit dedup (hard boundary).** Exclude any issue still live on the 2026-06-10 audit menu — those belong to `/audit-burndown`, and double-execution wastes work. Cross-check the candidate against the "Shipped / Still open" line in [`.claude/skills/audit-burndown/SKILL.md`](../audit-burndown/SKILL.md) (read it live — its open list shrinks as items ship; don't trust a memorized snapshot). If the issue is an audit-menu item → hand back to `/audit-burndown` and pick another.
