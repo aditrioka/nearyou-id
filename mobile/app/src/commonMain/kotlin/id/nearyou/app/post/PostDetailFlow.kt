@@ -42,6 +42,13 @@ interface PostDetailFlow : LikeFlow {
     /** `GET /api/v1/posts/{postId}/likes/count`. A fetch failure degrades to [LikeCountOutcome.Unavailable]
      *  (the count is hidden; the toggle stays functional). */
     suspend fun likeCount(postId: String): LikeCountOutcome
+
+    /** `DELETE /api/v1/posts/{postId}/replies/{replyId}` — the viewer's own-reply soft-delete. The caller
+     *  removes the row optimistically and restores it on [ReplyDeleteOutcome.NetworkError]. */
+    suspend fun deleteReply(
+        postId: String,
+        replyId: String,
+    ): ReplyDeleteOutcome
 }
 
 /**
@@ -114,4 +121,17 @@ sealed interface LikeCountOutcome {
     data class Available(val count: Long) : LikeCountOutcome
 
     data object Unavailable : LikeCountOutcome
+}
+
+/**
+ * The own-reply delete maps to EXACTLY one member. `204` → [Deleted]; any other status + transport/IO →
+ * the single retryable [NetworkError]. There is deliberately no `PostGone` / `RateLimited` / `Forbidden`
+ * member: the backend route never emits `404` / `429` / `403` (`post-replies` § "DELETE replies —
+ * author-only soft-delete, idempotent 204" + § "DELETE … is NOT rate-limited"), and its `204` is
+ * idempotent, so an already-deleted reply is still [Deleted]. `401` is delegated to the `Auth` plugin.
+ */
+sealed interface ReplyDeleteOutcome {
+    data object Deleted : ReplyDeleteOutcome
+
+    data object NetworkError : ReplyDeleteOutcome
 }

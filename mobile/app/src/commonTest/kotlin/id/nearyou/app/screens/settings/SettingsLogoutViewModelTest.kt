@@ -1,6 +1,8 @@
 package id.nearyou.app.screens.settings
 
 import id.nearyou.app.auth.AuthApiClient
+import id.nearyou.app.auth.AuthRepository
+import id.nearyou.app.auth.FakeGoogleSignInGateway
 import id.nearyou.app.auth.InMemoryTokenStore
 import id.nearyou.app.auth.SUB_USER_123_JWT
 import id.nearyou.app.auth.SessionInvalidator
@@ -41,7 +43,9 @@ private const val FUTURE_EPOCH = Long.MAX_VALUE / 2
  * logout-revocation). Pins: the `POST /api/v1/auth/logout` is issued BEFORE the token wipe (with the
  * stored refresh token + the device FCM token; the store is still populated at request time); a null
  * FCM token omits the `fcm_token` key; a failing call still wipes + raises [SettingsViewModel.loggedOut]
- * (best-effort contract); no wired [AuthApiClient] degrades to the client-side-only wipe. The cancel
+ * (best-effort contract); no wired auth seam degrades to the client-side-only wipe. The revoke goes through
+ * the real [AuthRepository] (the `AuthFlow` seam — #542: the VM no longer talks to [AuthApiClient] directly)
+ * over a MockEngine client, so the request-shape assertions stay end-to-end. The cancel
  * path issues no request structurally — the screen's cancel affordance never invokes `confirmLogout`
  * (covered by `SettingsScreenTest`'s cancel test).
  */
@@ -70,6 +74,12 @@ class SettingsLogoutViewModelTest {
             nowMillis = { 0L },
         )
 
+    /** The production revoke path: the real repository over the MockEngine [http] client. */
+    private fun authFlow(
+        store: InMemoryTokenStore,
+        http: HttpClient,
+    ): AuthRepository = AuthRepository(FakeGoogleSignInGateway(), AuthApiClient(http), store, SessionInvalidator(store))
+
     @Test
     fun confirmLogout_postsRefreshAndFcmTokenBeforeTheWipe() =
         runTest {
@@ -87,7 +97,7 @@ class SettingsLogoutViewModelTest {
             val vm =
                 SettingsViewModel(
                     tokenStore = store,
-                    authApi = AuthApiClient(http),
+                    authFlow = authFlow(store, http),
                     fcmTokenProvider = FakeFcmTokenProvider(token = "fcm-A"),
                 )
 
@@ -114,7 +124,7 @@ class SettingsLogoutViewModelTest {
             val vm =
                 SettingsViewModel(
                     tokenStore = store,
-                    authApi = AuthApiClient(http),
+                    authFlow = authFlow(store, http),
                     fcmTokenProvider = FakeFcmTokenProvider(token = null),
                 )
 
@@ -134,7 +144,7 @@ class SettingsLogoutViewModelTest {
             val vm =
                 SettingsViewModel(
                     tokenStore = store,
-                    authApi = AuthApiClient(http),
+                    authFlow = authFlow(store, http),
                     fcmTokenProvider = FakeFcmTokenProvider(token = "fcm-B"),
                 )
 
@@ -157,7 +167,7 @@ class SettingsLogoutViewModelTest {
             val vm =
                 SettingsViewModel(
                     tokenStore = store,
-                    authApi = AuthApiClient(http),
+                    authFlow = authFlow(store, http),
                     fcmTokenProvider = FakeFcmTokenProvider(token = null),
                     premiumEntitlement = session,
                 )
@@ -177,7 +187,7 @@ class SettingsLogoutViewModelTest {
             val store = InMemoryTokenStore(TokenPair("at", "rt-6", FUTURE_EPOCH))
             val crash = FakeCrashReporter()
             val http = client(store) { throw RuntimeException("network down") }
-            val vm = SettingsViewModel(tokenStore = store, authApi = AuthApiClient(http), crashReporter = crash)
+            val vm = SettingsViewModel(tokenStore = store, authFlow = authFlow(store, http), crashReporter = crash)
 
             vm.confirmLogout()
             vm.loggedOut.first { it }
@@ -196,5 +206,21 @@ class SettingsLogoutViewModelTest {
             vm.loggedOut.first { it }
 
             assertNull(store.read())
+        }
+
+    @Test
+    fun revokeSession_withNoStoredTokenIssuesNoRequest() =
+        runTest {
+            val store = InMemoryTokenStore()
+            var requests = 0
+            val http =
+                client(store) {
+                    requests++
+                    respond("", HttpStatusCode.NoContent, headersOf())
+                }
+
+            authFlow(store, http).revokeSession(fcmToken = "fcm-C")
+
+            assertEquals(0, requests, "nothing to revoke without a stored refresh token")
         }
 }

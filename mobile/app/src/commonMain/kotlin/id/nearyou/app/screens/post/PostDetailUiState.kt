@@ -13,15 +13,16 @@ import id.nearyou.app.post.ReplyPostOutcome
 const val MAX_REPLY_CONTENT_CODE_POINTS: Int = 280
 
 /**
- * The display projection of a reply — the model the reply cards render. A card shows [content] + the
+ * The display projection of a reply — the model the reply rows render. A row shows [content] + the
  * [createdAt] treatment + (mobile-block-from-content D7, mockup frame 7) the author **display identity**
- * row from [authorUsername]/[authorDisplayName] (null on an older-backend body → the identity row and the
+ * from [authorUsername]/[authorDisplayName] (null on an older-backend body → the avatar, the name and the
  * block item are omitted gracefully). [authorId] (a UUID) is carried SOLELY for the client-side
- * self-block gate (`SelfUserIdProvider` comparison) and as the block-request path param — it MUST NEVER
- * be rendered or logged (the MODIFIED "Pure PostDetailUiState projection (PII-free)" carve-out). NO
- * surfaced `isAutoHidden` (the viewer's own auto-hidden reply renders identically to a live one in v1)
- * and NO `deletedAt` (effectively dead on this list path). [id] is the reply's own UUID (not author PII),
- * kept as a stable `LazyColumn` key.
+ * authorship gates and as the block-request path param — it MUST NEVER be rendered or logged (the
+ * "Pure PostDetailUiState projection (PII-free)" carve-out). [isOwn] is the fail-closed authorship bit
+ * (`selfUserId != null && authorId == selfUserId`): it hides the block item and shows the own-reply
+ * delete item (post-detail-vm-reply-delete-restyle). NO surfaced `isAutoHidden` (the viewer's own
+ * auto-hidden reply renders identically to a live one in v1) and NO `deletedAt` (effectively dead on this
+ * list path). [id] is the reply's own UUID (not author PII), kept as a stable `LazyColumn` key.
  */
 data class ReplyUi(
     val id: String,
@@ -30,11 +31,13 @@ data class ReplyUi(
     val authorId: String,
     val authorUsername: String? = null,
     val authorDisplayName: String? = null,
+    val isOwn: Boolean = false,
 )
 
 /** Projects a [ReplyDto] to its [ReplyUi] — drops `isAutoHidden`, `deletedAt`, `updatedAt`, `postId`;
- *  keeps the display identity (renderable) + `authorId` (gate/path-only, never rendered). */
-fun ReplyDto.toUi(): ReplyUi =
+ *  keeps the display identity (renderable) + `authorId` (gate/path-only, never rendered); stamps [ReplyUi.isOwn]
+ *  against [selfUserId] (null — unresolved / malformed token — is never own: fail closed). */
+fun ReplyDto.toUi(selfUserId: String? = null): ReplyUi =
     ReplyUi(
         id = id,
         content = content,
@@ -42,12 +45,13 @@ fun ReplyDto.toUi(): ReplyUi =
         authorId = authorId,
         authorUsername = authorUsername,
         authorDisplayName = authorDisplayName,
+        isOwn = selfUserId != null && authorId == selfUserId,
     )
 
 /**
  * Pure, Compose-free projection of the replies-list sub-surface, mirroring [NearbyTimelineUiState][id.nearyou.app.screens.timeline.NearbyTimelineUiState].
  * Deterministic over the [RepliesOutcome] + in-flight flag (no wall-clock / platform dependency); the
- * [Content] replies are [ReplyUi] (author id already dropped). Exhaustive — no generic fallthrough.
+ * [Content] replies are [ReplyUi] (`authorId` carried for the authorship gates only, never rendered). Exhaustive — no generic fallthrough.
  */
 sealed interface RepliesUiState {
     /** Fetch in-flight (incl. the pre-first-load window) → loading copy (`timeline_loading`). */
@@ -64,13 +68,56 @@ sealed interface RepliesUiState {
 }
 
 /**
- * Maps the current replies [outcome] (null = not yet loaded) + [inFlight] to the list sub-state.
+ * The ONE screen-level state `PostDetailViewModel.uiState` projects (docs/11 § 2.2;
+ * post-detail-vm-reply-delete-restyle) — a data class because its parts vary independently. Carries:
+ * the displayed post [content] + the freshness-read [editedAtIso] / [isAuthor] / [authorUserId]; the like
+ * state ([liked], [likeCount] — null = unavailable, [likeInFlight], [likeOutcome] driving the banner / cap
+ * dialog); [replyCount] + the [replies] list sub-state + the load-more footer flags; the composer's
+ * [replyInFlight] / [replyOutcome]; the report / block / delete dialog targets; and the one-shots, each
+ * cleared via its `onXxxShown()` / dismiss callback ([replyPosted] clears the draft, [reportMessage],
+ * [blockMessage], [blockPopBack], [deleteFailed]).
+ *
+ * [authorUserId] (the post author's UUID) is carried SOLELY as the post-header block target and the
+ * profile-navigation argument — it MUST NEVER be rendered or logged. The session self id is NOT carried:
+ * it only stamps [ReplyUi.isOwn], and [selfResolved] says whether it has resolved yet (the reply block item
+ * stays absent until it has — fail closed). No coordinate, no token material.
+ */
+data class PostDetailUiState(
+    val content: String,
+    val editedAtIso: String? = null,
+    val isAuthor: Boolean = false,
+    val authorUserId: String? = null,
+    val liked: Boolean = false,
+    val likeCount: Long? = null,
+    val likeInFlight: Boolean = false,
+    val likeOutcome: LikeOutcome? = null,
+    val replyCount: Int = 0,
+    val replies: RepliesUiState = RepliesUiState.Loading,
+    val selfResolved: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val loadMoreError: Boolean = false,
+    val replyInFlight: Boolean = false,
+    val replyOutcome: ReplyPostOutcome? = null,
+    val replyPosted: Boolean = false,
+    val reportTarget: ReportTarget? = null,
+    val reportMessage: PostDetailReportMessage? = null,
+    val blockTarget: BlockTarget? = null,
+    val blockMessage: PostDetailBlockMessage? = null,
+    val blockPopBack: Boolean = false,
+    val deleteTarget: String? = null,
+    val deleteFailed: Boolean = false,
+)
+
+/**
+ * Maps the current replies [outcome] (null = not yet loaded) + [inFlight] to the list sub-state, stamping
+ * each reply's [ReplyUi.isOwn] against [selfUserId].
  * In-flight (or not-yet-loaded) ⇒ [Loading]; `Loaded` non-empty ⇒ [Content]; `Loaded` empty ⇒ [Empty];
  * `NetworkError` ⇒ [Error]. Exhaustive over [RepliesOutcome] (no wildcard).
  */
 fun repliesUiState(
     outcome: RepliesOutcome?,
     inFlight: Boolean,
+    selfUserId: String? = null,
 ): RepliesUiState {
     if (inFlight) return RepliesUiState.Loading
     return when (outcome) {
@@ -79,7 +126,7 @@ fun repliesUiState(
             if (outcome.replies.isEmpty()) {
                 RepliesUiState.Empty
             } else {
-                RepliesUiState.Content(outcome.replies.map { it.toUi() })
+                RepliesUiState.Content(outcome.replies.map { it.toUi(selfUserId) })
             }
         RepliesOutcome.NetworkError -> RepliesUiState.Error
     }

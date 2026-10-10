@@ -1,5 +1,6 @@
 package id.nearyou.app.post
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 
 /**
@@ -13,6 +14,10 @@ import kotlinx.coroutines.awaitCancellation
  * `toggleLike` returns the single [toggleOutcome] regardless of `currentlyLiked` (the test programs the
  * direction it wants: `Liked` / `Unliked` for the happy path, `RateLimited`/`PostGone`/`NetworkError`
  * for the revert paths), recording the `currentlyLiked` arg for assertions.
+ *
+ * The optional `*Gate`s suspend the matching write until the test completes them, and the `*Completed`
+ * counters tick only when the call returns normally — the cancel-safety tests clear the ViewModel while a
+ * write is parked on its gate, release it, and assert the write still ran to completion.
  */
 class FakePostDetailFlow(
     private val repliesOutcome: RepliesOutcome = RepliesOutcome.Loaded(emptyList(), nextCursor = null),
@@ -25,6 +30,10 @@ class FakePostDetailFlow(
     private val secondRepliesOutcome: RepliesOutcome? = null,
     // Replies load-more pages, consumed in order (default: an end page — empty + null cursor).
     loadMoreRepliesPages: List<RepliesOutcome> = emptyList(),
+    private val deleteOutcome: ReplyDeleteOutcome = ReplyDeleteOutcome.Deleted,
+    private val toggleGate: CompletableDeferred<Unit>? = null,
+    private val replyGate: CompletableDeferred<Unit>? = null,
+    private val deleteGate: CompletableDeferred<Unit>? = null,
 ) : PostDetailFlow {
     private val loadMorePages = ArrayDeque(loadMoreRepliesPages)
 
@@ -49,6 +58,18 @@ class FakePostDetailFlow(
     var lastReplyContent: String? = null
         private set
 
+    var toggleLikeCompleted: Int = 0
+        private set
+
+    var postReplyCompleted: Int = 0
+        private set
+
+    var deleteReplyCompleted: Int = 0
+        private set
+
+    /** Records the `(postId, replyId)` of each [deleteReply] call. */
+    val deleteReplyCalls: MutableList<Pair<String, String>> = mutableListOf()
+
     override suspend fun loadReplies(postId: String): RepliesOutcome {
         loadRepliesCount++
         if (suspendRepliesForever) awaitCancellation()
@@ -69,6 +90,8 @@ class FakePostDetailFlow(
     ): LikeOutcome {
         toggleLikeCount++
         lastToggleCurrentlyLiked = currentlyLiked
+        toggleGate?.await()
+        toggleLikeCompleted++
         return toggleOutcome
     }
 
@@ -78,12 +101,24 @@ class FakePostDetailFlow(
     ): ReplyPostOutcome {
         postReplyCount++
         lastReplyContent = content
+        replyGate?.await()
+        postReplyCompleted++
         return replyOutcome
     }
 
     override suspend fun likeCount(postId: String): LikeCountOutcome {
         likeCountCount++
         return likeCountOutcome
+    }
+
+    override suspend fun deleteReply(
+        postId: String,
+        replyId: String,
+    ): ReplyDeleteOutcome {
+        deleteReplyCalls += postId to replyId
+        deleteGate?.await()
+        deleteReplyCompleted++
+        return deleteOutcome
     }
 }
 

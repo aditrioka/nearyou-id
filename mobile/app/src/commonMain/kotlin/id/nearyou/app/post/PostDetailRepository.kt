@@ -74,6 +74,18 @@ class PostDetailRepository(
             is LikeCountApiResult.NetworkError -> LikeCountOutcome.Unavailable
         }
 
+    override suspend fun deleteReply(
+        postId: String,
+        replyId: String,
+    ): ReplyDeleteOutcome =
+        when (replyApiClient.deleteReply(postId, replyId)) {
+            ReplyDeleteApiResult.NoContent -> ReplyDeleteOutcome.Deleted
+            // The route answers 204 for every authenticated call (anti-enumeration), so any other status is a
+            // transport/contract failure — retryable, never a distinct member (see ReplyDeleteOutcome).
+            is ReplyDeleteApiResult.HttpError -> ReplyDeleteOutcome.NetworkError
+            is ReplyDeleteApiResult.NetworkError -> ReplyDeleteOutcome.NetworkError
+        }
+
     /** Maps a non-204 like response. 429 / 404 each → one member; 5xx + any other unenumerated status →
      *  the DEFINED retryable [LikeOutcome.NetworkError] (NOT a generic "failed" member). 401 never reaches
      *  here — the shipped `Auth` plugin consumes it upstream. */

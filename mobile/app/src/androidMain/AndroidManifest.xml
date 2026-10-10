@@ -31,9 +31,16 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.NearYou.Launch">
+        <!--
+          adjustResize: with enableEdgeToEdge() the IME insets must reach Compose (imePadding / safeContent)
+          instead of the system panning the whole window — without it the window panned AND the composer's
+          imePadding lifted it again, leaving a keyboard-tall gap (post-detail-vm-reply-delete-restyle; per
+          developer.android.com "Set up Edge-to-edge").
+        -->
         <activity
             android:exported="true"
-            android:name=".MainActivity">
+            android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

@@ -7,6 +7,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.utils.EmptyContent
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.delay
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -398,5 +400,60 @@ class PostDetailApiTest {
             val teapot = repo { respond("", HttpStatusCode.fromValue(418)) }
             assertEquals(LikeOutcome.NetworkError, teapot.toggleLike(POST_ID, currentlyLiked = false))
             assertEquals(ReplyPostOutcome.NetworkError, teapot.postReply(POST_ID, "hi"))
+        }
+
+    // ---- own-reply DELETE (post-detail-vm-reply-delete-restyle) ----
+
+    @Test
+    fun `deleteReply issues a bodyless DELETE on the reply path and maps 204 to Deleted`() =
+        runTest {
+            var method: HttpMethod? = null
+            var path: String? = null
+            var body: Any? = null
+            val outcome =
+                repo { request ->
+                    method = request.method
+                    path = request.url.encodedPath
+                    body = request.body
+                    respond("", HttpStatusCode.NoContent)
+                }.deleteReply(POST_ID, "r1")
+
+            assertEquals(ReplyDeleteOutcome.Deleted, outcome)
+            assertEquals(HttpMethod.Delete, method)
+            assertEquals("/api/v1/posts/$POST_ID/replies/r1", path)
+            assertIs<EmptyContent>(body, "the DELETE carries no body (only the post id + reply id in the path)")
+        }
+
+    @Test
+    fun `cancellation mid reply DELETE propagates rather than mapping to NetworkError`() =
+        runTest {
+            val api =
+                replyApi {
+                    delay(60_000) // never completes within the job's lifetime
+                    respond("", HttpStatusCode.NoContent)
+                }
+            var completed = false
+            val job =
+                launch {
+                    api.deleteReply(POST_ID, "r1")
+                    completed = true
+                }
+            delay(100)
+            job.cancel()
+            job.join()
+            assertTrue(job.isCancelled, "the in-flight deleteReply job is cancelled, not hung")
+            assertFalse(completed, "deleteReply did not silently complete with a NetworkError after cancellation")
+        }
+
+    @Test
+    fun `deleteReply maps 5xx and an unexpected status and a transport failure to the single NetworkError`() =
+        runTest {
+            assertEquals(
+                ReplyDeleteOutcome.NetworkError,
+                repo { respond("", HttpStatusCode.InternalServerError) }.deleteReply(POST_ID, "r1"),
+            )
+            // The route never answers 404/403/429 by contract; if one ever arrives it is retryable, not a new member.
+            assertEquals(ReplyDeleteOutcome.NetworkError, repo { respond("", HttpStatusCode.NotFound) }.deleteReply(POST_ID, "r1"))
+            assertEquals(ReplyDeleteOutcome.NetworkError, repo { throw RuntimeException("io") }.deleteReply(POST_ID, "r1"))
         }
 }
