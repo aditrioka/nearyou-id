@@ -119,4 +119,4 @@
   - `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest :mobile:app:iosSimulatorArm64Test :mobile:app:linkDebugFrameworkIosSimulatorArm64`;
   - throwaway PG on :5434 if the dev DB is dirty.
 - [x] 5.3 Manual verify (verify-loop): Android emulator `verify36` + iOS simulator, light + dark. Cover the post-detail chrome, own-reply delete (dialog → removal), and a failed delete (revert + snackbar). Screenshots go in the PR body (docs/11 §5 DoD).
-- [ ] 5.4 PR title/body current at each phase boundary; the body carries `Closes #497`, `Closes #242`, `Closes #542` on separate lines; archive via `/opsx:archive`.
+- [x] 5.4 PR title/body current at each phase boundary; the body carries `Closes #497`, `Closes #242`, `Closes #542` on separate lines; archive via `/opsx:archive`.
