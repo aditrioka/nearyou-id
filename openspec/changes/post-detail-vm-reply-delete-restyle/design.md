@@ -110,12 +110,13 @@ One bit is not enough for the block gate: with an unresolved id `isOwn` is false
 
 | File | Holds |
 |---|---|
-| `PostDetailScreen.kt` | The screen: VM wiring, the one `Scaffold`, the `LazyColumn` assembly, dialogs and one-shots, test-tag constants |
-| `PostDetailHeader.kt` | `PostDetailTopBar`, the post kebab, the post header, the action row, the banner text |
+| `PostDetailScreen.kt` | The screen: VM wiring, the one `Scaffold`, the `LazyColumn` assembly, dialogs and one-shots |
+| `PostDetailHeader.kt` | `PostDetailTopBar`, the post kebab, the post header, the action row |
 | `PostDetailReplies.kt` | Subhead, reply row + kebab, replies loading / empty / error, the delete confirm dialog |
-| `PostDetailComposer.kt` | The reply composer |
+| `PostDetailComposer.kt` | The reply composer + the shared banner text |
+| `PostDetailTestTags.kt` | The stable test-tag constants (same package, so every test import is unchanged) |
 
-Moved composables become `internal`. Test tags stay as `PostDetailScreen.kt` constants so every test import is unchanged.
+Moved composables become `internal`. The test tags moved into their own file to keep `PostDetailScreen.kt` under the soft cap (374 / 404 / 274 / 136 / 79 LOC for screen / header / replies / composer / tags).
 
 ### D8 — Frame-7 → Compose mapping (tokens, not literals)
 
@@ -146,7 +147,7 @@ Moved composables become `internal`. Test tags stay as `PostDetailScreen.kt` con
 
   The `N/280` counter (`labelSmall`, `error` when over the limit) renders above the row while the draft is non-empty.
 
-  On-device verification found the composer floating a keyboard-height above the IME with the top bar pushed off-screen. The cause is pre-existing: `MainActivity` declared no `windowSoftInputMode`, so with `enableEdgeToEdge()` the system **panned** the window and `imePadding()` lifted the bar again. The fix is one manifest attribute, `android:windowSoftInputMode="adjustResize"`, which developer.android.com "Set up Edge-to-edge" requires for every activity using a soft keyboard (verified 2026-10-04). It is app-wide, and the root cause for every `imePadding` / `safeContentPadding` consumer; the post composer was spot-checked on the emulator with no regression. An empty composer reads like the frame; a typed one keeps the spec'd live count. The network / post-gone banner renders above the row.
+  On-device verification found the composer floating a keyboard-height above the IME with the top bar pushed off-screen. The cause is pre-existing: `MainActivity` declared no `windowSoftInputMode`, so with `enableEdgeToEdge()` the system **panned** the window and `imePadding()` lifted the bar again. The fix is one manifest attribute, `android:windowSoftInputMode="adjustResize"`, which developer.android.com "Set up Edge-to-edge" requires for every activity using a soft keyboard (verified 2026-10-04). It is app-wide, and the root cause for every `imePadding` / `safeContentPadding` consumer; the post composer was spot-checked on the emulator with no regression. Implementation review found that `AppealScreen`'s form applied no IME inset (it relied on the pan), so its multiline appeal field + submit could sit under the keyboard. It now gets `imePadding()` + `verticalScroll`, with `consumeWindowInsets` on its Scaffold padding. Username customization and Search have a single-line field at the top and need nothing. An empty composer reads like the frame; a typed one keeps the spec'd live count. The network / post-gone banner renders above the row.
 
 ### D9 — Settings logout through the `AuthFlow` seam
 

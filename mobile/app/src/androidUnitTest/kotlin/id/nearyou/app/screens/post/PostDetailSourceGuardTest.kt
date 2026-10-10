@@ -1,7 +1,9 @@
 package id.nearyou.app.screens.post
 
+import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -220,9 +222,13 @@ class PostDetailSourceGuardTest {
 
     @Test
     fun postDetailViewModel_exposesOneStateStream_andNoEventBus() {
-        val publicStateFlows = Regex("""(?m)^\s*val\s+\w+\s*:\s*StateFlow<""").findAll(viewModel).count()
-        assertTrue(publicStateFlows == 1, "exactly one public StateFlow (uiState) — found $publicStateFlows")
-        assertTrue(viewModel.contains("val uiState: StateFlow<PostDetailUiState>"), "the single stream is uiState")
+        // Reflection, not a regex: catches `internal val`, inferred `= x.asStateFlow()`, and any getter shape.
+        val stateFlowGetters =
+            PostDetailViewModel::class.java.methods
+                // Skip compiler-synthetic accessors (e.g. access$getState$p for the private state).
+                .filter { !it.isSynthetic && StateFlow::class.java.isAssignableFrom(it.returnType) }
+                .map { it.name }
+        assertEquals(listOf("getUiState"), stateFlowGetters, "exactly one public StateFlow (uiState)")
         assertFalse(viewModel.contains("Channel"), "one-shots are state, never a Channel")
         assertFalse(viewModel.contains("SharedFlow"), "one-shots are state, never a SharedFlow")
     }
@@ -230,13 +236,17 @@ class PostDetailSourceGuardTest {
     // The frame-7 deferrals (#569 / #570 / #575) as structural negative guards.
     @Test
     fun frame7Deferrals_noComposerAvatar_noReplyLike_noReplyPremiumBadge() {
-        val composer = code("$postDir/PostDetailComposer.kt")
-        assertFalse(composer.contains("LetterAvatar"), "the composer self-avatar is deferred (#569)")
+        // The composer bar is built in PostDetailComposer.kt and slotted from PostDetailScreen.kt's bottomBar.
+        for (file in listOf("PostDetailComposer.kt", "PostDetailScreen.kt")) {
+            assertFalse(code("$postDir/$file").contains("LetterAvatar"), "$file: the composer self-avatar is deferred (#569)")
+        }
         val replies = code("$postDir/PostDetailReplies.kt")
         assertFalse(replies.contains("ic_post_like"), "per-reply likes are deferred (#570)")
-        assertFalse(replies.contains("workspace_premium"), "the reply-author Premium badge is deferred (#575)")
-        assertFalse(replies.contains("premiumBadge"), "the reply-author Premium tint is deferred (#575)")
-        assertFalse(screen.contains("follow"), "the header Ikuti button is deferred (#569)")
+        // The app's identity-badge idiom (ProfileScreen / FollowListScreen): ic_premium_star + the *_premium_badge_* copy.
+        for (token in listOf("ic_premium_star", "premium_badge", "workspace_premium", "premiumBadge")) {
+            assertFalse(replies.contains(token), "the reply-author Premium badge is deferred (#575): found $token")
+        }
+        assertFalse(screen.contains("follow", ignoreCase = true), "the header Ikuti button is deferred (#569)")
     }
 
     // The composer sits directly on the IME only when the activity resizes for it (edge-to-edge guidance;

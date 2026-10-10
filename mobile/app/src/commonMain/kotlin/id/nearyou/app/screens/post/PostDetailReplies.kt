@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,7 +105,8 @@ internal fun ReplyRow(
             LetterAvatar(
                 displayName = displayName,
                 username = username,
-                modifier = Modifier.clip(CircleShape).clickable(onClick = onOpenProfile),
+                // The name line is the accessible profile target; the avatar is a touch-only alias (one focus stop).
+                modifier = Modifier.clip(CircleShape).clickable(onClick = onOpenProfile).clearAndSetSemantics {},
             )
         }
         Column(modifier = Modifier.weight(1f).padding(top = 2.dp)) {

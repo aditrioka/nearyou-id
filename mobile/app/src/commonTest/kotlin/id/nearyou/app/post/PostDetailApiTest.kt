@@ -7,6 +7,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.utils.EmptyContent
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.delay
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -407,19 +409,40 @@ class PostDetailApiTest {
         runTest {
             var method: HttpMethod? = null
             var path: String? = null
-            var bodyLength: Long? = null
+            var body: Any? = null
             val outcome =
                 repo { request ->
                     method = request.method
                     path = request.url.encodedPath
-                    bodyLength = request.body.contentLength ?: 0L
+                    body = request.body
                     respond("", HttpStatusCode.NoContent)
                 }.deleteReply(POST_ID, "r1")
 
             assertEquals(ReplyDeleteOutcome.Deleted, outcome)
             assertEquals(HttpMethod.Delete, method)
             assertEquals("/api/v1/posts/$POST_ID/replies/r1", path)
-            assertEquals(0L, bodyLength, "the DELETE carries no body (only the post id + reply id in the path)")
+            assertIs<EmptyContent>(body, "the DELETE carries no body (only the post id + reply id in the path)")
+        }
+
+    @Test
+    fun `cancellation mid reply DELETE propagates rather than mapping to NetworkError`() =
+        runTest {
+            val api =
+                replyApi {
+                    delay(60_000) // never completes within the job's lifetime
+                    respond("", HttpStatusCode.NoContent)
+                }
+            var completed = false
+            val job =
+                launch {
+                    api.deleteReply(POST_ID, "r1")
+                    completed = true
+                }
+            delay(100)
+            job.cancel()
+            job.join()
+            assertTrue(job.isCancelled, "the in-flight deleteReply job is cancelled, not hung")
+            assertFalse(completed, "deleteReply did not silently complete with a NetworkError after cancellation")
         }
 
     @Test

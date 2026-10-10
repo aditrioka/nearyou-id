@@ -18,12 +18,14 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -126,6 +128,7 @@ private const val REPLY_CAP_1H =
 private const val POST_GONE = "Postingan ini sudah tidak tersedia." // post_detail_post_gone
 
 private const val AUTHOR_UUID = "11111111-1111-1111-1111-111111111111"
+private const val POST_AUTHOR_UUID = "22222222-2222-2222-2222-222222222222"
 
 /** The canonical block dialog body (profile_block_confirm_body — docs/03 §Block User UX, verbatim). */
 private const val BLOCK_DIALOG_BODY = "Kalian berdua tidak akan saling melihat post, profil, atau bisa memulai percakapan baru."
@@ -1264,7 +1267,7 @@ class PostDetailScreenTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = { backCount++ }) } } }
             // Frame 7: a back ARROW (described "Kembali") under the "Postingan" title — no "Tutup" text button.
             onNodeWithText(TITLE).assertExists()
-            onNodeWithContentDescription(CTA_BACK).assertExists()
+            onNodeWithTag(POST_DETAIL_BACK_TAG).assertContentDescriptionEquals(CTA_BACK)
             onNodeWithText(CTA_CLOSE).assertDoesNotExist()
             onNodeWithTag(POST_DETAIL_BACK_TAG).performClick()
             waitForIdle()
@@ -1479,11 +1482,16 @@ class PostDetailScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("A_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            // The spec's GIVEN: the freshness read resolved the post author (the header identity is tappable).
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_HEADER_PROFILE_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("Ikuti").assertDoesNotExist() // #569: no header follow button
             // #570: the post's like control is the only one — reply rows carry no heart.
+            onAllNodesWithContentDescription("Suka").assertCountEquals(1)
             onAllNodesWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).assertCountEquals(1)
             onAllNodesWithTag(POST_DETAIL_LIKE_LIKED_TAG, useUnmergedTree = true).assertCountEquals(0)
             onAllNodesWithTag(POST_DETAIL_LIKE_NOT_LIKED_TAG, useUnmergedTree = true).assertCountEquals(1)
+            // #575: no Premium identity badge (the app's badge idiom is ic_premium_star described "Akun Premium").
+            onAllNodesWithContentDescription("Akun Premium", useUnmergedTree = true).assertCountEquals(0)
         }
     }
 
@@ -1597,6 +1605,35 @@ class PostDetailScreenTest {
             onNodeWithText("OWN_REPLY").assertExists() // restored
             onNodeWithTag(POST_DETAIL_REPLY_COUNT_TAG).assertTextEquals("2") // count restored
             assertEquals(1, fake.deleteReplyCalls.size)
+        }
+    }
+
+    // The VM now holds the freshness-read post author UUID (block target / profile arg) — it must never reach a
+    // rendered node, as text OR as an accessibility label; nor may the session id.
+    @Test
+    fun postAuthorUuidAndSelfId_neverInTextOrContentDescriptions() {
+        installKoin(
+            FakePostDetailFlow(
+                repliesOutcome = RepliesOutcome.Loaded(listOf(fakeReply(authorId = SELF_USER_ID, content = "MINE")), nextCursor = null),
+            ),
+            FakePostEditFlow(
+                refreshOutcome =
+                    PostRefreshOutcome.Loaded(
+                        content = CONTENT,
+                        editedAt = null,
+                        isAuthor = false,
+                        authorUserId = POST_AUTHOR_UUID,
+                    ),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_HEADER_PROFILE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("MINE").assertExists()
+            for (uuid in listOf(POST_AUTHOR_UUID, SELF_USER_ID)) {
+                onNodeWithText(uuid, substring = true, useUnmergedTree = true).assertDoesNotExist()
+                onNode(hasContentDescription(uuid, substring = true), useUnmergedTree = true).assertDoesNotExist()
+            }
         }
     }
 }

@@ -220,8 +220,9 @@ class PostDetailViewModel(
             state.update {
                 when (outcome) {
                     LikeOutcome.Liked, LikeOutcome.Unliked -> it.copy(likeInFlight = false)
+                    // A count that resolved mid-flight (priorCount null) never got the optimistic ±1, so keep it.
                     is LikeOutcome.RateLimited, LikeOutcome.PostGone, LikeOutcome.NetworkError ->
-                        it.copy(liked = wasLiked, likeCount = priorCount, likeOutcome = outcome, likeInFlight = false)
+                        it.copy(liked = wasLiked, likeCount = priorCount ?: it.likeCount, likeOutcome = outcome, likeInFlight = false)
                 }
             }
         }

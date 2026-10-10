@@ -51,7 +51,7 @@ fun ReplyDto.toUi(selfUserId: String? = null): ReplyUi =
 /**
  * Pure, Compose-free projection of the replies-list sub-surface, mirroring [NearbyTimelineUiState][id.nearyou.app.screens.timeline.NearbyTimelineUiState].
  * Deterministic over the [RepliesOutcome] + in-flight flag (no wall-clock / platform dependency); the
- * [Content] replies are [ReplyUi] (author id already dropped). Exhaustive — no generic fallthrough.
+ * [Content] replies are [ReplyUi] (`authorId` carried for the authorship gates only, never rendered). Exhaustive — no generic fallthrough.
  */
 sealed interface RepliesUiState {
     /** Fetch in-flight (incl. the pre-first-load window) → loading copy (`timeline_loading`). */

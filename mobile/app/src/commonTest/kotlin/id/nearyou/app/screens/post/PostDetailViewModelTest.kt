@@ -371,6 +371,8 @@ class PostDetailViewModelTest {
             val viewModel = vm(fake)
 
             viewModel.onToggleLike()
+            assertEquals(1, fake.toggleLikeCount, "the like is parked on the gate")
+            assertEquals(0, fake.toggleLikeCompleted)
             viewModel.popEntry()
             gate.complete(Unit)
             advanceUntilIdle()
@@ -549,6 +551,8 @@ class PostDetailViewModelTest {
 
             viewModel.onDeleteReplyClicked("mine")
             viewModel.onDeleteReplyConfirmed()
+            assertEquals(1, fake.deleteReplyCalls.size, "the DELETE is parked on the gate")
+            assertEquals(0, fake.deleteReplyCompleted)
             viewModel.popEntry()
             gate.complete(Unit)
             advanceUntilIdle()
