@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import id.nearyou.app.post.PostTargetResolution
 import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.timeline.FollowingTimelinePost
 import id.nearyou.app.screens.timeline.FollowingTimelineScreen
@@ -217,10 +218,29 @@ data class PostDetailTarget(
     val authorDisplayName: String,
     // image-attached-posts: the post's public image URL, carried into PostDetailRoute so detail renders
     // the image with no by-id re-fetch (null = text-only). Timeline cards pass the card's URL; the
-    // notification deep-link passes the single-post-read's `imageUrl` (#388). NOT a coordinate — safe
-    // to serialize.
+    // by-id lookups (a notification deep-link #388, a search-result tap) pass the single-post-read's
+    // `imageUrl`. NOT a coordinate — safe to serialize.
     val imageUrl: String? = null,
 )
+
+/**
+ * The ONE [PostTargetResolution.Resolved] → [PostDetailTarget] mapping every pre-push by-id lookup shares
+ * (the notification deep-link resolver and the search-result tap — no second resolver). The by-id
+ * `single-post-read` projection carries no coordinates, so a by-id-resolved post has no distance.
+ */
+fun PostTargetResolution.Resolved.toPostDetailTarget(): PostDetailTarget =
+    PostDetailTarget(
+        postId = postId,
+        content = content,
+        cityName = cityName,
+        distanceM = null,
+        createdAtIso = createdAtIso,
+        likedByViewer = likedByViewer,
+        replyCount = replyCount,
+        authorUsername = authorUsername,
+        authorDisplayName = authorDisplayName,
+        imageUrl = imageUrl,
+    )
 
 private fun NearbyTimelinePost.toTarget(): PostDetailTarget =
     PostDetailTarget(

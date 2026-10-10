@@ -5,6 +5,8 @@ import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.network.HttpClientFactory
+import id.nearyou.app.post.PostTargetResolution
+import id.nearyou.app.post.SinglePostApiClient
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -28,6 +30,7 @@ private val JSON_HEADERS = headersOf("Content-Type", "application/json")
 class SearchRepositoryTest {
     private fun repository(
         tokenStore: TokenStore = InMemoryTokenStore(),
+        diagnosticLog: (String) -> Unit = {},
         handler: MockRequestHandler,
     ): SearchRepository {
         val client: HttpClient =
@@ -41,7 +44,7 @@ class SearchRepositoryTest {
                 installLogging = false,
                 nowMillis = { 0L },
             )
-        return SearchRepository(SearchApiClient(client))
+        return SearchRepository(SearchApiClient(client), SinglePostApiClient(client), diagnosticLog)
     }
 
     @Test
@@ -141,5 +144,54 @@ class SearchRepositoryTest {
         runTest {
             val repo = repository { respond("", HttpStatusCode.NotFound, JSON_HEADERS) }
             assertEquals(SearchOutcome.NetworkError, repo.search("jakarta", 0))
+        }
+
+    // ---- #255: the result tap's by-id read (the shared single-post-read resolution) ----
+
+    @Test
+    fun `resolvePostTarget maps the full mixed-case by-id read to Resolved`() =
+        runTest {
+            var path: String? = null
+            val repo =
+                repository { request ->
+                    path = request.url.encodedPath
+                    respond(
+                        """{"id":"p1","authorUsername":"budi","authorDisplayName":"Budi","content":"halo",""" +
+                            """"createdAt":"2026-10-03T09:00:00Z","city_name":"Jakarta","liked_by_viewer":true,""" +
+                            """"reply_count":5,"imageUrl":"https://img.example.test/p1.jpg"}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+
+            val resolution = repo.resolvePostTarget("p1")
+
+            assertEquals("/api/v1/posts/p1", path)
+            assertEquals(
+                PostTargetResolution.Resolved(
+                    postId = "p1",
+                    authorUsername = "budi",
+                    authorDisplayName = "Budi",
+                    content = "halo",
+                    cityName = "Jakarta",
+                    createdAtIso = "2026-10-03T09:00:00Z",
+                    likedByViewer = true,
+                    replyCount = 5,
+                    imageUrl = "https://img.example.test/p1.jpg",
+                ),
+                resolution,
+            )
+        }
+
+    @Test
+    fun `resolvePostTarget maps a 404 to Unavailable and logs a type tag only`() =
+        runTest {
+            val logged = mutableListOf<String>()
+            val repo =
+                repository(diagnosticLog = { logged += it }) {
+                    respond("""{"error":{"code":"post_not_found"}}""", HttpStatusCode.NotFound, JSON_HEADERS)
+                }
+            assertEquals(PostTargetResolution.Unavailable, repo.resolvePostTarget("p1"))
+            assertEquals(listOf("search_post_resolve_unavailable"), logged, "a type tag only — never the post id")
         }
 }

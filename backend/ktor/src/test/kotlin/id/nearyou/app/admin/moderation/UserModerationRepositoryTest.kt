@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.admin.SuspensionUnbanWorker
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.auth.withFailingConstraint
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
@@ -809,36 +810,6 @@ private fun seedDestructiveActions(
                 ps.addBatch()
             }
             ps.executeBatch()
-        }
-    }
-}
-
-/**
- * Install a `NOT VALID CHECK` [constraintName] on [table] enforcing
- * [checkExpr] for the duration of [block], then drop it. NOT VALID skips
- * existing rows but enforces new INSERTs — the same DB-layer fault-injection
- * `SuspensionUnbanWorkerTest` 4.2 uses, since the repository SQL has no
- * app-level injection seam.
- */
-private inline fun withFailingConstraint(
-    dataSource: javax.sql.DataSource,
-    table: String,
-    constraintName: String,
-    checkExpr: String,
-    block: () -> Unit,
-) {
-    dataSource.connection.use { conn ->
-        conn.createStatement().use { st ->
-            st.execute("ALTER TABLE $table ADD CONSTRAINT $constraintName CHECK ($checkExpr) NOT VALID")
-        }
-    }
-    try {
-        block()
-    } finally {
-        dataSource.connection.use { conn ->
-            conn.createStatement().use { st ->
-                st.execute("ALTER TABLE $table DROP CONSTRAINT IF EXISTS $constraintName")
-            }
         }
     }
 }

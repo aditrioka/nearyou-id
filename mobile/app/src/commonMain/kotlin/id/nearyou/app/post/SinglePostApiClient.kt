@@ -42,9 +42,10 @@ sealed interface SinglePostApiResult {
 }
 
 /**
- * FULL `single-post-read` projection — the no-card consumer (notification deep-links into a post,
- * `mobile-notifications-deep-link-targets`) reads every display field needed to build a post-detail
- * nav payload. Mirrors the SHIPPED `SinglePostResponse` wire's MIXED case EXACTLY (verified against
+ * FULL `single-post-read` projection — the pre-push by-id lookups (a notification deep-link into a post,
+ * `mobile-notifications-deep-link-targets`; a search-result tap, `mobile-search`) read every display field
+ * needed to build a post-detail nav payload, mapped through the shared `toPostTargetResolution()`.
+ * Mirrors the SHIPPED `SinglePostResponse` wire's MIXED case EXACTLY (verified against
  * `backend/.../post/SinglePostRoutes.kt`): bare camelCase [id]/[authorUsername]/[authorDisplayName]/
  * [content]/[createdAt], but `@SerialName` snake_case for [cityName]/[likedByViewer]/[replyCount].
  * Decoding those three as bare camelCase would silently bind `cityName=""`/`likedByViewer=false`/
@@ -70,8 +71,9 @@ data class SinglePostFullDto(
 /**
  * Low-level result of the FULL-projection `GET /api/v1/posts/{post_id}` read. `200` → the parsed
  * [SinglePostFullDto]; any non-200 (incl. the endpoint's single direction-less `404 post_not_found`)
- * or transport failure → the graceful [Unavailable] (the caller surfaces a non-blocking
- * "tidak tersedia" affordance, no navigation). `401` is owned by the `Auth` plugin.
+ * or transport failure → the graceful [Unavailable]. What happens next is the consumer's rule (a
+ * notification shows a non-blocking "tidak tersedia" and does not navigate; a search hit opens from its own
+ * payload). `401` is owned by the `Auth` plugin.
  */
 sealed interface SinglePostFullResult {
     data class Success(val post: SinglePostFullDto) : SinglePostFullResult
@@ -107,8 +109,8 @@ class SinglePostApiClient(
     }
 
     /**
-     * FULL-projection read for a no-card consumer (notification deep-link into a post). `200` → the parsed
-     * [SinglePostFullDto]; any non-200 / transport failure → [SinglePostFullResult.Unavailable].
+     * FULL-projection read for a pre-push by-id lookup (notification deep-link, search-result tap).
+     * `200` → the parsed [SinglePostFullDto]; any non-200 / transport failure → [SinglePostFullResult.Unavailable].
      * `CancellationException` is rethrown (a superseded in-flight resolution must cancel cleanly, never map
      * to a failure). Never `println`s/logs (the projection is no-PII anyway).
      */

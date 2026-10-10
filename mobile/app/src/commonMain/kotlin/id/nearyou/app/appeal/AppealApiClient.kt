@@ -85,11 +85,17 @@ sealed interface AppealStatusApiResult {
  * dedicated raw client (no Bearer plugin → no `loadTokens`/`refreshTokens` interference); tests pass a
  * MockEngine client.
  *
+ * [sessionClient] is the shared bearer-authed client (`appeal-decision-notification`): a signed-in user
+ * who opens the appeal screen from an `appeal_decided` notification holds no appeal token, so [status]
+ * with a null token reads through it — its Auth plugin attaches (and refreshes) the normal access token,
+ * which the backend appeal realm accepts. The two clients never share a credential.
+ *
  * PII / logging posture: never logs bodies. The appeal token travels only in the `Authorization` header,
  * which the shared logging `sanitizeHeader` masks to `***` on the raw client when logging is installed.
  */
 class AppealApiClient(
     private val client: HttpClient,
+    private val sessionClient: HttpClient,
 ) {
     suspend fun submit(
         appealText: String,
@@ -123,11 +129,16 @@ class AppealApiClient(
         )
     }
 
-    suspend fun status(appealToken: String): AppealStatusApiResult {
+    /** Own-status read. A non-null [appealToken] → the raw client with it attached; null → [sessionClient]. */
+    suspend fun status(appealToken: String?): AppealStatusApiResult {
         val response: HttpResponse =
             try {
-                client.get("/api/v1/appeals") {
-                    header(HttpHeaders.Authorization, "Bearer $appealToken")
+                if (appealToken != null) {
+                    client.get("/api/v1/appeals") {
+                        header(HttpHeaders.Authorization, "Bearer $appealToken")
+                    }
+                } else {
+                    sessionClient.get("/api/v1/appeals")
                 }
             } catch (cause: CancellationException) {
                 throw cause

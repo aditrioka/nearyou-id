@@ -29,6 +29,7 @@ private const val EMPTY = "Belum ada notifikasi"
 private const val ERROR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu."
 private const val RETRY = "Coba lagi"
 private const val COPY_POST_LIKED = "Seseorang menyukai postingan kamu"
+private const val COPY_APPEAL_REJECTED = "Banding kamu ditolak" // notif_appeal_rejected (#390)
 
 /**
  * iOS counterpart to the Robolectric `NotificationsScreenTest` (+ `NotificationsScreenNavTest` for the
@@ -116,6 +117,34 @@ class NotificationsFlowIosTest {
             onNodeWithText(COPY_POST_LIKED, substring = true).performClick()
             waitUntil(timeoutMillis = 5_000) { captured != null }
             assertNull(captured?.distanceM, "the by-id projection omits coordinates → distanceM is null")
+        }
+    }
+
+    @Test
+    fun tappingAppealDecidedRow_rendersDecisionCopy_andInvokesOnOpenAppeal() {
+        installKoin(
+            NotificationsOutcome.Loaded(
+                listOf(
+                    fakeNotification(
+                        id = "n1",
+                        type = "appeal_decided",
+                        actorUserId = null,
+                        targetType = "appeal",
+                        targetId = "appeal-1",
+                        bodyData = buildJsonObject { put("decision", "rejected") },
+                    ),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            var appealCalls = 0
+            setContent { KoinContext { NearYouTheme { NotificationsScreen(onOpenAppeal = { appealCalls++ }) } } }
+            onNodeWithText(COPY_APPEAL_REJECTED).performClick()
+            waitUntil(timeoutMillis = 5_000) { appealCalls == 1 }
+            waitForIdle()
+            assertEquals(1, appealCalls, "onOpenAppeal fires exactly once (consumed-once nav signal)")
+            assertEquals(listOf("n1"), fake.markReadIds, "tapping the row marks it read")
         }
     }
 

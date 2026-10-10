@@ -1,6 +1,7 @@
 package id.nearyou.app.appeal
 
-/** Configurable [AppealFlow] fake for the appeal ViewModel tests — records the last submit args. */
+/** Configurable [AppealFlow] fake for the appeal ViewModel tests — records the last submit args and every
+ *  status read (a null token = the signed-in session read). */
 class FakeAppealFlow(
     var statusOutcome: AppealStatusOutcome = AppealStatusOutcome.None,
     var submitOutcome: AppealSubmitOutcome = AppealSubmitOutcome.Submitted("a1"),
@@ -10,6 +11,10 @@ class FakeAppealFlow(
     var lastToken: String? = null
         private set
     var submitCount: Int = 0
+        private set
+    var statusCalls: Int = 0
+        private set
+    var lastStatusToken: String? = null
         private set
 
     override suspend fun submit(
@@ -22,8 +27,9 @@ class FakeAppealFlow(
         return submitOutcome
     }
 
-    override suspend fun status(appealToken: String): AppealStatusOutcome {
-        lastToken = appealToken
+    override suspend fun status(appealToken: String?): AppealStatusOutcome {
+        statusCalls++
+        lastStatusToken = appealToken
         return statusOutcome
     }
 }

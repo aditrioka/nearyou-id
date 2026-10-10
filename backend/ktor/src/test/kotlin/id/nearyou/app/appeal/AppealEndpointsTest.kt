@@ -345,6 +345,32 @@ class AppealEndpointsTest : StringSpec({
 
     // ---- Ban-exempt realm (auth-jwt MODIFIED) --------------------------------------
 
+    // content-moderation-appeal § "Decision visible on the next status read" + the appeal-decision-notification
+    // premise: once the approval lifts the ban, the now signed-in appellant reads the decision with a NORMAL
+    // access token (the mobile app opens the appeal screen from the appeal_decided notification, no appeal token).
+    "own-status: an approved decision is read with a normal access token after the ban lifts → status=approved" {
+        val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
+        try {
+            withAppeals {
+                postAppeal(jwtIssuer.issueAppealToken(uid, 0), "mohon ditinjau").status shouldBe HttpStatusCode.Created
+                decideLatest(uid, "approved")
+                dataSource.connection.use { conn ->
+                    conn.prepareStatement("UPDATE users SET is_banned = FALSE, suspended_until = NULL WHERE id = ?").use {
+                        it.setObject(1, uid)
+                        it.executeUpdate()
+                    }
+                }
+                val resp = getAppeal(jwtIssuer.issueAccessToken(uid, 0))
+                resp.status shouldBe HttpStatusCode.OK
+                val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
+                body["has_appeal"]!!.jsonPrimitive.content shouldBe "true"
+                body["status"]!!.jsonPrimitive.content shouldBe "approved"
+            }
+        } finally {
+            cleanup(uid)
+        }
+    }
+
     "appeal realm rejects a stale token_version → 401 token_revoked (the revocation check is NOT relaxed)" {
         val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
         try {

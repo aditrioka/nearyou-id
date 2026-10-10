@@ -2,6 +2,7 @@ package id.nearyou.app.admin
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.admin.auth.withFailingConstraint
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
@@ -398,27 +399,13 @@ class SuspensionUnbanWorkerTest : StringSpec({
             // rows (NOT VALID skips existing rows, enforces new INSERTs). The worker
             // SQL is a fixed string literal (no app-level injection seam), so the fault
             // must be installed at the DB layer (D7).
-            dataSource.connection.use { conn ->
-                conn.createStatement().use { st ->
-                    st.execute(
-                        "ALTER TABLE admin_actions_log ADD CONSTRAINT zzz_fail_audit " +
-                            "CHECK (action_type <> 'system_unban_applied') NOT VALID",
-                    )
-                }
-            }
-            try {
+            withFailingConstraint(dataSource, "admin_actions_log", "zzz_fail_audit", "action_type <> 'system_unban_applied'") {
                 shouldThrow<Exception> { runBlocking { worker.execute() } }
                 // Unban rolled back: user still banned with its original expiry.
                 val row = loadUser(uid)
                 row.isBanned shouldBe true
                 row.suspendedUntil.shouldNotBeNull()
                 loadWorkerAuditRows(uid) shouldHaveSize 0
-            } finally {
-                dataSource.connection.use { conn ->
-                    conn.createStatement().use { st ->
-                        st.execute("ALTER TABLE admin_actions_log DROP CONSTRAINT IF EXISTS zzz_fail_audit")
-                    }
-                }
             }
         } finally {
             cleanupAudit(uid)

@@ -40,6 +40,9 @@ import id.nearyou.app.ui.components.LoadMoreFooter
 import id.nearyou.app.ui.components.LoadMoreOnScrollEnd
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.notif_account_action_applied
+import id.nearyou.resources.generated.resources.notif_appeal_approved
+import id.nearyou.resources.generated.resources.notif_appeal_decided
+import id.nearyou.resources.generated.resources.notif_appeal_rejected
 import id.nearyou.resources.generated.resources.notif_apple_relay_email_changed
 import id.nearyou.resources.generated.resources.notif_chat_message
 import id.nearyou.resources.generated.resources.notif_chat_message_redacted
@@ -97,9 +100,10 @@ private const val POST_UNAVAILABLE_DURATION_MS: Long = 3000L
  * read (optimistic; `204`/`404` keep, other revert) AND deep-links to its target
  * (`mobile-notifications-deep-link-targets`): `post` → post detail (via the full-projection by-id fetch;
  * unavailable → the transient [notifications_post_unavailable] affordance, no nav), `followed` → profile,
- * `chat_message` → chat thread. Navigation is hoisted to [onOpenPost] / [onOpenProfile] / [onOpenChatThread]
- * (the shell wires them to root-stack pushes) and is consumed once from the VM's `pendingNavTarget` signal,
- * so it does not re-fire on recomposition. The screen itself stays navigation-free (no back-stack reference).
+ * `chat_message` → chat thread, `appeal_decided` → the appeal screen. Navigation is hoisted to [onOpenPost] /
+ * [onOpenProfile] / [onOpenChatThread] / [onOpenAppeal] (the shell wires them to root-stack pushes) and is
+ * consumed once from the VM's `pendingNavTarget` signal, so it does not re-fire on recomposition. The screen
+ * itself stays navigation-free (no back-stack reference).
  */
 @Composable
 fun NotificationsScreen(
@@ -107,6 +111,7 @@ fun NotificationsScreen(
     onOpenProfile: (userId: String) -> Unit = {},
     onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit =
         { _, _, _ -> },
+    onOpenAppeal: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
     val viewModel = viewModel { NotificationsViewModel(flow) }
@@ -129,6 +134,7 @@ fun NotificationsScreen(
             is NotificationNavTarget.Profile -> onOpenProfile(target.userId)
             is NotificationNavTarget.ChatThread ->
                 onOpenChatThread(target.conversationId, target.partnerUsername, target.partnerDisplayName)
+            NotificationNavTarget.Appeal -> onOpenAppeal()
             null -> return@LaunchedEffect
         }
         viewModel.onNavConsumed()
@@ -367,8 +373,10 @@ private fun NotificationRowItem(
  * now-emitted types (follow-up #343: `privacy_flip_warning` / `subscription_billing_issue` /
  * `subscription_expired` / `chat_message_redacted` / `account_action_applied` / `data_export_ready`)
  * and `apple_relay_email_changed` (follow-up #433, the Apple S2S email-relay writer)
- * get specific copy; the still-unemitted reserved value (`username_release_scheduled`) AND any unknown/future
- * `type` fall back to the generic copy (no crash). `privacy_flip_warning` renders the flip deadline
+ * get specific copy; `appeal_decided` (#390) is keyed by [NotificationRow.appealDecision] — approved /
+ * rejected, or the neutral appeal copy when the decision is absent/unknown; the still-unemitted reserved
+ * value (`username_release_scheduled`) AND any unknown/future `type` fall back to the generic copy (no crash).
+ * `privacy_flip_warning` renders the flip deadline
  * date ([NotificationRow.flipDeadlineDate]) into its copy, degrading to the dateless `_soon` variant
  * when `body_data` carries no parseable deadline. These are wire-protocol keys matched against
  * `row.type`, NOT rendered UI literals — the rendered text is always a `stringResource`.
@@ -390,5 +398,11 @@ private fun notificationCopy(row: NotificationRow): String =
         "account_action_applied" -> stringResource(Res.string.notif_account_action_applied)
         "data_export_ready" -> stringResource(Res.string.notif_data_export_ready)
         "apple_relay_email_changed" -> stringResource(Res.string.notif_apple_relay_email_changed)
+        "appeal_decided" ->
+            when (row.appealDecision) {
+                "approved" -> stringResource(Res.string.notif_appeal_approved)
+                "rejected" -> stringResource(Res.string.notif_appeal_rejected)
+                else -> stringResource(Res.string.notif_appeal_decided)
+            }
         else -> stringResource(Res.string.notif_generic)
     }

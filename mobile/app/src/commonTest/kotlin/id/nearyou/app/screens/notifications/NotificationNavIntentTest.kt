@@ -56,6 +56,13 @@ class NotificationNavIntentTest {
     }
 
     @Test
+    fun appealTarget_mapsToOpenAppeal_ignoringTheTargetId() {
+        val body = buildJsonObject { put("decision", "rejected") }
+        assertEquals(NotificationNavIntent.OpenAppeal, resolveNotificationNavIntent("appeal", "appeal-1", null, body))
+        assertEquals(NotificationNavIntent.OpenAppeal, resolveNotificationNavIntent("appeal", null, null, emptyBody))
+    }
+
+    @Test
     fun replyTarget_mapsToNone() {
         assertEquals(NotificationNavIntent.None, resolveNotificationNavIntent("reply", "r1", null, emptyBody))
     }

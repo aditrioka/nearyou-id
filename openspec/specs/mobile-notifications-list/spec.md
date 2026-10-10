@@ -276,6 +276,7 @@ The mobile app SHALL resolve a tapped notification to a deep-link destination as
 - `chat_message` (`target_type = "message"`, `actor_user_id` present) → the chat-thread destination, addressed by `body_data.conversation_id`. Because the notifications wire carries no actor display name, the resolution SHALL fetch the partner's display identity via the SHIPPED `user-profile-read` read (`GET /api/v1/users/{actor_user_id}` — the sender of a 1:1 chat message IS the partner) and invoke `onOpenChatThread(conversation_id, partnerUsername, partnerDisplayName)`. If that profile fetch fails (`404`/IO), the resolution SHALL still invoke `onOpenChatThread(conversation_id, "", "")` — the conversation (messages) is independently valid; the thread top bar degrades to its existing blank-name placeholder rather than blocking a reachable conversation.
 - `chat_message_redacted` (`target_type = "message"`, `actor_user_id` = NULL) → NO destination (non-navigating): with no actor there is no partner to resolve for the thread top bar; deferred with the reply-target case (see § "Actor-less and reply-target deep-linking is deferred").
 - `target_type = "reply"` (the dynamic reply case of `post_auto_hidden`) → NO destination (non-navigating): there is no reply-by-id → parent-post endpoint to build a post-detail route. Deferred (same § as above).
+- `appeal_decided` (`target_type = "appeal"`, `actor_user_id` = NULL) → the appeal-screen destination (`onOpenAppeal()`), with NO fetch and NO payload — the appeal screen reads the caller's own latest appeal status itself (the `target_id` appeal UUID is NOT used as a route key).
 - every no-target informational type (`subscription_billing_issue`, `subscription_expired`, `account_action_applied`, `data_export_ready`, `privacy_flip_warning`, `username_release_scheduled`, `apple_relay_email_changed`) → NO destination (non-navigating).
 
 An unknown/future `type`, or a row missing the field its mapping requires (e.g. a `message` row without `body_data.conversation_id`), SHALL resolve to NO destination (no crash). The resolution SHALL use `actor_user_id` / `target_id` / `conversation_id` ONLY as destination payload or fetch path params — never rendering or logging them (the resolved `partnerUsername` / `partnerDisplayName` are display strings, NOT UUIDs).
@@ -303,6 +304,12 @@ An unknown/future `type`, or a row missing the field its mapping requires (e.g. 
 - **GIVEN** a `chat_message_redacted` row with `target_type = "message"`, `actor_user_id = NULL`, and `body_data = {"conversation_id":"<C>"}`
 - **WHEN** the row is tapped
 - **THEN** the row is marked read AND no navigation destination is invoked (with no actor, the partner top-bar identity cannot be resolved; deferred)
+
+#### Scenario: appeal_decided resolves to the appeal screen with no fetch
+
+- **GIVEN** an `appeal_decided` row with `target_type = "appeal"`, `target_id = "<P>"`, `actor_user_id = NULL`, and `body_data = {"decision":"approved"}`
+- **WHEN** the row is tapped
+- **THEN** the row is marked read AND the appeal destination (`onOpenAppeal`) is invoked exactly once AND no `GET /api/v1/posts/...` or `GET /api/v1/users/...` fetch is issued AND `<P>` is not rendered in any UI node
 
 #### Scenario: an informational no-target row navigates nowhere
 
@@ -351,12 +358,12 @@ The mobile app SHALL resolve a `post`-target notification to a `PostDetailTarget
 
 ### Requirement: NotificationsScreen exposes hoisted deep-link callbacks wired through the shell
 
-`NotificationsScreen` SHALL expose hoisted navigation callbacks — `onOpenPost: (PostDetailTarget) -> Unit`, `onOpenProfile: (userId: String) -> Unit`, and `onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit` — and SHALL invoke them by consuming the `NotificationsViewModel`'s consumed-once nav signal; the screen itself SHALL remain navigation-free (it holds no back-stack reference). `AppShellScreen` SHALL stop invoking `NotificationsScreen()` bare and instead forward its already-hoisted `onOpenPost` / `onOpenProfile` callbacks plus a `onOpenChatThread` callback wired (via `appEntryProvider`) to a `ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName)` push onto the root back stack. This change SHALL NOT declare any new `NavKey` — it reuses the shipped `PostDetailRoute`, `ProfileRoute`, and `ChatThreadRoute`.
+`NotificationsScreen` SHALL expose hoisted navigation callbacks — `onOpenPost: (PostDetailTarget) -> Unit`, `onOpenProfile: (userId: String) -> Unit`, `onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit`, and `onOpenAppeal: () -> Unit` — and SHALL invoke them by consuming the `NotificationsViewModel`'s consumed-once nav signal; the screen itself SHALL remain navigation-free (it holds no back-stack reference). `AppShellScreen` SHALL stop invoking `NotificationsScreen()` bare and instead forward its already-hoisted `onOpenPost` / `onOpenProfile` callbacks plus a `onOpenChatThread` callback wired (via `appEntryProvider`) to a `ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName)` push onto the root back stack, and an `onOpenAppeal` callback wired (via `appEntryProvider`) to an `AppealRoute` push onto the root back stack. No new `NavKey` SHALL be declared for these destinations — they reuse the shipped `PostDetailRoute`, `ProfileRoute`, `ChatThreadRoute`, and `AppealRoute`. The push-tap consumer (`PushTapNavigationEffect`) consumes the SAME shared resolver and SHALL push the same route for each resolved target (including `AppealRoute`).
 
 #### Scenario: the shell no longer invokes NotificationsScreen bare
 
 - **WHEN** inspecting `AppShellScreen`'s Notifikasi section
-- **THEN** `NotificationsScreen` is invoked WITH the `onOpenPost` / `onOpenProfile` / `onOpenChatThread` callbacks (not bare) AND each callback is wired to a root-stack push of the corresponding existing route
+- **THEN** `NotificationsScreen` is invoked WITH the `onOpenPost` / `onOpenProfile` / `onOpenChatThread` / `onOpenAppeal` callbacks (not bare) AND each callback is wired to a root-stack push of the corresponding existing route
 
 #### Scenario: navigation is a consumed-once signal
 
@@ -367,7 +374,7 @@ The mobile app SHALL resolve a `post`-target notification to a `PostDetailTarget
 #### Scenario: no new NavKey is introduced
 
 - **WHEN** inspecting the change's NavKey declarations
-- **THEN** no new `NavKey` type is added (the deep-links reuse the shipped `PostDetailRoute`, `ProfileRoute`, and `ChatThreadRoute`)
+- **THEN** no new `NavKey` type is added (the deep-links reuse the shipped `PostDetailRoute`, `ProfileRoute`, `ChatThreadRoute`, and `AppealRoute`)
 
 ### Requirement: Actor-less and reply-target deep-linking is deferred
 
@@ -413,4 +420,26 @@ Two deep-link cases SHALL be deferred (the tap marks the row read and performs N
 
 - **WHEN** inspecting `NotificationsScreen` in `mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/notifications/NotificationsScreen.kt`
 - **THEN** the screen collects the ViewModel's single `uiState` (plus the separate `isRefreshing` / footer / deep-link signals) via `collectAsStateWithLifecycle()` AND does NOT recompute `notificationsUiState(...)` in the composable over separately-collected `outcome` / `isInitialLoad` flows
+
+### Requirement: appeal_decided row renders decision-keyed copy
+
+An `appeal_decided` notification row SHALL render copy keyed by `body_data.decision` via `:shared:resources` `stringResource`: `"approved"` → the approved copy (`notif_appeal_approved`, "Banding kamu diterima — akunmu aktif kembali"), `"rejected"` → the rejected copy (`notif_appeal_rejected`, "Banding kamu ditolak"), and an absent / non-string / unknown `decision` → a neutral appeal copy (`notif_appeal_decided`, "Ada keputusan atas banding kamu") — never the generic `notif_generic` fallback and never a crash. The row SHALL render no excerpt (the `body_data` carries none) and SHALL NOT render the `target_id` appeal UUID or any decision reason.
+
+#### Scenario: approved appeal_decided row renders the approved copy
+
+- **GIVEN** an `appeal_decided` row with `body_data = {"decision":"approved"}`
+- **WHEN** the row is rendered
+- **THEN** it shows the `notif_appeal_approved` copy AND no UUID is rendered
+
+#### Scenario: rejected appeal_decided row renders the rejected copy
+
+- **GIVEN** an `appeal_decided` row with `body_data = {"decision":"rejected"}`
+- **WHEN** the row is rendered
+- **THEN** it shows the `notif_appeal_rejected` copy
+
+#### Scenario: appeal_decided row without a decision renders the neutral appeal copy
+
+- **GIVEN** an `appeal_decided` row with `body_data = {}`
+- **WHEN** the row is rendered
+- **THEN** it shows the `notif_appeal_decided` copy AND no exception is thrown
 

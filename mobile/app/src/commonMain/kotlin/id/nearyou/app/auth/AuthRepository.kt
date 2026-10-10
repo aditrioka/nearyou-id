@@ -153,6 +153,9 @@ class AuthRepository(
         when (val api = authApiClient.signIn(idToken)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
+                // Drop any appeal token from an earlier banned attempt: a held token means "on the banned
+                // sign-in path", so a stale one would route the signed-in appeal read through it (#390).
+                appealSession.clear()
                 decodeJwtSubject(api.tokens.accessToken)?.let(crashReporter::setUser)
                 bindBillingIdentity()
                 SignInOutcome.Success
@@ -238,6 +241,9 @@ class AuthRepository(
         when (val api = authApiClient.signUp(idToken, dateOfBirth, inviteCode)) {
             is SignInApiResult.Success -> {
                 tokenStore.write(api.tokens)
+                // Drop any appeal token from an earlier banned attempt: a held token means "on the banned
+                // sign-in path", so a stale one would route the signed-in appeal read through it (#390).
+                appealSession.clear()
                 val sub = decodeJwtSubject(api.tokens.accessToken)
                 sub?.let(crashReporter::setUser)
                 // mobile-amplitude-analytics — emit signup_completed (consent-gated downstream); the user

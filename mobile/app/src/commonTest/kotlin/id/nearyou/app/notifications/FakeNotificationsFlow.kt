@@ -1,5 +1,6 @@
 package id.nearyou.app.notifications
 
+import id.nearyou.app.post.PostTargetResolution
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -103,9 +104,19 @@ class FakeNotificationsFlow(
     /** Records each resolved partner (actor) id so a test can assert the chat partner fetch fired. */
     val resolvePartnerIds: MutableList<String> = mutableListOf()
 
+    /** How many hung (`suspendResolveOnCall`) resolutions were CANCELLED — proves a supersede cancels the job. */
+    var cancelledResolves: Int = 0
+        private set
+
     override suspend fun resolvePostTarget(postId: String): PostTargetResolution {
         resolvePostTargetIds += postId
-        if (resolvePostTargetIds.size == suspendResolveOnCall) awaitCancellation()
+        if (resolvePostTargetIds.size == suspendResolveOnCall) {
+            try {
+                awaitCancellation()
+            } finally {
+                cancelledResolves++
+            }
+        }
         return postTargetResolution
     }
 
