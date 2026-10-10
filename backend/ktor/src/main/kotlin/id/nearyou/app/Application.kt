@@ -70,6 +70,8 @@ import id.nearyou.app.common.AppJson
 import id.nearyou.app.common.ClientIpExtractorPlugin
 import id.nearyou.app.common.DbDispatchers
 import id.nearyou.app.common.installAppStatusPages
+import id.nearyou.app.common.installRequestBodyLimit
+import id.nearyou.app.common.installResponseCompression
 import id.nearyou.app.config.EnvVarSecretResolver
 import id.nearyou.app.config.RemoteConfig
 import id.nearyou.app.config.RemoteConfigClientAdapter
@@ -269,7 +271,6 @@ import io.ktor.server.netty.EngineMain
 import io.ktor.server.plugins.callid.CallId
 import io.ktor.server.plugins.callid.callIdMdc
 import io.ktor.server.plugins.calllogging.CallLogging
-import io.ktor.server.plugins.compression.Compression
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
@@ -351,9 +352,12 @@ fun Application.module() {
         callIdMdc("call_id")
     }
     // Timeline/chat JSON compresses well and Cloud Run egress is billed (docs/11 §3.3).
-    install(Compression)
+    // Responses only — see installResponseCompression (request bodies stay under the cap).
+    installResponseCompression()
 
     installAppStatusPages()
+    // 64 KiB default request-body cap + path overrides (#545) — 413 before auth/receive.
+    installRequestBodyLimit()
 
     val dbConfig =
         DbConfig(
@@ -449,8 +453,8 @@ fun Application.module() {
         environment.config.propertyOrNull("auth.apple.jwksUrl")?.getString()?.takeIf { it.isNotBlank() }
             ?: APPLE_JWKS_URL_DEFAULT
 
-    val googleAudiences = csvAudiences("auth.google.audiences")
-    val appleAudiences = csvAudiences("auth.apple.audiences")
+    val googleAudiences = csvConfigSet(environment.config, "auth.google.audiences")
+    val appleAudiences = csvConfigSet(environment.config, "auth.apple.audiences")
 
     val googleVerifier = GoogleIdTokenVerifier(JwksCache(httpClient, googleJwksUrl), googleAudiences)
     // ONE Apple JWKS cache shared by the signin verifier AND the S2S webhook —
@@ -474,7 +478,12 @@ fun Application.module() {
     // Construct the OIDC verifier eagerly so any wiring failure surfaces at boot
     // before the route("/internal") subtree is mounted (5.4).
     val oidcTokenVerifier: OidcTokenVerifier =
-        GoogleOidcTokenVerifier(audience = internalOidcAudience, jwkProvider = googleJwkProvider())
+        GoogleOidcTokenVerifier(
+            audience = internalOidcAudience,
+            // Caller-identity pin (#544). Empty: boot fails in staging/prod, deny-all elsewhere.
+            allowedPrincipals = resolveInternalOidcAllowedPrincipals(environment.config),
+            jwkProvider = googleJwkProvider(),
+        )
     val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
     val privacyFlipWorker = PrivacyFlipWorker(dataSource)
     // account-deletion-tombstone: user-facing request/cancel/status API + the daily
@@ -1511,7 +1520,39 @@ private fun isLikelyUrl(value: String): Boolean =
         !parsed.scheme.isNullOrBlank() && !parsed.host.isNullOrBlank()
     }.getOrElse { false }
 
-private fun Application.csvAudiences(key: String): Set<String> =
-    environment.config.propertyOrNull(key)?.getString()?.takeIf { it.isNotBlank() }
+/**
+ * Reads `oidc.allowedPrincipals` (`INTERNAL_OIDC_ALLOWED_PRINCIPALS`, comma-separated
+ * service-account emails) — trimmed, lowercased, blanks dropped. Empty is never "allow
+ * all" (the opposite of the fail-soft "unresolved secret = NoOp" convention — this is an
+ * authorization control):
+ *  - local env (`ktor.environment` test/dev/development) → boots, the verifier rejects every
+ *    caller 403, and this WARN says why (keeps local harnesses booting without the variable);
+ *  - anything else — staging, production, unset (= production) or a typo like `prod` — → boot
+ *    fails, so a misconfigured deploy is a rejected revision instead of nine silently-403ing
+ *    workers. An allowlist of local envs, not a denylist of deployed ones, so a typo fails closed.
+ */
+internal fun resolveInternalOidcAllowedPrincipals(config: io.ktor.server.config.ApplicationConfig): Set<String> {
+    val principals = csvConfigSet(config, "oidc.allowedPrincipals").mapTo(HashSet()) { it.lowercase() }
+    if (principals.isEmpty()) {
+        val env = config.propertyOrNull("ktor.environment")?.getString() ?: "production"
+        check(env in LOCAL_KTOR_ENVIRONMENTS) {
+            "Missing required config oidc.allowedPrincipals (set INTERNAL_OIDC_ALLOWED_PRINCIPALS) in $env"
+        }
+        org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").warn(
+            "event=internal_oidc_allowlist_empty every /internal/* OIDC call will be rejected 403 " +
+                "(set INTERNAL_OIDC_ALLOWED_PRINCIPALS)",
+        )
+    }
+    return principals
+}
+
+/** Environments allowed to boot without a caller allowlist (deny-all + WARN). */
+private val LOCAL_KTOR_ENVIRONMENTS = setOf("test", "dev", "development")
+
+private fun csvConfigSet(
+    config: io.ktor.server.config.ApplicationConfig,
+    key: String,
+): Set<String> =
+    config.propertyOrNull(key)?.getString()?.takeIf { it.isNotBlank() }
         ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
         ?: emptySet()

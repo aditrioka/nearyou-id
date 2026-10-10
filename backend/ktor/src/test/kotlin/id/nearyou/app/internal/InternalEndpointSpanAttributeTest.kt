@@ -89,6 +89,7 @@ class InternalEndpointSpanAttributeTest : StringSpec({
     val defaultVerifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = testAudience,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = StaticJwkProvider(mapOf(testKid to FakeJwk(testKid, pubKey))),
         )
 
@@ -97,10 +98,13 @@ class InternalEndpointSpanAttributeTest : StringSpec({
         kid: String = testKid,
         expiresAt: Instant = Instant.now().plus(1, ChronoUnit.HOURS),
         subject: String = sentinelSub,
+        email: String = TEST_OIDC_PRINCIPAL,
     ): String =
         JWT.create()
             .withKeyId(kid)
             .withSubject(subject)
+            .withClaim("email", email)
+            .withClaim("email_verified", true)
             .withAudience(audience)
             .withIssuedAt(UtilDate.from(Instant.now()))
             .withExpiresAt(UtilDate.from(expiresAt))
@@ -190,6 +194,34 @@ class InternalEndpointSpanAttributeTest : StringSpec({
         }
         // Spec contract is "attribute absence" — whether a span is produced for
         // the 401 path is implementation-detail of KtorServerTelemetry.
+        for (span in recorder.recordedSpans()) {
+            span.serviceAccountId() shouldBe null
+            span.userId() shouldBe null
+        }
+    }
+
+    "4.3b 403 principal rejection span does NOT carry service.account.id (#544)" {
+        val (sdk, recorder) = SpanRecorder.newPipeline()
+        GlobalOpenTelemetry.set(sdk)
+        testApplication {
+            application {
+                installKtorServerTelemetry(sdk)
+                routing {
+                    route("/internal") {
+                        install(InternalEndpointAuth) { verifier = defaultVerifier }
+                        stubUnbanWorkerRoute()
+                    }
+                }
+            }
+            // Valid signature/aud/exp, caller not allowlisted → 403 inside the verifier,
+            // so OidcSubjectKey (and the span writer after it) never runs.
+            val foreignToken = signedJwt(email = TEST_FOREIGN_OIDC_PRINCIPAL)
+            val resp =
+                client.post("/internal/unban-worker") {
+                    header(HttpHeaders.Authorization, "Bearer $foreignToken")
+                }
+            resp.status shouldBe HttpStatusCode.Forbidden
+        }
         for (span in recorder.recordedSpans()) {
             span.serviceAccountId() shouldBe null
             span.userId() shouldBe null

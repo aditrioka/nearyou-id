@@ -10,6 +10,7 @@ import com.zaxxer.hikari.HikariDataSource
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.revenuecatapi.NoOpReferralEntitlementGranter
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -78,6 +79,7 @@ class ReferralActivityCheckRouteTest : StringSpec({
     val verifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = RAC_AUDIENCE,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = RacStaticJwkProvider(mapOf(RAC_KID to RacFakeJwk(RAC_KID, pubKey))),
         )
     val worker = ReferralActivityCheckWorker(dataSource, ReferralGrantRepository(), NoOpReferralEntitlementGranter)
@@ -86,6 +88,8 @@ class ReferralActivityCheckRouteTest : StringSpec({
         JWT.create()
             .withKeyId(RAC_KID)
             .withSubject("scheduler@nearyou-staging.iam.gserviceaccount.com")
+            .withClaim("email", TEST_OIDC_PRINCIPAL)
+            .withClaim("email_verified", true)
             .withAudience(RAC_AUDIENCE)
             .withIssuedAt(UtilDate.from(Instant.now()))
             .withExpiresAt(UtilDate.from(Instant.now().plus(1, ChronoUnit.HOURS)))
