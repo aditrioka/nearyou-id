@@ -18,7 +18,7 @@ Staging (confirmed by the #535 session): until 2026-10-04 three hand-made Cloud 
 - Removing `--allow-unauthenticated` / adding an ingress or IAM-invoker layer (BARU-1 / BARU-1b — separate items; this change is defence in depth that stays valuable after them).
 - Issuer (`iss`) pinning — the JWKS is Google's ID-token key set, so a valid signature already implies a Google-issued token; not part of #544's scope.
 - Per-worker allowlists (one allowlist for the whole OIDC subtree — every worker is invoked by the same scheduler SA).
-- Rewriting the existing per-route `contentLength()` guards (they stay as tighter belt-and-braces).
+- Rewriting the existing per-route `contentLength()` guards (the 4 KiB ones stay tighter; the RevenueCat/CSAM 64 KiB ones now equal the default and stay as belt-and-braces).
 - Provisioning Cloud Scheduler jobs / SAs (#535).
 
 ## Decisions
@@ -37,8 +37,8 @@ The caller *is* authenticated (valid Google signature for our audience) but not 
 
 ### D4 — Empty allowlist: fail boot in deployed environments, deny-all elsewhere — never "allow all"
 `resolveInternalOidcAllowedPrincipals(config)` (sibling of `resolveInternalOidcAudience`) returns the trimmed, lowercased set. When it is empty:
-- `ktor.environment` = `staging` / `production` (unset counts as `production`, matching every other env read in `Application.kt`) → **boot fails** naming the variable. A misconfigured deploy becomes a rejected revision (the previous revision keeps serving with its allowlist) instead of a healthy-looking service whose nine workers silently 403 (security-review round 1).
-- `dev` / `test` → boot continues with `WARN event=internal_oidc_allowlist_empty`, and the verifier rejects every caller 403. Local dev, the verify-loop harness and `HealthRoutesTest` (the one test that boots `module()`, pinned to `test`) keep working without the variable.
+- any `ktor.environment` other than the local `test` / `dev` / `development` — staging, production, unset (= `production`, matching every other env read in `Application.kt`) or a typo like `prod` → **boot fails** naming the variable. An allowlist of local envs rather than a denylist of deployed ones, so a typo fails closed (implementation-review round). A misconfigured deploy becomes a rejected revision (the previous revision keeps serving with its allowlist) instead of a healthy-looking service whose nine workers silently 403 (security-review round 1).
+- `test` / `dev` / `development` → boot continues with `WARN event=internal_oidc_allowlist_empty`, and the verifier rejects every caller 403. Local dev, the verify-loop harness and `HealthRoutesTest` (the one test that boots `module()`, pinned to `test`) keep working without the variable.
 - *Why not fail-soft:* the repo's secret convention is "unresolved = NoOp/feature off" (`reference_backend_secret_resolution_convention`). For an **authorization** control the NoOp equivalent would be "allow everyone" — exactly the bug being fixed. The spec states the inversion explicitly.
 
 ### D5 — Plain Ktor config, not `secretKey()`

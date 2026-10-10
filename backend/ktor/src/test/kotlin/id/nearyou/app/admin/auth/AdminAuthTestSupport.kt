@@ -5,10 +5,15 @@ import com.zaxxer.hikari.HikariDataSource
 import dev.samstevens.totp.code.DefaultCodeGenerator
 import dev.samstevens.totp.code.HashingAlgorithm
 import id.nearyou.app.admin.admin
+import id.nearyou.app.common.AppJson
+import id.nearyou.app.common.installAppStatusPages
+import id.nearyou.app.common.installRequestBodyLimit
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import io.ktor.client.HttpClient
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import org.apache.commons.codec.binary.Base32
@@ -296,11 +301,22 @@ object AdminAuthTestSupport {
         // null → the admin module's own no-op (SKIPPED) seam; a trigger route test injects a
         // real DataExportWorker so a `failed`/`pending` re-run reaches `ready`.
         dataExportProcessor: id.nearyou.app.account.DataExportSingleProcessor? = null,
+        // Install the production StatusPages + global RequestBodyLimit (#545) in front of the
+        // admin routes, so a transport-cap test hits the real route wiring. Off by default:
+        // StatusPages would change how the other suites see exceptions.
+        productionBodyLimit: Boolean = false,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
             application {
                 installTestClientIpDefault()
+                if (productionBodyLimit) {
+                    // The StatusPages envelope is a JSON map — production negotiates it via the
+                    // global ContentNegotiation(AppJson).
+                    install(ContentNegotiation) { json(AppJson) }
+                    installAppStatusPages()
+                    installRequestBodyLimit()
+                }
                 val csamArgs =
                     csamMetadataEncryptor?.let { enc ->
                         val repo = id.nearyou.app.moderation.csam.CsamRepository(dataSource)

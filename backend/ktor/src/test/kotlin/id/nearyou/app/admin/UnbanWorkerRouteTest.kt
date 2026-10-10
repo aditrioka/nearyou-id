@@ -732,7 +732,7 @@ class UnbanWorkerRouteTest : StringSpec({
                 ),
             )
         status shouldBe HttpStatusCode.Unauthorized
-        body shouldContain "audience_mismatch"
+        body shouldBe """{"error":"audience_mismatch"}"""
     }
 
     "9.35 empty allowlist is fail-closed — an otherwise-valid token gets 403" {

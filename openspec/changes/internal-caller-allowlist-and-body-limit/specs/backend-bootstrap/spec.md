@@ -15,7 +15,7 @@ A request without a `Content-Length` (chunked transfer) SHALL be cut off as soon
 
 Request-body decompression SHALL be disabled (`Compression` installed in response-only mode): the limiter counts the raw bytes on the wire, so inflating a `Content-Encoding: gzip` body after it would let a small compressed body expand far past the cap. A compressed request body reaches the route as its raw bytes.
 
-Existing route-level guards (the 4 KiB `contentLength()` checks on the user-settings `PATCH` routes, the 64 KiB guards on the RevenueCat and CSAM webhooks, the image route's streamed cap, the reserved-usernames 256 KB guard) remain in place and stay authoritative for bodies within the path's transport limit; a body above the transport limit is rejected by this plugin regardless of the route's own oversize status.
+Existing route-level guards (the 4 KiB `contentLength()` checks on the user-settings `PATCH` routes and `POST /api/v1/user/fcm-token`, the 64 KiB guards on the RevenueCat and CSAM webhooks — equal to the default, kept as belt-and-braces — the image route's streamed cap, the reserved-usernames 256 KB guard) remain in place and stay authoritative for bodies within the path's transport limit; a body above the transport limit is rejected by this plugin regardless of the route's own oversize status.
 
 A path that needs MORE than the 64 KiB default SHALL get its override in the single resolver function, never by a second `RequestBodyLimit` installation (the application-level `Content-Length` pre-check runs before routing, so a route-level install cannot raise it). A route that needs LESS keeps its own tighter guard.
 

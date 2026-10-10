@@ -196,8 +196,8 @@ Application startup SHALL read the allowed-principals set from Ktor config key `
 
 An unset, blank, or all-blank-entries value resolves to an empty set, and an empty set SHALL NEVER mean "admit every caller" — this deliberately inverts the repository's fail-soft "unresolved secret = no-op" convention, because this is an authorization control:
 
-- in a deployed environment (`ktor.environment` is `staging` or `production`; an unset value counts as `production`) application boot SHALL fail fast with an error naming `INTERNAL_OIDC_ALLOWED_PRINCIPALS`, so a misconfigured deploy is a rejected revision rather than a running service whose workers silently `403`;
-- in any other environment (`dev`, `test`) boot SHALL proceed — local development and test harnesses keep booting without the variable — with a WARN line `event=internal_oidc_allowlist_empty`, and every request to an OIDC-gated `/internal/*` route, including one carrying an otherwise-valid token, is rejected `403 {"error": "principal_not_allowed"}`.
+- unless `ktor.environment` names a local environment (`test`, `dev`, `development`) — i.e. in `staging`, `production`, when unset (which counts as `production`), or for any unrecognised value — application boot SHALL fail fast with an error naming `INTERNAL_OIDC_ALLOWED_PRINCIPALS`, so a misconfigured deploy is a rejected revision rather than a running service whose workers silently `403` (an allowlist of local environments, so a typo fails closed);
+- in a local environment (`test`, `dev`, `development`) boot SHALL proceed — local development and test harnesses keep booting without the variable — with a WARN line `event=internal_oidc_allowlist_empty`, and every request to an OIDC-gated `/internal/*` route, including one carrying an otherwise-valid token, is rejected `403 {"error": "principal_not_allowed"}`.
 
 Each deployed environment SHALL set the allowlist to exactly the Cloud Scheduler service account(s) that invoke its workers; the per-environment accounts and their migration steps are operational configuration recorded in `docs/07-Operations.md` § Internal worker schedules, not in this spec.
 
@@ -205,8 +205,8 @@ Each deployed environment SHALL set the allowlist to exactly the Cloud Scheduler
 - **WHEN** `INTERNAL_OIDC_ALLOWED_PRINCIPALS` is unset AND the application starts with `ktor.environment` = `test`
 - **THEN** boot succeeds AND a WARN `event=internal_oidc_allowlist_empty` is logged AND a request to `POST /internal/unban-worker` with an otherwise-valid token is rejected `403` with `{"error": "principal_not_allowed"}`
 
-#### Scenario: Empty allowlist fails boot in a deployed environment
-- **WHEN** `INTERNAL_OIDC_ALLOWED_PRINCIPALS` is unset or blank AND `ktor.environment` is `staging`, `production`, or unset
+#### Scenario: Empty allowlist fails boot outside a local environment
+- **WHEN** `INTERNAL_OIDC_ALLOWED_PRINCIPALS` is unset or blank AND `ktor.environment` is `staging`, `production`, unset, or an unrecognised value such as `prod`
 - **THEN** application boot fails with an error naming `INTERNAL_OIDC_ALLOWED_PRINCIPALS` before the HTTP server accepts connections
 
 #### Scenario: Blank allowlist entries resolve to an empty, denying set

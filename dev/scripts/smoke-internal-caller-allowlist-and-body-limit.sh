@@ -46,7 +46,8 @@ expect() {
     local label="$1" want_status="$2" want_body="$3"
     shift 3
     local status
-    status="$(curl -sS -o "$TMP/body" -w '%{http_code}' -X POST "$@")"
+    # A transport error (reset, timeout) prints 000 via -w → a FAIL line, not a silent set -e exit.
+    status="$(curl -sS --max-time 30 -o "$TMP/body" -w '%{http_code}' -X POST "$@" || true)"
     if [[ "$status" == "$want_status" ]] && { [[ -z "$want_body" ]] || grep -q -- "$want_body" "$TMP/body"; }; then
         echo "PASS  $label → $status"
     else

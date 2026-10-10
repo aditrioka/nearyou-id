@@ -1525,16 +1525,17 @@ private fun isLikelyUrl(value: String): Boolean =
  * service-account emails) — trimmed, lowercased, blanks dropped. Empty is never "allow
  * all" (the opposite of the fail-soft "unresolved secret = NoOp" convention — this is an
  * authorization control):
- *  - deployed env (`ktor.environment` staging/production, the default) → boot fails, so a
- *    misconfigured deploy is a rejected revision instead of nine silently-403ing workers;
- *  - dev/test → boots, the verifier rejects every caller 403, and this WARN says why
- *    (keeps local harnesses booting without the variable).
+ *  - local env (`ktor.environment` test/dev/development) → boots, the verifier rejects every
+ *    caller 403, and this WARN says why (keeps local harnesses booting without the variable);
+ *  - anything else — staging, production, unset (= production) or a typo like `prod` — → boot
+ *    fails, so a misconfigured deploy is a rejected revision instead of nine silently-403ing
+ *    workers. An allowlist of local envs, not a denylist of deployed ones, so a typo fails closed.
  */
 internal fun resolveInternalOidcAllowedPrincipals(config: io.ktor.server.config.ApplicationConfig): Set<String> {
     val principals = csvConfigSet(config, "oidc.allowedPrincipals").mapTo(HashSet()) { it.lowercase() }
     if (principals.isEmpty()) {
         val env = config.propertyOrNull("ktor.environment")?.getString() ?: "production"
-        check(env != "staging" && env != "production") {
+        check(env in LOCAL_KTOR_ENVIRONMENTS) {
             "Missing required config oidc.allowedPrincipals (set INTERNAL_OIDC_ALLOWED_PRINCIPALS) in $env"
         }
         org.slf4j.LoggerFactory.getLogger("id.nearyou.app.Application").warn(
@@ -1544,6 +1545,9 @@ internal fun resolveInternalOidcAllowedPrincipals(config: io.ktor.server.config.
     }
     return principals
 }
+
+/** Environments allowed to boot without a caller allowlist (deny-all + WARN). */
+private val LOCAL_KTOR_ENVIRONMENTS = setOf("test", "dev", "development")
 
 private fun csvConfigSet(
     config: io.ktor.server.config.ApplicationConfig,

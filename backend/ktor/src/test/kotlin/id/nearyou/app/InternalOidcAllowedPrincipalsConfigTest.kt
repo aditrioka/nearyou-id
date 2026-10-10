@@ -58,11 +58,17 @@ class InternalOidcAllowedPrincipalsConfigTest : StringSpec({
         warns.none { it.contains("event=internal_oidc_allowlist_empty") } shouldBe true
     }
 
-    "an empty allowlist fails boot in a deployed environment (staging, production, or unset = production)" {
-        for (env in listOf("staging", "production", null)) {
-            val config = MapApplicationConfig().apply { if (env != null) put("ktor.environment", env) }
-            val ex = shouldThrow<IllegalStateException> { resolveInternalOidcAllowedPrincipals(config) }
-            ex.message!! shouldContain "INTERNAL_OIDC_ALLOWED_PRINCIPALS"
+    "an empty allowlist fails boot outside local envs (staging, production, unset = production, a typo)" {
+        for (env in listOf("staging", "production", null, "prod", "")) {
+            for (blank in listOf(null, " , ")) {
+                val config =
+                    MapApplicationConfig().apply {
+                        if (env != null) put("ktor.environment", env)
+                        if (blank != null) put("oidc.allowedPrincipals", blank)
+                    }
+                val ex = shouldThrow<IllegalStateException> { resolveInternalOidcAllowedPrincipals(config) }
+                ex.message!! shouldContain "INTERNAL_OIDC_ALLOWED_PRINCIPALS"
+            }
         }
     }
 })

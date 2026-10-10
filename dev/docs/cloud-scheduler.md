@@ -93,7 +93,7 @@ script's first run (2026-10-04) moved them to `scheduler-invoker-staging`, and
 `gcloud scheduler jobs list` now shows the new SA on all nine jobs. No job uses the
 legacy SA any more, but it still holds `run.invoker`. To retire it:
 
-1. If it's still listed in `INTERNAL_OIDC_ALLOWED_PRINCIPALS` in `deploy-staging.yml`, drop it.
+1. Nothing to drop from `INTERNAL_OIDC_ALLOWED_PRINCIPALS`: #544 shipped allowlisting only `scheduler-invoker-staging`.
 2. Remove its `run.invoker` binding:
 
    ```bash

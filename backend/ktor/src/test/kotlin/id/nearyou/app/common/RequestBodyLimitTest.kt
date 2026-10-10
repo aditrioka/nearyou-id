@@ -202,8 +202,15 @@ class RequestBodyLimitTest : StringSpec({
             postBytes("/admin/reserved-usernames/bulk", 512 * KIB).status shouldBe HttpStatusCode.OK
             postBytes("/admin/feature-flags/wordlists/profanity", 2 * MIB).status shouldBe HttpStatusCode.OK
             handled.get() shouldBe 2
-            postBytes("/admin/reserved-usernames/bulk", MIB + 1).status shouldBe HttpStatusCode.PayloadTooLarge
-            postBytes("/admin/feature-flags/wordlists/profanity", 4 * MIB + 1).status shouldBe HttpStatusCode.PayloadTooLarge
+            for ((path, size) in listOf(
+                "/admin/reserved-usernames/bulk" to MIB + 1,
+                "/admin/feature-flags/wordlists/profanity" to 4 * MIB + 1,
+                "/admin/feature-flags/wordlists/profanity/preview" to 4 * MIB + 1,
+            )) {
+                val res = postBytes(path, size)
+                res.status shouldBe HttpStatusCode.PayloadTooLarge
+                res.bodyAsText() shouldContain "payload_too_large"
+            }
             handled.get() shouldBe 2
         }
     }
