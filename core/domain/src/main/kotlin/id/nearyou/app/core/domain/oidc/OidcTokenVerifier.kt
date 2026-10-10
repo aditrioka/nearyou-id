@@ -13,7 +13,9 @@ import java.time.Instant
  *   `aud`, `exp`, and (optionally) `iat`.
  * - On failure, throws exactly one [OidcVerificationException] subtype mapped 1:1
  *   to the sanitized response vocabulary in the `internal-endpoint-auth`
- *   capability spec. Implementations MUST NOT return a sentinel value.
+ *   capability spec (`401` for authentication failures, `403` for
+ *   [OidcVerificationException.PrincipalNotAllowed]). Implementations MUST NOT
+ *   return a sentinel value.
  */
 interface OidcTokenVerifier {
     suspend fun verify(token: String): VerifiedClaims
