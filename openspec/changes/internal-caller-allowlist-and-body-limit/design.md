@@ -5,7 +5,7 @@ The 2026-10-03 architecture review (`dev/audits/2026-10-03-architecture-review/R
 - **#544.** `GoogleOidcTokenVerifier` (`:infra:oidc`) verifies signature + `aud` + `exp` and nothing about *who* minted the token. `deploy-staging.yml` deploys with `--allow-unauthenticated`, so Cloud Run's IAM invoker check — the second layer the `suspension-unban-worker` design (archive 2026-04-27, design.md:49) relied on — never runs. Any Google principal that can mint an ID token for `https://api-staging.nearyou.id` (any service account in any project — `--audiences` minting needs SA credentials or impersonation) passes the gate on all nine OIDC workers.
 - **#545.** No `RequestBodyLimit` is installed. JSON routes `call.receive<T>()` the whole body before the code-point guards run; only six routes pre-check `contentLength()`, and chunked bodies bypass even those. Cloud Run's own ceiling is 32 MiB per HTTP/1 request on a 512 MiB instance at concurrency 80.
 
-Staging today (read-only `gcloud`, confirmed by the #535 session on 2026-10-04): three live Cloud Scheduler jobs (`nearyou-unban-worker-staging`, `nearyou-privacy-flip-worker-staging`, `nearyou-login-anomaly-check-staging`) all run as `unban-scheduler-staging@…`; the other six workers have no job. #535 (`dev/scripts/provision-schedulers.sh`, parallel session) creates `scheduler-invoker-staging@…` and moves all nine jobs onto it.
+Staging (confirmed by the #535 session): until 2026-10-04 three hand-made Cloud Scheduler jobs (unban, privacy-flip, login-anomaly) ran as the legacy `unban-scheduler-staging` SA and the other six workers had no job. #535 (`dev/scripts/provision-schedulers.sh`, PR #579, merged) then created `scheduler-invoker-staging` and moved all nine jobs onto it; a forced run returned `200` from every worker.
 
 ## Goals / Non-Goals
 
@@ -45,7 +45,7 @@ The caller *is* authenticated (valid Google signature for our audience) but not 
 SA emails are non-secret (CLAUDE.md public-repository posture: "service-account emails are non-sensitive"). Same treatment as `INTERNAL_OIDC_AUDIENCE`: `application.conf` key `oidc.allowedPrincipals = ${?INTERNAL_OIDC_ALLOWED_PRINCIPALS}`, bound with `--set-env-vars`. The existing private `csvAudiences()` CSV-to-set helper in `Application.kt` is generalised (renamed `csvConfigSet`) and reused — no second parser.
 
 ### D6 — `deploy-staging.yml` switches `--set-env-vars` to the `^;^` delimiter
-gcloud splits `--set-env-vars` on commas, so a comma-separated allowlist would be torn apart. `gcloud topic escaping`: a leading `^;^` makes `;` the pair delimiter for that flag only. `--update-env-vars` can't be combined with `--set-env-vars` (mutually exclusive group), so the whole flag value moves to the new delimiter. Staging value: `scheduler-invoker-staging@nearyou-staging.iam.gserviceaccount.com,unban-scheduler-staging@nearyou-staging.iam.gserviceaccount.com` — both needed until #535's script has moved the three live jobs; the retire step is documented in docs/07.
+gcloud splits `--set-env-vars` on commas, so a comma-separated allowlist would be torn apart. `gcloud topic escaping`: a leading `^;^` makes `;` the pair delimiter for that flag only. `--update-env-vars` can't be combined with `--set-env-vars` (mutually exclusive group), so the whole flag value moves to the new delimiter. Staging value: `scheduler-invoker-staging@nearyou-staging.iam.gserviceaccount.com` only (least privilege — no job runs as the legacy SA any more). The delimiter switch is kept anyway: the variable is a list by contract, and the next environment or a second scheduler SA must not need a workflow-syntax change.
 
 ### D7 — One application-level `RequestBodyLimit` with a path-keyed resolver, not route-level installs
 Verified against the 3.4.3 plugin source: `RequestBodyLimit` is a route-scoped plugin whose `onCall` hook checks `Content-Length` and whose `BeforeReceive` hook wraps the body channel with a counting limiter. Installed on the application, `onCall` runs in the `Plugins` phase — **before routing resolves the route** — so a route-level installation cannot relax an application-level `Content-Length` rejection for `/api/v1/images`. A single `bodyLimit { requestBodyLimitFor(it.request.path()) }` resolver is unambiguous, testable as a pure function, and is the one place a future override goes.
@@ -78,7 +78,7 @@ Backend only. `/internal/*` workers have no mobile or admin client surface; Clou
 - **[Cloud Scheduler tokens lack `email`/`email_verified` → every worker 403s on staging]** → Google documents both claims; the pre-merge branch-deploy smoke force-runs a live job (`gcloud scheduler jobs run nearyou-unban-worker-staging`) and checks the request log for `200` before the PR is marked ready.
 - **[A future environment (prod) deploys without the allowlist → workers inert]** → fail-closed by design; loud via the boot WARN + red Scheduler attempts; docs/10 setup checklist + docs/07 runbook carry the env var as a required step.
 - **[An unlisted route legitimately needs > 64 KiB]** → body-reading route survey in D8; a miss surfaces as a visible `413` (not silent corruption) and is fixed by one line in the resolver.
-- **[#535 picks a different SA name]** → coordinated with the #535 session (confirmed `scheduler-invoker-staging`); the name is stated in both PR bodies.
+- **[#535's SA name drifts]** → coordinated with the #535 session (confirmed `scheduler-invoker-staging`, merged in #579); the name is stated in both PR bodies.
 - **[Branch deploy is ephemeral — a `main` deploy clobbers it]** → run the smoke immediately after the branch deploy; keep it short.
 - **[Mixed-case allowlist entry]** → entries lowercased at parse; the presented email is matched exactly (Google issues it lowercase).
 - **[A crafted chunked oversize admin form post]** → `AdminCsrfGate` swallows the receive failure and answers its CSRF 403 (with its audit row). Browsers send `Content-Length`, so real admin traffic gets the 413 pre-check; a crafted chunked post needs an authenticated admin session. Accepted; not worth a gate change here.
@@ -86,10 +86,10 @@ Backend only. `/internal/*` workers have no mobile or admin client surface; Clou
 
 ## Migration Plan
 
-1. Merge order with #535 is free: the staging allowlist carries both SAs, so jobs work whether they still run as `unban-scheduler-staging` or have moved to `scheduler-invoker-staging`.
+1. #535's script already runs all nine staging jobs as `scheduler-invoker-staging` (2026-10-04), so allowlisting that one SA keeps every job green; the branch-deploy smoke force-runs a live job to prove it before merge.
 2. Deploy (branch deploy pre-merge for the smoke; `main` deploy on merge) — no migration, no data change.
-3. After the operator runs #535's script and every staging job shows `scheduler-invoker-staging`, drop `unban-scheduler-staging@…` from `INTERNAL_OIDC_ALLOWED_PRINCIPALS` in `deploy-staging.yml` (one-line PR; runbook step in docs/07).
-4. **Rollback:** revert the PR. Emergency widening without a revert: `gcloud run services update --update-env-vars` on the allowlist (still fail-closed if blanked).
+3. Retiring the legacy `unban-scheduler-staging` SA (its `run.invoker` binding + the SA) is #535's runbook step (`dev/docs/cloud-scheduler.md`); it was never allowlisted here.
+4. **Rollback:** revert the PR. Emergency widening without a revert: `gcloud run services update --update-env-vars` on the allowlist (an empty value fails boot on staging/production, so the previous revision keeps serving).
 
 ## Open Questions
 
