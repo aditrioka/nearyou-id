@@ -115,8 +115,8 @@
 ## 5. Verification & lifecycle
 
 - [x] 5.1 Mockup: frame 7 rendered + annex generated (done at proposal); compare the finished screen against it.
-- [ ] 5.2 Gate (docs/13):
+- [x] 5.2 Gate (docs/13):
   - `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test :mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest :mobile:app:iosSimulatorArm64Test :mobile:app:linkDebugFrameworkIosSimulatorArm64`;
   - throwaway PG on :5434 if the dev DB is dirty.
-- [ ] 5.3 Manual verify (verify-loop): Android emulator `verify36` + iOS simulator, light + dark. Cover the post-detail chrome, own-reply delete (dialog → removal), and a failed delete (revert + snackbar). Screenshots go in the PR body (docs/11 §5 DoD).
+- [x] 5.3 Manual verify (verify-loop): Android emulator `verify36` + iOS simulator, light + dark. Cover the post-detail chrome, own-reply delete (dialog → removal), and a failed delete (revert + snackbar). Screenshots go in the PR body (docs/11 §5 DoD).
 - [ ] 5.4 PR title/body current at each phase boundary; the body carries `Closes #497`, `Closes #242`, `Closes #542` on separate lines; archive via `/opsx:archive`.
