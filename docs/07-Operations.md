@@ -160,6 +160,14 @@ The **retention cleanup** job runs every retention sweep on **one** daily schedu
 
 Rollback: pause or delete a job (`gcloud scheduler jobs pause|delete nearyou-<id>-<env> --location=<region>`) and that worker goes inert; a re-run of the script never resumes a paused job. No schema to undo — every worker is idempotent and the retention sweeps only delete rows already past their written retention window.
 
+#### Caller allowlist (`INTERNAL_OIDC_ALLOWED_PRINCIPALS`)
+
+The Cloud Run service is `--allow-unauthenticated`, so Cloud Run IAM does not restrict who reaches `/internal/*`; the backend pins the caller instead (`internal-endpoint-auth`, #544). Beyond signature + audience + expiry, the token's `email` (with `email_verified = true`) must be in the comma-separated `INTERNAL_OIDC_ALLOWED_PRINCIPALS`. Any other Google principal — even one minting the right audience — gets `403 {"error":"principal_not_allowed"}` (WARN `event=internal_auth_rejected reason=principal_not_allowed`; the email is never logged).
+
+- **Staging** (`deploy-staging.yml`): `scheduler-invoker-staging@nearyou-staging.iam.gserviceaccount.com` only — the SA `dev/scripts/provision-schedulers.sh` binds to all nine jobs (#535). The legacy `unban-scheduler-staging` SA ran the three pre-#535 jobs until the script moved them on 2026-10-04, so it was never allowlisted; retiring its `run.invoker` binding and the SA itself is in `dev/docs/cloud-scheduler.md` § Invoker identity and the caller allowlist.
+- **Production:** set it to the prod scheduler SA before the first prod deploy. An empty value fails boot on staging/production (the revision is rejected and the previous one keeps serving); dev/test boot with a WARN and deny every caller.
+- **Triage:** a job whose attempts return `403 principal_not_allowed` runs as an SA missing from the list; `401 audience_mismatch` means its `--oidc-token-audience` differs from `INTERNAL_OIDC_AUDIENCE`.
+
 ---
 
 ## Secret Management Runbook

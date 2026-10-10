@@ -39,6 +39,12 @@ private const val CLOCK_SKEW_SECONDS: Long = 60L
  *    `kid` → [OidcVerificationException.InvalidToken]
  *  - `aud` mismatch → [OidcVerificationException.AudienceMismatch]
  *  - `exp` in the past → [OidcVerificationException.ExpiredToken]
+ *  - all of the above pass, but the `email` claim is absent, `email_verified` is not
+ *    true, or the email is not in [allowedPrincipals] →
+ *    [OidcVerificationException.PrincipalNotAllowed] (authenticated, not authorized).
+ *    An empty [allowedPrincipals] rejects every caller — fail-closed by design: the
+ *    Cloud Run service is `--allow-unauthenticated`, so this pin is the only thing
+ *    stopping any Google SA that mints our audience.
  *
  * The `JwkProvider` MUST be constructed with rotation-aware caching — see
  * [googleJwkProvider]. When a token's `kid` is not in cache, the provider's
@@ -47,8 +53,11 @@ private const val CLOCK_SKEW_SECONDS: Long = 60L
  */
 class GoogleOidcTokenVerifier(
     private val audience: String,
+    allowedPrincipals: Set<String>,
     private val jwkProvider: JwkProvider,
 ) : OidcTokenVerifier {
+    private val allowedPrincipals: Set<String> = allowedPrincipals.mapTo(HashSet()) { it.lowercase() }
+
     init {
         require(audience.isNotBlank()) { "audience must not be blank" }
     }
@@ -84,6 +93,15 @@ class GoogleOidcTokenVerifier(
                 throw OidcVerificationException.InvalidToken()
             } catch (_: JWTVerificationException) {
                 throw OidcVerificationException.InvalidToken()
+            }
+
+            // Checked only after signature/aud/exp pass, so an unauthenticated token
+            // always gets its 401 class, never this 403.
+            // Exact match against the lowercased config: Google issues SA emails in lowercase,
+            // and not case-folding the presented value keeps Unicode folding tricks out.
+            val email = decoded.getClaim("email").asString()
+            if (email == null || decoded.getClaim("email_verified").asBoolean() != true || email !in allowedPrincipals) {
+                throw OidcVerificationException.PrincipalNotAllowed()
             }
 
             VerifiedClaims(

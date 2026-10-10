@@ -97,6 +97,7 @@ Domain `nearyou.id` terdaftar di Hostinger. Langkah berikut memindah DNS managem
 - Custom domain: `https://api-staging.nearyou.id` (pending TLS cert on initial setup)
 - Deploy workflow: `.github/workflows/deploy-staging.yml` (auto-triggers on push to `main`; referenced below as `deploy-staging.yml`)
 - Secrets: loaded from Secret Manager as `staging-*` (see deploy workflow `--set-secrets`)
+- `/internal/*` caller allowlist: `INTERNAL_OIDC_ALLOWED_PRINCIPALS` (plain `--set-env-vars`, comma-separated scheduler SA emails, #544). Every environment MUST set its own — empty fails boot on staging/production. Current staging SA: `docs/07-Operations.md` § Internal worker schedules → Caller allowlist
 - Domain ownership verified via Search Console under `nearyouid.founder@gmail.com`
 
 ---

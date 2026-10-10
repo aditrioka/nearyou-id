@@ -50,4 +50,12 @@ sealed class OidcVerificationException(message: String) : Exception(message) {
     /** JWT signature valid but `aud` does not match the configured audience. */
     class AudienceMismatch(message: String = "audience_mismatch") :
         OidcVerificationException(message)
+
+    /**
+     * JWT signature, `aud` and `exp` all valid, but the caller principal is not allowed:
+     * no `email` claim, `email_verified` not true, email not allowlisted, or an empty
+     * allowlist (fail-closed). Authenticated but not authorized → 403, not 401.
+     */
+    class PrincipalNotAllowed(message: String = "principal_not_allowed") :
+        OidcVerificationException(message)
 }

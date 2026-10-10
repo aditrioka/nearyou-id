@@ -411,43 +411,40 @@ All internal scheduler endpoints are served under `/internal/*` with mandatory O
 
 ### Implementation
 
-- Cloud Scheduler natively supports OIDC tokens
-- Ktor middleware verifies the signature via Google JWKS + audience claim matching the service URL
-- Service account in GCP Secret Manager
+- Cloud Scheduler natively supports OIDC tokens (`--oidc-service-account-email` + `--oidc-token-audience`)
+- Ktor middleware (`InternalEndpointAuth`) verifies the signature via Google JWKS, the audience claim against the service URL (`INTERNAL_OIDC_AUDIENCE`), and expiry → `401` on failure
+- **Caller pin (#544):** the token's `email` (with `email_verified = true`) must be in `INTERNAL_OIDC_ALLOWED_PRINCIPALS` — the Cloud Scheduler SA(s) of that environment → `403 principal_not_allowed` otherwise. Empty fails boot on staging/production and denies every caller in dev/test. Audience and allowlist are plain env config (public service URL, non-secret SA emails), not Secret Manager slots. Per-environment SAs + the migration runbook: `docs/07-Operations.md` § Internal worker schedules.
 
 ### Covered Endpoints
 
-> **Status (2026-06).** The **Shipped** list below is mounted in `Application.kt`'s `/internal/*` block (each worker gates OIDC on its own subtree); the **DESIGN** list is not yet mounted. If drift suspected, cross-check: `find backend/ktor/src/main -name "*Routes.kt" -path "*internal*"`.
+> **Status (2026-10-04).** Every route below is mounted in `Application.kt`. If drift suspected, cross-check: `git grep -n 'route("/internal")\|post("/internal' backend/ktor/src/main`.
 
-**Shipped:**
-- Apple S2S notifications (`/internal/apple/s2s-notifications`) — `AppleS2SRoutes.kt`
-- Suspension unban worker (`/internal/unban-worker`, daily) — `admin/UnbanWorkerRoute.kt`
-- Privacy flip worker (`/internal/privacy-flip-worker`, hourly) — `admin/PrivacyFlipWorkerRoute.kt`
-- Hard delete worker (`/internal/account-hard-delete-worker`, daily) — `account/AccountHardDeleteWorkerRoute.kt`
-- Retention cleanup worker (`/internal/cleanup`, daily) — `admin/retention/RetentionCleanupRoutes.kt`; runs the refresh-token + notifications + stale-FCM sweeps (`scheduled-retention-cleanup`)
+**OIDC-gated workers** (each installs `InternalEndpointAuth` on its own subtree under `route("/internal")`; cadences in `docs/07-Operations.md` § Internal worker schedules):
+- Suspension unban (`/internal/unban-worker`) — `admin/UnbanWorkerRoute.kt`
+- Privacy flip (`/internal/privacy-flip-worker`) — `admin/PrivacyFlipWorkerRoute.kt`
+- Account hard delete (`/internal/account-hard-delete-worker`) — `account/AccountHardDeleteWorkerRoute.kt`
+- Retention cleanup (`/internal/cleanup`) — `admin/retention/RetentionCleanupRoutes.kt`
+- Data export (`/internal/data-export-worker`) — `account/DataExportWorkerRoute.kt`
+- Login anomaly check (`/internal/login-anomaly-check`) — `auth/anomaly/LoginAnomalyCheckRoutes.kt`
+- Orphan image cleanup (`/internal/cleanup-orphan-images`) — `image/OrphanImageCleanupRoutes.kt`
+- Referral activity check (`/internal/referral-activity-check`) — `referral/ReferralActivityCheckRoute.kt`
+- CSAM archive purge (`/internal/csam-archive-purge`) — `moderation/csam/CsamWebhookRoutes.kt`
 
-**DESIGN — not yet implemented:**
-- Image lifecycle cleanup
-- Reverse geocoding cache warmup
-- CSAM webhook handler (`/internal/csam-webhook`)
-- Granted entitlement activity gate check (daily)
-- CSAM archive purge worker (post-90-day)
-- Moderation queue / reports archival (weekly, resolved rows >1 year — deferred follow-up of `scheduled-retention-cleanup`)
-- Stream GC (post-swap, weekly)
-- RevenueCat webhook (`/internal/revenuecat-webhook`)
+**DESIGN — not yet implemented:** reverse geocoding cache warmup; moderation queue / reports archival (weekly, resolved rows >1 year — deferred follow-up of `scheduled-retention-cleanup`); Stream GC (post-swap, weekly).
 
-**Exceptions to OIDC** (alternative auth) — **ALL DESIGN as of 2026-05-07**: neither endpoint is mounted; this is intended future shape, not active code.
+**Exceptions to OIDC** (vendor/alternative auth, mounted as siblings of — not under — the gated subtree, so a valid OIDC token alone never authorizes them):
 
-- RevenueCat webhook (`/internal/revenuecat-webhook`) — Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md` § RevenueCat Webhook (also tagged DESIGN).
-- CSAM webhook handler (`/internal/csam-webhook`) — when implemented, both supported invocation paths are non-OIDC:
-  - **Admin-triggered (MVP)**: the Admin Panel calls the handler internally with the admin's scoped session + a session-bound CSRF-style token; the services share the cluster network, so the call never leaves the trust boundary. (Admin Panel itself is DESIGN per `docs/07-Operations.md`.)
+- Apple S2S notifications (`/internal/apple/s2s-notifications`) — Apple JWS verified against Apple's JWKS (`AppleS2SRoutes.kt`).
+- RevenueCat webhook (`/internal/revenuecat-webhook`) — Bearer token + HMAC signature (vendor doesn't support OIDC). See `05-Implementation.md` § RevenueCat Webhook.
+- CSAM webhook handler (`/internal/csam-webhook`) — both supported invocation paths are non-OIDC:
+  - **Admin-triggered (MVP)**: the Admin Panel calls the handler with the admin's scoped session + a session-bound CSRF token, role-gated to owner/admin.
   - **Cloudflare Worker forwarding (Phase 2+)**: the CF Worker watching for `451` responses on the `img.nearyou.id` route signs its POST with a Bearer token pulled from a Worker secret + an HMAC-SHA256 body signature (key reserved as `cf-worker-csam-secret` in GCP Secret Manager); the Ktor handler verifies both before processing. Rate limit 100 req/hour per IP (prevents replay amplification).
 
 **Backup NOT via `/internal/*` endpoint**: backup runs as a standalone Cloud Run Jobs container, not an HTTP endpoint.
 
 **Health check endpoints** (`/health/live`, `/health/ready`) are PUBLIC (no auth) but rate-limited, intentionally not under `/internal/*`.
 
-**Defense in depth**: network-level (GCP IAM Cloud Scheduler-only invoke) + token-level (OIDC verify origin).
+**Defense in depth**: the original design paired network-level (Cloud Run IAM, Cloud-Scheduler-only invoke) with token-level OIDC verification. The service is deployed `--allow-unauthenticated` (the mobile API shares it), so the IAM layer is **absent today**; the token-level caller pin above is what restricts `/internal/*` to the scheduler SA(s). An ingress / IAM-invoker layer for the internal surface remains a separate hardening item.
 
 ---
 

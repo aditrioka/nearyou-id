@@ -17,6 +17,8 @@ import id.nearyou.app.auth.jwt.TestKeys
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.repo.JdbcUserRepository
+import id.nearyou.app.internal.TEST_FOREIGN_OIDC_PRINCIPAL
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -92,10 +94,14 @@ private fun signedJwt(
     kid: String = TEST_KID,
     expiresAt: Instant = Instant.now().plus(1, ChronoUnit.HOURS),
     subject: String = "scheduler@nearyou-staging.iam.gserviceaccount.com",
+    email: String? = TEST_OIDC_PRINCIPAL,
+    emailVerified: Boolean = true,
 ): String =
     JWT.create()
         .withKeyId(kid)
         .withSubject(subject)
+        .let { if (email != null) it.withClaim("email", email) else it }
+        .withClaim("email_verified", emailVerified)
         .withAudience(audience)
         .withIssuedAt(UtilDate.from(Instant.now()))
         .withExpiresAt(UtilDate.from(expiresAt))
@@ -110,6 +116,7 @@ class UnbanWorkerRouteTest : StringSpec({
     val defaultVerifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = TEST_AUDIENCE,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
         )
     val keys = RsaKeyLoader(TestKeys.freshEncodedPemPrivateKey(), kid = "test-supabase")
@@ -400,6 +407,8 @@ class UnbanWorkerRouteTest : StringSpec({
             JWT.create()
                 .withKeyId(TEST_KID)
                 .withSubject("REDACTION_PROBE_SUB")
+                .withClaim("email", TEST_OIDC_PRINCIPAL)
+                .withClaim("email_verified", true)
                 .withAudience("https://probe.test/audience-canary")
                 .withClaim("jti", "REDACTION_PROBE_JTI")
                 .withIssuedAt(UtilDate.from(Instant.now()))
@@ -565,7 +574,11 @@ class UnbanWorkerRouteTest : StringSpec({
                     }
             }
         val rotatingVerifier: OidcTokenVerifier =
-            GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = refreshingProvider)
+            GoogleOidcTokenVerifier(
+                audience = TEST_AUDIENCE,
+                allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
+                jwkProvider = refreshingProvider,
+            )
 
         withRoute(customVerifier = rotatingVerifier) {
             val resp1 =
@@ -589,7 +602,7 @@ class UnbanWorkerRouteTest : StringSpec({
                     }
             }
         val deadVerifier: OidcTokenVerifier =
-            GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = refreshingNoop)
+            GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL), jwkProvider = refreshingNoop)
         val unresolvableToken = signedJwt(privKey, pubKey, kid = "still-unknown")
         withRoute(customVerifier = deadVerifier) {
             val resp =
@@ -643,6 +656,95 @@ class UnbanWorkerRouteTest : StringSpec({
         } finally {
             cleanup(supabaseUserId)
         }
+    }
+
+    // --- Caller-principal allowlist (#544): valid token, wrong caller → 403 ---
+
+    suspend fun postAs(
+        token: String,
+        verifier: OidcTokenVerifier = defaultVerifier,
+    ): Pair<HttpStatusCode, String> {
+        var result: Pair<HttpStatusCode, String>? = null
+        withRoute(customVerifier = verifier) {
+            val resp =
+                client.post("/internal/unban-worker") {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                }
+            result = resp.status to resp.bodyAsText()
+        }
+        return result!!
+    }
+
+    "9.30 403 principal_not_allowed on a foreign SA with the correct audience — no unban, sanitized body + log" {
+        val eligible = seedUser(isBanned = true, suspendedUntil = Instant.now().minusSeconds(3600))
+        try {
+            withLogCapture("id.nearyou.app.internal.InternalEndpointAuth") { appender ->
+                val (status, body) = postAs(signedJwt(privKey, pubKey, email = TEST_FOREIGN_OIDC_PRINCIPAL))
+                status shouldBe HttpStatusCode.Forbidden
+                body shouldBe """{"error":"principal_not_allowed"}"""
+                body shouldNotContain TEST_FOREIGN_OIDC_PRINCIPAL
+                body shouldNotContain TEST_OIDC_PRINCIPAL
+                val lines = appender.list.map { it.formattedMessage }
+                lines.any { it.contains("reason=principal_not_allowed") } shouldBe true
+                lines.forEach { line ->
+                    line shouldNotContain TEST_FOREIGN_OIDC_PRINCIPAL
+                    line shouldNotContain TEST_OIDC_PRINCIPAL
+                }
+            }
+            // The handler never ran: the eligible user is still banned.
+            loadIsBanned(eligible) shouldBe true
+        } finally {
+            cleanup(eligible)
+        }
+    }
+
+    "9.31 403 on a token without an email claim" {
+        val (status, body) = postAs(signedJwt(privKey, pubKey, email = null))
+        status shouldBe HttpStatusCode.Forbidden
+        body shouldBe """{"error":"principal_not_allowed"}"""
+    }
+
+    "9.32 403 on an allowlisted email with email_verified = false" {
+        val (status, body) = postAs(signedJwt(privKey, pubKey, emailVerified = false))
+        status shouldBe HttpStatusCode.Forbidden
+        body shouldBe """{"error":"principal_not_allowed"}"""
+    }
+
+    "9.33 200 when the allowlist entry is configured in different letter case" {
+        val upperCaseEntry =
+            GoogleOidcTokenVerifier(
+                audience = TEST_AUDIENCE,
+                allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL.uppercase()),
+                jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
+            )
+        val (status, _) = postAs(signedJwt(privKey, pubKey), verifier = upperCaseEntry)
+        status shouldBe HttpStatusCode.OK
+    }
+
+    "9.34 401 audience_mismatch wins over the principal check for a foreign SA" {
+        val (status, body) =
+            postAs(
+                signedJwt(
+                    privKey,
+                    pubKey,
+                    audience = "https://example.com/other-service",
+                    email = TEST_FOREIGN_OIDC_PRINCIPAL,
+                ),
+            )
+        status shouldBe HttpStatusCode.Unauthorized
+        body shouldContain "audience_mismatch"
+    }
+
+    "9.35 empty allowlist is fail-closed — an otherwise-valid token gets 403" {
+        val emptyAllowlist =
+            GoogleOidcTokenVerifier(
+                audience = TEST_AUDIENCE,
+                allowedPrincipals = emptySet(),
+                jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
+            )
+        val (status, body) = postAs(signedJwt(privKey, pubKey), verifier = emptyAllowlist)
+        status shouldBe HttpStatusCode.Forbidden
+        body shouldBe """{"error":"principal_not_allowed"}"""
     }
 })
 
