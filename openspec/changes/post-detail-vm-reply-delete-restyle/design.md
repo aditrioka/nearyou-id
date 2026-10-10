@@ -144,7 +144,9 @@ Moved composables become `internal`. Test tags stay as `PostDetailScreen.kt` con
   - a `TextField` with `shapes.extraLarge`, `surfaceContainerHigh` container and no indicator, `maxLines = 5`;
   - a `FilledIconButton` (48dp, the filled `ic_send_filled`) labelled `cta_reply` ("Balas"), enabled per the unchanged `submitEnabled` projection.
 
-  The `N/280` counter (`labelSmall`, `error` when over the limit) renders above the row while the draft is non-empty. An empty composer reads like the frame; a typed one keeps the spec'd live count. The network / post-gone banner renders above the row.
+  The `N/280` counter (`labelSmall`, `error` when over the limit) renders above the row while the draft is non-empty.
+
+  On-device verification found the composer floating a keyboard-height above the IME with the top bar pushed off-screen. The cause is pre-existing: `MainActivity` declared no `windowSoftInputMode`, so with `enableEdgeToEdge()` the system **panned** the window and `imePadding()` lifted the bar again. The fix is one manifest attribute, `android:windowSoftInputMode="adjustResize"`, which developer.android.com "Set up Edge-to-edge" requires for every activity using a soft keyboard (verified 2026-10-04). It is app-wide, and the root cause for every `imePadding` / `safeContentPadding` consumer; the post composer was spot-checked on the emulator with no regression. An empty composer reads like the frame; a typed one keeps the spec'd live count. The network / post-gone banner renders above the row.
 
 ### D9 — Settings logout through the `AuthFlow` seam
 

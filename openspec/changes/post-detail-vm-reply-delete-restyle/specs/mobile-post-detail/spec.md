@@ -449,7 +449,7 @@ As of `post-detail-vm-reply-delete-restyle` (mockup frame 7's bottom bar), the r
 
 While the draft is non-empty, a live `N/280` counter (`stringResource(Res.string.post_detail_reply_counter)`) SHALL render above the row. It is computed in **Unicode code points** (NOT UTF-16 units) and uses the `error` color when over the limit.
 
-The composer SHALL keep itself above the navigation bar and the IME.
+The composer SHALL keep itself above the navigation bar and the IME, directly on top of the keyboard. On Android this requires the activity to declare `android:windowSoftInputMode="adjustResize"`, so the IME insets reach Compose's `imePadding` instead of the system panning the whole window (edge-to-edge guidance; without it the window panned AND the padding applied, leaving a keyboard-tall gap and pushing the top bar off-screen).
 
 **Empty-vs-over-limit is a CLIENT-side concern.** The pre-submit code-point projection disables the CTA, so the client never submits empty or >280 content. There is no server round-trip to distinguish "empty" from "too long", and the backend would not provide one (see below).
 
@@ -485,6 +485,11 @@ Replies can only be written on post-detail, so this is the Free reply cap's sole
 
 - **WHEN** the composer renders empty, and again after "halo" is typed
 - **THEN** the empty composer shows no `N/280` counter node AND the typed composer shows the node whose text matches `stringResource(Res.string.post_detail_reply_counter)` formatted with `4`
+
+#### Scenario: The Android activity resizes for the IME
+
+- **WHEN** inspecting `mobile/app/src/androidMain/AndroidManifest.xml`
+- **THEN** the `MainActivity` entry declares `android:windowSoftInputMode="adjustResize"`
 
 #### Scenario: 201 appends the new reply locally and bumps the count without re-fetch
 

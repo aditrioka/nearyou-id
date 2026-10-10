@@ -399,4 +399,38 @@ class PostDetailApiTest {
             assertEquals(LikeOutcome.NetworkError, teapot.toggleLike(POST_ID, currentlyLiked = false))
             assertEquals(ReplyPostOutcome.NetworkError, teapot.postReply(POST_ID, "hi"))
         }
+
+    // ---- own-reply DELETE (post-detail-vm-reply-delete-restyle) ----
+
+    @Test
+    fun `deleteReply issues a bodyless DELETE on the reply path and maps 204 to Deleted`() =
+        runTest {
+            var method: HttpMethod? = null
+            var path: String? = null
+            var bodyLength: Long? = null
+            val outcome =
+                repo { request ->
+                    method = request.method
+                    path = request.url.encodedPath
+                    bodyLength = request.body.contentLength ?: 0L
+                    respond("", HttpStatusCode.NoContent)
+                }.deleteReply(POST_ID, "r1")
+
+            assertEquals(ReplyDeleteOutcome.Deleted, outcome)
+            assertEquals(HttpMethod.Delete, method)
+            assertEquals("/api/v1/posts/$POST_ID/replies/r1", path)
+            assertEquals(0L, bodyLength, "the DELETE carries no body (only the post id + reply id in the path)")
+        }
+
+    @Test
+    fun `deleteReply maps 5xx and an unexpected status and a transport failure to the single NetworkError`() =
+        runTest {
+            assertEquals(
+                ReplyDeleteOutcome.NetworkError,
+                repo { respond("", HttpStatusCode.InternalServerError) }.deleteReply(POST_ID, "r1"),
+            )
+            // The route never answers 404/403/429 by contract; if one ever arrives it is retryable, not a new member.
+            assertEquals(ReplyDeleteOutcome.NetworkError, repo { respond("", HttpStatusCode.NotFound) }.deleteReply(POST_ID, "r1"))
+            assertEquals(ReplyDeleteOutcome.NetworkError, repo { throw RuntimeException("io") }.deleteReply(POST_ID, "r1"))
+        }
 }

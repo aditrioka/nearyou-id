@@ -14,20 +14,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -57,6 +63,7 @@ import id.nearyou.app.post.PostEditRepository
 import id.nearyou.app.post.PostRefreshOutcome
 import id.nearyou.app.post.RepliesOutcome
 import id.nearyou.app.post.ReplyApiClient
+import id.nearyou.app.post.ReplyDeleteOutcome
 import id.nearyou.app.post.ReplyPostOutcome
 import id.nearyou.app.post.SinglePostApiClient
 import id.nearyou.app.post.fakeReply
@@ -72,6 +79,7 @@ import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_FOOTER_TAG
 import id.nearyou.app.ui.components.LOAD_MORE_RETRY_TAG
+import id.nearyou.distance.DistanceRenderer
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -104,8 +112,11 @@ private const val LOADING = "Sedang memuat postingan…" // timeline_loading
 private const val ERR_NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu." // signin_error_network
 private const val RETRY = "Coba lagi" // cta_retry
 private const val PLACEHOLDER = "Tulis balasan…" // post_detail_reply_placeholder
-private const val CTA_REPLY = "Balas" // cta_reply
-private const val CTA_CLOSE = "Tutup" // cta_close (the back/close affordance)
+private const val CTA_REPLY = "Balas" // cta_reply — the composer send action's contentDescription
+private const val CTA_CLOSE = "Tutup" // cta_close — no longer the back affordance (frame-7 back arrow)
+private const val CTA_BACK = "Kembali" // cta_back — the top app bar back arrow's contentDescription
+private const val TITLE = "Postingan" // post_detail_title
+private const val DELETE_FAILED = "Gagal menghapus balasan. Coba lagi." // post_detail_reply_delete_failed
 
 // cap-upsell-parity: a 3600s Retry-After renders the cap dialog's frame-18 countdown "1 j 0 mnt" in the %1$s.
 private const val LIKE_CAP_1H =
@@ -463,6 +474,8 @@ class PostDetailScreenTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithText("PII_REPLY").assertExists()
             onNodeWithText(AUTHOR_UUID, substring = true).assertDoesNotExist()
+            // …nor in any accessibility label (the restyle moved labels into contentDescriptions).
+            onNode(hasContentDescription(AUTHOR_UUID, substring = true), useUnmergedTree = true).assertDoesNotExist()
             onNodeWithText("1234.5", substring = true).assertDoesNotExist() // no raw distance/coordinate
         }
     }
@@ -695,6 +708,9 @@ class PostDetailScreenTest {
             onNodeWithText("Blokir @raka.jkt?").assertExists()
             onNodeWithText(BLOCK_DIALOG_BODY).assertExists()
             onNodeWithText("Blokir").performClick() // the destructive confirm (exact match ≠ the title)
+            // The pop rides the VM uiState → composition → effect chain; a predicate that touches no semantics
+            // never idles the Robolectric main looper, so idle once before polling the hoisted callback.
+            waitForIdle()
             waitUntil(timeoutMillis = 5_000) { backCalls == 1 }
             assertEquals(AUTHOR_UUID, submitter.lastUserId, "the post block targets the freshness-read author UUID")
             // PII negative-guard: the author UUID never appears in the rendered tree.
@@ -1002,7 +1018,9 @@ class PostDetailScreenTest {
         installKoin(FakePostDetailFlow(likeCountOutcome = LikeCountOutcome.Available(42)))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
-            onNodeWithText("42 suka").assertExists()
+            // Frame 7: the BARE count next to the heart, announced as "42 suka".
+            onNodeWithTag(POST_DETAIL_LIKE_COUNT_TAG, useUnmergedTree = true).assertTextEquals("42")
+            onNodeWithContentDescription("42 suka", useUnmergedTree = true).assertExists()
         }
     }
 
@@ -1012,7 +1030,7 @@ class PostDetailScreenTest {
         installKoin(fake)
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
-            onNodeWithText("suka", substring = true).assertDoesNotExist() // count degraded → no count node
+            onNodeWithTag(POST_DETAIL_LIKE_COUNT_TAG, useUnmergedTree = true).assertDoesNotExist() // count degraded → no count node
             onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
             waitForIdle()
             assertEquals(1, fake.toggleLikeCount, "the toggle stays functional when the count is unavailable")
@@ -1111,16 +1129,15 @@ class PostDetailScreenTest {
         // inverse delta — both land on 42. The off-by-one those two diverge on only arises if the initial
         // count fetch resolves BETWEEN the optimistic flip and the failure (a tap during count-load), which
         // this fake can't sequence; that case is prevented by construction (priorCount captured before the
-        // flip — see PostDetailScreen.onToggleLike).
+        // flip — see PostDetailViewModel.onToggleLike).
         installKoin(FakePostDetailFlow(likeCountOutcome = LikeCountOutcome.Available(42), toggleOutcome = LikeOutcome.NetworkError))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(likedByViewer = false), onBack = {}) } } }
-            onNodeWithText("42 suka").assertExists()
+            onNodeWithTag(POST_DETAIL_LIKE_COUNT_TAG, useUnmergedTree = true).assertTextEquals("42")
             onNodeWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).performClick()
             waitForIdle()
-            onNodeWithText("42 suka").assertExists() // restored exactly — not 41, not 43
-            onNodeWithText("43 suka").assertDoesNotExist()
-            onNodeWithText("41 suka").assertDoesNotExist()
+            // Restored exactly — not 41, not 43.
+            onNodeWithTag(POST_DETAIL_LIKE_COUNT_TAG, useUnmergedTree = true).assertTextEquals("42")
         }
     }
 
@@ -1145,10 +1162,11 @@ class PostDetailScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithText(PLACEHOLDER).assertExists()
-            onNodeWithText(CTA_REPLY).assertIsNotEnabled() // empty → disabled
+            onNodeWithContentDescription(CTA_REPLY).assertIsNotEnabled() // empty → disabled
+            onNodeWithText("0/280").assertDoesNotExist() // frame 7: no counter while the draft is empty
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("a".repeat(281))
             onNodeWithText("281/280").assertExists()
-            onNodeWithText(CTA_REPLY).assertIsNotEnabled() // over-limit → disabled
+            onNodeWithContentDescription(CTA_REPLY).assertIsNotEnabled() // over-limit → disabled
         }
     }
 
@@ -1165,10 +1183,14 @@ class PostDetailScreenTest {
             onNodeWithText(REPLIES_EMPTY).assertExists()
             onNodeWithTag(POST_DETAIL_REPLY_COUNT_TAG).assertTextEquals("2")
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
-            onNodeWithText(CTA_REPLY).performClick()
+            onNodeWithContentDescription(CTA_REPLY).performClick()
             waitForIdle()
             onNodeWithText("NEW_REPLY").assertExists() // appended locally
             onNodeWithTag(POST_DETAIL_REPLY_COUNT_TAG).assertTextEquals("3") // count bumped
+            // The draft is cleared (the VM's replyPosted one-shot).
+            onNodeWithTag(
+                POST_DETAIL_REPLY_FIELD_TAG,
+            ).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
             assertEquals(1, fake.postReplyCount)
             assertEquals(1, fake.loadRepliesCount, "the 201 append must NOT trigger a replies re-fetch")
         }
@@ -1185,7 +1207,7 @@ class PostDetailScreenTest {
                 KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}, onActivatePremium = { activated = it }) } }
             }
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
-            onNodeWithText(CTA_REPLY).performClick()
+            onNodeWithContentDescription(CTA_REPLY).performClick()
             waitForIdle()
             onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertExists()
             onAllNodesWithText(REPLY_CAP_1H).assertCountEquals(1)
@@ -1206,7 +1228,7 @@ class PostDetailScreenTest {
             setContent { KoinContext { TestNavHost(route(), onBackStack = { backStack = it }) } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_REPLY_FIELD_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
-            onNodeWithText(CTA_REPLY).performClick()
+            onNodeWithContentDescription(CTA_REPLY).performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(DAILY_CAP_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(DAILY_CAP_DIALOG_PREMIUM_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { backStack.last() is PaywallRoute }
@@ -1225,7 +1247,7 @@ class PostDetailScreenTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
-            onNodeWithText(CTA_REPLY).performClick()
+            onNodeWithContentDescription(CTA_REPLY).performClick()
             waitForIdle()
             // The defensive InvalidContent maps to the generic retryable banner (no dedicated copy in v1).
             onNodeWithText(ERR_NETWORK).assertExists()
@@ -1240,7 +1262,10 @@ class PostDetailScreenTest {
         var backCount = 0
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = { backCount++ }) } } }
-            onNodeWithText(CTA_CLOSE).assertExists()
+            // Frame 7: a back ARROW (described "Kembali") under the "Postingan" title — no "Tutup" text button.
+            onNodeWithText(TITLE).assertExists()
+            onNodeWithContentDescription(CTA_BACK).assertExists()
+            onNodeWithText(CTA_CLOSE).assertDoesNotExist()
             onNodeWithTag(POST_DETAIL_BACK_TAG).performClick()
             waitForIdle()
             assertEquals(1, backCount, "the back affordance invokes the hoisted onBack")
@@ -1402,6 +1427,176 @@ class PostDetailScreenTest {
             // consume-once marker were NOT saveable, generation 1 would re-run the autofocus and
             // steal focus back from the park node — failing this assertion.)
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).assertIsNotFocused()
+        }
+    }
+
+    // ---- post-detail-vm-reply-delete-restyle: the frame-7 chrome (#242) ----
+
+    @Test
+    fun frame7Chrome_titleSubheadInlineShare_andNoDistance() {
+        installKoin(FakePostDetailFlow(likeCountOutcome = LikeCountOutcome.Available(13)))
+        val shared = mutableListOf<String>()
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        PostDetailScreen(
+                            route = route(replyCount = 4),
+                            onBack = {},
+                            onShareToChat = { shared += it },
+                        )
+                    }
+                }
+            }
+            onNodeWithText(TITLE).assertExists()
+            onNodeWithText("4 balasan").assertExists() // post_detail_replies_header
+            onNodeWithTag(POST_DETAIL_LIKE_COUNT_TAG, useUnmergedTree = true).assertTextEquals("13")
+            // hide-distance: post-detail stays distance-free even with a Nearby-origin payload (distanceM = 1234.5).
+            onNodeWithText(DistanceRenderer.render(1234.5)).assertDoesNotExist()
+            // The action row's share icon is the kebab's "Bagikan ke chat" action.
+            onNodeWithTag(POST_DETAIL_SHARE_ACTION_TAG).performClick()
+            waitForIdle()
+            assertEquals(listOf("p1"), shared)
+        }
+    }
+
+    // ---- the frame-7 deferrals (#569 / #570 / #575): negative guards ----
+
+    @Test
+    fun frame7Deferrals_noFollowButton_noReplyLikeControl() {
+        installKoin(
+            FakePostDetailFlow(repliesOutcome = RepliesOutcome.Loaded(listOf(fakeReply(content = "A_REPLY")), nextCursor = null)),
+            FakePostEditFlow(
+                refreshOutcome =
+                    PostRefreshOutcome.Loaded(
+                        content = CONTENT,
+                        editedAt = null,
+                        isAuthor = false,
+                        authorUserId = AUTHOR_UUID,
+                    ),
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("A_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Ikuti").assertDoesNotExist() // #569: no header follow button
+            // #570: the post's like control is the only one — reply rows carry no heart.
+            onAllNodesWithTag(POST_DETAIL_LIKE_TOGGLE_TAG).assertCountEquals(1)
+            onAllNodesWithTag(POST_DETAIL_LIKE_LIKED_TAG, useUnmergedTree = true).assertCountEquals(0)
+            onAllNodesWithTag(POST_DETAIL_LIKE_NOT_LIKED_TAG, useUnmergedTree = true).assertCountEquals(1)
+        }
+    }
+
+    // ---- own-reply delete (#497) ----
+
+    private fun ownAndOtherReplies() =
+        RepliesOutcome.Loaded(
+            listOf(
+                fakeReply(id = "rOther", authorId = AUTHOR_UUID, content = "OTHER_REPLY"),
+                fakeReply(
+                    id = "rOwn",
+                    authorId = SELF_USER_ID,
+                    authorUsername = "self.user",
+                    authorDisplayName = "Self User",
+                    content = "OWN_REPLY",
+                ),
+            ),
+            nextCursor = null,
+        )
+
+    @Test
+    fun deleteItem_presentOnTheViewersOwnReply_firstAndWithoutBlock() {
+        installKoin(FakePostDetailFlow(repliesOutcome = ownAndOtherReplies()))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[1].performScrollTo().performClick()
+            onNodeWithText("Hapus balasan").assertExists()
+            onNodeWithText("Laporkan").assertExists() // report stays on every reply
+            val deleteTop = onNodeWithTag(POST_DETAIL_DELETE_REPLY_TAG).fetchSemanticsNode().positionInRoot.y
+            val reportTop = onNodeWithText("Laporkan").fetchSemanticsNode().positionInRoot.y
+            assertTrue(deleteTop < reportTop, "Hapus balasan is the first menu item")
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun deleteItem_absentOnAnotherUsersReply() {
+        installKoin(FakePostDetailFlow(repliesOutcome = ownAndOtherReplies()))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OTHER_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[0].performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_DELETE_REPLY_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun deleteItem_absentWhileTheSessionIdIsUnresolved() {
+        installKoin(FakePostDetailFlow(repliesOutcome = ownAndOtherReplies()), selfUserIdProvider = FakeSelfUserIdProvider(null))
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[1].performScrollTo().performClick()
+            onNodeWithText("Laporkan").assertExists()
+            onNodeWithTag(POST_DETAIL_DELETE_REPLY_TAG).assertDoesNotExist()
+            onNodeWithTag(POST_DETAIL_BLOCK_REPLY_TAG).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun deleteConfirmed_removesTheReply_andDecrementsTheCount() {
+        val fake = FakePostDetailFlow(repliesOutcome = ownAndOtherReplies(), deleteOutcome = ReplyDeleteOutcome.Deleted)
+        installKoin(fake)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(replyCount = 2), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[1].performScrollTo().performClick()
+            onNodeWithTag(POST_DETAIL_DELETE_REPLY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_DELETE_REPLY_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Hapus balasan ini?").assertExists()
+            onNodeWithText("Hapus").performClick() // the destructive confirm (exact match)
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isEmpty() }
+            onNodeWithText("OTHER_REPLY").assertExists()
+            onNodeWithTag(POST_DETAIL_REPLY_COUNT_TAG).assertTextEquals("1")
+            assertEquals(listOf("p1" to "rOwn"), fake.deleteReplyCalls)
+        }
+    }
+
+    @Test
+    fun deleteDialogCancelled_issuesNoRequest() {
+        val fake = FakePostDetailFlow(repliesOutcome = ownAndOtherReplies())
+        installKoin(fake)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[1].performScrollTo().performClick()
+            onNodeWithTag(POST_DETAIL_DELETE_REPLY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_DELETE_REPLY_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Batal").performClick()
+            waitForIdle()
+            onNodeWithTag(POST_DETAIL_DELETE_REPLY_DIALOG_TAG).assertDoesNotExist()
+            onNodeWithText("OWN_REPLY").assertExists()
+            assertTrue(fake.deleteReplyCalls.isEmpty(), "Batal issues ZERO deletes")
+        }
+    }
+
+    @Test
+    fun deleteFailed_restoresTheReply_andShowsTheFailureSnackbar() {
+        val fake = FakePostDetailFlow(repliesOutcome = ownAndOtherReplies(), deleteOutcome = ReplyDeleteOutcome.NetworkError)
+        installKoin(fake)
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(replyCount = 2), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("OWN_REPLY").fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(POST_DETAIL_REPORT_REPLY_TAG)[1].performScrollTo().performClick()
+            onNodeWithTag(POST_DETAIL_DELETE_REPLY_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(POST_DETAIL_DELETE_REPLY_DIALOG_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Hapus").performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(DELETE_FAILED).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("OWN_REPLY").assertExists() // restored
+            onNodeWithTag(POST_DETAIL_REPLY_COUNT_TAG).assertTextEquals("2") // count restored
+            assertEquals(1, fake.deleteReplyCalls.size)
         }
     }
 }

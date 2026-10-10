@@ -266,6 +266,17 @@
          non-retryable banner distinct from the generic network-retry copy. -->
     <string name="post_detail_post_gone">Postingan ini sudah tidak tersedia.</string>
     <string name="cta_reply">Balas</string>
+    <!-- post-detail-vm-reply-delete-restyle: the mockup-frame-7 chrome (app-bar title, the back-arrow
+         description, the "N balasan" replies subhead) + own-reply delete (the reply kebab item, its
+         confirmation dialog, the failure snackbar). Derived Bahasa Indonesia copy — FLAGGED FOR UX REVIEW. -->
+    <string name="post_detail_title">Postingan</string>
+    <string name="cta_back">Kembali</string>
+    <string name="post_detail_replies_header" formatted="true">%1$d balasan</string>
+    <string name="post_detail_reply_delete_action">Hapus balasan</string>
+    <string name="post_detail_reply_delete_title">Hapus balasan ini?</string>
+    <string name="post_detail_reply_delete_body">Balasan akan dihapus dan tidak bisa dikembalikan.</string>
+    <string name="cta_delete">Hapus</string>
+    <string name="post_detail_reply_delete_failed">Gagal menghapus balasan. Coba lagi.</string>
     <!-- mobile-timeline-card-redesign: the shared post card (ui/components/PostCard.kt). The
          @-handle prefix and the meta middot separator are data-driven via resources so no UI
          glyph is hardcoded in Kotlin (CMP-Resources-only invariant). The shell reuses `app_name`

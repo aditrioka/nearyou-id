@@ -198,6 +198,8 @@ class RootRouterScreenTest {
                 ) = SignUpOutcome.Cancelled
 
                 override suspend fun isAuthenticated(): Boolean = gate.await()
+
+                override suspend fun revokeSession(fcmToken: String?) = Unit
             }
         installKoin(neverCompletes)
         runComposeUiTest {

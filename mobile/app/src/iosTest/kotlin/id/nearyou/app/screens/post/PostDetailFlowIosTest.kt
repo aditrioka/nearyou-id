@@ -2,6 +2,7 @@ package id.nearyou.app.screens.post
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -27,8 +28,11 @@ import kotlin.test.assertEquals
 private const val CONTENT = "halo"
 private const val POSTED_FROM = "Diposting dari Jakarta Selatan, 2026-06-06"
 private const val REPLIES_EMPTY = "Belum ada balasan. Jadilah yang pertama."
+
+// post-detail-vm-reply-delete-restyle (frame 7): the send action + the back arrow are icons, so these are
+// their contentDescriptions (selector-only change — the scenarios are unchanged).
 private const val CTA_REPLY = "Balas"
-private const val CTA_CLOSE = "Tutup"
+private const val CTA_BACK = "Kembali"
 private const val LIKE_CAP_1H =
     "Kamu sudah menggunakan 10 like hari ini. Upgrade ke Premium untuk like tanpa batas, atau tunggu reset dalam 1 j 0 mnt."
 
@@ -131,7 +135,7 @@ class PostDetailFlowIosTest {
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(replyCount = 2), onBack = {}) } } }
             onNodeWithTag(POST_DETAIL_REPLY_FIELD_TAG).performTextInput("halo")
-            onNodeWithText(CTA_REPLY).performClick()
+            onNodeWithContentDescription(CTA_REPLY).performClick()
             waitForIdle()
             onNodeWithText("IOS_NEW_REPLY").assertExists()
             onNodeWithTag(POST_DETAIL_REPLY_COUNT_TAG).assertTextEquals("3")
@@ -145,7 +149,7 @@ class PostDetailFlowIosTest {
         var backCount = 0
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { PostDetailScreen(route = route(), onBack = { backCount++ }) } } }
-            onNodeWithText(CTA_CLOSE).assertExists()
+            onNodeWithContentDescription(CTA_BACK).assertExists()
             onNodeWithTag(POST_DETAIL_BACK_TAG).performClick()
             waitForIdle()
             assertEquals(1, backCount)
