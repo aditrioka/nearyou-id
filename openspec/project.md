@@ -234,6 +234,8 @@ Direct push to `main` is hook-blocked — every change ships via feature branch 
 
 **Iteration rule applies to ALL phases.** Push new commits to the same branch through proposal-review, implementation, AND archive. PR number stays stable from `/next-change` through final squash-merge.
 
+**Found-while fixes.** Defects found during apply or burndown are fixed in the same PR and reported under `## Also fixed`, within the bounds canonical in `CLAUDE.md` § Engineering judgment over context budget (not duplicated here).
+
 **PR title and body MUST stay current at every phase boundary** (hard rule). The PR is what reviewers see at squash-merge time; it must describe the change as it stands NOW. Refresh points:
 
 - **Proposal review completion** (after the 2-iteration review-loop cap settles): body summarizes blocking-vs-non-blocking findings applied + "ready to start implementation".

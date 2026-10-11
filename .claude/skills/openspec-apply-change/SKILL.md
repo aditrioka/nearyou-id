@@ -32,6 +32,7 @@ Implement tasks from an OpenSpec change.
 6. **Implement tasks (loop until done or blocked).** Per pending task:
    - **Coherence check first (nearyou-id):** before writing a new composable/component/helper, scan `ui/components/` + sibling feature packages (mobile) or the feature package + `docs/05-Implementation.md` canonical queries (backend) for an existing implementation to reuse/extend — reuse-first per docs/11 §4. Match the existing naming scheme; don't introduce synonyms for an existing role.
    - Make the minimal, focused change; mark the task `- [ ]` → `- [x]`; continue.
+   - **Found-while defects** (`CLAUDE.md` § Engineering judgment over context budget): a defect/gap found mid-apply that is small (one file cluster, no migration, no new route/string contract, same layer) is fixed in this PR and listed under `## Also fixed` in the PR body; file a `follow-up` issue only beyond those bounds or when it needs operator/product input, stating the concrete reason it can't be fixed in-PR.
 
    **Pause if:**
    - Task unclear → ask.

@@ -107,6 +107,10 @@ Same model as `/triage-follow-ups`: zero extra infra, claims live in labels + br
 
 All mutation lands on a fresh feature branch + PR — never push to `main`, never `--no-verify`/`--no-gpg-sign`. Don't run the gradle gate while a local `:backend:ktor:run` is alive. Issue/label/comment side-effects are public (source-available repo) — no secrets, customer PII, or speculative commercial strategy. `gh` needs the `aditrioka` account (else 403).
 
+## Found-while fixes
+
+A defect/gap found while burning down an issue is fixed in the SAME PR when small (one file cluster, no migration, no new route/string contract, same layer) and listed under `## Also fixed` in the PR body. File a new `follow-up` issue only outside those bounds or when it needs operator/product input — and state the concrete reason it can't be fixed in-PR. Canonical: `CLAUDE.md` § Engineering judgment over context budget.
+
 ## Self-improving rule
 
 New blocker / stale constraint / wrong route discovered while burning down an issue → fix it HERE (the relevant step) before finishing, same as verify-loop and audit-burndown.

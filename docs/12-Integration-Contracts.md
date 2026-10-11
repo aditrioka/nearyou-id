@@ -42,6 +42,8 @@ The full vertical slice is, for whichever layers the capability touches:
 
 Splitting a capability across changes is allowed **only** when the deferred layer is captured as an explicit spec requirement in the *originating* change — never as a bare "deferred to follow-up" line in prose. Use the shape from the project memory `feedback_defer_as_explicit_requirement`:
 
+**A deferral is legitimate only for a named blocker** (operator decision 2026-10-12; 25 of 94 open `follow-up` issues were §3 deferrals) — one of four categories: **(a)** operator-held input (credentials, a vendor console, a physical device); **(b)** an upstream / external dependency; **(c)** a product decision explicitly pending with the operator (cite the decision or issue number); **(d)** the `apple-paid` lane (§ 3.1). Diff size, effort, "keep the PR small", or "outside the lane's focus" are **not** blockers — that layer ships in the slice. The deferred requirement MUST name its blocker category in the requirement text.
+
 For each deferred layer, the originating change's `specs/**` MUST add a requirement with:
 
 1. **A positive statement** of what the deferred layer *will* do (so the follow-up has something concrete to `MODIFY` via the OpenSpec RENAMED+MODIFIED convention — a `## RENAMED` block whose `FROM` byte-matches the current header, plus a `## MODIFIED` block keyed by the new header).
