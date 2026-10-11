@@ -23,8 +23,15 @@ class AdminTemplateStyleTest : StringSpec({
     "no admin template carries an inline style attribute" {
         templates.map { it.name } shouldContain "layout.peb"
         templates
-            .filter { STYLE_ATTR.containsMatchIn(it.readText().replace(SPARK_BAR_HEIGHT, "")) }
+            .filter { STYLE_ATTR.containsMatchIn(it.readText()) }
             .map { it.name }
+            .shouldBeEmpty()
+    }
+
+    "every quantized sparkline bar height spark() can emit has an admin.css class" {
+        (SPARK_STEP_PCT..100 step SPARK_STEP_PCT)
+            .map { "h-$it" }
+            .filter { it !in cssClasses }
             .shouldBeEmpty()
     }
 
@@ -38,10 +45,6 @@ class AdminTemplateStyleTest : StringSpec({
             .shouldBeEmpty()
     }
 })
-
-// The dashboard sparkline's per-bar height is data, not styling (index.peb), so
-// it is the one inline style a class cannot express. Tracked for CSP under #531.
-private const val SPARK_BAR_HEIGHT = """<i style="height: {{ h }}%">"""
 
 private val STYLE_ATTR = Regex("""\sstyle\s*=""")
 private val CLASS_ATTR = Regex("""class="([^"]*)"""")

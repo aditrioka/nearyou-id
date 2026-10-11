@@ -418,6 +418,13 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
   margin-top: 10px;
 }
 .spark i { width: 4px; background: var(--primary); border-radius: 1px 1px 0 0; min-height: 1px; }
+/* bar height = data, quantized to 5 % steps by spark() so it is a class, not
+   an inline style (docs/11 § 3.6; CSP-safe). h-0 falls back to min-height. */
+.spark .h-5 { height: 5%; } .spark .h-10 { height: 10%; } .spark .h-15 { height: 15%; } .spark .h-20 { height: 20%; }
+.spark .h-25 { height: 25%; } .spark .h-30 { height: 30%; } .spark .h-35 { height: 35%; } .spark .h-40 { height: 40%; }
+.spark .h-45 { height: 45%; } .spark .h-50 { height: 50%; } .spark .h-55 { height: 55%; } .spark .h-60 { height: 60%; }
+.spark .h-65 { height: 65%; } .spark .h-70 { height: 70%; } .spark .h-75 { height: 75%; } .spark .h-80 { height: 80%; }
+.spark .h-85 { height: 85%; } .spark .h-90 { height: 90%; } .spark .h-95 { height: 95%; } .spark .h-100 { height: 100%; }
 
 /* informational banner (frame 2 CSRF note; mirrors the login error banner) */
 .banner {
@@ -449,6 +456,8 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
   padding: 8px 12px;
   margin-top: 14px;
 }
+/* neutral variant — a fail-soft notice, not a success (CSAM decrypt unavailable) */
+.outcome-message.muted { background: var(--sc); color: var(--on-surface-variant); }
 .empty-state {
   text-align: center;
   color: var(--on-surface-variant);
@@ -590,8 +599,11 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 }
 .quota .ic { width: 13px; height: 13px; }
 .quota b { font-weight: 900; }
-/* the same pill inside a swappable queue fragment (frames 15/16/18/19/21),
-   on its own line under the filter bar */
+/* the same pill inside a swappable queue fragment (deletion / export / grace
+   / reserved-usernames / referral grants). Deliberate divergence from frames
+   6/21, which park it in the page head (.pg-row): the count lives in the
+   HTMX-swapped fragment so it refreshes after each action, so it sits on its
+   own line under the filter bar. */
 p.quota { margin-top: 12px; }
 /* each action keeps its audit-only reason field, so the board's button row
    becomes a grid of tiles (stacks naturally, frame 4b) */
@@ -838,6 +850,21 @@ body.bare > main {
 .banner.err { margin-top: 14px; background: var(--error-container); color: var(--on-error-container); }
 /* a filter-shaped action form directly inside a card (frame 13 handler) */
 .cardlet > form.filters { margin-top: 8px; }
+/* reserved-usernames "Bulk add CSV" disclosure: the summary is the board's
+   outlined button (frame 21); the opened form stacks the textarea + submit */
+details.bulk-add { margin-top: 12px; }
+details.bulk-add > summary { list-style: none; }
+details.bulk-add > summary::-webkit-details-marker { display: none; }
+details.bulk-add[open] > summary { background: var(--sc); }
+details.bulk-add > form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  max-width: 560px;
+}
+details.bulk-add .field { align-self: stretch; }
 
 /* ---- feature flags (frame 20) ------------------------------------------- */
 .ff-flags { padding: 6px 18px; }

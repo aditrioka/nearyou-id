@@ -70,19 +70,23 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"article\""
             body shouldContain "data-icon=\"download\""
             body shouldContain "data-icon=\"redeem\""
-            // EXACTLY sixteen nav items, under their six group headings: the
-            // Moderasi group holds Dashboard + Reports + Appeals (admin-appeal-
-            // review, content-moderation-appeal) + Users; the Anti-abuse group
-            // holds Rejected identifiers + the Block registry item (admin-block-
-            // registry) + the CSAM detection log (admin-csam-detection-log); the
-            // Lifecycle group holds Privacy flips (admin-privacy-flip-monitor) +
-            // Hard delete queue (admin-hard-delete-queue) + Data export queue
-            // (admin-data-export-queue); the Premium group holds Subscription grace
-            // (admin-subscription-grace-monitor) + Referral grants (admin-referral-
-            // manual-grant); the Konfigurasi group holds Feature flags (admin-
-            // feature-flag-editor) + Reserved usernames (admin-reserved-usernames-
-            // editor) + Username oversight (admin-premium-username-oversight); the
-            // Sistem group holds the Audit log.
+            // EXACTLY sixteen nav items, under their six group headings (each
+            // item's owning capability in parentheses):
+            // - Moderasi: Dashboard (admin-operational-dashboard), Reports
+            //   (admin-report-queue), Appeals (admin-appeal-review), Users
+            //   (admin-user-moderation).
+            // - Anti-abuse: Rejected identifiers (admin-rejected-identifiers-
+            //   viewer), Block registry (admin-block-registry), CSAM detection
+            //   log (admin-csam-detection-log).
+            // - Lifecycle: Privacy flips (admin-privacy-flip-monitor), Hard
+            //   delete queue (admin-hard-delete-queue), Data export queue
+            //   (admin-data-export-queue).
+            // - Premium: Subscription grace (admin-subscription-grace-monitor),
+            //   Referral grants (admin-referral-manual-grant).
+            // - Konfigurasi: Feature flags (admin-feature-flags), Reserved
+            //   usernames (admin-reserved-usernames-editor), Username oversight
+            //   (admin-premium-username-oversight).
+            // - Sistem: Audit log (admin-actions-log-viewer).
             Regex("class=\"nitem").findAll(body).count() shouldBe 16
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
@@ -90,7 +94,7 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "Premium"
             body shouldContain "Konfigurasi"
             body shouldContain "Sistem"
-            // Feature flags (admin-feature-flag-editor) + Reserved usernames
+            // Feature flags (admin-feature-flags) + Reserved usernames
             // (admin-reserved-usernames-editor) shipped; other Usulan items +
             // board-annotation status dots are still absent.
             body shouldContain "Feature flags"

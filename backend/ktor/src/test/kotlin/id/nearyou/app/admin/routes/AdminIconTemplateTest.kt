@@ -54,6 +54,13 @@ class AdminIconTemplateTest : StringSpec({
         }
     }
 
+    "chat-redaction-panel.peb warn banner uses the warning glyph, not the error one" {
+        renderTemplate("chat-redaction-panel.peb", redactionModel) { body ->
+            Regex("""class="banner warn">\s*<svg class="ic" data-icon="warning"""").containsMatchIn(body) shouldBe true
+            body shouldNotContain "data-icon=\"error\""
+        }
+    }
+
     "user-profile.peb history chips are toned per action and username rows are self-attributed" {
         renderTemplate("user-profile.peb", profileModel()) { body ->
             body shouldContain "<span class=\"st err\">user_suspended</span>"
@@ -104,6 +111,11 @@ private val wordlistModel: Map<String, Any> =
             "importDuplicatesSkipped" to 0,
             "importCommentBlankSkipped" to 0,
         )
+
+// Frame 9 redaction form branch (target not yet redacted): its `.banner.warn`
+// carries the board's `warning` glyph, not the error one.
+private val redactionModel: Map<String, Any> =
+    mapOf("context" to emptyList<Any>(), "targetIsRedacted" to false, "messageId" to "x")
 
 private val csamModel: Map<String, Any> =
     mapOf(
@@ -171,6 +183,7 @@ private val RENDER_CASES =
         RenderCase("reserved-usernames-table.peb", quota + mapOf("hasRows" to false), listOf("speed")),
         RenderCase("feature-flags-content.peb", featureFlagsModel, listOf("warning", "filter_alt")),
         RenderCase("wordlist-editor-content.peb", wordlistModel, listOf("warning", "info")),
+        RenderCase("chat-redaction-panel.peb", redactionModel, listOf("flag", "block", "warning")),
         RenderCase("csam-log.peb", csamModel, listOf("gpp_maybe", "bolt", "filter_alt", "info", "gavel", "key")),
         RenderCase("csam-log-table.peb", csamModel, listOf("gavel", "key")),
         RenderCase(

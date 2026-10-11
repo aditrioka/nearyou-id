@@ -38,7 +38,7 @@
 </div>
 
 <details class="bulk-add">
-    <summary>Bulk add (CSV)</summary>
+    <summary class="btn outl">Bulk add (CSV)</summary>
     <form action="/admin/reserved-usernames/bulk"
           method="POST"
           hx-post="/admin/reserved-usernames/bulk"

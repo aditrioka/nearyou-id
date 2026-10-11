@@ -32,7 +32,7 @@ import java.util.UUID
  * capability, mockup frame 20): render (R1/R2), the audited write (R3), the CSRF
  * (R4) / owner-admin role (R5) / 5-per-hour rate-limit (R6) gates, optimistic
  * concurrency (R8/now-R9), graceful read-only degradation (R10), and the
- * deferred-wordlist guard (R11). The pure value-validation matrix (R7 + the
+ * wordlist-content delegated-editor guard (R11). The pure value-validation matrix (R7 + the
  * value-validation requirement) is covered by [FeatureFlagCatalogTest].
  *
  * DB-backed; tagged `database`. Uses [AdminAuthTestSupport] for authenticated
@@ -404,7 +404,7 @@ class AdminFeatureFlagsRouteTest : StringSpec({
         }
     }
 
-    // ============================ R11 deferred-wordlist guard ==============================
+    // ===================== R11 wordlist-content delegated-editor guard =====================
 
     "there is no endpoint that mutates a moderation wordlist's content" {
         val admin = seedAdmin()

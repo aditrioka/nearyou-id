@@ -59,7 +59,7 @@
             </label>
             <button type="submit" class="btn danger sm">{{ icon("block") }}Redact message</button>
         </form>
-        <div class="banner warn">{{ icon("error") }}
+        <div class="banner warn">{{ icon("warning") }}
             <span>Role <b>owner/admin</b> only. <code>redacted_at</code> + <code>redacted_by</code> are
             written atomically; both active participants receive a <code>chat_message_redacted</code>
             notification; clients render &ldquo;Pesan ini telah dihapus oleh moderator.&rdquo; Audit:
