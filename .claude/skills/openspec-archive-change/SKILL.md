@@ -34,7 +34,7 @@ Archive a completed change.
 
    For each `openspec/changes/<name>/specs/<capability>/spec.md`: determine the post-archive `openspec/specs/<capability>/spec.md` (the file the world reads going forward), and check it for the literal substring `TBD - created by archiving`. If found, do NOT proceed silently. Offer all three via AskUserQuestion:
    - **(a) Fill the Purpose now (recommended).** From `proposal.md` § Why + § What Changes, synthesize a 2–4 sentence Purpose; replace the TBD line in the spec.md (or delta spec.md if sync hasn't run). Re-run `openspec validate <name> --strict` + re-run this step.
-   - **(b) Defer with an explicit `follow-up` issue.** Only when filling meaningfully needs inputs you lack: `gh issue create --label follow-up` (+ area label) capturing the capability + missing inputs, then proceed. Real tracked debt, not a free pass — don't use for laziness.
+   - **(b) Defer with an explicit `follow-up` issue.** Only when filling meaningfully needs inputs you lack: `gh issue create --label follow-up` (+ area label) capturing the capability + missing inputs, then proceed. Real tracked debt, not a free pass — don't use for laziness. The issue MUST name its `docs/12` §3 blocker category ((a) operator-held input, (b) upstream/external dependency, (c) operator-pending product decision with its number, (d) `apple-paid`); size/effort is not one — fill it now via (a).
    - **(c) Cancel archive.** Surface the affected capability list and let the user decide.
 
    Check command (halts archive on any output; empty = proceed):

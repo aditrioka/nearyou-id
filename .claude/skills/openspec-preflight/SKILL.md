@@ -40,6 +40,8 @@ Decide whether the capability is **user-facing** (a screen, action, notification
 
 Flag any undeclared single-layer slice of a multi-layer capability as a **blocking** report entry — the fix is to either widen scope or add the §3 deferred requirement before apply.
 
+Equally **blocking**: a declared deferral whose requirement text names no `docs/12` §3 blocker category — (a) operator-held input, (b) upstream/external dependency, (c) operator-pending product decision (with its number), (d) `apple-paid`. Diff size / effort / "keep the PR small" / "outside the lane's focus" is not a blocker — the fix is to ship that layer in the slice.
+
 ### 3. Doc-reconciliation diff
 
 This overlaps `/next-change` B.3 — **do not duplicate it; confirm it ran and record the result.** If invoked outside `/next-change` (e.g. directly before `/opsx:apply`), run the B.3 procedure now: diff every schema/algorithm/domain claim in the proposal against the canonical `docs/**` / `openspec/specs/**` it cites; bucket each divergence (a) fix proposal / (b) file stale-doc follow-up / (c) surface to user. Precedent for late catches: [#357](https://github.com/aditrioka/nearyou-id/issues/357), [#337](https://github.com/aditrioka/nearyou-id/issues/337).
@@ -75,7 +77,7 @@ Emit this block and have `/next-change` C.3 paste it into the PR body under a `#
 The preflight does not stop the lifecycle on its own, but:
 
 - **Human-required tasks** that block implementation MUST be acknowledged by the operator before `/opsx:apply` starts the dependent tasks. `/opsx:apply` re-reads this block as a precondition (do not silently implement around a missing secret/provisioning step — that recreates the late-discovery failure).
-- An **undeclared single-layer slice** (check 2) is blocking: fix scope or add the `docs/12` §3 deferred requirement before handoff.
+- An **undeclared single-layer slice** (check 2) is blocking: fix scope or add the `docs/12` §3 deferred requirement before handoff. So is a **deferral with no named §3 blocker category** (check 2): ship the layer in the slice.
 - A **silent test-scenario drop** (check 4) is blocking: add the task or declare the deferral as a requirement.
 
 Surface the report to the user via `AskUserQuestion` when any blocking entry exists; otherwise record it and continue.
