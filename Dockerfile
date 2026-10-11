@@ -15,8 +15,8 @@
 # before serving requests (staging-simplified bootstrap). Prod will split this into
 # a dedicated Cloud Run Job per docs/04-Architecture.md.
 
-ARG JDK_IMAGE=eclipse-temurin:21.0.5_11-jdk-noble
-ARG JRE_IMAGE=eclipse-temurin:21.0.5_11-jre-noble
+ARG JDK_IMAGE=eclipse-temurin:21.0.12_8-jdk-noble
+ARG JRE_IMAGE=eclipse-temurin:21.0.12_8-jre-noble
 
 # ---- builder ---------------------------------------------------------------
 
