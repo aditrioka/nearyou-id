@@ -49,8 +49,8 @@ import org.koin.compose.koinInject
 /**
  * The Settings › "Undang teman" referral sub-surface (`mobile-referral`). A pushed root-stack overlay
  * owning its own Scaffold + back bar (the `ConsentSettingsScreen` / `BlockedUsersScreen` Settings
- * sub-surface idiom — no dedicated mockup frame exists; built from the `mobile-design-system`
- * substrate). Displays the user's shareable invite code with a copy-to-clipboard action
+ * sub-surface idiom, built from the `mobile-design-system` substrate; mockup frame 20 "Undang teman"
+ * of `dev/mockups/nearyou-screens-mockup.html` mirrors it). Displays the user's shareable invite code with a copy-to-clipboard action
  * ([LocalClipboardManager]), the "X dari 5" inviter-reward progress, a distinct reward-unlocked state,
  * and explanatory copy. All copy via `:shared:resources`, under `NearYouTheme`.
  *

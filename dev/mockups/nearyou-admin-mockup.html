@@ -7,8 +7,8 @@
 <!--
   Static high-fidelity mockup board for the NearYouID ADMIN PANEL (backend/ktor admin package:
   Pebble templates + HTMX + vendored vanilla CSS — NO client framework).
-  - This board is the canonical UI/UX reference for /admin/*. The shipped panel is intentionally
-    unstyled today; this board defines the target design language going forward.
+  - This board is the canonical UI/UX reference for /admin/*. The shipped panel takes this design
+    language through the vendored admin.css (PRs #226/#241); the board stays the styling target.
   - Theme tokens mirror shared/resources NearYouColorScheme.kt LIGHT scheme (seed #1E4FD6) +
     NearYouColors.kt accents, Plus Jakarta Sans — same fidelity contract as the mobile board.
     Admin is light-only for MVP (solo-operator simplicity).
@@ -291,7 +291,7 @@
     design (docs/07 § Core Features, docs/08 Phase 3.5 + Pre-Launch). Panel hidup di
     <b>backend/ktor</b>: Pebble templates + HTMX + CSS vanilla vendored (tanpa framework client).
     Frame "Sudah ada" me-mirror field/kolom/aksi nyata dari <code>templates/admin/*.peb</code>;
-    styling-nya adalah target yang dituju (panel hari ini sengaja belum di-style).
+    styling-nya adalah target yang dituju (panel hidup memakainya lewat <code>admin.css</code>, PR #226/#241).
     Perilaku tetap dikuasai spec: <code>openspec/specs/admin-*</code> menang atas mockup bila bertentangan.
   </p>
   <div class="legend">
@@ -348,26 +348,27 @@
       <nav class="side">
         <svg class="logo" viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/><path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/><path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/><path d="M64.2,73.7 L56.7,73.7"/><circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/></svg>
         <div class="ngroup">Moderasi</div>
-        <a class="nitem active"><span class="ms">dashboard</span>Dashboard<span class="dot usul"></span></a>
+        <a class="nitem active"><span class="ms">dashboard</span>Dashboard<span class="dot ada"></span></a>
         <a class="nitem"><span class="ms">flag</span>Reports<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">article</span>Appeals<span class="dot ada"></span></a>
         <a class="nitem"><span class="ms">group</span>Users<span class="dot ada"></span></a>
-        <a class="nitem"><span class="ms">history</span>Post edit history<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">chat_error</span>Chat redaction<span class="dot usul"></span></a>
+        <a class="nitem"><span class="ms">history</span>Post edit history<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">chat_error</span>Chat redaction<span class="dot ada"></span></a>
         <div class="ngroup">Anti-abuse &amp; keamanan</div>
         <a class="nitem"><span class="ms">block</span>Rejected identifiers<span class="dot ada"></span></a>
         <a class="nitem"><span class="ms">verified_user</span>Attestation review<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">person_off</span>Block registry<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">gpp_maybe</span>CSAM log<span class="dot usul"></span></a>
+        <a class="nitem"><span class="ms">person_off</span>Block registry<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">gpp_maybe</span>CSAM log<span class="dot ada"></span></a>
         <div class="ngroup">Lifecycle &amp; UU PDP</div>
         <a class="nitem"><span class="ms">auto_delete</span>Hard delete queue<span class="dot ada"></span></a>
-        <a class="nitem"><span class="ms">download</span>Data export queue<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">visibility</span>Privacy flip monitor<span class="dot usul"></span></a>
+        <a class="nitem"><span class="ms">download</span>Data export queue<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">visibility</span>Privacy flip monitor<span class="dot ada"></span></a>
         <div class="ngroup">Premium &amp; konfigurasi</div>
-        <a class="nitem"><span class="ms">credit_card</span>Subscription grace<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">redeem</span>Referral grants<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">toggle_on</span>Feature flags<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">badge</span>Reserved usernames<span class="dot usul"></span></a>
-        <a class="nitem"><span class="ms">alternate_email</span>Username oversight<span class="dot usul"></span></a>
+        <a class="nitem"><span class="ms">credit_card</span>Subscription grace<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">redeem</span>Referral grants<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">toggle_on</span>Feature flags<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">badge</span>Reserved usernames<span class="dot ada"></span></a>
+        <a class="nitem"><span class="ms">alternate_email</span>Username oversight<span class="dot ada"></span></a>
         <div class="ngroup">Sistem</div>
         <a class="nitem"><span class="ms">receipt_long</span>Audit log<span class="dot ada"></span></a>
         <a class="nitem"><span class="ms">security</span>Account security<span class="dot usul"></span></a>
@@ -404,9 +405,10 @@
   </div>
   <div class="cap">
     <h3>2 · App shell — sidebar navigasi + index <span class="path">— GET /admin/</span></h3>
-    <p>Yang shipped (<code>layout.peb</code>): nav 4 link (Reports, Users, Audit log, Rejected
-    identifiers) + tombol Logout (POST + <code>_csrf</code>) + index scaffold. Sidebar bergrup di
-    atas adalah target saat fitur bertambah — dot hijau = shipped, dot hollow = usulan. Kartu sesi:
+    <p>Yang shipped (<code>layout.peb</code>): sidebar bergrup dengan link ke setiap permukaan yang
+    sudah ada (tanpa placeholder usulan) + tombol Logout (POST + <code>_csrf</code>); post edit history
+    &amp; chat redaction dicapai secara kontekstual (dari kartu Report Queue), bukan dari nav. Sidebar di
+    atas adalah target lengkapnya — dot hijau = shipped, dot hollow = usulan. Kartu sesi:
     identitas admin + role chip (owner/admin/moderator/read_only, V16 CHECK) + countdown idle. Deployment
     target <code>admin.nearyou.id</code> di belakang IAP (Phase 3.5 #2; staging hari ini masih
     <code>api-staging.nearyou.id/admin/*</code>). Spec: <code>admin-panel-scaffold</code>.</p>
@@ -920,6 +922,76 @@ after:  { is_banned: true,
     disclosure “admin-readable untuk appeal moderasi” di kebijakan privasi (docs/02 § chat).
     CSRF-verified; reason wajib; atomicity CHECK <code>redacted_at</code>+<code>redacted_by</code>.</p>
     <span class="tag usulan">Usulan</span>
+  </div>
+</div>
+
+<!-- ============================================================ 23 · APPEAL REVIEW -->
+<div>
+  <div class="frame" id="f23">
+    <div class="browser"><div class="dots"><i></i><i></i><i></i></div>
+      <div class="url"><span class="ms">lock</span><span><b>admin.nearyou.id</b>/admin/appeals</span></div></div>
+    <div class="topbar"><svg class="logo" viewBox="31 31 46 46" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M43.8,50.2 L54,56.1 L64.2,50.2 L64.2,38.5 L54,32.6 L43.8,38.5 L43.8,45.5"/><path d="M54,56.1 L43.8,50.2 L33.7,56.1 L33.7,67.9 L43.8,73.7 L46.3,73.7"/><path d="M64.2,73.7 L74.3,67.9 L74.3,56.1 L68.3,52.6"/><path d="M64.2,73.7 L56.7,73.7"/><circle cx="51.5" cy="73.7" r="2" fill="currentColor" stroke="none"/></svg>
+      <div class="crumb"><span class="ms">chevron_right</span>Moderasi<span class="ms">chevron_right</span><b>Appeal Queue</b></div>
+      <div class="spacer"></div><span class="envchip">STAGING</span>
+      <div class="admchip"><span class="av">O</span>oka<span class="rolechip owner">OWNER</span></div></div>
+    <div class="main">
+      <div class="pg">Appeal Queue</div>
+      <p class="pg-sub">appeals · status = pending · oldest-first (appeals_pending_created_idx)</p>
+
+      <div class="rcard">
+        <div class="rc-head">
+          <span class="st pend">PENDING</span>
+          <span class="st info">suspension</span>
+          <a class="code">4e2a91c7-5b3d-4f08-a6e1-9c0d2b7f3a51</a>
+          <span class="time">2026-10-05 03:12 UTC</span>
+        </div>
+        <p class="rc-note">“Saya disuspend karena dikira spam, padahal itu info kerja bakti RT yang memang saya urus. Mohon ditinjau ulang.”</p>
+        <div class="rc-actions">
+          <div class="btn tonal sm" style="height:30px;"><span class="ms">lock_open</span>Approve — lift the ban</div>
+          <div class="vdiv"></div>
+          <div class="field"><label>Decision reason (optional)</label>
+            <div class="ctl" style="min-width:300px;height:30px;"><span class="ph">why the appeal is denied</span></div></div>
+          <div class="btn danger sm" style="height:30px;">Reject — keep the action</div>
+        </div>
+      </div>
+
+      <div class="rcard">
+        <div class="rc-head">
+          <span class="st pend">PENDING</span>
+          <span class="st info">permanent_ban</span>
+          <a class="code">b7d03e5f-1c9a-4d62-8e4b-6f2a0c9d1e83</a>
+          <span class="time">2026-10-05 08:47 UTC</span>
+        </div>
+        <p class="rc-note">“Akun saya diblokir permanen tanpa penjelasan. Saya tidak merasa melanggar pedoman — mungkin ada laporan palsu dari akun yang sama.”</p>
+        <div class="rc-actions">
+          <div class="btn tonal sm" style="height:30px;"><span class="ms">lock_open</span>Approve — lift the ban</div>
+          <div class="vdiv"></div>
+          <div class="field"><label>Decision reason (optional)</label>
+            <div class="ctl" style="min-width:300px;height:30px;">Spam berulang terbukti di 3 laporan</div></div>
+          <div class="btn danger sm" style="height:30px;">Reject — keep the action</div>
+        </div>
+      </div>
+
+      <div class="pager"><div class="btn text"><span class="ms">expand_more</span>Load newer</div></div>
+    </div>
+  </div>
+  <div class="cap">
+    <h3>23 · Appeal Review — banding suspend/ban <span class="path">— GET /admin/appeals · POST /admin/appeals/{id}/approve · POST /admin/appeals/{id}/reject</span></h3>
+    <p>Mirror <code>appeals.peb</code> dengan idiom kartu Report Queue (frame 4): antrean <code>appeals</code>
+    berstatus <code>pending</code>, oldest-first (keyset — halaman berikutnya berisi banding yang lebih
+    baru, “Load newer”). Per kartu: chip status + <code>action_type</code>
+    (<code>suspension</code> / <code>permanent_ban</code>), user id appellant → <code>/admin/users?q=…</code>,
+    <code>created_at</code>, lalu <code>appeal_text</code> utuh inline (≤1000 karakter, CHECK V34 — tanpa
+    halaman detail; selalu autoescape, tanpa filter <code>raw</code>). Bar aksi dua zona:
+    <b>Approve</b> (restoratif — jalur unban kanonik <code>is_banned = FALSE, suspended_until = NULL</code>)
+    vs <b>Reject</b> (aksi moderasi tetap berlaku; alasan opsional ≤1000 karakter). Keduanya gate
+    owner/admin + CSRF (<code>_csrf</code> no-JS / header HTMX), idempoten (keputusan ulang = no-op),
+    tidak dihitung rate limit aksi destruktif, dan dalam satu transaksi menulis satu baris
+    <code>admin_actions_log</code> (<code>appeal_approved</code> / <code>appeal_rejected</code>) + satu notifikasi
+    in-app <code>appeal_decided</code> untuk appellant (alasan tidak ikut terkirim, tanpa FCM). Kosong:
+    “No pending appeals.” Spec: <code>admin-appeal-review</code>; sisi pengguna:
+    <code>content-moderation-appeal</code> + <code>mobile-appeal</code> (docs/08 § Open Decisions #2).</p>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
@@ -1570,8 +1642,8 @@ after:  { is_banned: true,
   <b>Cara pakai board ini</b> (ringkas; lengkapnya di README): render → cari frame → baca caption
   (status + sitasi docs/spec) → terjemahkan ke idiom panel (Pebble template + fragment HTMX +
   vendored CSS dengan token di atas — bukan framework client). Konflik perilaku: spec/docs menang. Data sintetis semua — UUID/hash/IP palsu (203.0.113.0/24), tanpa PII nyata.
-  Satu permukaan menyusul: <b>appeal-review workflow</b> (docs/08 § Open Decisions #2) belum
-  didesain — frame-nya ditambahkan saat desainnya final di Phase 3.5.
+  Board mencakup seluruh permukaan admin yang diketahui (24 frame, termasuk <b>appeal review</b> di
+  frame 23 — docs/08 § Open Decisions #2).
 </footer>
 
 </body>

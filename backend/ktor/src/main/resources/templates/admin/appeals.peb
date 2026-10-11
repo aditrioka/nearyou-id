@@ -6,11 +6,10 @@
 <h2>Appeal Queue</h2>
 <p class="pg-sub">appeals · status = pending · oldest-first (appeals_pending_created_idx)</p>
 
-{# Unstyled review surface — the admin board has no appeal frame yet (docs/11 §3.6,
-   "sole known gap"); it adopts the report-queue card/action/CSRF idioms until the
-   design-foundation pass lands the styled frame. Every value is Pebble-autoescaped
-   on output — `appealText` is user free-text reaching an admin, so NO `raw` filter
-   is used anywhere (XSS-safe; the doxxing/PII-redaction posture is follow-up 7.4).
+{# Mockup frame 23 (Appeal Review, dev/mockups/nearyou-admin-mockup.html, docs/11 §3.6);
+   it reuses the report-queue card/action/CSRF idioms (frame 4) styled by admin.css.
+   Every value is Pebble-autoescaped on output — `appealText` is user free-text
+   reaching an admin, so NO `raw` filter is used anywhere (XSS-safe; the doxxing/PII-redaction posture is follow-up 7.4).
 
    CSRF: full-page (no-JS) render carries `csrfToken`, so the in-row `_csrf` hidden
    fields populate for the no-JS POST path; the layout's htmx hook adds the

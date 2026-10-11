@@ -10,27 +10,27 @@ building.
 
 ## Files
 
-- **`nearyou-admin-mockup.html`** — the 23-frame **admin panel** board (desktop frames, light-only),
-  the canonical UI/UX reference for ALL admin features — shipped and planned (sole known gap: the
-  appeal-review workflow, docs/08 § Open Decisions #2, not yet designed — its frame is added when
-  the design lands in Phase 3.5). Five sections:
+- **`nearyou-admin-mockup.html`** — the 24-frame **admin panel** board (desktop frames, light-only),
+  the canonical UI/UX reference for ALL admin features — shipped and planned, no known gap (the
+  appeal-review workflow, docs/08 § Open Decisions #2, is frame 23). Five sections:
   - *A · Shell, akses & dasbor* (1–3): login (Argon2id + TOTP), app shell + sidebar nav + session
     card + logout, Operational Dashboard.
-  - *B · Moderasi inti* (4–9): Report Queue card-based triage + in-row resolution, **4b** narrow-width
+  - *B · Moderasi inti* (4–9, 23): Report Queue card-based triage + in-row resolution, **4b** narrow-width
     snapshot (the responsive contract), User Moderation lookup + suspend/unban, full User
-    Management, Audit Log, Post Edit History, Chat Redaction.
+    Management, Audit Log, Post Edit History, Chat Redaction, Appeal Review (approve = unban /
+    reject keeps the action).
   - *C · Anti-abuse & keamanan* (10–14): Rejected Identifiers (+ clear action #190), Attestation
     Review, Block Registry, CSAM Log + handler + Kominfo workflow, Account Security (WebAuthn + sessions).
   - *D · Lifecycle & UU PDP* (15–17): Hard Delete Queue, Data Export Queue, Privacy Flip Monitor.
   - *E · Premium, growth & konfigurasi* (18–22): Subscription Grace, Referral Manual Grant, Feature
     Flags, Reserved Usernames Editor, Premium Username Change Oversight.
-- **`nearyou-screens-mockup.html`** — the 19-frame screen board, four sections:
+- **`nearyou-screens-mockup.html`** — the 20-frame screen board, four sections:
   - *Main screen* (1–4): Beranda (Sekitar feed + radius slider), Pesan, Profil, Notifikasi — the 4
     bottom-nav sections.
   - *Layar pushed* (5–9): ruang chat 1:1 (embed `embedded_post_snapshot`), composer, detail
     postingan + balasan, edit profil, bottom sheet "Perjalanan Premium".
-  - *Onboarding, langganan & pengaturan* (10–18): onboarding 3 slide, masuk, gerbang usia,
-    persetujuan analitik, pengaturan, paywall, upsell saat kena batas.
+  - *Onboarding, langganan & pengaturan* (10–18, 20): onboarding 3 slide, masuk, gerbang usia,
+    persetujuan analitik, pengaturan, paywall, upsell saat kena batas, undang teman (referral).
   - *Dark theme* (19): Beranda dengan `NearYouColorScheme.dark`.
 - **`nearyou-premium-tenure-badges.html`** — companion concept board for the premium **tenure**
   badge system (docs/01 § Premium Tenure Counter): 5 tier (Perunggu → Berlian), live CSS animations
@@ -50,8 +50,8 @@ building.
 - Spacing follows a 4dp-grid intent. Sizes are dp intent, not pixel contracts — the M3 component
   named in the caption is the source of truth for its metrics.
 - **Admin board specifics**: "Sudah ada" frames mirror the real fields/columns/actions of the
-  shipped `templates/admin/*.peb` (the *styling* is the target — the live panel is intentionally
-  unstyled pre-board); "Usulan" frames cite `docs/07-Operations.md` § Core Features /
+  shipped `templates/admin/*.peb` (the *styling* is the target — the live panel takes it via the
+  vendored `admin.css`, PRs #226/#241); "Usulan" frames cite `docs/07-Operations.md` § Core Features /
   `docs/08-Roadmap-Risk.md` Phase 3.5 / the tracking `follow-up` issue. A third tag **"Sebagian"**
   marks frames mixing both. In-frame copy is English (mirrors shipped templates); captions are
   Indonesian. Frame 4b encodes the **responsive contract** (fluid CSS, sidebar drawer, disclosure
