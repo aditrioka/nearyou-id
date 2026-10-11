@@ -324,12 +324,33 @@ class AppealRepositoryTest {
         }
 
     @Test
-    fun `null token session read 401 maps to SessionExpired`() =
+    fun `null token session read 401 that fired no invalidation leaves the re-route to the screen`() =
         runTest {
             val repo =
                 sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE)) {
                     respond("", HttpStatusCode.Unauthorized, JSON_HEADERS)
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = true), repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = false), repo.status(null), "the store still holds a session")
+        }
+
+    @Test
+    fun `null token through the shared client whose refresh succeeds but whose retry still 401s is not viaSession`() =
+        runTest {
+            val store = InMemoryTokenStore(TokenPair("at-stale", "rt-1", Long.MAX_VALUE))
+            val repo =
+                sharedClientRepository(store) { request ->
+                    when (request.url.encodedPath) {
+                        "/api/v1/auth/refresh" ->
+                            respond(
+                                """{"access_token":"at-new","refresh_token":"rt-new","expires_in":900}""",
+                                HttpStatusCode.OK,
+                                JSON_HEADERS,
+                            )
+                        // e.g. token_version bumped / the user deleted between the refresh and the retry.
+                        else -> respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
+                    }
+                }
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = false), repo.status(null))
+            assertEquals("at-new", store.read()?.accessToken, "no app-wide invalidation fired, so the screen must route")
         }
 }

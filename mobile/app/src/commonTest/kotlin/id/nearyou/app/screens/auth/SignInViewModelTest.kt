@@ -138,6 +138,26 @@ class SignInViewModelTest {
         }
 
     @Test
+    fun openingTheAppeal_consumesTheBannedOutcome_soAReturnShowsAUsableCta() =
+        runTest(dispatcher) {
+            // #581: the appeal's re-sign-in is replaceAll(SignInRoute), which keeps THIS entry's ViewModel (same
+            // content key). The appeal consumes the banned outcome (the NoAccount precedent), so the return lands
+            // on the clean initial CTA rather than the disabled banned state with a dead appeal entry.
+            val viewModel =
+                vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z"))))
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            viewModel.onSignInClick()
+            advanceUntilIdle()
+            viewModel.onAppealOpened()
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.ctaEnabled, "the returned-to CTA is usable")
+            assertFalse(viewModel.uiState.value.showAppealEntry, "no stale appeal entry")
+            assertNull(viewModel.uiState.value.errorBanner, "no stale suspension banner")
+            assertNull(viewModel.uiState.value.navigation)
+        }
+
+    @Test
     fun permanentBanned_hidesTheAppealEntry_withoutNavigating() =
         runTest(dispatcher) {
             // appeal-sign-in-ban-distinction: a PERMANENT ban (null suspended_until) shows the BANNED

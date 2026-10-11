@@ -28,8 +28,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * an `appeal_decided` notification; the repository short-circuits to `SessionExpired` when there is no
  * session either). The single-in-flight submit maps each [AppealSubmitOutcome] to the screen status, and a
  * fresh submit (or `AlreadyPending`) transitions to [AppealStatus.Pending]. A submit without a token or a
- * `401` surfaces [AppealStatus.SessionRedirect] (the token is one-shot — re-sign-in re-mints it). Every
- * submit redirect is `viaSession = false`: submits use the raw appeal client, so no app-wide re-route fires.
+ * `401` surfaces [AppealStatus.SessionRedirect] and drops the rejected token from [AppealSession] (the token
+ * is one-shot — re-sign-in re-mints it; a dead one is never reused). Every submit redirect is
+ * `viaSession = false`: submits use the raw appeal client, so no app-wide re-route fires.
  */
 class AppealViewModel(
     private val flow: AppealFlow,
@@ -78,6 +79,7 @@ class AppealViewModel(
                     AppealStatusOutcome.TransportError
                 }
             ensureActive()
+            if (outcome is AppealStatusOutcome.SessionExpired) session.clear()
             state.update { it.copy(status = outcome.toStatus(sessionRead = token == null)) }
         }
     }
@@ -132,7 +134,10 @@ class AppealViewModel(
                     is AppealSubmitOutcome.RateLimited ->
                         AppealStatus.Form(AppealFormError.RateLimited(capCountdownMinutes(outcome.retryAfterSeconds)))
                     AppealSubmitOutcome.InvalidText -> AppealStatus.Form(AppealFormError.InvalidText)
-                    AppealSubmitOutcome.SessionExpired -> AppealStatus.SessionRedirect(viaSession = false)
+                    AppealSubmitOutcome.SessionExpired -> {
+                        session.clear()
+                        AppealStatus.SessionRedirect(viaSession = false)
+                    }
                     AppealSubmitOutcome.TransportError -> AppealStatus.Form(AppealFormError.Transport)
                 }
             state.update { it.copy(isSubmitting = false, status = status) }

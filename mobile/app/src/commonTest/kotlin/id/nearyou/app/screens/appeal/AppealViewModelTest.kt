@@ -16,6 +16,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -39,8 +40,8 @@ class AppealViewModelTest {
     private fun TestScope.vm(
         flow: FakeAppealFlow,
         token: String? = "tok-1",
+        session: AppealSession = AppealSession().apply { token?.let { set(it) } },
     ): AppealViewModel {
-        val session = AppealSession().apply { token?.let { set(it) } }
         val viewModel = AppealViewModel(flow, session)
         backgroundScope.launch { viewModel.uiState.collect {} }
         return viewModel
@@ -84,11 +85,13 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `an appeal-token 401 on entry re-routes to sign-in from the screen`() =
+    fun `an appeal-token 401 on entry re-routes to sign-in from the screen and drops the dead token`() =
         runTest {
-            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = false)))
+            val session = AppealSession().apply { set("tok-stale") }
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = false)), session = session)
             advanceUntilIdle()
             assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+            assertNull(session.peek(), "a rejected appeal token is never reused")
         }
 
     @Test
@@ -185,14 +188,29 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `submit session-expired re-routes to sign-in from the screen`() =
+    fun `submit session-expired re-routes to sign-in from the screen and drops the dead token`() =
         runTest {
-            val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.SessionExpired))
+            val session = AppealSession().apply { set("tok-stale") }
+            val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.SessionExpired), session = session)
             advanceUntilIdle()
             viewModel.onTextChange("x")
             viewModel.onSubmit()
             advanceUntilIdle()
             assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+            assertNull(session.peek(), "a rejected appeal token is never reused")
+        }
+
+    @Test
+    fun `a retryable submit failure keeps the appeal token for the resubmit`() =
+        runTest {
+            val session = AppealSession().apply { set("tok-1") }
+            val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.TransportError), session = session)
+            advanceUntilIdle()
+            viewModel.onTextChange("x")
+            viewModel.onSubmit()
+            advanceUntilIdle()
+            assertEquals(AppealStatus.Form(AppealFormError.Transport), viewModel.uiState.value.status)
+            assertEquals("tok-1", session.peek(), "only a 401 drops the token")
         }
 
     @Test
