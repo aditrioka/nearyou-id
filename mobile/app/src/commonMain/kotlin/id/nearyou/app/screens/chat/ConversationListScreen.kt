@@ -148,7 +148,7 @@ private fun ConversationRows(
         contentPadding = PaddingValues(top = 8.dp),
     ) {
         items(items = rows, key = { it.conversationId }, contentType = { "conversation" }) { row ->
-            ConversationRowItem(row = row, onOpen = { onOpenThread(row) })
+            ConversationRowItem(row = row, rowTag = CONVERSATION_ROW_TAG, onOpen = { onOpenThread(row) })
         }
     }
 }
@@ -156,11 +156,13 @@ private fun ConversationRows(
 /**
  * One frame-2 two-line row (12/16 padding, 16dp gaps): the shared [LetterAvatar] (40dp), the partner display
  * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message date. The list wire carries
- * no last-message preview or unread count yet (#272), so the second line is the handle.
+ * no last-message preview or unread count yet (#272), so the second line is the handle. Also the share-to-chat
+ * picker's row ([ConversationPickerScreen]), so both lists show the same identity treatment.
  */
 @Composable
-private fun ConversationRowItem(
+internal fun ConversationRowItem(
     row: ConversationRow,
+    rowTag: String,
     onOpen: () -> Unit,
 ) {
     // The partner display name is already COALESCE-masked to chat_account_deleted server-side; an empty value
@@ -172,7 +174,7 @@ private fun ConversationRowItem(
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onOpen)
-                .testTag(CONVERSATION_ROW_TAG)
+                .testTag(rowTag)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),

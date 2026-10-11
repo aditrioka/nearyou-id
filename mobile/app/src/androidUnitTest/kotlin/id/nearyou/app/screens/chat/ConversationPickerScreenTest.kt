@@ -82,6 +82,25 @@ class ConversationPickerScreenTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
     }
 
+    // The picker reuses the conversation-list row (frame 2), so it shows the same partner identity: the display
+    // name over the @handle.
+    @Test
+    fun pickerRow_showsTheConversationListIdentity() {
+        installKoin(SendOutcome.NetworkError)
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ConversationPickerScreen(postId = POST_ID, onBack = {}, onSelectConversation = { _, _, _ -> })
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_PICKER_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Raka").assertExists()
+            onNodeWithText("@raka").assertExists()
+        }
+    }
+
     @Test
     fun rateLimitedShare_showsChatCapDialog_notTheFailedSnackbar() {
         installKoin(SendOutcome.RateLimited(retryAfterSeconds = 3_600))
