@@ -795,7 +795,7 @@ class DataExportWorkerTest : StringSpec({
         notificationCount(uid) shouldBe 0
     }
 
-    "2.2 execute() drains its whole pending snapshot through the seam (two requests → both ready)" {
+    "2.2 execute() processes its pending snapshot through the seam, below the cap (two requests → both ready)" {
         // Proves the batch run processes its pending set via the same single-request seam
         // (account-data-export spec "The batch worker uses the same seam") — two distinct
         // users' pending requests both reach ready in one execute() pass.
@@ -810,6 +810,7 @@ class DataExportWorkerTest : StringSpec({
 
         result.readyCount shouldBe 2
         result.processedCount shouldBe 2
+        result.remainingCount shouldBe 0
         statusOf(r1) shouldBe "ready"
         statusOf(r2) shouldBe "ready"
         notificationCount(u1) shouldBe 1
@@ -820,17 +821,24 @@ class DataExportWorkerTest : StringSpec({
         val store = CapturingObjectStore()
         val email = RecordingEmailSender()
         val cap = DataExportWorker.MAX_EXPORTS_PER_RUN
-        val base = Instant.parse("2000-01-01T00:00:00Z")
-        val requests = (0..cap).map { i -> seedPendingRequest(seedUser(), base.plusSeconds(i.toLong())) }
+        val base = Instant.parse("1999-01-01T00:00:00Z")
+        // Inserted NEWEST first, so heap/insertion order is the reverse of requested_at order:
+        // only the snapshot's `ORDER BY requested_at ASC` makes the oldest `cap` rows win.
+        val requests =
+            (cap downTo 0)
+                .map { i -> seedPendingRequest(seedUser(), base.plusSeconds(i.toLong())) }
+                .reversed() // index 0 = oldest
 
         val first = runBlocking { worker(store, email).execute() }
 
         first.processedCount shouldBe cap
+        first.remainingCount shouldBe 1 // the cap is reported, not a silent truncation
         requests.take(cap).forEach { statusOf(it) shouldBe "ready" }
         statusOf(requests.last()) shouldBe "pending"
 
         // The next scheduled run picks up the remainder.
-        runBlocking { worker(store, email).execute() }
+        val second = runBlocking { worker(store, email).execute() }
+        second.remainingCount shouldBe 0
         statusOf(requests.last()) shouldBe "ready"
     }
 
