@@ -11,6 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withTimeout
@@ -78,8 +79,9 @@ class JwksCacheTest : StringSpec({
 
     fun harness(
         maxAge: Long = 3600,
-        gateSecondRequest: CompletableDeferred<Unit>? = null,
-        secondRequestStarted: CompletableDeferred<Unit>? = null,
+        gate: CompletableDeferred<Unit>? = null,
+        gateReached: CompletableDeferred<Unit>? = null,
+        gateFromRequest: Int = 2,
     ): Triple<JwksCache, TickClock, AtomicInteger> {
         val requestCount = AtomicInteger(0)
         // Request 1 serves only kid-a; later requests serve the rotated doc (kid-a + kid-b).
@@ -88,9 +90,9 @@ class JwksCacheTest : StringSpec({
         val engine =
             MockEngine { _ ->
                 val n = requestCount.incrementAndGet()
-                if (n >= 2) {
-                    secondRequestStarted?.complete(Unit)
-                    gateSecondRequest?.await()
+                if (n >= gateFromRequest) {
+                    gateReached?.complete(Unit)
+                    gate?.await()
                 }
                 respond(
                     content = if (n == 1) docBefore else docAfter,
@@ -157,7 +159,7 @@ class JwksCacheTest : StringSpec({
         "concurrent forced refreshes collapse to a single upstream fetch (peer lands at clock read $parkAtRead)" {
             val gate = CompletableDeferred<Unit>()
             val started = CompletableDeferred<Unit>()
-            val (cache, clock, count) = harness(gateSecondRequest = gate, secondRequestStarted = started)
+            val (cache, clock, count) = harness(gate = gate, gateReached = started)
             cache.keyFor("kid-a").shouldNotBeNull()
             clock.advance(Duration.ofSeconds(61))
             withTimeout(30.seconds) {
@@ -180,6 +182,44 @@ class JwksCacheTest : StringSpec({
             }
             count.get() shouldBe 2
         }
+    }
+
+    // Mutex contention (01-#6 flood control): the second caller reaches refreshMutex while the
+    // peer still holds it mid-fetch. UNDISPATCHED runs the caller on this thread up to its first
+    // suspension point, so when async() returns it is parked on the lock (or, with no lock,
+    // already committed to its own fetch = request 3) before the gate opens. Deterministic.
+    "concurrent forced refreshes collapse to a single upstream fetch (peer still mid-fetch)" {
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val (cache, clock, count) = harness(gate = gate, gateReached = started)
+        cache.keyFor("kid-a").shouldNotBeNull()
+        clock.advance(Duration.ofSeconds(61))
+        withTimeout(30.seconds) {
+            val first = async(Dispatchers.IO) { cache.keyFor("kid-b") }
+            started.await()
+            val second = async(Dispatchers.IO, CoroutineStart.UNDISPATCHED) { cache.keyFor("kid-b") }
+            gate.complete(Unit)
+            first.await().shouldNotBeNull().modulus shouldBe keyB.modulus
+            second.await().shouldNotBeNull().modulus shouldBe keyB.modulus
+        }
+        count.get() shouldBe 2
+    }
+
+    // Same contention on the lazy path: refresh()'s lock + under-lock re-check collapse
+    // concurrent cold-cache callers into one upstream fetch.
+    "concurrent cold-cache lookups collapse to a single upstream fetch" {
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val (cache, _, count) = harness(gate = gate, gateReached = started, gateFromRequest = 1)
+        withTimeout(30.seconds) {
+            val first = async(Dispatchers.IO) { cache.keyFor("kid-a") }
+            started.await()
+            val second = async(Dispatchers.IO, CoroutineStart.UNDISPATCHED) { cache.keyFor("kid-a") }
+            gate.complete(Unit)
+            first.await().shouldNotBeNull().modulus shouldBe keyA.modulus
+            second.await().shouldNotBeNull().modulus shouldBe keyA.modulus
+        }
+        count.get() shouldBe 1
     }
 
     "expired cache re-fetches lazily on the next lookup" {
