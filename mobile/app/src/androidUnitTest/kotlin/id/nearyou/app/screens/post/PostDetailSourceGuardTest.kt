@@ -1,7 +1,9 @@
 package id.nearyou.app.screens.post
 
+import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -37,7 +39,15 @@ class PostDetailSourceGuardTest {
 
     private fun code(relativePath: String): String = rawSource(relativePath).stripComments()
 
-    private val screen by lazy { code("mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post/PostDetailScreen.kt") }
+    private val postDir = "mobile/app/src/commonMain/kotlin/id/nearyou/app/screens/post"
+
+    /** The four post-detail UI files (post-detail-vm-reply-delete-restyle split the 1161-LOC screen into the
+     *  screen + header / replies / composer files), scanned together as "the screen". */
+    private val uiFiles = listOf("PostDetailScreen.kt", "PostDetailHeader.kt", "PostDetailReplies.kt", "PostDetailComposer.kt")
+
+    private val screen by lazy { uiFiles.joinToString("\n") { code("$postDir/$it") } }
+
+    private val viewModel by lazy { code("$postDir/PostDetailViewModel.kt") }
 
     @Test
     fun postDetailScreen_hasNoHardcodedUiStringLiterals() {
@@ -74,6 +84,7 @@ class PostDetailSourceGuardTest {
     @Test
     fun postDetailScreen_holdsNoBackStackReference() {
         // Navigation comes only via the hoisted onBack lambda (spec § "PostDetailScreen holds no back-stack reference").
+        // The screen + its split-out header / replies / composer files (scanned together).
         assertFalse(screen.contains("NavBackStack"), "the screen must not reference NavBackStack")
         assertFalse(screen.contains("backStack"), "the screen must not perform its own back-stack mutation")
         assertTrue(screen.contains("onBack"), "the screen takes navigation via the hoisted onBack lambda")
@@ -150,6 +161,8 @@ class PostDetailSourceGuardTest {
                 "LikeApiClient" to code("mobile/app/src/commonMain/kotlin/id/nearyou/app/post/LikeApiClient.kt"),
                 "ReplyApiClient" to code("mobile/app/src/commonMain/kotlin/id/nearyou/app/post/ReplyApiClient.kt"),
                 "PostDetailRepository" to code("mobile/app/src/commonMain/kotlin/id/nearyou/app/post/PostDetailRepository.kt"),
+                // The VM now holds authorUserId + the session id — it must never log either.
+                "PostDetailViewModel" to viewModel,
             )
         for ((name, src) in files) {
             assertFalse(src.contains("println"), "$name must not println (bodies/coordinates must never be logged)")
@@ -183,6 +196,66 @@ class PostDetailSourceGuardTest {
     // Note: deferral bookkeeping (block/report kebab, inline-card actions, by-id endpoint, replies
     // load-more) is tracked as GitHub issues (label `follow-up`), not in a repo file — see the
     // matching `mobile-post-detail` spec scenarios. No source-file assertion covers it here.
+
+    // post-detail-vm-reply-delete-restyle (#542, docs/11 § 2.2): business work never launches from the
+    // composables — the screen only constructs the VM from its injections; no composition scope launches a
+    // repository call, and no injected dependency's member is called from UI code.
+    @Test
+    fun postDetailUi_launchesNoRepositoryWorkFromComposition() {
+        assertFalse(screen.contains("rememberCoroutineScope"), "no composition-scoped launches (#542)")
+        val call = Regex("""\b(flow|editFlow|selfUserIdProvider|reportSubmitter|blockSubmitter)\.\w+\(""")
+        assertFalse(call.containsMatchIn(screen), "UI code must not call an injected dependency: ${call.find(screen)?.value}")
+        for (file in uiFiles.drop(1)) {
+            val src = code("$postDir/$file")
+            for (seam in listOf(
+                "PostDetailFlow",
+                "PostEditFlow",
+                "SelfUserIdProvider",
+                "ReportSubmitter",
+                "BlockSubmitter",
+                "koinInject",
+            )) {
+                assertFalse(src.contains(seam), "$file must stay presentation-only (found $seam)")
+            }
+        }
+    }
+
+    @Test
+    fun postDetailViewModel_exposesOneStateStream_andNoEventBus() {
+        // Reflection, not a regex: catches `internal val`, inferred `= x.asStateFlow()`, and any getter shape.
+        val stateFlowGetters =
+            PostDetailViewModel::class.java.methods
+                // Skip compiler-synthetic accessors (e.g. access$getState$p for the private state).
+                .filter { !it.isSynthetic && StateFlow::class.java.isAssignableFrom(it.returnType) }
+                .map { it.name }
+        assertEquals(listOf("getUiState"), stateFlowGetters, "exactly one public StateFlow (uiState)")
+        assertFalse(viewModel.contains("Channel"), "one-shots are state, never a Channel")
+        assertFalse(viewModel.contains("SharedFlow"), "one-shots are state, never a SharedFlow")
+    }
+
+    // The frame-7 deferrals (#569 / #570 / #575) as structural negative guards.
+    @Test
+    fun frame7Deferrals_noComposerAvatar_noReplyLike_noReplyPremiumBadge() {
+        // The composer bar is built in PostDetailComposer.kt and slotted from PostDetailScreen.kt's bottomBar.
+        for (file in listOf("PostDetailComposer.kt", "PostDetailScreen.kt")) {
+            assertFalse(code("$postDir/$file").contains("LetterAvatar"), "$file: the composer self-avatar is deferred (#569)")
+        }
+        val replies = code("$postDir/PostDetailReplies.kt")
+        assertFalse(replies.contains("ic_post_like"), "per-reply likes are deferred (#570)")
+        // The app's identity-badge idiom (ProfileScreen / FollowListScreen): ic_premium_star + the *_premium_badge_* copy.
+        for (token in listOf("ic_premium_star", "premium_badge", "workspace_premium", "premiumBadge")) {
+            assertFalse(replies.contains(token), "the reply-author Premium badge is deferred (#575): found $token")
+        }
+        assertFalse(screen.contains("follow", ignoreCase = true), "the header Ikuti button is deferred (#569)")
+    }
+
+    // The composer sits directly on the IME only when the activity resizes for it (edge-to-edge guidance;
+    // without adjustResize the system panned the window AND imePadding lifted the bar again).
+    @Test
+    fun mainActivity_resizesForTheIme() {
+        val manifest = rawSource("mobile/app/src/androidMain/AndroidManifest.xml")
+        assertTrue(manifest.contains("android:windowSoftInputMode=\"adjustResize\""), "MainActivity must declare adjustResize")
+    }
 
     private companion object {
         fun findRepoRoot(): File {

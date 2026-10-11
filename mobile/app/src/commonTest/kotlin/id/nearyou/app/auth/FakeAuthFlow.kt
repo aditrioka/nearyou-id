@@ -50,4 +50,11 @@ class FakeAuthFlow(
     }
 
     override suspend fun isAuthenticated(): Boolean = authenticated
+
+    /** The `fcmToken` of each [revokeSession] call (a voluntary logout's server revoke). */
+    val revokeSessionCalls: MutableList<String?> = mutableListOf()
+
+    override suspend fun revokeSession(fcmToken: String?) {
+        revokeSessionCalls += fcmToken
+    }
 }

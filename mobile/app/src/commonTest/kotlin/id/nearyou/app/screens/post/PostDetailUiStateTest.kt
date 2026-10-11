@@ -45,6 +45,24 @@ class PostDetailUiStateTest {
     }
 
     @Test
+    fun `isOwn is true only for the resolved session author and fails closed on a null self id`() {
+        val outcome = RepliesOutcome.Loaded(listOf(fakeReply(authorId = "U")), nextCursor = null)
+
+        fun isOwn(self: String?) =
+            (
+                repliesUiState(
+                    outcome,
+                    inFlight = false,
+                    selfUserId = self,
+                ) as RepliesUiState.Content
+            ).replies.single().isOwn
+
+        assertTrue(isOwn("U"), "the session user's own reply")
+        assertFalse(isOwn("V"), "another user's reply")
+        assertFalse(isOwn(null), "an unresolved / malformed session id is never own (fail closed)")
+    }
+
+    @Test
     fun `projected reply carries author_id for the self-block gate plus the display identity`() {
         // mobile-block-from-content (the MODIFIED PII-projection requirement): ReplyUi CARRIES the reply
         // author_id — solely for the SelfUserIdProvider self-block gate + the block path param — plus the

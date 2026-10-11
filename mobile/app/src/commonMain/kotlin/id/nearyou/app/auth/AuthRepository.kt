@@ -37,6 +37,15 @@ interface AuthFlow {
     ): SignUpOutcome
 
     suspend fun isAuthenticated(): Boolean
+
+    /**
+     * The best-effort server-side revoke for a voluntary logout (`mobile-settings` § logout,
+     * logout-revocation): `POST /api/v1/auth/logout` with the stored refresh token + [fcmToken] (null omits
+     * the key), issued BEFORE the caller's local wipe — the call needs the still-stored Bearer. No stored
+     * token → nothing to revoke. Never throws for a transport / non-2xx failure; logout MUST complete locally
+     * even fully offline (the caller still guards it).
+     */
+    suspend fun revokeSession(fcmToken: String?)
 }
 
 /**
@@ -114,6 +123,12 @@ class AuthRepository(
         // persisted user here (mobile-crash-reporting, #492).
         decodeJwtSubject(tokens.accessToken)?.let(crashReporter::setUser)
         return true
+    }
+
+    /** [AuthApiClient.logout] swallows transport / non-2xx failures, so this never throws for those. */
+    override suspend fun revokeSession(fcmToken: String?) {
+        val refreshToken = tokenStore.read()?.refreshToken ?: return
+        authApiClient.logout(refreshToken, fcmToken)
     }
 
     // handleTerminal401 was removed by the 2026-06-10 audit (finding 05-#8): it had no

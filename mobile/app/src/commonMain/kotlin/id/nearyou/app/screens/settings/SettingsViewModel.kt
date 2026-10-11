@@ -2,7 +2,7 @@ package id.nearyou.app.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import id.nearyou.app.auth.AuthApiClient
+import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.hidedistance.HideDistanceRepository
@@ -58,8 +58,9 @@ class SettingsViewModel(
     private val hideDistance: HideDistanceRepository? = null,
     private val privateProfile: PrivateProfileRepository? = null,
     // logout-revocation: both nullable so tests (and a DI gap) degrade to the previous
-    // client-side-only wipe rather than failing resolution.
-    private val authApi: AuthApiClient? = null,
+    // client-side-only wipe rather than failing resolution. The revoke goes through the AuthFlow
+    // repository seam (docs/11 § 2.6 — ViewModels never talk to ApiClients; #542).
+    private val authFlow: AuthFlow? = null,
     private val fcmTokenProvider: FcmTokenProvider? = null,
     // mobile-notification-preview-toggle: nullable so tests (and a DI gap) degrade to an inert OFF row.
     private val notificationContentPreference: NotificationContentPreference? = null,
@@ -129,12 +130,9 @@ class SettingsViewModel(
     fun confirmLogout() {
         viewModelScope.launch {
             // Best-effort server-side revoke BEFORE the wipe (the call needs the still-stored
-            // Bearer). AuthApiClient.logout never throws; the extra guard covers the token reads.
+            // Bearer). revokeSession never throws for a network failure; the extra guard covers the token reads.
             try {
-                val refreshToken = tokenStore.read()?.refreshToken
-                if (authApi != null && refreshToken != null) {
-                    authApi.logout(refreshToken, fcmTokenProvider?.currentToken())
-                }
+                authFlow?.revokeSession(fcmTokenProvider?.currentToken())
             } catch (cause: CancellationException) {
                 throw cause
             } catch (_: Throwable) {

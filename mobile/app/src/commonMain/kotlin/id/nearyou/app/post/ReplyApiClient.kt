@@ -2,6 +2,7 @@ package id.nearyou.app.post
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
@@ -96,9 +97,20 @@ sealed interface ReplyListApiResult {
     data class NetworkError(val cause: Throwable) : ReplyListApiResult
 }
 
+/** Low-level result of an own-reply DELETE. `204` → [NoContent]; any non-204 → [HttpError]; transport →
+ *  [NetworkError]. The backend answers `204` for "deleted", "already deleted", "never existed" AND "not
+ *  yours" alike (`post-replies` anti-enumeration contract), so [NoContent] carries no further meaning. */
+sealed interface ReplyDeleteApiResult {
+    data object NoContent : ReplyDeleteApiResult
+
+    data class HttpError(val status: Int) : ReplyDeleteApiResult
+
+    data class NetworkError(val cause: Throwable) : ReplyDeleteApiResult
+}
+
 /**
  * Thin wrapper over the shared [HttpClient] for the post-scoped reply sub-resources
- * (`POST` / `GET /api/v1/posts/{post_id}/replies`). Bearer + 401 refresh owned by the shipped `Auth`
+ * (`POST` / `GET /api/v1/posts/{post_id}/replies` + the own-reply `DELETE …/replies/{reply_id}`). Bearer + 401 refresh owned by the shipped `Auth`
  * plugin (MUST NOT be reimplemented). NO `X-Session-Id` header (the reply endpoints are not
  * session-soft-capped). MUST NOT `println`/log bodies or coordinates, MUST NOT widen the log level.
  */
@@ -170,5 +182,25 @@ class ReplyApiClient(
             }
         }
         return ReplyListApiResult.HttpError(status = response.status.value)
+    }
+
+    /** `DELETE /api/v1/posts/{postId}/replies/{replyId}` — the author-only soft-delete (no body). */
+    suspend fun deleteReply(
+        postId: String,
+        replyId: String,
+    ): ReplyDeleteApiResult {
+        val response: HttpResponse =
+            try {
+                client.delete("/api/v1/posts/$postId/replies/$replyId")
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Throwable) {
+                return ReplyDeleteApiResult.NetworkError(cause)
+            }
+        return if (response.status == HttpStatusCode.NoContent) {
+            ReplyDeleteApiResult.NoContent
+        } else {
+            ReplyDeleteApiResult.HttpError(status = response.status.value)
+        }
     }
 }

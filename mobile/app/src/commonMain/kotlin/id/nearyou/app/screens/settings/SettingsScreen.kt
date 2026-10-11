@@ -27,7 +27,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.nearyou.app.auth.AuthApiClient
+import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
@@ -149,7 +149,7 @@ fun SettingsScreen(
     // logout-revocation: fail-safe resolution (the TimelineAds getOrNull idiom) — a screen test not
     // exercising the server logout binds neither; the VM degrades to the client-side-only wipe.
     val koin = getKoin()
-    val logoutAuthApi = remember(koin) { koin.getOrNull<AuthApiClient>() }
+    val logoutAuthFlow = remember(koin) { koin.getOrNull<AuthFlow>() }
     val logoutFcmTokenProvider = remember(koin) { koin.getOrNull<FcmTokenProvider>() }
     // mobile-notification-preview-toggle: same fail-safe resolution — a test not wiring the
     // preference gets an inert OFF row, never a resolution crash.
@@ -163,7 +163,7 @@ fun SettingsScreen(
                 tokenStore,
                 hideDistanceRepository,
                 privateProfileRepository,
-                logoutAuthApi,
+                logoutAuthFlow,
                 logoutFcmTokenProvider,
                 notificationContentPreference,
                 premiumEntitlement,
