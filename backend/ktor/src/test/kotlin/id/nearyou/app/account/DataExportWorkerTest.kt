@@ -202,9 +202,19 @@ class DataExportWorkerTest : StringSpec({
         return id
     }
 
-    fun seedPendingRequest(userId: UUID): UUID {
+    // Old requested_at: seeded rows sort ahead of any residual pending row in a shared DB, so the
+    // oldest-first per-run cap (MAX_EXPORTS_PER_RUN) always reaches them.
+    fun seedPendingRequest(
+        userId: UUID,
+        requestedAt: Instant = Instant.parse("2000-01-01T00:00:00Z"),
+    ): UUID {
         val id = UUID.randomUUID()
-        exec("INSERT INTO data_export_requests (id, user_id, status) VALUES (?, ?, 'pending')", id, userId)
+        exec(
+            "INSERT INTO data_export_requests (id, user_id, status, requested_at) VALUES (?, ?, 'pending', ?)",
+            id,
+            userId,
+            Timestamp.from(requestedAt),
+        )
         return id
     }
 
@@ -804,6 +814,24 @@ class DataExportWorkerTest : StringSpec({
         statusOf(r2) shouldBe "ready"
         notificationCount(u1) shouldBe 1
         notificationCount(u2) shouldBe 1
+    }
+
+    "execute() processes at most MAX_EXPORTS_PER_RUN (oldest first); the remainder stays pending for the next run" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val cap = DataExportWorker.MAX_EXPORTS_PER_RUN
+        val base = Instant.parse("2000-01-01T00:00:00Z")
+        val requests = (0..cap).map { i -> seedPendingRequest(seedUser(), base.plusSeconds(i.toLong())) }
+
+        val first = runBlocking { worker(store, email).execute() }
+
+        first.processedCount shouldBe cap
+        requests.take(cap).forEach { statusOf(it) shouldBe "ready" }
+        statusOf(requests.last()) shouldBe "pending"
+
+        // The next scheduled run picks up the remainder.
+        runBlocking { worker(store, email).execute() }
+        statusOf(requests.last()) shouldBe "ready"
     }
 
     "2.2 processSingle fail-soft: gather/upload failure → failed + attempt_count++, no ready/notification" {

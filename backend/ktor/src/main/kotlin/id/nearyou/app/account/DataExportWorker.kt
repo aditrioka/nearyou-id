@@ -59,7 +59,7 @@ fun interface DataExportSingleProcessor {
  * Worker (Cloud-Scheduler-invoked via `/internal/data-export-worker`) that packages and
  * delivers pending data exports (capability `account-data-export`, Phase 7).
  *
- * For each `pending` request:
+ * For each `pending` request (oldest first, at most [MAX_EXPORTS_PER_RUN] per run):
  *  1. Claim it optimistically (`status='pending' → 'processing'`, affected-rows guard) so
  *     concurrent invocations never double-process.
  *  2. Gather the requester's own data (scope matrix) → serialize to a ZIP.
@@ -92,7 +92,11 @@ class DataExportWorker(
         var ready = 0
         var failed = 0
         for (requestId in pending) {
-            // The batch run drains its pending snapshot through the SAME
+            // Per-run cap: the oldest MAX_EXPORTS_PER_RUN exports are processed; the rest stay
+            // `pending` for the next hourly run (inside the 7-day SLA). Keeps one invocation
+            // well under the Cloud Run request timeout instead of draining the whole backlog.
+            if (processed >= MAX_EXPORTS_PER_RUN) break
+            // The batch run processes its pending snapshot through the SAME
             // single-request seam the admin trigger uses (one export path).
             when (processSingle(requestId)) {
                 DataExportProcessOutcome.READY -> {
@@ -234,6 +238,13 @@ class DataExportWorker(
     )
 
     companion object {
+        /**
+         * Max exports one batch run processes (READY + FAILED; claim-race SKIPs don't count).
+         * Each export is a gather + ZIP + upload + email, run sequentially under Cloud Run's 60s
+         * request timeout; the hourly schedule clears 120/day, far inside the 7-day SLA.
+         */
+        const val MAX_EXPORTS_PER_RUN: Int = 5
+
         /** `SHA256(userId + 'data_export_ready' + timestamp_minute)` — the canonical idempotency key (docs/04 §210). */
         fun idempotencyKey(
             userId: UUID,
