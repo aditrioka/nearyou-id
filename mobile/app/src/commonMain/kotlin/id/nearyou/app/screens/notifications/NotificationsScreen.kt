@@ -109,8 +109,8 @@ private const val POST_UNAVAILABLE_DURATION_MS: Long = 3000L
 fun NotificationsScreen(
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (userId: String) -> Unit = {},
-    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit =
-        { _, _, _ -> },
+    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String, partnerIsPremium: Boolean) -> Unit =
+        { _, _, _, _ -> },
     onOpenAppeal: () -> Unit = {},
 ) {
     val flow = koinInject<NotificationsFlow>()
@@ -133,7 +133,12 @@ fun NotificationsScreen(
             is NotificationNavTarget.Post -> onOpenPost(target.target)
             is NotificationNavTarget.Profile -> onOpenProfile(target.userId)
             is NotificationNavTarget.ChatThread ->
-                onOpenChatThread(target.conversationId, target.partnerUsername, target.partnerDisplayName)
+                onOpenChatThread(
+                    target.conversationId,
+                    target.partnerUsername,
+                    target.partnerDisplayName,
+                    target.partnerIsPremium,
+                )
             NotificationNavTarget.Appeal -> onOpenAppeal()
             null -> return@LaunchedEffect
         }

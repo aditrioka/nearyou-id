@@ -1,6 +1,7 @@
 package id.nearyou.app.screens.chat
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -9,17 +10,29 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.chat.ChatFlow
+import id.nearyou.app.chat.ChatMessageDto
 import id.nearyou.app.chat.ConversationDto
 import id.nearyou.app.chat.ConversationListItemDto
 import id.nearyou.app.chat.ConversationListOutcome
 import id.nearyou.app.chat.ConversationsFlow
 import id.nearyou.app.chat.FakeChatFlow
+import id.nearyou.app.chat.FakeChatRealtimeSubscriber
 import id.nearyou.app.chat.FakeConversationsFlow
 import id.nearyou.app.chat.PartnerProfileDto
 import id.nearyou.app.chat.SendOutcome
+import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
+import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.notifications.FakeNotificationPermissionController
+import id.nearyou.app.notifications.FakeNotificationPromptOneShot
+import id.nearyou.app.notifications.NotificationPermissionController
+import id.nearyou.app.notifications.NotificationPermissionStatus
+import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.paywall.FakePurchaseController
+import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.screens.routing.ConversationPickerRoute
 import id.nearyou.app.screens.routing.PaywallEntry
 import id.nearyou.app.screens.routing.PaywallRoute
@@ -58,12 +71,15 @@ private const val CHAT_CAP_1H =
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)
 class ConversationPickerScreenTest {
-    private fun installKoin(sendOutcome: SendOutcome) {
+    private fun installKoin(
+        sendOutcome: SendOutcome,
+        partnerIsPremium: Boolean = false,
+    ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         val row =
             ConversationListItemDto(
                 conversation = ConversationDto(id = "conv-1", createdAt = "2026-06-01T09:00:00Z", lastMessageAt = null),
-                partner = PartnerProfileDto(id = "ignored", username = "raka", displayName = "Raka", isPremium = false),
+                partner = PartnerProfileDto(id = "ignored", username = "raka", displayName = "Raka", isPremium = partnerIsPremium),
             )
         startKoin {
             modules(
@@ -72,6 +88,14 @@ class ConversationPickerScreenTest {
                     single<ChatFlow> { FakeChatFlow(sendOutcome = sendOutcome) }
                     // The host-push test navigates onward to PaywallRoute (Unconfigured fail-soft state).
                     single<PurchaseController> { FakePurchaseController(OfferingsResult.Unavailable) }
+                    // The successful-share host test lands on the chat thread.
+                    single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
+                    single<ViewerIdProvider> { ViewerIdProvider { "viewer" } }
+                    single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<NotificationPermissionController> {
+                        FakeNotificationPermissionController(NotificationPermissionStatus.GRANTED)
+                    }
+                    single<NotificationPromptOneShot> { FakeNotificationPromptOneShot(claimed = true) }
                 },
             )
         }
@@ -91,7 +115,7 @@ class ConversationPickerScreenTest {
             setContent {
                 KoinContext {
                     NearYouTheme {
-                        ConversationPickerScreen(postId = POST_ID, onBack = {}, onSelectConversation = { _, _, _ -> })
+                        ConversationPickerScreen(postId = POST_ID, onBack = {}, onSelectConversation = { _, _, _, _ -> })
                     }
                 }
             }
@@ -113,7 +137,7 @@ class ConversationPickerScreenTest {
                         ConversationPickerScreen(
                             postId = POST_ID,
                             onBack = {},
-                            onSelectConversation = { _, _, _ -> navigated++ },
+                            onSelectConversation = { _, _, _, _ -> navigated++ },
                             onActivatePremium = { activated++ },
                         )
                     }
@@ -143,7 +167,7 @@ class ConversationPickerScreenTest {
                         ConversationPickerScreen(
                             postId = POST_ID,
                             onBack = {},
-                            onSelectConversation = { _, _, _ -> },
+                            onSelectConversation = { _, _, _, _ -> },
                             onActivatePremium = { activated++ },
                         )
                     }
@@ -156,6 +180,43 @@ class ConversationPickerScreenTest {
             waitForIdle()
             onNodeWithTag(DAILY_CAP_DIALOG_TAG).assertDoesNotExist()
             assertEquals(0, activated, "Tutup only dismisses")
+        }
+    }
+
+    // The picker's app bar is the shared overlay back ARROW (described "Kembali"), like the conversation list.
+    @Test
+    fun backArrow_invokesOnBack() {
+        installKoin(SendOutcome.NetworkError)
+        var backCount = 0
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ConversationPickerScreen(postId = POST_ID, onBack = { backCount++ }, onSelectConversation = { _, _, _, _ -> })
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_PICKER_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CONVERSATION_PICKER_BACK_TAG).assertContentDescriptionEquals("Kembali")
+            onNodeWithTag(CONVERSATION_PICKER_BACK_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, backCount)
+        }
+    }
+
+    // Under the REAL appEntryProvider a successful share swaps the picker for the thread, carrying the partner's
+    // display identity and Premium flag (the thread header badge, #286).
+    @Test
+    fun successfulShare_underHost_opensTheThreadWithThePartnerPremiumFlag() {
+        val sent = ChatMessageDto(id = "m1", conversationId = "conv-1", senderId = "viewer", createdAt = "2026-06-01T12:00:00Z")
+        installKoin(SendOutcome.Sent(sent), partnerIsPremium = true)
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(ConversationPickerRoute(POST_ID), onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_PICKER_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CONVERSATION_PICKER_ROW_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is ChatThreadRoute }
+            assertEquals(ChatThreadRoute("conv-1", "raka", "Raka", partnerIsPremium = true), backStack.last())
         }
     }
 

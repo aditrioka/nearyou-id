@@ -88,6 +88,7 @@ private fun NavBackStack<NavKey>.push(target: NotificationNavTarget) {
                     conversationId = target.conversationId,
                     partnerUsername = target.partnerUsername,
                     partnerDisplayName = target.partnerDisplayName,
+                    partnerIsPremium = target.partnerIsPremium,
                 ),
             )
     }

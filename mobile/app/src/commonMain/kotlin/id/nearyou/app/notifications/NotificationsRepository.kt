@@ -125,6 +125,7 @@ class NotificationsRepository(
                 PartnerResolution.Resolved(
                     username = result.body.username,
                     displayName = result.body.displayName,
+                    isPremium = result.body.isPremium,
                 )
             // A failed partner lookup must NOT block the (valid) conversation — the caller still opens the
             // thread with blank partner fields. Diagnostic carries only the status / outcome type.

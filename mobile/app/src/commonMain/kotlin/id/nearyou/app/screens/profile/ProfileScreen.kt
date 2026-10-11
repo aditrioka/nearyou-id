@@ -131,7 +131,8 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     onSettings: () -> Unit = {},
     onOpenFollowList: (userId: String, tab: FollowListTab) -> Unit = { _, _ -> },
-    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit = { _, _, _ -> },
+    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String, partnerIsPremium: Boolean) -> Unit =
+        { _, _, _, _ -> },
 ) {
     val flow = koinInject<ProfileFlow>()
     val selfUserIdProvider = koinInject<SelfUserIdProvider>()
@@ -159,7 +160,7 @@ fun ProfileScreen(
     // snapshotted display identity (the route carries no user UUID).
     LaunchedEffect(uiState.openChat) {
         val target = uiState.openChat ?: return@LaunchedEffect
-        onOpenChatThread(target.conversationId, target.partnerUsername, target.partnerDisplayName)
+        onOpenChatThread(target.conversationId, target.partnerUsername, target.partnerDisplayName, target.partnerIsPremium)
         viewModel.onChatOpened()
     }
     // One-shot message → snackbar. messageText resolves the enum to a string; null → nothing.

@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.chat
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
@@ -18,6 +19,11 @@ import id.nearyou.app.chat.ConversationsFlow
 import id.nearyou.app.chat.FakeConversationsFlow
 import id.nearyou.app.chat.PartnerProfileDto
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.localDateLabel
+import id.nearyou.app.ui.components.localTimeLabel
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.isoDayNumber
+import kotlinx.datetime.toLocalDateTime
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -29,6 +35,9 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Instant
 
 private const val TITLE = "Pesan"
 private const val EMPTY = "Belum ada percakapan. Mulai dari profil seseorang."
@@ -152,6 +161,61 @@ class ConversationListScreenTest {
             onNodeWithText(DELETED).assertExists()
             onNodeWithText("@dewi.kuliner").assertDoesNotExist()
             onNodeWithContentDescription(PREMIUM_BADGE).assertDoesNotExist()
+        }
+    }
+
+    // mobile-chat § "Deleted/shadow-banned partner renders the placeholder": the BACKEND mask shape
+    // (displayName "Akun Dihapus", username "akun_dihapus") is a masked row — no "@akun_dihapus" handle, no badge.
+    @Test
+    fun backendMaskedPartner_rendersThePlaceholder_withoutTheMaskHandleOrBadge() {
+        installKoin(
+            ConversationListOutcome.Loaded(
+                listOf(item("c1", displayName = "Akun Dihapus", username = "akun_dihapus", isPremium = true)),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = {}, onOpenThread = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(DELETED).assertExists()
+            onNodeWithText("@akun_dihapus").assertDoesNotExist()
+            onNodeWithContentDescription(PREMIUM_BADGE).assertDoesNotExist()
+        }
+    }
+
+    // mobile-chat § rows render "the relative last_message_at" (frame 2: "09.12" today, "Kemarin", the short
+    // weekday for the rest of the week, then the date).
+    @Test
+    fun rowTime_isRelative_clockTimeToday_kemarin_weekday_thenTheDate() {
+        val now = Clock.System.now()
+        val today = now.toString()
+        val yesterday = (now - 1.days).toString()
+        val thisWeek = (now - 3.days).toString()
+        val older = (now - 30.days).toString()
+        installKoin(
+            ConversationListOutcome.Loaded(
+                listOf(
+                    item("c1", lastMessageAt = today),
+                    item("c2", lastMessageAt = yesterday),
+                    item("c3", lastMessageAt = thisWeek),
+                    item("c4", lastMessageAt = older),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = {}, onOpenThread = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().size == 4 }
+            val weekday =
+                listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")[
+                    Instant.parse(thisWeek).toLocalDateTime(TimeZone.currentSystemDefault()).dayOfWeek.isoDayNumber - 1,
+                ]
+            assertEquals(
+                listOf(localTimeLabel(today), "Kemarin", weekday, localDateLabel(older)),
+                onAllNodesWithTag(CONVERSATION_ROW_TIME_TAG, useUnmergedTree = true).fetchSemanticsNodes().map { node ->
+                    node.config[SemanticsProperties.Text].joinToString("") { it.text }
+                },
+            )
         }
     }
 

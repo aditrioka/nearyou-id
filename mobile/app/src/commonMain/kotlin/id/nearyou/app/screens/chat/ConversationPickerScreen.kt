@@ -2,24 +2,20 @@ package id.nearyou.app.screens.chat
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -27,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.ui.components.BackNavigationIcon
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
@@ -38,7 +35,6 @@ import id.nearyou.resources.generated.resources.chat_picker_empty
 import id.nearyou.resources.generated.resources.chat_picker_title
 import id.nearyou.resources.generated.resources.chat_share_blocked
 import id.nearyou.resources.generated.resources.chat_share_failed
-import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -66,7 +62,12 @@ const val CONVERSATION_PICKER_BACK_TAG: String = "conversationPickerBack"
 fun ConversationPickerScreen(
     postId: String,
     onBack: () -> Unit,
-    onSelectConversation: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit,
+    onSelectConversation: (
+        conversationId: String,
+        partnerUsername: String,
+        partnerDisplayName: String,
+        partnerIsPremium: Boolean,
+    ) -> Unit,
     onActivatePremium: () -> Unit = {},
 ) {
     val conversationsFlow = koinInject<ConversationsFlow>()
@@ -82,7 +83,12 @@ fun ConversationPickerScreen(
         when (val result = shareResult) {
             is ChatShareResult.Navigate -> {
                 viewModel.clearShareResult()
-                onSelectConversation(result.conversationId, result.partnerUsername, result.partnerDisplayName)
+                onSelectConversation(
+                    result.conversationId,
+                    result.partnerUsername,
+                    result.partnerDisplayName,
+                    result.partnerIsPremium,
+                )
             }
             ChatShareResult.Blocked -> {
                 viewModel.clearShareResult()
@@ -133,21 +139,15 @@ fun ConversationPickerScreen(
     }
 }
 
+/** The same root-stack overlay app bar as the conversation list (frame 2): an M3 TopAppBar (its own status-bar
+ *  inset) with the shared back arrow, replacing the old "Tutup" text-button row. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PickerTopBar(onBack: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onBack, modifier = Modifier.testTag(CONVERSATION_PICKER_BACK_TAG)) {
-            Text(text = stringResource(Res.string.cta_close))
-        }
-        Text(
-            text = stringResource(Res.string.chat_picker_title),
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-    }
+    TopAppBar(
+        title = { Text(text = stringResource(Res.string.chat_picker_title)) },
+        navigationIcon = { BackNavigationIcon(onBack = onBack, modifier = Modifier.testTag(CONVERSATION_PICKER_BACK_TAG)) },
+    )
 }
 
 @Composable

@@ -24,7 +24,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -39,6 +38,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,24 +64,29 @@ import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.ui.components.BackNavigationIcon
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
+import id.nearyou.app.ui.components.PremiumBadgeIcon
 import id.nearyou.app.ui.components.ReportDialog
+import id.nearyou.app.ui.components.localDateLabel
+import id.nearyou.app.ui.components.localDaysAgo
+import id.nearyou.app.ui.components.localTimeLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_cap_upsell
+import id.nearyou.resources.generated.resources.chat_date_today
+import id.nearyou.resources.generated.resources.chat_date_yesterday
 import id.nearyou.resources.generated.resources.chat_error_too_long
 import id.nearyou.resources.generated.resources.chat_message_redacted
 import id.nearyou.resources.generated.resources.chat_send
 import id.nearyou.resources.generated.resources.chat_send_blocked
 import id.nearyou.resources.generated.resources.chat_thread_input_placeholder
-import id.nearyou.resources.generated.resources.cta_back
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
-import id.nearyou.resources.generated.resources.ic_arrow_back
 import id.nearyou.resources.generated.resources.ic_send_filled
 import id.nearyou.resources.generated.resources.notif_permission_rationale
 import id.nearyou.resources.generated.resources.notif_permission_rationale_confirm
@@ -126,6 +131,15 @@ const val CHAT_THREAD_REDACTED_TAG: String = "chatThreadRedacted"
 
 /** Test tag on the back affordance. */
 const val CHAT_THREAD_BACK_TAG: String = "chatThreadBack"
+
+/** Test tag on the partner header's Premium badge. */
+const val CHAT_THREAD_PREMIUM_BADGE_TAG: String = "chatThreadPremiumBadge"
+
+/** Test tag on a day chip ("Hari ini" / "Kemarin" / the date). */
+const val CHAT_THREAD_DAY_CHIP_TAG: String = "chatThreadDayChip"
+
+/** Test tag on a bubble's send time. */
+const val CHAT_THREAD_MESSAGE_TIME_TAG: String = "chatThreadMessageTime"
 
 /** Test tag on the long-press "Laporkan" menu item (mobile-chat-message-report). */
 const val CHAT_MESSAGE_REPORT_ITEM_TAG: String = "chatMessageReportItem"
@@ -182,6 +196,7 @@ fun ChatThreadScreen(
         }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val hasOlder by viewModel.hasOlder.collectAsStateWithLifecycle()
     val sendOutcome by viewModel.sendOutcome.collectAsStateWithLifecycle()
     val sendInFlight by viewModel.sendInFlight.collectAsStateWithLifecycle()
     val reportTargetMessageId by viewModel.reportTargetMessageId.collectAsStateWithLifecycle()
@@ -234,6 +249,7 @@ fun ChatThreadScreen(
     ChatThreadContent(
         partnerDisplayName = route.partnerDisplayName,
         partnerUsername = route.partnerUsername,
+        partnerIsPremium = route.partnerIsPremium,
         uiState = uiState,
         isRefreshing = isRefreshing,
         sendBar = remember(sendOutcome, sendInFlight, input) { sendBarState(sendOutcome, sendInFlight, input) },
@@ -243,6 +259,7 @@ fun ChatThreadScreen(
         onSend = { viewModel.send(input) },
         onRefresh = viewModel::retry,
         onLoadOlder = viewModel::loadOlder,
+        hasOlder = hasOlder,
         onReportMessage = viewModel::onReportMessageClicked,
         onOpenSharedPost = onOpenSharedPost,
         onBack = onBack,
@@ -281,6 +298,7 @@ fun ChatThreadScreen(
 private fun ChatThreadContent(
     partnerDisplayName: String,
     partnerUsername: String,
+    partnerIsPremium: Boolean,
     uiState: ChatThreadUiState,
     isRefreshing: Boolean,
     sendBar: SendBarState,
@@ -290,6 +308,7 @@ private fun ChatThreadContent(
     onSend: () -> Unit,
     onRefresh: () -> Unit,
     onLoadOlder: () -> Unit,
+    hasOlder: Boolean,
     onReportMessage: (String) -> Unit,
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
     onBack: () -> Unit,
@@ -299,7 +318,12 @@ private fun ChatThreadContent(
     // theme background + content color (a bare Column left the title black-on-black in dark mode, #488).
     Scaffold(
         topBar = {
-            ChatThreadTopBar(partnerDisplayName = partnerDisplayName, partnerUsername = partnerUsername, onBack = onBack)
+            ChatThreadTopBar(
+                partnerDisplayName = partnerDisplayName,
+                partnerUsername = partnerUsername,
+                partnerIsPremium = partnerIsPremium,
+                onBack = onBack,
+            )
         },
         bottomBar = {
             // Bottom-bar insets: keep the send-state row + input above the nav bar AND the keyboard.
@@ -337,7 +361,7 @@ private fun ChatThreadContent(
                         message = stringResource(Res.string.timeline_session_redirect),
                         testTag = CHAT_THREAD_LIST_TAG,
                     )
-                is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder, onReportMessage, onOpenSharedPost)
+                is ChatThreadUiState.Content -> MessageList(uiState.rows, hasOlder, onLoadOlder, onReportMessage, onOpenSharedPost)
             }
         }
     }
@@ -345,31 +369,37 @@ private fun ChatThreadContent(
 
 /**
  * The frame-5 partner header: an M3 TopAppBar (its own status-bar inset — this overlay owns its Scaffold, 06-#4)
- * with the back arrow, then the partner [LetterAvatar] (32dp) + bold display name over the `@username`. A blank
- * route display name is the deleted/shadow-banned mask: the `chat_account_deleted` placeholder, no handle.
+ * with the shared back arrow, then the partner [LetterAvatar] (32dp) + bold display name and [PremiumBadgeIcon]
+ * over the `@username`. The deleted / shadow-banned mask ([isMaskedPartner]: the backend `akun_dihapus`
+ * placeholder, or a blank route name) renders the `chat_account_deleted` label with no handle and no badge.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatThreadTopBar(
     partnerDisplayName: String,
     partnerUsername: String,
+    partnerIsPremium: Boolean,
     onBack: () -> Unit,
 ) {
-    val masked = partnerDisplayName.isBlank()
+    val masked = isMaskedPartner(partnerUsername, partnerDisplayName)
     val name = if (masked) stringResource(Res.string.chat_account_deleted) else partnerDisplayName
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 LetterAvatar(displayName = name, username = partnerUsername, modifier = Modifier.size(32.dp))
                 Column {
-                    Text(
-                        text = name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (!masked && partnerUsername.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (partnerIsPremium && !masked) PremiumBadgeIcon(modifier = Modifier.testTag(CHAT_THREAD_PREMIUM_BADGE_TAG))
+                    }
+                    if (!masked) {
                         Text(
                             text = stringResource(Res.string.post_card_handle, partnerUsername),
                             style = MaterialTheme.typography.bodySmall,
@@ -381,20 +411,14 @@ private fun ChatThreadTopBar(
                 }
             }
         },
-        navigationIcon = {
-            IconButton(onClick = onBack, modifier = Modifier.testTag(CHAT_THREAD_BACK_TAG)) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_arrow_back),
-                    contentDescription = stringResource(Res.string.cta_back),
-                )
-            }
-        },
+        navigationIcon = { BackNavigationIcon(onBack = onBack, modifier = Modifier.testTag(CHAT_THREAD_BACK_TAG)) },
     )
 }
 
 @Composable
 private fun MessageList(
     rows: List<ChatMessageRow>,
+    hasOlder: Boolean,
     onLoadOlder: () -> Unit,
     onReportMessage: (String) -> Unit,
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
@@ -402,22 +426,44 @@ private fun MessageList(
     val listState = rememberLazyListState()
     // #565: follow the tail only when the NEWEST row changes (an own send, a realtime inbound, a resync). An
     // older page prepends rows but keeps the last id, so it never yanks the reader down; the id-keyed items
-    // keep their position. The first scroll is instant (an animated one could race a prepend and stop
-    // mid-thread). Saveable, so a config change keeps the reader's place instead of re-jumping to the end.
+    // keep their position. The first positioning is an instant scroll. Keyed on the row count too, so a
+    // prepend landing mid-animation restarts the follow against the CURRENT last index (the followed id is
+    // recorded only once a scroll completes). Both values are saveable: a config change (the VM keeps its
+    // rows) keeps the reader's place. After process death the new VM reloads only the newest page, so the
+    // rows come back fewer than saved and the stale restored index is dropped for a fresh pin to the newest.
     var followedLastId by rememberSaveable { mutableStateOf<String?>(null) }
+    var followedCount by rememberSaveable { mutableIntStateOf(0) }
+    // Per composition (never saved): load-older waits for this composition's first positioning, so a
+    // restored index 0 cannot page before the restore is reconciled.
+    var positioned by remember { mutableStateOf(false) }
     val lastId = rows.lastOrNull()?.id
-    LaunchedEffect(lastId) {
-        if (lastId == null || lastId == followedLastId) return@LaunchedEffect
-        if (followedLastId == null) listState.scrollToItem(rows.lastIndex) else listState.animateScrollToItem(rows.lastIndex)
+    LaunchedEffect(lastId, rows.size) {
+        val shrank = rows.size < followedCount
+        followedCount = rows.size
+        if (lastId == null) return@LaunchedEffect
+        when {
+            followedLastId == null || shrank -> listState.scrollToItem(rows.lastIndex)
+            lastId != followedLastId -> listState.animateScrollToItem(rows.lastIndex)
+        }
         followedLastId = lastId
+        positioned = true
     }
-    // Load-older when the reader reaches the top — only once the thread has been positioned at the newest
-    // message (the list starts at index 0, which must not page before that first scroll).
+    // Load-older when the reader reaches the top — only once the thread has been positioned (the list starts
+    // at index 0, which must not page before that first scroll).
     LaunchedEffect(listState) {
-        snapshotFlow { followedLastId != null && listState.firstVisibleItemIndex == 0 }
+        snapshotFlow { positioned && listState.firstVisibleItemIndex == 0 }
             .distinctUntilChanged()
             .collect { atTop -> if (atTop) onLoadOlder() }
     }
+    // Frame 5 day chip: above each row that starts a local calendar day. The first loaded row only counts once
+    // no older page remains (before that it is not known to start its day). So an older page of the same day
+    // never moves a chip out of the reader's anchored row, which keeps the #565 prepend position exact.
+    val dayStartIds =
+        remember(rows, hasOlder) {
+            rows.filterIndexed { i, row ->
+                if (i == 0) !hasOlder else localDateLabel(row.createdAtIso) != localDateLabel(rows[i - 1].createdAtIso)
+            }.mapTo(HashSet()) { it.id }
+        }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(CHAT_THREAD_LIST_TAG),
@@ -425,12 +471,37 @@ private fun MessageList(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(items = rows, key = { it.id }, contentType = { "message" }) { row ->
-            // Realtime/optimistic rows animate in (mobile-design-system motion).
-            MessageBubble(
-                row = row,
-                onReport = onReportMessage,
-                onOpenSharedPost = onOpenSharedPost,
-                modifier = Modifier.animateItem(),
+            // Realtime/optimistic rows animate in (mobile-design-system motion). The chip rides inside the row's
+            // item, so the items stay one per message and the id-keyed prepend anchoring is unchanged.
+            Column(modifier = Modifier.fillMaxWidth().animateItem()) {
+                if (row.id in dayStartIds) DayChip(row.createdAtIso)
+                MessageBubble(row = row, onReport = onReportMessage, onOpenSharedPost = onOpenSharedPost)
+            }
+        }
+    }
+}
+
+/**
+ * The frame-5 day chip (`datechip`: surfaceContainerHigh, 8dp corners, 12/5 padding, 6dp above / 10dp below):
+ * "Hari ini", "Kemarin", or the date of [instantIso] in the device time zone.
+ */
+@Composable
+private fun DayChip(instantIso: String) {
+    val label =
+        when (localDaysAgo(instantIso)) {
+            null -> localDateLabel(instantIso)
+            in Int.MIN_VALUE..0 -> stringResource(Res.string.chat_date_today)
+            1 -> stringResource(Res.string.chat_date_yesterday)
+            else -> localDateLabel(instantIso)
+        }
+    Box(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), contentAlignment = Alignment.Center) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(8.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp).testTag(CHAT_THREAD_DAY_CHIP_TAG),
             )
         }
     }
@@ -475,17 +546,17 @@ private fun MessageBubble(
                     },
                 ),
         ) {
-            if (row.isRedacted) {
-                // Redaction precedence (design D9): the placeholder replaces BOTH the text and the
-                // context card. The row projection already nulled the embed fields when redacted.
-                Text(
-                    text = stringResource(Res.string.chat_message_redacted),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).testTag(CHAT_THREAD_REDACTED_TAG),
-                )
-            } else {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                if (row.isRedacted) {
+                    // Redaction precedence (design D9): the placeholder replaces BOTH the text and the
+                    // context card. The row projection already nulled the embed fields when redacted.
+                    Text(
+                        text = stringResource(Res.string.chat_message_redacted),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag(CHAT_THREAD_REDACTED_TAG),
+                    )
+                } else {
                     // chat-embedded-posts: the shared-post context card (embed-only or content+embed), drawn
                     // ABOVE the message text as in frame 5.
                     // embeddedPostId == null + a present snapshot = the source post was hard-deleted
@@ -509,6 +580,17 @@ private fun MessageBubble(
                             modifier = if (row.embeddedPostSnapshot == null) Modifier else Modifier.padding(top = 8.dp),
                         )
                     }
+                }
+                // Frame 5 `.bt`: the send time ("09.12") under the text, right-aligned, 4dp above, at 75% of the
+                // bubble's content color.
+                localTimeLabel(row.createdAtIso)?.let { time ->
+                    Text(
+                        text = time,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Normal,
+                        color = onBubbleColor.copy(alpha = 0.75f),
+                        modifier = Modifier.align(Alignment.End).padding(top = 4.dp).testTag(CHAT_THREAD_MESSAGE_TIME_TAG),
+                    )
                 }
             }
         }

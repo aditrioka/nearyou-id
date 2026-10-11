@@ -20,12 +20,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_shared_post_deleted
 import id.nearyou.resources.generated.resources.chat_shared_post_edited_banner
 import id.nearyou.resources.generated.resources.chat_shared_post_label
 import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.post_card_handle
+import id.nearyou.resources.generated.resources.post_card_meta_separator
 import id.nearyou.resources.theme.locationPin
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -39,6 +41,9 @@ const val EMBEDDED_POST_DELETED_TAG: String = "embeddedPostDeleted"
 /** Test tag on the "diedit sejak dibagikan" banner. */
 const val EMBEDDED_POST_EDITED_BANNER_TAG: String = "embeddedPostEditedBanner"
 
+/** Test tag on the card's post date (the `@handle · <date>` meta). */
+const val EMBEDDED_POST_DATE_TAG: String = "embeddedPostDate"
+
 /**
  * The in-thread shared-post **context card** (`mobile-chat-embedded-posts`). Rendered from the
  * immutable [snapshot] alone — never a live re-fetch (design D1). It shows the author handle +
@@ -46,7 +51,8 @@ const val EMBEDDED_POST_EDITED_BANNER_TAG: String = "embeddedPostEditedBanner"
  * carries none; the spatial-fuzzing invariant holds by construction).
  *
  * Frame 5 draws it as the compact read-only post card: the author [LetterAvatar] + bold name over the
- * `@handle`, the content clamped to two lines, then the coral pin + city (a tap opens the full post).
+ * `@handle · <post date>` meta, the content clamped to two lines, then the coral pin + city (a tap opens the
+ * full post).
  *
  * Two non-default states:
  *  - [isDeleted] (the source post was hard-deleted → `embeddedPostId` is null but the snapshot
@@ -104,13 +110,34 @@ fun EmbeddedPostCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            text = stringResource(Res.string.post_card_handle, snapshot.authorUsername),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        // Frame 5 `.meta`: "@handle · <time>" — the PostCard meta row with the same date label. The
+                        // relative "18 mnt" form is the app-wide "Relative timestamps" item (docs/08 § Phase 3), which
+                        // replaces localDateLabel on every post card at once.
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(Res.string.post_card_handle, snapshot.authorUsername),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Text(
+                                text = stringResource(Res.string.post_card_meta_separator),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = localDateLabel(snapshot.createdAt),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                modifier = Modifier.testTag(EMBEDDED_POST_DATE_TAG),
+                            )
+                        }
                     }
                 }
                 Text(

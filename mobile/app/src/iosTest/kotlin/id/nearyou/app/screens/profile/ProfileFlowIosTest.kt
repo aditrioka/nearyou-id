@@ -93,7 +93,7 @@ class ProfileFlowIosTest {
                         ProfileScreen(
                             targetUserId = "u1",
                             onBack = {},
-                            onOpenChatThread = { id, username, name -> opened += Triple(id, username, name) },
+                            onOpenChatThread = { id, username, name, _ -> opened += Triple(id, username, name) },
                         )
                     }
                 }

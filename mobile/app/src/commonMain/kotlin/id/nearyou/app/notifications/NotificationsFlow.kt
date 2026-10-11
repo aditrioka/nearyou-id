@@ -59,11 +59,13 @@ interface NotificationsFlow {
     suspend fun resolvePartner(userId: String): PartnerResolution
 }
 
-/** Neutral resolution of a chat partner's DISPLAY identity (no user UUID — display strings only). */
+/** Neutral resolution of a chat partner's DISPLAY identity (no user UUID — display fields only; [Resolved.isPremium]
+ *  drives the thread header's Premium badge). */
 sealed interface PartnerResolution {
     data class Resolved(
         val username: String,
         val displayName: String,
+        val isPremium: Boolean = false,
     ) : PartnerResolution
 
     data object Unavailable : PartnerResolution

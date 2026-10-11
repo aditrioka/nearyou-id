@@ -99,6 +99,36 @@ class ChatThreadViewModelTest {
         }
     }
 
+    // Found while fixing #565: once the older pages are exhausted, a resync (pull-to-refresh) must not rewind
+    // paging to the second page. hasOlder tracks whether an older page remains (it gates the first row's day chip).
+    @Test
+    fun resyncAfterPagingToTheEnd_doesNotRewindPaging_andHasOlderTracksTheCursor() =
+        test {
+            val flow =
+                FakeChatFlow(
+                    listOf(
+                        ChatThreadOutcome.Loaded(listOf(dto("m2")), "older-cursor"),
+                        ChatThreadOutcome.Loaded(listOf(dto("m1")), null),
+                        ChatThreadOutcome.Loaded(listOf(dto("m2")), "older-cursor"),
+                    ),
+                )
+            val viewModel = vm(flow, FakeChatRealtimeSubscriber())
+            advanceUntilIdle()
+            assertTrue(viewModel.hasOlder.value, "the first page has an older page behind it")
+            viewModel.loadOlder()
+            advanceUntilIdle()
+            assertFalse(viewModel.hasOlder.value, "the last older page ends paging")
+
+            viewModel.retry()
+            advanceUntilIdle()
+            assertFalse(viewModel.hasOlder.value, "a resync does not restore the exhausted cursor")
+            val fetches = flow.loadHistoryCount
+            viewModel.loadOlder()
+            advanceUntilIdle()
+            assertEquals(fetches, flow.loadHistoryCount, "no older fetch once paged to the end")
+            viewModel.tearDown()
+        }
+
     @Test
     fun inboundNewIdAppends() =
         test {

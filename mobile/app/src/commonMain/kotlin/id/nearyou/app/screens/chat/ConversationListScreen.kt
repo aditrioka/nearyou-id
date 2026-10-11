@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,24 +27,38 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.ui.components.BackNavigationIcon
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.PremiumBadgeIcon
 import id.nearyou.app.ui.components.localDateLabel
+import id.nearyou.app.ui.components.localDaysAgo
+import id.nearyou.app.ui.components.localTimeLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
+import id.nearyou.resources.generated.resources.chat_date_yesterday
 import id.nearyou.resources.generated.resources.chat_list_empty
 import id.nearyou.resources.generated.resources.chat_list_loading
 import id.nearyou.resources.generated.resources.chat_list_title
-import id.nearyou.resources.generated.resources.cta_back
-import id.nearyou.resources.generated.resources.ic_arrow_back
+import id.nearyou.resources.generated.resources.chat_weekday_fri
+import id.nearyou.resources.generated.resources.chat_weekday_mon
+import id.nearyou.resources.generated.resources.chat_weekday_sat
+import id.nearyou.resources.generated.resources.chat_weekday_sun
+import id.nearyou.resources.generated.resources.chat_weekday_thu
+import id.nearyou.resources.generated.resources.chat_weekday_tue
+import id.nearyou.resources.generated.resources.chat_weekday_wed
 import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.timeline_session_redirect
-import org.jetbrains.compose.resources.painterResource
+import kotlinx.datetime.DayOfWeek
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /** Test tag on the scrollable surface (every state renders one so pull-to-refresh works from each). */
 const val CONVERSATION_LIST_TAG: String = "conversationList"
@@ -56,6 +68,9 @@ const val CONVERSATION_ROW_TAG: String = "conversationRow"
 
 /** Test tag on the back affordance. */
 const val CONVERSATION_LIST_BACK_TAG: String = "conversationListBack"
+
+/** Test tag on a row's trailing last-message time. */
+const val CONVERSATION_ROW_TIME_TAG: String = "conversationRowTime"
 
 /**
  * The conversation-list surface ([ConversationListRoute][id.nearyou.app.screens.routing.ConversationListRoute],
@@ -104,12 +119,7 @@ private fun ConversationListContent(
             TopAppBar(
                 title = { Text(text = stringResource(Res.string.chat_list_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag(CONVERSATION_LIST_BACK_TAG)) {
-                        Icon(
-                            painter = painterResource(Res.drawable.ic_arrow_back),
-                            contentDescription = stringResource(Res.string.cta_back),
-                        )
-                    }
+                    BackNavigationIcon(onBack = onBack, modifier = Modifier.testTag(CONVERSATION_LIST_BACK_TAG))
                 },
             )
         },
@@ -155,9 +165,10 @@ private fun ConversationRows(
 
 /**
  * One frame-2 two-line row (12/16 padding, 16dp gaps): the shared [LetterAvatar] (40dp), the partner display
- * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message date. The list wire carries
- * no last-message preview or unread count yet (#272), so the second line is the handle. Also the share-to-chat
- * picker's row ([ConversationPickerScreen]), so both lists show the same identity treatment.
+ * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message time ([lastMessageTimeLabel]).
+ * The list wire carries `last_message_at` but not the message text, so the second line is the handle; the
+ * per-conversation unread count waits on #272. Also the share-to-chat picker's row ([ConversationPickerScreen]),
+ * so both lists show the same identity treatment.
  */
 @Composable
 internal fun ConversationRowItem(
@@ -165,9 +176,9 @@ internal fun ConversationRowItem(
     rowTag: String,
     onOpen: () -> Unit,
 ) {
-    // The partner display name is already COALESCE-masked to chat_account_deleted server-side; an empty value
-    // (an edge row) renders the deleted placeholder with no handle or badge beside it.
-    val masked = row.partnerDisplayName.isBlank()
+    // The backend COALESCE-masks a shadow-banned / deleted partner to "Akun Dihapus" / akun_dihapus. The mask (or a
+    // blank edge value) renders the chat_account_deleted label with no handle or badge beside it.
+    val masked = isMaskedPartner(row.partnerUsername, row.partnerDisplayName)
     val name = if (masked) stringResource(Res.string.chat_account_deleted) else row.partnerDisplayName
     Row(
         modifier =
@@ -193,7 +204,7 @@ internal fun ConversationRowItem(
                 )
                 if (row.partnerIsPremium && !masked) PremiumBadgeIcon()
             }
-            if (!masked && row.partnerUsername.isNotBlank()) {
+            if (!masked) {
                 Text(
                     text = stringResource(Res.string.post_card_handle, row.partnerUsername),
                     style = MaterialTheme.typography.bodyMedium,
@@ -205,10 +216,41 @@ internal fun ConversationRowItem(
         }
         row.lastMessageAtIso?.let { iso ->
             Text(
-                text = localDateLabel(iso),
+                text = lastMessageTimeLabel(iso),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag(CONVERSATION_ROW_TIME_TAG),
             )
         }
     }
 }
+
+/**
+ * The frame-2 trailing time of a conversation's last message, relative to [now] in the device time zone: today
+ * → the clock time ("09.12"), yesterday → "Kemarin", the rest of the past week → the short weekday ("Sel"),
+ * anything older → the date. A value that is not a full instant renders its date portion.
+ */
+@Composable
+internal fun lastMessageTimeLabel(
+    instantIso: String,
+    now: Instant = Clock.System.now(),
+): String {
+    val daysAgo = localDaysAgo(instantIso, now) ?: return localDateLabel(instantIso)
+    return when {
+        daysAgo <= 0 -> localTimeLabel(instantIso) ?: localDateLabel(instantIso)
+        daysAgo == 1 -> stringResource(Res.string.chat_date_yesterday)
+        daysAgo < 7 -> stringResource(weekdayShortLabel(instantIso))
+        else -> localDateLabel(instantIso)
+    }
+}
+
+private fun weekdayShortLabel(instantIso: String): StringResource =
+    when (Instant.parse(instantIso).toLocalDateTime(TimeZone.currentSystemDefault()).dayOfWeek) {
+        DayOfWeek.MONDAY -> Res.string.chat_weekday_mon
+        DayOfWeek.TUESDAY -> Res.string.chat_weekday_tue
+        DayOfWeek.WEDNESDAY -> Res.string.chat_weekday_wed
+        DayOfWeek.THURSDAY -> Res.string.chat_weekday_thu
+        DayOfWeek.FRIDAY -> Res.string.chat_weekday_fri
+        DayOfWeek.SATURDAY -> Res.string.chat_weekday_sat
+        DayOfWeek.SUNDAY -> Res.string.chat_weekday_sun
+    }
