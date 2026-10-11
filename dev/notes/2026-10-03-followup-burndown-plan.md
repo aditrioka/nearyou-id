@@ -10,6 +10,13 @@
 - **Konteks baru:** review arsitektur merged (PR #526, `dev/audits/2026-10-03-architecture-review/REPORT.md`: 27 usulan issue BELUM dibuat, top-5 pre-launch di § 14, addendum § 15 "feature-complete dulu, produksi belakangan"); doc drift fix merged (#528); PR #529 open = keputusan operator Android-first + production spend gate + lane `apple-paid` (#258/#430/#495 ikut ke lane itu — konsisten dengan rencana ini). Issue baru: #522 (OTel sentinel scenario tests, lanjutan #520), #525 (kelas admin tanpa style, lanjutan #501/#282). 77 issue follow-up open.
 - **Wave 2 (disetujui untuk di-list, chip belum dibuat):** lihat § 5 Wave 2; perubahan: aturan "maks 3 sesi menyentuh strings.xml" dilonggarkan (hotspot hilang), #499 harus re-cek sisa drift setelah #528/#529, #525 masuk sebagai cadangan Wave 2 / sesi Wave 3.
 
+## Status 2026-10-12 — Wave 1–3 selesai
+
+- **Wave 2: 5/5 merged** (+ #559 feed refresh, #566 iOS suite hijau + lane CI `ios-test` + rule Detekt string hardcoded). **Wave 3: 5/5 merged** — #568 (#390), #572 (#544+#545), #573 (#497+#242+#542), #579 (#535; skrip sudah dijalankan di staging dengan persetujuan operator, 9 job hidup, semua worker 200), #571 (#253+#255). Juga merged #580 (skill: verifikasi klaim live-state sebelum membangun). 0 PR burndown open; hanya #562 (dokumen ini).
+- **Backlog: 89 open.** Wave 3 menutup 9 issue tetapi melahirkan **9 issue baru** (#567 flaky JwksCacheTest; #569 #570 #574 #575 #576 #577 dari sesi PostDetail; #578 spec hygiene scheduler; #581 appeal dead-end) — bukti langsung untuk kebijakan anti-defer (chip PR kebijakan sedang berjalan): #576 (LaunchedEffect edit-history, kelas bug sama dengan #542, file sama) dan #577 seharusnya diperbaiki in-PR.
+- **Sisa operator dari #579:** setelah #572 ter-deploy, pensiunkan SA legacy `unban-scheduler-staging` per runbook. Staging tidak butuh apa pun lagi.
+- **Berikutnya:** sesi sapu bersih ultracode (chip sudah ada; jalankan sendirian) → lalu Wave 4 per § 5 + § 9b (#496 V41, #307, #266, #440+#286, #531+#532, B5 #333+#335, #277).
+
 ## Status 2026-10-04 malam (sinkronisasi kedua)
 
 - **Wave 1: 5/5 merged** (#520 #521 #523 #524 #527). **Wave 2: 3/5 merged** — W2-1 chat (#564), W2-3 cap→paywall (#560), W2-5 spec hygiene (#561; #336 ditutup duplikat, #563 lahir dari sini). **Masih open:** W2-2 = PR #559 (#173/#518; CI test/device-run/instrumented pending), W2-4 = PR #566 (#348/#400/#174/#184 + `ios-test` lane + rule Detekt `MobileHardcodedStringRule`; **CONFLICTING** di `ChatThreadReportFlowIosTest.kt` vs #564 → rebase oleh sesi W2-4). 6 issue berlabel `burning-down` = milik dua PR itu.
