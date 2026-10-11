@@ -202,7 +202,7 @@ class AppealRepositoryTest {
     fun `status 401 maps to SessionExpired`() =
         runTest {
             val repo = repository { respond("", HttpStatusCode.Unauthorized, JSON_HEADERS) }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status("t"))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = false), repo.status("t"))
         }
 
     @Test
@@ -245,7 +245,7 @@ class AppealRepositoryTest {
                     sessionCalls++
                     respond("", HttpStatusCode.OK, JSON_HEADERS)
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = false), repo.status(null), "nothing app-wide fired")
             assertEquals(0, sessionCalls, "no session read without a stored session")
             assertEquals(emptyList(), appealCalls)
         }
@@ -319,7 +319,7 @@ class AppealRepositoryTest {
                         else -> respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
                     }
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = true), repo.status(null))
             assertNull(store.read(), "the app-wide invalidation clears the session")
         }
 
@@ -330,6 +330,6 @@ class AppealRepositoryTest {
                 sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE)) {
                     respond("", HttpStatusCode.Unauthorized, JSON_HEADERS)
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = true), repo.status(null))
         }
 }

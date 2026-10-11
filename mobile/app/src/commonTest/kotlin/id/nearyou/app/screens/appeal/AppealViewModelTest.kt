@@ -68,11 +68,27 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `no appeal token with no usable session re-routes to sign-in`() =
+    fun `no appeal token and no stored session re-routes to sign-in from the screen`() =
         runTest {
-            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired), token = null)
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = false)), token = null)
             advanceUntilIdle()
-            assertEquals(AppealStatus.SessionRedirect, viewModel.uiState.value.status)
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+        }
+
+    @Test
+    fun `a session-read 401 redirects viaSession so the app-wide re-route is not doubled`() =
+        runTest {
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = true)), token = null)
+            advanceUntilIdle()
+            assertEquals(AppealStatus.SessionRedirect(viaSession = true), viewModel.uiState.value.status)
+        }
+
+    @Test
+    fun `an appeal-token 401 on entry re-routes to sign-in from the screen`() =
+        runTest {
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = false)))
+            advanceUntilIdle()
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
         }
 
     @Test
@@ -169,14 +185,27 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `submit session-expired re-routes to sign-in`() =
+    fun `submit session-expired re-routes to sign-in from the screen`() =
         runTest {
             val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.SessionExpired))
             advanceUntilIdle()
             viewModel.onTextChange("x")
             viewModel.onSubmit()
             advanceUntilIdle()
-            assertEquals(AppealStatus.SessionRedirect, viewModel.uiState.value.status)
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+        }
+
+    @Test
+    fun `submit without an appeal token re-routes to sign-in from the screen with no request`() =
+        runTest {
+            val flow = FakeAppealFlow(statusOutcome = AppealStatusOutcome.None)
+            val viewModel = vm(flow, token = null)
+            advanceUntilIdle()
+            viewModel.onTextChange("x")
+            viewModel.onSubmit()
+            advanceUntilIdle()
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+            assertEquals(0, flow.submitCount, "no submit is issued without the appeal token")
         }
 
     @Test

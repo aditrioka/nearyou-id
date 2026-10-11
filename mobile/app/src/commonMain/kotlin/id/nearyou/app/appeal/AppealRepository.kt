@@ -49,7 +49,7 @@ class AppealRepository(
         }
 
     override suspend fun status(appealToken: String?): AppealStatusOutcome {
-        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired
+        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired(viaSession = false)
         return when (val result = apiClient.status(appealToken)) {
             is AppealStatusApiResult.Success -> {
                 val body = result.body
@@ -72,7 +72,7 @@ class AppealRepository(
             }
             is AppealStatusApiResult.HttpError ->
                 when (result.status) {
-                    401 -> AppealStatusOutcome.SessionExpired
+                    401 -> AppealStatusOutcome.SessionExpired(viaSession = appealToken == null)
                     else -> AppealStatusOutcome.TransportError
                 }
         }
