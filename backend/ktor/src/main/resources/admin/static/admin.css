@@ -207,11 +207,11 @@ form.filters {
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
-form.filters input,
-form.filters select,
-.rc-actions select,
-.user-state input[type='text'],
-.action-tile input[type='text'] {
+/* every text-like control in the authenticated shell shares the board's
+   `.field .ctl` look (in-row reason inputs included — they used to render
+   with browser defaults); :where() keeps the specificity at 0 so any
+   context rule (width / height) still wins */
+:where(body.shell > main) :where(input[type='text'], input[type='search'], input[type='number'], input[type='date'], select, textarea) {
   height: 34px;
   min-width: 130px;
   padding: 0 12px;
@@ -222,9 +222,8 @@ form.filters select,
   font-size: 12.5px;
   color: var(--on-surface);
 }
-form.filters input::placeholder,
-.user-state input::placeholder,
-.action-tile input::placeholder { color: var(--outline); }
+:where(body.shell > main) :where(textarea) { height: auto; padding: 8px 12px; line-height: 1.5; }
+:where(body.shell > main) ::placeholder { color: var(--outline); }
 .field-wide input { min-width: 340px; }
 
 /* ---- buttons ------------------------------------------------------------ */
@@ -288,6 +287,14 @@ table.tbl td {
 }
 table.tbl tbody tr:last-child td { border-bottom: none; }
 table.tbl td.t { white-space: nowrap; }
+/* fixed column widths (no inline styles in templates — docs/11 § 3.6) */
+table.tbl th.col-version { width: 96px; }
+table.tbl th.col-resolution { width: 280px; }
+/* side-by-side in-row action forms (frame 22 Accept / Reject) */
+.row-actions { display: flex; gap: 6px; }
+/* secondary line under a cell's / card's primary value (board `.tbl td .sub`) */
+.sub { display: block; font-size: 11px; font-weight: 400; color: var(--on-surface-variant); margin-top: 2px; }
+span.muted { color: var(--on-surface-variant); }
 table.tbl td.ua {
   font-size: 11px;
   color: var(--on-surface-variant);
@@ -318,7 +325,8 @@ table.tbl details summary {
 }
 
 .code,
-table.tbl code {
+table.tbl code,
+.wl-entry {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   background: var(--sc);
@@ -413,16 +421,18 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 
 /* informational banner (frame 2 CSRF note; mirrors the login error banner) */
 .banner {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  display: block;
   border-radius: 10px;
   padding: 11px 14px;
   font-size: 12px;
   line-height: 1.5;
   font-weight: 600;
 }
-.banner .ic { margin-top: 1px; }
+/* icon + text column without flex: a flex banner split bare text and inline
+   <code>/<b> children into separate columns. The icon floats; the text span
+   is its own block formatting context beside it. */
+.banner > .ic { float: left; margin: 1px 10px 0 0; }
+.banner > .ic ~ span { display: flow-root; }
 .banner.info {
   margin-top: 16px;
   background: var(--primary-container);
@@ -472,7 +482,9 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 
 /* ---- pager -------------------------------------------------------------- */
 .pager { display: flex; justify-content: center; margin-top: 12px; }
-.pagination-older {
+.pagination-older,
+.pagination-next,
+.pagination-newer {
   display: inline-flex;
   align-items: center;
   height: 34px;
@@ -578,6 +590,9 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 }
 .quota .ic { width: 13px; height: 13px; }
 .quota b { font-weight: 900; }
+/* the same pill inside a swappable queue fragment (frames 15/16/18/19/21),
+   on its own line under the filter bar */
+p.quota { margin-top: 12px; }
 /* each action keeps its audit-only reason field, so the board's button row
    becomes a grid of tiles (stacks naturally, frame 4b) */
 .three-col {
@@ -816,8 +831,67 @@ body.bare > main {
 .chat-bubble .embed-tag { font-style: italic; opacity: .85; }
 .chat-bubble.redacted { font-style: italic; color: var(--on-surface-variant); }
 
-/* warn banner — the owner/admin + atomic-write notice on the redaction panel.
-   Mirrors .banner.info shape with the error-container tint frame 9 uses. */
-.banner.warn { margin-top: 12px; background: var(--error-container); color: var(--on-error-container); }
+/* warn banner — warning tint, as every board `.banner.warn` (frames 9, 15,
+   19, 20); `.banner.err` below is the error tint. */
+.banner.warn { margin-top: 12px; background: var(--warning-container); color: var(--on-warning-container); }
 /* error banner — the CSAM "no Kominfo filing yet" pending signal (frame 13 .banner.err) */
 .banner.err { margin-top: 14px; background: var(--error-container); color: var(--on-error-container); }
+/* a filter-shaped action form directly inside a card (frame 13 handler) */
+.cardlet > form.filters { margin-top: 8px; }
+
+/* ---- feature flags (frame 20) ------------------------------------------- */
+.ff-flags { padding: 6px 18px; }
+.ff-flags .tbl-wrap { margin-top: 0; }
+.ff-flags table.tbl { border: none; border-radius: 0; }
+tr.ff-row td { vertical-align: middle; }
+.ff-value { white-space: nowrap; }
+.ff-control { text-align: right; }
+.ff-form {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+/* controls match the .btn.sm height they sit beside */
+.ff-form select,
+.ff-form .ff-reason,
+.ff-form .ff-int { height: 28px; min-width: 0; }
+.ff-form .ff-reason { width: 170px; }
+.ff-form .ff-int { width: 84px; }
+.ff-wordlists dd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.wl-edit-link { font-size: 11.5px; }
+
+/* ---- moderation wordlist editor (frame-20 "edit" sub-surface) ----------- */
+.wl-diff p { margin-top: 8px; font-size: 12.5px; }
+.wl-added { color: var(--success); }
+.wl-removed { color: var(--error); }
+.wl-filter { display: block; width: 100%; max-width: 340px; margin-top: 10px; }
+.wl-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.wl-form { display: flex; flex-direction: column; gap: 6px; }
+.wl-label {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--on-surface-variant);
+}
+.wl-label:first-of-type { margin-top: 0; }
+.wl-entries,
+.wl-import {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+.wl-add,
+.wl-reason { width: 100%; }
+.wl-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.wl-back { margin-top: 14px; font-size: 12.5px; }
