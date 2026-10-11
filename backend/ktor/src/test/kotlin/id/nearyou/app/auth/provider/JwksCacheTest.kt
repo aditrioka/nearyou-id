@@ -13,7 +13,7 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPublicKey
 import java.time.Clock
@@ -22,7 +22,10 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.Base64
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Unit coverage for [JwksCache] — the Cache-Control TTL contract (`auth-signin` spec
@@ -51,13 +54,19 @@ class JwksCacheTest : StringSpec({
     }
 
     class TickClock(start: Instant) : Clock() {
-        private var now: Instant = start
+        @Volatile private var now: Instant = start
+
+        /** Runs on every [instant] read — lets a test park a caller at an exact point in [JwksCache.keyFor]. */
+        @Volatile var onInstant: (() -> Unit)? = null
 
         fun advance(d: Duration) {
             now = now.plus(d)
         }
 
-        override fun instant(): Instant = now
+        override fun instant(): Instant {
+            onInstant?.invoke()
+            return now
+        }
 
         override fun getZone(): ZoneId = ZoneOffset.UTC
 
@@ -113,6 +122,12 @@ class JwksCacheTest : StringSpec({
         count.get() shouldBe 1
     }
 
+    "unknown kid on a cold cache costs exactly one upstream fetch" {
+        val (cache, _, count) = harness()
+        cache.keyFor("kid-nonexistent").shouldBeNull()
+        count.get() shouldBe 1
+    }
+
     "unknown kid after the cooldown forces a fetch despite a TTL-valid cache (mid-TTL rotation)" {
         val (cache, clock, count) = harness()
         cache.keyFor("kid-a").shouldNotBeNull()
@@ -132,24 +147,39 @@ class JwksCacheTest : StringSpec({
         count.get() shouldBe 2
     }
 
-    "concurrent forced refreshes collapse to a single upstream fetch" {
-        val gate = CompletableDeferred<Unit>()
-        val started = CompletableDeferred<Unit>()
-        val (cache, clock, count) = harness(gateSecondRequest = gate, secondRequestStarted = started)
-        cache.keyFor("kid-a").shouldNotBeNull()
-        clock.advance(Duration.ofSeconds(61))
-        coroutineScope {
-            val first = async(Dispatchers.Default) { cache.keyFor("kid-b") }
-            // Wait until the forced fetch is in flight, THEN start the second caller:
-            // it snapshots lastRefreshAt while the peer holds the lock mid-fetch, blocks
-            // on the mutex, and must reuse the peer's fresh document instead of re-fetching.
-            started.await()
-            val second = async(Dispatchers.Default) { cache.keyFor("kid-b") }
-            gate.complete(Unit)
-            first.await().shouldNotBeNull().modulus shouldBe keyB.modulus
-            second.await().shouldNotBeNull().modulus shouldBe keyB.modulus
+    // #567: a caller that read the stale entry before a peer's forced fetch landed, but reaches
+    // the mutex after it, must reuse the peer's document. The second caller is parked at its
+    // Nth clock read (1 = the TTL check in current(), 2 = the cooldown check), both before the
+    // mutex, while the peer's fetch completes. With the refresh snapshot taken inside
+    // forceRefresh() (after those reads), read 2 re-fetched upstream (count 3) and read 1
+    // returned null (the peer's fetch re-armed the cooldown).
+    listOf(1, 2).forEach { parkAtRead ->
+        "concurrent forced refreshes collapse to a single upstream fetch (peer lands at clock read $parkAtRead)" {
+            val gate = CompletableDeferred<Unit>()
+            val started = CompletableDeferred<Unit>()
+            val (cache, clock, count) = harness(gateSecondRequest = gate, secondRequestStarted = started)
+            cache.keyFor("kid-a").shouldNotBeNull()
+            clock.advance(Duration.ofSeconds(61))
+            withTimeout(30.seconds) {
+                val firstDone = CountDownLatch(1)
+                val first = async(Dispatchers.IO) { cache.keyFor("kid-b").also { firstDone.countDown() } }
+                // The peer now holds the lock mid-fetch and reads no clock until the gate
+                // opens, so every read counted below is the second caller's.
+                started.await()
+                val reads = AtomicInteger(0)
+                clock.onInstant = {
+                    if (reads.incrementAndGet() == parkAtRead) {
+                        clock.onInstant = null
+                        gate.complete(Unit)
+                        firstDone.await(10, TimeUnit.SECONDS) shouldBe true
+                    }
+                }
+                val second = async(Dispatchers.IO) { cache.keyFor("kid-b") }
+                first.await().shouldNotBeNull().modulus shouldBe keyB.modulus
+                second.await().shouldNotBeNull().modulus shouldBe keyB.modulus
+            }
+            count.get() shouldBe 2
         }
-        count.get() shouldBe 2
     }
 
     "expired cache re-fetches lazily on the next lookup" {
