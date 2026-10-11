@@ -59,5 +59,4 @@ private fun classTokens(template: String): List<String> =
         .filter { it.isNotBlank() }
         .toList()
 
-private fun resource(path: String): File =
-    File(checkNotNull(AdminTemplateStyleTest::class.java.classLoader.getResource(path)).toURI())
+private fun resource(path: String): File = File(checkNotNull(AdminTemplateStyleTest::class.java.classLoader.getResource(path)).toURI())
