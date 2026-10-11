@@ -50,9 +50,9 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             // Landing content block (greeting identifies the index page).
             body shouldContain "Welcome back, Test Admin"
 
-            // Grouped sidebar: exactly the six shipped nav items, each with
-            // its data-icon-identified inline SVG (spec scenario "Authenticated
-            // page extends the base layout and renders all structural sections").
+            // Grouped sidebar: every shipped nav item's data-icon-identified
+            // inline SVG (spec scenario "Authenticated page extends the base
+            // layout and renders all structural sections").
             body shouldContain "<header>"
             body shouldContain "<nav>"
             body shouldContain "data-icon=\"dashboard\""
@@ -69,19 +69,20 @@ class AdminPanelScaffoldAuthTest : StringSpec({
             body shouldContain "data-icon=\"gpp_maybe\""
             body shouldContain "data-icon=\"article\""
             body shouldContain "data-icon=\"download\""
-            // EXACTLY fifteen nav items, under their six group headings: the
+            body shouldContain "data-icon=\"redeem\""
+            // EXACTLY sixteen nav items, under their six group headings: the
             // Moderasi group holds Dashboard + Reports + Appeals (admin-appeal-
-            // review, content-moderation-appeal) + Users; the Premium group holds
-            // Subscription grace (admin-subscription-grace-monitor); the Konfigurasi
-            // group holds Feature flags (admin-feature-flag-editor) + Reserved
-            // usernames (admin-reserved-usernames-editor) + Username oversight
-            // (admin-premium-username-oversight); the Lifecycle group holds Privacy
-            // flips (admin-privacy-flip-monitor) + Hard delete queue (admin-hard-
-            // delete-queue) + Data export queue (admin-data-export-queue); the
-            // Anti-abuse group holds the Block registry item (admin-block-registry)
-            // + the CSAM detection log (admin-csam-detection-log); the Premium group
-            // holds Subscription grace (admin-subscription-grace-monitor) + Referral
-            // grants (admin-referral-manual-grant).
+            // review, content-moderation-appeal) + Users; the Anti-abuse group
+            // holds Rejected identifiers + the Block registry item (admin-block-
+            // registry) + the CSAM detection log (admin-csam-detection-log); the
+            // Lifecycle group holds Privacy flips (admin-privacy-flip-monitor) +
+            // Hard delete queue (admin-hard-delete-queue) + Data export queue
+            // (admin-data-export-queue); the Premium group holds Subscription grace
+            // (admin-subscription-grace-monitor) + Referral grants (admin-referral-
+            // manual-grant); the Konfigurasi group holds Feature flags (admin-
+            // feature-flag-editor) + Reserved usernames (admin-reserved-usernames-
+            // editor) + Username oversight (admin-premium-username-oversight); the
+            // Sistem group holds the Audit log.
             Regex("class=\"nitem").findAll(body).count() shouldBe 16
             body shouldContain "Moderasi"
             body shouldContain "Anti-abuse &amp; keamanan"
