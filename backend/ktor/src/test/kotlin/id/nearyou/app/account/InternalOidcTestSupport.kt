@@ -5,6 +5,7 @@ import com.auth0.jwk.JwkException
 import com.auth0.jwk.JwkProvider
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
@@ -47,6 +48,8 @@ internal fun signedJwt(
     JWT.create()
         .withKeyId(kid)
         .withSubject(subject)
+        .withClaim("email", TEST_OIDC_PRINCIPAL)
+        .withClaim("email_verified", true)
         .withAudience(audience)
         .withIssuedAt(UtilDate.from(Instant.now()))
         .withExpiresAt(UtilDate.from(expiresAt))

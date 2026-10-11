@@ -138,7 +138,7 @@ Precedent: `health-check-endpoints` (PR #54) § 11.5 negative-smoke hit this on 
 
 ### Internal worker schedules (Cloud Scheduler)
 
-Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it** — the route mounts at deploy time but nothing calls it on a cadence until the operator provisions the schedule. Each job authenticates with a **Google OIDC identity token** minted for the invoker service account `scheduler-invoker-<env>`, whose `audience` matches the internal-endpoint OIDC audience (`INTERNAL_OIDC_AUDIENCE`, the service URL); once the `/internal/*` caller allowlist `INTERNAL_OIDC_ALLOWED_PRINCIPALS` ships ([#544](https://github.com/aditrioka/nearyou-id/issues/544)), the same SA email MUST be listed there. No secret slots are involved.
+Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it** — the route mounts at deploy time but nothing calls it on a cadence until the operator provisions the schedule. Each job authenticates with a **Google OIDC identity token** minted for the invoker service account `scheduler-invoker-<env>`, whose `audience` matches the internal-endpoint OIDC audience (`INTERNAL_OIDC_AUDIENCE`, the service URL); the same SA email MUST be listed in the `/internal/*` caller allowlist `INTERNAL_OIDC_ALLOWED_PRINCIPALS` (§ Caller allowlist below, [#544](https://github.com/aditrioka/nearyou-id/issues/544)), otherwise every job gets `403`. No secret slots are involved.
 
 **Provisioning is one idempotent script** — [`dev/scripts/provision-schedulers.sh`](/dev/scripts/provision-schedulers.sh) creates or updates all nine jobs (SA, `run.invoker`, schedule, OIDC audience, retry policy), parameterised by `ENV_NAME` / `PROJECT` / `HOST` so the same script provisions production later. Runbook (run, verify, pause/rollback, add a worker, legacy-SA retirement, cost): [`dev/docs/cloud-scheduler.md`](/dev/docs/cloud-scheduler.md). A new `/internal/*` worker ships with a row in the script's `JOBS` table **and** in the table below.
 
@@ -159,6 +159,14 @@ Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it
 The **retention cleanup** job runs every retention sweep on **one** daily schedule (design D2 — a single Scheduler job, not a daily+weekly split).
 
 Rollback: pause or delete a job (`gcloud scheduler jobs pause|delete nearyou-<id>-<env> --location=<region>`) and that worker goes inert; a re-run of the script never resumes a paused job. No schema to undo — every worker is idempotent and the retention sweeps only delete rows already past their written retention window.
+
+#### Caller allowlist (`INTERNAL_OIDC_ALLOWED_PRINCIPALS`)
+
+The Cloud Run service is `--allow-unauthenticated`, so Cloud Run IAM does not restrict who reaches `/internal/*`; the backend pins the caller instead (`internal-endpoint-auth`, #544). Beyond signature + audience + expiry, the token's `email` (with `email_verified = true`) must be in the comma-separated `INTERNAL_OIDC_ALLOWED_PRINCIPALS`. Any other Google principal — even one minting the right audience — gets `403 {"error":"principal_not_allowed"}` (WARN `event=internal_auth_rejected reason=principal_not_allowed`; the email is never logged).
+
+- **Staging** (`deploy-staging.yml`): `scheduler-invoker-staging@nearyou-staging.iam.gserviceaccount.com` only — the SA `dev/scripts/provision-schedulers.sh` binds to all nine jobs (#535). The legacy `unban-scheduler-staging` SA ran the three pre-#535 jobs until the script moved them on 2026-10-04, so it was never allowlisted; retiring its `run.invoker` binding and the SA itself is in `dev/docs/cloud-scheduler.md` § Invoker identity and the caller allowlist.
+- **Production:** set it to the prod scheduler SA before the first prod deploy. An empty value fails boot on staging/production (the revision is rejected and the previous one keeps serving); dev/test boot with a WARN and deny every caller.
+- **Triage:** a job whose attempts return `403 principal_not_allowed` runs as an SA missing from the list; `401 audience_mismatch` means its `--oidc-token-audience` differs from `INTERNAL_OIDC_AUDIENCE`.
 
 ---
 

@@ -272,6 +272,25 @@ class AdminReservedUsernamesRouteTest : StringSpec({
         ReservedUsernamesTestSupport.exists(dataSource, "ruabig1") shouldBe false
     }
 
+    "#545 — a bulk body above the 1 MiB transport limit → 413 before the route (no CSRF row, no insert)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        // Valid CSRF + owner, so only the transport cap can stop it.
+        val hugeCsv = "ruahuge1,r\n" + "x".repeat(1024 * 1024)
+        AdminAuthTestSupport.withAdminApp(dataSource, productionBodyLimit = true) { client ->
+            val res =
+                client.post("/admin/reserved-usernames/bulk") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(form("_csrf" to AdminAuthTestSupport.csrfFor(token), "csv" to hugeCsv))
+                }
+            res.status shouldBe HttpStatusCode.PayloadTooLarge
+            res.bodyAsText() shouldContain "payload_too_large"
+        }
+        AdminAuthTestSupport.latestAuditRows(dataSource, admin.id) shouldBe emptyList()
+        ReservedUsernamesTestSupport.exists(dataSource, "ruahuge1") shouldBe false
+    }
+
     "5.35 — bulk route is CSRF- and role-gated" {
         val owner = seedAdmin()
         val ownerToken = AdminAuthTestSupport.seedSession(dataSource, owner.id)

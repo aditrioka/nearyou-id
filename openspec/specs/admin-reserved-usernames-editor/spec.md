@@ -3,7 +3,6 @@
 ## Purpose
 
 The admin Reserved Usernames Editor is the admin-panel CRUD surface over the existing `reserved_usernames` reference table (admin mockup frame 21), letting a solo operator manage reserved/blocked handles — brand protection, impersonation prevention, operational handles — without raw SQL. It serves a paginated, `source`-filterable, substring-searchable list (read, any admin role) plus add-single, CSV bulk-add, edit-reason, and remove writes; every write is CSRF- and write-role-gated, immutably audit-logged with three dedicated `admin_actions_log` action types (`reserved_username_added`/`_edited`/`_removed`), and per-admin rate-limited at 100/hour via the audit-log-COUNT pattern. `seed_system` rows are protected at both the application layer and the existing V3 `reserved_usernames_protect_seed` trigger. The capability adds no migration — the table, its triggers, and the `admin_app` grants all pre-exist.
-
 ## Requirements
 ### Requirement: Admins can view the reserved-usernames list
 
@@ -64,7 +63,7 @@ The system SHALL accept `POST /admin/reserved-usernames` to insert one reserved 
 
 ### Requirement: Admins can bulk-add reserved usernames from a CSV
 
-The system SHALL accept `POST /admin/reserved-usernames/bulk` with the CSV submitted as a **text form field** (`username,reason` rows, optional header) — not a `multipart/form-data` file upload, so it is read through the standard CSRF-gated form-parameters path — and process it in a single transaction, classifying each data row as **added** (new + valid), **skipped (duplicate)** (already in the table, or a username already accepted earlier in the same upload), or **skipped (invalid)** (wrong arity, blank/charset-failing username, blank `reason`, or `reason` over 64 characters), and returning a per-row report of the three buckets. Each newly-inserted row SHALL be `source = 'admin_added'` and SHALL write one `reserved_username_added` audit row. The request SHALL require a valid CSRF token and a write role. An upload exceeding the guardrails (more than 1000 data rows or 256 KB) SHALL return 400 before parsing; an empty or header-only submission SHALL return an empty (0/0/0) report, not an error.
+The system SHALL accept `POST /admin/reserved-usernames/bulk` with the CSV submitted as a **text form field** (`username,reason` rows, optional header) — not a `multipart/form-data` file upload, so it is read through the standard CSRF-gated form-parameters path — and process it in a single transaction, classifying each data row as **added** (new + valid), **skipped (duplicate)** (already in the table, or a username already accepted earlier in the same upload), or **skipped (invalid)** (wrong arity, blank/charset-failing username, blank `reason`, or `reason` over 64 characters), and returning a per-row report of the three buckets. Each newly-inserted row SHALL be `source = 'admin_added'` and SHALL write one `reserved_username_added` audit row. The request SHALL require a valid CSRF token and a write role. An upload exceeding the guardrails (more than 1000 data rows or 256 KB) SHALL return 400 before parsing; an empty or header-only submission SHALL return an empty (0/0/0) report, not an error. The whole request body is additionally bounded by this path's 1 MiB transport limit (`backend-bootstrap` § Global request body size limit): a body above it is rejected `413 payload_too_large` before the route runs, so the `400` guardrail applies to uploads up to that limit.
 
 #### Scenario: Bulk add inserts new rows and skips duplicates with a report
 - **GIVEN** `reserved_usernames` already contains `admin`
@@ -82,6 +81,10 @@ The system SHALL accept `POST /admin/reserved-usernames/bulk` with the CSV submi
 #### Scenario: Oversized upload is rejected before parsing
 - **WHEN** an admin uploads a CSV with more than 1000 data rows
 - **THEN** the response SHALL be 400 AND no `reserved_usernames` row SHALL be inserted
+
+#### Scenario: Body above the transport limit is rejected 413 before the route runs
+- **WHEN** a `POST /admin/reserved-usernames/bulk` declares a `Content-Length` above 1 MiB
+- **THEN** the response is `413` with error code `payload_too_large`, the CSRF and role gates and CSV parsing never run, and no row or audit row is written
 
 #### Scenario: A bulk upload that would exceed the trailing-hour cap is rejected wholesale
 - **GIVEN** an admin whose trailing-hour reserved-username write count is 98

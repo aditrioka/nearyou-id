@@ -23,8 +23,9 @@ class InternalEndpointAuthConfig {
 }
 
 /**
- * Attribute carrying the verified OIDC subject (the Cloud Scheduler service-account
- * email) on a successfully authenticated call. Handlers can read via
+ * Attribute carrying the verified OIDC subject (Google's numeric service-account id —
+ * the caller's email is pinned by the verifier's allowlist) on a successfully
+ * authenticated call. Handlers can read via
  * `call.attributes[OidcSubjectKey]` if they need to gate per-subject logic.
  */
 val OidcSubjectKey: AttributeKey<String> = AttributeKey("OidcSubject")
@@ -34,14 +35,13 @@ private val logger = LoggerFactory.getLogger("id.nearyou.app.internal.InternalEn
 private const val ERROR_MISSING_AUTHORIZATION = """{"error":"missing_authorization"}"""
 private const val ERROR_INVALID_SCHEME = """{"error":"invalid_scheme"}"""
 private const val ERROR_INVALID_TOKEN = """{"error":"invalid_token"}"""
-private const val ERROR_EXPIRED_TOKEN = """{"error":"expired_token"}"""
-private const val ERROR_AUDIENCE_MISMATCH = """{"error":"audience_mismatch"}"""
 
 /**
  * Route-scoped plugin that gates every request to its installed route subtree behind
- * a Google OIDC bearer token. Any failure short-circuits with `401 Unauthorized`
- * and a sanitized JSON body whose `error` field uses the fixed vocabulary defined
- * by the `internal-endpoint-auth` capability spec.
+ * a Google OIDC bearer token. An authentication failure short-circuits with
+ * `401 Unauthorized`; a valid token from a caller outside the allowlist with
+ * `403 Forbidden`. Either way the body is sanitized JSON whose `error` field uses the
+ * fixed vocabulary defined by the `internal-endpoint-auth` capability spec.
  *
  * Health endpoints (`/health/live`, `/health/ready`) are NOT mounted under
  * `route("/internal")` so this plugin never applies to them.
@@ -89,21 +89,21 @@ val InternalEndpointAuth =
                     // § "Best-effort write silently no-ops on helper throw"
                     // + § "Best-effort write silently no-ops on SpanProcessor failure".
                 }
-            } catch (e: OidcVerificationException.AudienceMismatch) {
-                logRejection("audience_mismatch", "Bearer", token)
-                respondUnauthorized(call, ERROR_AUDIENCE_MISMATCH)
-            } catch (e: OidcVerificationException.ExpiredToken) {
-                logRejection("expired_token", "Bearer", token)
-                respondUnauthorized(call, ERROR_EXPIRED_TOKEN)
-            } catch (e: OidcVerificationException.InvalidToken) {
-                logRejection("invalid_token", "Bearer", token)
-                respondUnauthorized(call, ERROR_INVALID_TOKEN)
-            } catch (e: OidcVerificationException.InvalidScheme) {
-                logRejection("invalid_scheme", "Bearer", token)
-                respondUnauthorized(call, ERROR_INVALID_SCHEME)
-            } catch (e: OidcVerificationException.MissingAuthorization) {
-                logRejection("missing_authorization", "Bearer", token)
-                respondUnauthorized(call, ERROR_MISSING_AUTHORIZATION)
+            } catch (e: OidcVerificationException) {
+                // Exhaustive over the sealed type: a new subtype is a compile error here,
+                // never an unmapped 500. A valid token from a non-allowlisted caller is
+                // authenticated but not authorized → 403; everything else → 401.
+                val (reason, status) =
+                    when (e) {
+                        is OidcVerificationException.PrincipalNotAllowed -> "principal_not_allowed" to HttpStatusCode.Forbidden
+                        is OidcVerificationException.AudienceMismatch -> "audience_mismatch" to HttpStatusCode.Unauthorized
+                        is OidcVerificationException.ExpiredToken -> "expired_token" to HttpStatusCode.Unauthorized
+                        is OidcVerificationException.InvalidToken -> "invalid_token" to HttpStatusCode.Unauthorized
+                        is OidcVerificationException.InvalidScheme -> "invalid_scheme" to HttpStatusCode.Unauthorized
+                        is OidcVerificationException.MissingAuthorization -> "missing_authorization" to HttpStatusCode.Unauthorized
+                    }
+                logRejection(reason, "Bearer", token)
+                call.respondText(text = """{"error":"$reason"}""", contentType = ContentType.Application.Json, status = status)
             }
         }
     }

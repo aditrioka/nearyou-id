@@ -20,6 +20,8 @@ import java.util.Date
 private const val TEST_AUDIENCE = "https://api-staging.nearyou.id"
 private const val TEST_KID = "test-kid"
 private const val TEST_ROTATING_KID = "rotating-kid"
+private const val TEST_PRINCIPAL = "scheduler@nearyou-staging.iam.gserviceaccount.com"
+private const val FOREIGN_PRINCIPAL = "attacker@other-project.iam.gserviceaccount.com"
 
 private fun rsaKeypair(): Pair<RSAPublicKey, RSAPrivateKey> {
     val gen = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }
@@ -67,12 +69,21 @@ private fun signedJwt(
     kid: String,
     expiresAt: Instant,
     issuedAt: Instant = Instant.now().minus(1, ChronoUnit.MINUTES),
+    email: String? = TEST_PRINCIPAL,
+    emailVerified: Any? = true,
     subject: String = "scheduler@nearyou-staging.iam.gserviceaccount.com",
 ): String =
     JWT.create()
         .withKeyId(kid)
         .withSubject(subject)
-        .withAudience(audience)
+        .let { if (email != null) it.withClaim("email", email) else it }
+        .let {
+            when (emailVerified) {
+                is Boolean -> it.withClaim("email_verified", emailVerified)
+                is String -> it.withClaim("email_verified", emailVerified)
+                else -> it
+            }
+        }.withAudience(audience)
         .withIssuedAt(Date.from(issuedAt))
         .withExpiresAt(Date.from(expiresAt))
         .sign(Algorithm.RSA256(publicKey, privateKey))
@@ -82,7 +93,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
     "3.5.a valid signed JWT with matching audience + future exp returns VerifiedClaims" {
         val (pub, priv) = rsaKeypair()
         val provider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pub)))
-        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = provider)
+        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = provider)
         val token =
             signedJwt(
                 privateKey = priv,
@@ -100,7 +111,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
     "3.5.b malformed token throws InvalidToken" {
         val (pub, _) = rsaKeypair()
         val provider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pub)))
-        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = provider)
+        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = provider)
         shouldThrow<OidcVerificationException.InvalidToken> {
             runBlocking { verifier.verify("not.a.jwt") }
         }
@@ -109,7 +120,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
     "3.5.c wrong audience throws AudienceMismatch" {
         val (pub, priv) = rsaKeypair()
         val provider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pub)))
-        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = provider)
+        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = provider)
         val token =
             signedJwt(
                 privateKey = priv,
@@ -126,7 +137,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
     "3.5.d expired exp throws ExpiredToken" {
         val (pub, priv) = rsaKeypair()
         val provider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pub)))
-        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = provider)
+        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = provider)
         // 5 minutes in the past, well past the 60-second skew tolerance.
         val token =
             signedJwt(
@@ -147,7 +158,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
         val (_, privB) = rsaKeypair()
         // JWKS reports key A; token actually signed with key B → signature mismatch.
         val provider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubA)))
-        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = provider)
+        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = provider)
         // Sign using B's private key against B's public key (so the token is well-formed),
         // but the verifier resolves A's public key from JWKS.
         val (pubB, _) = rsaKeypair() // unused — but Algorithm.RSA256 requires a pubkey
@@ -179,7 +190,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
                     }
             }
         val verifier =
-            GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = refreshingProvider)
+            GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = refreshingProvider)
         val token =
             signedJwt(
                 privateKey = priv,
@@ -199,7 +210,7 @@ class GoogleOidcTokenVerifierTest : StringSpec({
             object : JwkProvider {
                 override fun get(keyId: String): Jwk = throw JwkException("kid not found anywhere: $keyId")
             }
-        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, jwkProvider = provider)
+        val verifier = GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = setOf(TEST_PRINCIPAL), jwkProvider = provider)
         val (pub, priv) = rsaKeypair()
         val token =
             signedJwt(
@@ -211,6 +222,82 @@ class GoogleOidcTokenVerifierTest : StringSpec({
             )
         shouldThrow<OidcVerificationException.InvalidToken> {
             runBlocking { verifier.verify(token) }
+        }
+    }
+
+    // --- Caller-principal allowlist (internal-endpoint-auth property 4, #544) ---
+
+    val (pub, priv) = rsaKeypair()
+    val provider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pub)))
+
+    fun verifierFor(allowed: Set<String>) =
+        GoogleOidcTokenVerifier(audience = TEST_AUDIENCE, allowedPrincipals = allowed, jwkProvider = provider)
+
+    fun token(
+        email: String? = TEST_PRINCIPAL,
+        emailVerified: Any? = true,
+        audience: String = TEST_AUDIENCE,
+        expiresAt: Instant = Instant.now().plus(1, ChronoUnit.HOURS),
+        issuedAt: Instant = Instant.now().minus(1, ChronoUnit.MINUTES),
+    ) = signedJwt(priv, pub, audience, TEST_KID, expiresAt, issuedAt, email = email, emailVerified = emailVerified)
+
+    "4.a foreign SA with the correct audience throws PrincipalNotAllowed" {
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(setOf(TEST_PRINCIPAL)).verify(token(email = FOREIGN_PRINCIPAL)) }
+        }
+    }
+
+    "4.b token without an email claim throws PrincipalNotAllowed" {
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(setOf(TEST_PRINCIPAL)).verify(token(email = null)) }
+        }
+    }
+
+    "4.c email_verified false or absent throws PrincipalNotAllowed" {
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(setOf(TEST_PRINCIPAL)).verify(token(emailVerified = false)) }
+        }
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(setOf(TEST_PRINCIPAL)).verify(token(emailVerified = null)) }
+        }
+    }
+
+    "4.d email_verified must be the JSON boolean true — the string \"true\" is rejected" {
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(setOf(TEST_PRINCIPAL)).verify(token(emailVerified = "true")) }
+        }
+    }
+
+    "4.e allowlist entries are case-normalised; the presented email is matched exactly" {
+        runBlocking { verifierFor(setOf(TEST_PRINCIPAL.uppercase())).verify(token()) }.aud shouldBe TEST_AUDIENCE
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(setOf(TEST_PRINCIPAL)).verify(token(email = TEST_PRINCIPAL.uppercase())) }
+        }
+    }
+
+    "4.f empty allowlist rejects an otherwise-valid token (fail-closed)" {
+        shouldThrow<OidcVerificationException.PrincipalNotAllowed> {
+            runBlocking { verifierFor(emptySet()).verify(token()) }
+        }
+    }
+
+    "4.g authentication failures win over the principal check" {
+        shouldThrow<OidcVerificationException.AudienceMismatch> {
+            runBlocking {
+                verifierFor(setOf(TEST_PRINCIPAL))
+                    .verify(token(email = FOREIGN_PRINCIPAL, audience = "https://example.com/other-service"))
+            }
+        }
+        shouldThrow<OidcVerificationException.ExpiredToken> {
+            runBlocking {
+                verifierFor(setOf(TEST_PRINCIPAL)).verify(
+                    token(
+                        email = FOREIGN_PRINCIPAL,
+                        expiresAt = Instant.now().minus(5, ChronoUnit.MINUTES),
+                        issuedAt = Instant.now().minus(10, ChronoUnit.MINUTES),
+                    ),
+                )
+            }
         }
     }
 })

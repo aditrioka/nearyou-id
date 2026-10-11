@@ -2,6 +2,7 @@ package id.nearyou.app.account
 
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -36,6 +37,7 @@ class DataExportWorkerRouteTest : StringSpec({
     val defaultVerifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = TEST_AUDIENCE,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
         )
 

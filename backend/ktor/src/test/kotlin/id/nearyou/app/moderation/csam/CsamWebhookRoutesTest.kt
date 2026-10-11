@@ -17,6 +17,7 @@ import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -96,6 +97,7 @@ class CsamWebhookRoutesTest : StringSpec({
     val oidcVerifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = oidcAudience,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = StaticJwkProvider(mapOf(oidcKid to FakeJwk(oidcKid, oidcPub))),
         )
 
@@ -106,6 +108,8 @@ class CsamWebhookRoutesTest : StringSpec({
         JWT.create()
             .withKeyId(kid)
             .withSubject("scheduler@nearyou-staging.iam.gserviceaccount.com")
+            .withClaim("email", TEST_OIDC_PRINCIPAL)
+            .withClaim("email_verified", true)
             .withAudience(audience)
             .withIssuedAt(UtilDate.from(Instant.now()))
             .withExpiresAt(UtilDate.from(Instant.now().plus(1, ChronoUnit.HOURS)))

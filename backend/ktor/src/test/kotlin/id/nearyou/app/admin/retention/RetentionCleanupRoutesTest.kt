@@ -31,6 +31,7 @@ import id.nearyou.app.admin.retention.RetentionCleanupTestSupport.webauthnChalle
 import id.nearyou.app.config.SecretResolver
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import id.nearyou.app.notifications.NoopNotificationDispatcher
 import id.nearyou.app.notifications.NotificationEmitter
 import id.nearyou.app.subscription.SubscriptionEventRepository
@@ -94,6 +95,8 @@ private fun rcSignedJwt(
     JWT.create()
         .withKeyId(kid)
         .withSubject("scheduler@nearyou-staging.iam.gserviceaccount.com")
+        .withClaim("email", TEST_OIDC_PRINCIPAL)
+        .withClaim("email_verified", true)
         .withAudience(audience)
         .withIssuedAt(UtilDate.from(Instant.now()))
         .withExpiresAt(UtilDate.from(Instant.now().plus(1, ChronoUnit.HOURS)))
@@ -123,6 +126,7 @@ class RetentionCleanupRoutesTest : StringSpec({
     val verifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = RC_AUDIENCE,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = RcStaticJwkProvider(mapOf(RC_KID to RcFakeJwk(RC_KID, pubKey))),
         )
 

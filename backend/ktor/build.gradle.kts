@@ -39,6 +39,7 @@ dependencies {
     implementation(libs.ktor.serverCallLogging)
     implementation(libs.ktor.serverCallId)
     implementation(libs.ktor.serverCompression)
+    implementation(libs.ktor.serverBodyLimit)
     implementation(libs.ktor.serverAuth)
     implementation(libs.ktor.serverAuthJwt)
     implementation(libs.ktor.serverSessions)

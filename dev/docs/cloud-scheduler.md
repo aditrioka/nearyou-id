@@ -74,7 +74,7 @@ What the status codes mean:
 | Code | Cause | Fix |
 |---|---|---|
 | `401` | Wrong audience or no token | Compare `--oidc-token-audience` with `INTERNAL_OIDC_AUDIENCE` |
-| `403` | SA not in `INTERNAL_OIDC_ALLOWED_PRINCIPALS` (once [#544](https://github.com/aditrioka/nearyou-id/issues/544) ships) | Add the SA to the allowlist |
+| `403` | SA not in `INTERNAL_OIDC_ALLOWED_PRINCIPALS` (`principal_not_allowed`, [#544](https://github.com/aditrioka/nearyou-id/issues/544)) | Add the SA to the allowlist |
 | `404` | Route not deployed on the live revision | Redeploy, or wait for the merge to deploy |
 | `504` | Run went past Cloud Run's 60 s `--timeout` | Retried automatically; the worker claims are idempotent |
 
@@ -85,7 +85,7 @@ The data-export worker drains its whole pending set on every call, so a large ba
 The invoker SA email must appear in two places:
 
 1. As `--oidc-service-account-email` on every job. This script sets it.
-2. In `INTERNAL_OIDC_ALLOWED_PRINCIPALS`, the `/internal/*` caller allowlist. Issue [#544](https://github.com/aditrioka/nearyou-id/issues/544) adds it and wires it in `deploy-staging.yml`. It is still in progress as PR #572. Once it ships, the check matches the OIDC `email` claim, and an empty list refuses every call (fail closed).
+2. In `INTERNAL_OIDC_ALLOWED_PRINCIPALS`, the `/internal/*` caller allowlist. Issue [#544](https://github.com/aditrioka/nearyou-id/issues/544) added it and wires it in `deploy-staging.yml` (staging lists only `scheduler-invoker-staging`). The check matches the OIDC `email` claim, and an empty list fails boot on staging/production and refuses every call in dev/test (fail closed).
 
 Staging history: three jobs (unban, privacy-flip, login-anomaly) were created by
 hand in the original changes on the legacy SA `unban-scheduler-staging`. The
@@ -93,7 +93,7 @@ script's first run (2026-10-04) moved them to `scheduler-invoker-staging`, and
 `gcloud scheduler jobs list` now shows the new SA on all nine jobs. No job uses the
 legacy SA any more, but it still holds `run.invoker`. To retire it:
 
-1. If it's still listed in `INTERNAL_OIDC_ALLOWED_PRINCIPALS` in `deploy-staging.yml`, drop it.
+1. Nothing to drop from `INTERNAL_OIDC_ALLOWED_PRINCIPALS`: #544 shipped allowlisting only `scheduler-invoker-staging`.
 2. Remove its `run.invoker` binding:
 
    ```bash

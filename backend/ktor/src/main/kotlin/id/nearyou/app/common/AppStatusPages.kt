@@ -222,6 +222,15 @@ internal fun Application.installAppStatusPages() {
                 mapOf("error" to mapOf("code" to "invalid_request", "message" to "Malformed request")),
             )
         }
+        // ContentNegotiation throws this when the converter yields nothing — incl. a chunked
+        // body cut off by RequestBodyLimit (#545), whose PayloadTooLargeException cause the
+        // converter swallows. Client input either way → 400, never a 500 + Sentry event.
+        exception<io.ktor.server.plugins.CannotTransformContentToTypeException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                mapOf("error" to mapOf("code" to "invalid_request", "message" to "Malformed request")),
+            )
+        }
         exception<io.ktor.server.plugins.NotFoundException> { call, _ ->
             call.respond(
                 HttpStatusCode.NotFound,

@@ -14,6 +14,7 @@ import id.nearyou.app.auth.anomaly.LoginAnomalyTestSupport.subnetIp
 import id.nearyou.app.auth.anomaly.LoginAnomalyTestSupport.tag
 import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -65,6 +66,8 @@ private fun laSignedJwt(
     JWT.create()
         .withKeyId(kid)
         .withSubject("scheduler@nearyou-staging.iam.gserviceaccount.com")
+        .withClaim("email", TEST_OIDC_PRINCIPAL)
+        .withClaim("email_verified", true)
         .withAudience(audience)
         .withIssuedAt(UtilDate.from(Instant.now()))
         .withExpiresAt(UtilDate.from(Instant.now().plus(1, ChronoUnit.HOURS)))
@@ -94,6 +97,7 @@ class LoginAnomalyCheckRoutesTest : StringSpec({
     val verifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = LA_AUDIENCE,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = LaStaticJwkProvider(mapOf(LA_KID to LaFakeJwk(LA_KID, pubKey))),
         )
 

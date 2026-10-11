@@ -16,6 +16,7 @@ import id.nearyou.app.core.domain.oidc.OidcTokenVerifier
 import id.nearyou.app.image.OrphanImageCleanupTestSupport.imageUploadExists
 import id.nearyou.app.image.OrphanImageCleanupTestSupport.seedImageUpload
 import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -67,6 +68,8 @@ private fun oicSignedJwt(
     JWT.create()
         .withKeyId(OIC_KID)
         .withSubject("scheduler@nearyou-staging.iam.gserviceaccount.com")
+        .withClaim("email", TEST_OIDC_PRINCIPAL)
+        .withClaim("email_verified", true)
         .withAudience(OIC_AUDIENCE)
         .withIssuedAt(UtilDate.from(Instant.now()))
         .withExpiresAt(UtilDate.from(Instant.now().plus(1, ChronoUnit.HOURS)))
@@ -88,6 +91,7 @@ class OrphanImageCleanupRoutesTest : StringSpec({
     val verifier: OidcTokenVerifier =
         GoogleOidcTokenVerifier(
             audience = OIC_AUDIENCE,
+            allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
             jwkProvider = OicStaticJwkProvider(mapOf(OIC_KID to OicFakeJwk(OIC_KID, pubKey))),
         )
 

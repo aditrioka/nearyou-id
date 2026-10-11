@@ -2,21 +2,24 @@
 
 ## Purpose
 
-The internal-endpoint-auth capability defines the OIDC-bearer-token authentication contract that gates every `/internal/*` route invoked by Cloud Scheduler or another GCP service account. The Ktor plugin verifies the bearer token's signature against the Google JWKS, checks expiry, and matches the `aud` claim against the configured audience (the deployed service URL); missing, invalid, or wrong-audience tokens are rejected `401`. The plugin is composable so future endpoints with vendor-specific auth (RevenueCat webhook, CSAM webhook) can opt out, and it is the canonical pattern reused by every scheduled worker (suspension unban, privacy-flip, hard-delete, FCM cleanup, notifications purge, and more).
+The internal-endpoint-auth capability defines the OIDC-bearer-token authentication contract that gates every `/internal/*` route invoked by Cloud Scheduler or another GCP service account. The Ktor plugin verifies the bearer token's signature against the Google JWKS, checks expiry, and matches the `aud` claim against the configured audience (the deployed service URL); missing, invalid, or wrong-audience tokens are rejected `401`. It then pins the caller: the token's verified `email` must be in the configured allowlist of scheduler service accounts (`INTERNAL_OIDC_ALLOWED_PRINCIPALS`), otherwise the request is rejected `403` — and an empty allowlist never admits anyone (boot fails outside local environments). The plugin is composable so future endpoints with vendor-specific auth (RevenueCat webhook, CSAM webhook) can opt out, and it is the canonical pattern reused by every scheduled worker (suspension unban, privacy-flip, hard-delete, FCM cleanup, notifications purge, and more).
 ## Requirements
 ### Requirement: `/internal/*` routes require Google OIDC bearer token
 
 The Ktor backend SHALL gate every route mounted under the `/internal/*` route subtree behind a Ktor plugin (`InternalEndpointAuth`) that verifies a Google OIDC bearer token before dispatch. A request reaching an `/internal/*` route MUST present an `Authorization: Bearer <token>` header whose value is a Google-issued OIDC JWT. Missing, malformed, or non-bearer Authorization headers MUST short-circuit the request with HTTP `401 Unauthorized` before any handler logic runs.
 
-The plugin MUST verify three properties on every request:
+The plugin MUST verify four properties on every request:
 
 1. **Signature**: the JWT signature MUST validate against Google's published JWKS at `https://www.googleapis.com/oauth2/v3/certs`. JWKS responses MUST be cached with rotation-aware refresh — when a token's `kid` header references a key not present in cache, the verifier MUST force one JWKS refresh before rejecting.
 2. **Audience**: the JWT `aud` claim MUST equal the configured audience value, supplied via plain Ktor `application.conf` config (key `oidc.internalAudience`, resolved from the `INTERNAL_OIDC_AUDIENCE` environment variable). The audience is the deployed Cloud Run service URL — a public, non-secret value — and therefore is read via plain Ktor config rather than the project's `secretKey(env, name)` helper, which is reserved for genuine secret material. See the "Configured audience is required at boot" requirement below for boot-time validation.
 3. **Expiry**: the JWT `exp` claim MUST be in the future relative to the verification clock. The `iat` claim, when present, MUST NOT be in the future (with a 60-second skew tolerance to absorb clock drift).
+4. **Caller principal**: the JWT `email` claim MUST be present, the `email_verified` claim MUST be the JSON boolean `true`, AND the presented email MUST exactly equal an entry of the configured allowed-principals set (entries are lowercased when configured; the presented value is not case-folded — Google issues service-account emails in lowercase, and not folding it keeps Unicode case-folding tricks out) (see the "Allowed caller principals are configured, and an empty allowlist denies every caller" requirement below). The `sub` claim (Google's opaque numeric service-account unique id) is NOT used for this check: the email is the identity Cloud Scheduler binds via `--oidc-service-account-email`, and a `<name>@<project>.iam.gserviceaccount.com` address can only be minted by the owning project. Property 4 is evaluated only after properties 1–3 pass, so it is never reached by an unauthenticated token.
 
-Verification failure on any of the three properties MUST short-circuit with HTTP `401 Unauthorized`. The response body MUST NOT echo the offending token, JWT claims, signature failure detail, or any verifier exception message — only a short fixed vocabulary `error` field as documented in the response-shape requirement below.
+Verification failure on any of properties 1–3 MUST short-circuit with HTTP `401 Unauthorized`. A failure on property 4 alone — a genuine, unexpired, correctly-audienced Google token whose principal is not allowlisted (including a token with no `email` claim or with `email_verified` not `true`) — MUST short-circuit with HTTP `403 Forbidden` and body `{"error": "principal_not_allowed"}` before any handler logic runs: the caller is authenticated but not authorized. The response body MUST NOT echo the offending token, JWT claims, signature failure detail, or any verifier exception message — only a short fixed vocabulary `error` field as documented in the response-shape requirement below.
 
-The full original verifier exception MUST be logged at WARN with a token correlation id derived as the first 16 hex chars of `SHA-256(raw token bytes)` so operators can correlate failures with Cloud Scheduler invocation logs without ever logging JWT claims or the raw token. The `jti` claim is intentionally NOT used (logging any claim would conflict with the no-claims rule below); the truncated SHA-256 form is unconditional.
+The full original verifier exception MUST be logged at WARN with a token correlation id derived as the first 16 hex chars of `SHA-256(raw token bytes)` so operators can correlate failures with Cloud Scheduler invocation logs without ever logging JWT claims or the raw token. The `jti` claim is intentionally NOT used (logging any claim would conflict with the no-claims rule below); the truncated SHA-256 form is unconditional. A property-4 rejection is logged the same way (`reason=principal_not_allowed`) and MUST NOT log the presented `email` or the configured allowlist.
+
+A property-4 rejection happens inside the verifier, before the plugin stores the verified subject on the call, so it never sets `OidcSubjectKey` and never writes the `service.account.id` span attribute (see the span requirement below).
 
 #### Scenario: Missing Authorization header is rejected
 - **WHEN** a request to `POST /internal/unban-worker` is sent without any `Authorization` header
@@ -43,11 +46,35 @@ The full original verifier exception MUST be logged at WARN with a token correla
 - **THEN** the response status is `401 Unauthorized`
 
 #### Scenario: Valid Cloud Scheduler token is admitted
-- **WHEN** a request presents a Google-signed JWT whose signature validates, whose `aud` matches the configured audience, AND whose `exp` is in the future
+- **WHEN** a request presents a Google-signed JWT whose signature validates, whose `aud` matches the configured audience, whose `exp` is in the future, AND whose `email` is an allowlisted principal with `email_verified = true`
 - **THEN** the plugin admits the request to the route handler
 
+#### Scenario: Foreign service account with the correct audience is forbidden
+- **WHEN** a request to `POST /internal/unban-worker` presents a Google-signed, unexpired JWT whose `aud` equals the configured audience AND whose `email` is `attacker@other-project.iam.gserviceaccount.com` (verified, but not in the allowlist)
+- **THEN** the response status is `403 Forbidden` AND the body is exactly `{"error": "principal_not_allowed"}` AND no handler logic runs
+
+#### Scenario: Token without an email claim is forbidden
+- **WHEN** a request presents a Google-signed, unexpired, correctly-audienced JWT that carries no `email` claim
+- **THEN** the response status is `403 Forbidden` with `{"error": "principal_not_allowed"}`
+
+#### Scenario: Unverified email is forbidden
+- **WHEN** a request presents a Google-signed, unexpired, correctly-audienced JWT whose `email` is allowlisted but whose `email_verified` claim is `false`
+- **THEN** the response status is `403 Forbidden` with `{"error": "principal_not_allowed"}`
+
+#### Scenario: Allowlist entries are case-normalised
+- **WHEN** the allowlist is configured with a mixed-case address AND a valid token presents the same address in lowercase in its `email` claim
+- **THEN** the plugin admits the request to the route handler
+
+#### Scenario: A non-boolean email_verified is forbidden
+- **WHEN** a request presents a Google-signed, unexpired, correctly-audienced JWT whose `email` is allowlisted but whose `email_verified` claim is the string `"true"` rather than the JSON boolean
+- **THEN** the response status is `403 Forbidden` with `{"error": "principal_not_allowed"}`
+
+#### Scenario: Authentication failures are reported before the principal check
+- **WHEN** a request presents a Google-signed JWT from a non-allowlisted principal whose `aud` does NOT match the configured audience
+- **THEN** the response status is `401 Unauthorized` with `{"error": "audience_mismatch"}` (property 4 is never evaluated for a token that fails properties 1–3)
+
 #### Scenario: JWKS rotation refresh resolves the new key
-- **WHEN** a request presents a JWT whose `kid` header references a key not in the JWKS cache AND that key IS present in the live Google JWKS endpoint (post-rotation)
+- **WHEN** a request from an allowlisted principal presents a JWT whose `kid` header references a key not in the JWKS cache AND that key IS present in the live Google JWKS endpoint (post-rotation)
 - **THEN** the verifier forces one JWKS refresh, the cache is updated, signature verification succeeds against the refreshed key, AND the request is admitted to the route handler
 
 #### Scenario: JWKS rotation refresh still does not resolve the kid
@@ -90,25 +117,6 @@ This matches the fail-fast pattern established by `auth.supabaseUrl` and `auth.s
 - **WHEN** the `OidcTokenVerifier` cannot be constructed at boot (e.g., the JWKS lib's initial fetch fails, or any other dependency wiring throws) AND the Ktor application is started
 - **THEN** application boot fails fast with a descriptive error AND the `/internal/*` route subtree is NOT registered AND the JVM process exits non-zero. The route MUST NOT mount with a degraded or null verifier.
 
-### Requirement: 401 response body uses a sanitized error vocabulary
-
-When the plugin rejects a request with `401 Unauthorized`, the response body SHALL be a JSON object with exactly one field `error` whose value is one of a fixed short vocabulary:
-- `"missing_authorization"` — no `Authorization` header
-- `"invalid_scheme"` — header present but not `Bearer`
-- `"invalid_token"` — JWT structurally malformed, signature invalid, or claims fail verification
-- `"expired_token"` — JWT signature valid but `exp` in the past
-- `"audience_mismatch"` — JWT signature valid but `aud` does not match configured audience
-
-The response body MUST NOT contain the offending token bytes, the JWT claims, signature failure details, JWKS contents, the configured audience value, or any verifier-internal exception message. Stack traces MUST NOT appear. The original verification failure context MUST be logged at WARN with full detail for operator debugging.
-
-#### Scenario: Sanitized response on signature failure
-- **WHEN** a request presents a JWT with an invalid signature
-- **THEN** the response body parses as JSON with exactly `{"error": "invalid_token"}` AND does NOT contain the offending token, the JWT claims, the JWKS, or any exception message
-
-#### Scenario: Sanitized response on audience mismatch
-- **WHEN** a request presents a JWT whose `aud` does not match the configured audience
-- **THEN** the response body is `{"error": "audience_mismatch"}` AND does NOT echo the configured audience value
-
 ### Requirement: Health endpoints remain unauthenticated
 
 The `/health/live` and `/health/ready` endpoints SHALL remain public and unauthenticated. They MUST NOT be moved under the `/internal/*` subtree, and the `InternalEndpointAuth` plugin MUST NOT apply to them. Their auth-exempt stance is the contract owned by the `health-check` capability and is preserved unchanged by this change.
@@ -125,7 +133,7 @@ The `/health/live` and `/health/ready` endpoints SHALL remain public and unauthe
 
 Every successful `/internal/*` request authenticated via the `InternalEndpointAuth` plugin SHALL produce a Ktor server span whose attributes include `service.account.id`. The attribute value SHALL be the result of `ServiceAccountIdHasher.hash(claims.sub)` — the first 16 hex characters of `SHA-256(sub.toByteArray(StandardCharsets.UTF_8))` (16 hex = 64-bit truncated digest), where `claims.sub` is the OIDC `sub` claim extracted from the verified bearer token (concretely: `claims.sub` is the `String`-valued `sub` field of the `VerifiedClaims` data class returned by `OidcTokenVerifier.verify(...)` and stored at [`InternalEndpointAuth.kt:79`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/internal/InternalEndpointAuth.kt) into the `OidcSubjectKey: AttributeKey<String>` — there is no `Principal` type for OIDC service-account auth in this codebase).
 
-The attribute is set on the active server span AFTER successful OIDC verification (signature + audience + expiry per the existing "Requirement: `/internal/*` routes require Google OIDC bearer token" requirement) AND BEFORE handler dispatch — concretely: the call is wired immediately after the `call.attributes.put(OidcSubjectKey, claims.sub)` line in `InternalEndpointAuth.kt`. Setting the attribute on a request that fails verification (401-rejected) is forbidden — failed-verification requests SHALL produce server spans (when Ktor's instrumentation produces one — see scenario "401-rejected request span behaviour" below) carrying `http.route` + `http.status_code = 401` only, with no principal-correlation attribute (an attacker's failed request MUST NOT enrich the trace surface with their attempted principal).
+The attribute is set on the active server span AFTER successful OIDC verification (signature + audience + expiry + caller principal per the existing "Requirement: `/internal/*` routes require Google OIDC bearer token" requirement) AND BEFORE handler dispatch — concretely: the call is wired immediately after the `call.attributes.put(OidcSubjectKey, claims.sub)` line in `InternalEndpointAuth.kt`. Setting the attribute on a request that fails verification (401-rejected, or 403-rejected by the caller-principal check) is forbidden — failed-verification requests SHALL produce server spans (when Ktor's instrumentation produces one — see scenario "401-rejected request span behaviour" below) carrying `http.route` + `http.status_code` (`401` or `403`) only, with no principal-correlation attribute (an attacker's failed request MUST NOT enrich the trace surface with their attempted principal).
 
 The attribute write SHALL be best-effort and SHALL be wrapped in a `try { ... } catch (_: Throwable) { ... }` block (mirror the precedent at [`AuthPlugin.kt:113-120`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/auth/AuthPlugin.kt) byte-for-byte): if (a) the OTel SDK is uninitialised at the request time (e.g., test contexts, request preceding the OTel bootstrap — `Span.current()` returns the no-op span), OR (b) the helper throws `IllegalArgumentException` on a blank `sub` (the existing verifier at [`GoogleOidcTokenVerifier.kt:90`](../../../../../infra/oidc/src/main/kotlin/id/nearyou/app/infra/oidc/GoogleOidcTokenVerifier.kt) substitutes `decoded.subject ?: ""` when the OIDC token has a missing `sub` claim, so blank-sub is REACHABLE in production — not a verifier-flow regression), the write SHALL silently no-op and MUST NOT block auth verification or handler dispatch. The blank-sub case results in NO `service.account.id` attribute on the span (the principal is unidentifiable; this is the correct outcome — no telemetry surface for an unidentifiable principal).
 
@@ -147,6 +155,11 @@ The new helper `ServiceAccountIdHasher` SHALL be exported from `:infra:otel` as 
 - **GIVEN** the `InternalEndpointAuth` plugin is mounted
 - **WHEN** a request to `POST /internal/unban-worker` is sent with an invalid OIDC token (signature failure, audience mismatch, or expired) AND the plugin short-circuits with `401 Unauthorized` via `respondText(...)` in the `CallSetup` hook BEFORE `InternalEndpointAuth.kt:79`'s `call.attributes.put(OidcSubjectKey, claims.sub)` runs
 - **THEN** the `service.account.id` writer never executes (the writer is wired AFTER the `OidcSubjectKey` put, which never runs on 401-rejected paths) AND if Ktor's instrumentation produces a server span for the 401 response, that span does NOT carry `service.account.id` AND does NOT carry `user.id` (no principal-correlation surface for failed-verification requests). Whether Ktor's `KtorServerTelemetry` emits a server span for an early-`respondText`-in-`CallSetup`-rejected request depends on instrumentation hook ordering — the test verifies the negative property (attribute absence) without asserting span existence one way or the other.
+
+#### Scenario: 403 principal-rejected request span behaviour
+- **GIVEN** the `InternalEndpointAuth` plugin is mounted
+- **WHEN** a request to `POST /internal/unban-worker` presents a token whose signature, audience, and expiry are valid but whose `email` is not allowlisted AND the verifier rejects it, so the plugin responds `403 Forbidden` BEFORE `call.attributes.put(OidcSubjectKey, claims.sub)` runs
+- **THEN** the `service.account.id` writer never executes AND if Ktor's instrumentation produces a server span for the 403 response, that span does NOT carry `service.account.id` AND does NOT carry `user.id` (a rejected caller does not enrich the trace surface)
 
 #### Scenario: Server-span-level mutual exclusion with `user.id` (server span only — child spans not constrained)
 - **GIVEN** the `InternalEndpointAuth` plugin is route-scoped on `/internal/*` (NOT installed on `/api/v1/*`); the `AuthPlugin` (UserPrincipal-backed) is installed on `/api/v1/*` (NOT installed on `/internal/*`); structurally the two plugins cannot fire on the same Ktor server span
@@ -238,4 +251,59 @@ The `/internal/csam-archive-purge` worker route is an ordinary Cloud-Scheduler-i
 #### Scenario: Purge worker requires a valid OIDC token
 - **WHEN** `POST /internal/csam-archive-purge` is reached without a valid Google OIDC bearer token
 - **THEN** the response status is `401 Unauthorized` (the route inherits the OIDC plugin like every other scheduled worker)
+
+### Requirement: Rejection response body uses a sanitized error vocabulary
+
+When the plugin rejects a request, the response body SHALL be a JSON object with exactly one field `error` whose value is one of a fixed short vocabulary.
+
+With status `401 Unauthorized`:
+- `"missing_authorization"` — no `Authorization` header
+- `"invalid_scheme"` — header present but not `Bearer`
+- `"invalid_token"` — JWT structurally malformed, signature invalid, or claims fail verification
+- `"expired_token"` — JWT signature valid but `exp` in the past
+- `"audience_mismatch"` — JWT signature valid but `aud` does not match configured audience
+
+With status `403 Forbidden`:
+- `"principal_not_allowed"` — JWT signature, audience, and expiry all valid, but the caller principal fails the allowlist check (no `email` claim, `email_verified` not `true`, email not allowlisted, or the allowlist is empty)
+
+The response body MUST NOT contain the offending token bytes, the JWT claims (including the presented `email`), signature failure details, JWKS contents, the configured audience value, the configured allowlist, or any verifier-internal exception message. Stack traces MUST NOT appear. The original verification failure context MUST be logged at WARN with full detail for operator debugging, within the no-claims logging rule.
+
+#### Scenario: Sanitized response on signature failure
+- **WHEN** a request presents a JWT with an invalid signature
+- **THEN** the response body parses as JSON with exactly `{"error": "invalid_token"}` AND does NOT contain the offending token, the JWT claims, the JWKS, or any exception message
+
+#### Scenario: Sanitized response on audience mismatch
+- **WHEN** a request presents a JWT whose `aud` does not match the configured audience
+- **THEN** the response body is `{"error": "audience_mismatch"}` AND does NOT echo the configured audience value
+
+#### Scenario: Sanitized response on principal rejection
+- **WHEN** a request presents an otherwise-valid JWT whose `email` is not allowlisted
+- **THEN** the response status is `403` AND the body is exactly `{"error": "principal_not_allowed"}` AND does NOT contain the presented email or any allowlisted email
+
+### Requirement: Allowed caller principals are configured, and an empty allowlist denies every caller
+
+Application startup SHALL read the allowed-principals set from Ktor config key `oidc.allowedPrincipals`, resolved from the `INTERNAL_OIDC_ALLOWED_PRINCIPALS` environment variable: a comma-separated list of service-account emails, each entry trimmed and lowercased, blank entries dropped. Service-account emails are non-secret configuration (public-repository posture), so the value is read via plain Ktor config rather than the `secretKey(env, name)` helper — the same rationale as the OIDC audience.
+
+An unset, blank, or all-blank-entries value resolves to an empty set, and an empty set SHALL NEVER mean "admit every caller" — this deliberately inverts the repository's fail-soft "unresolved secret = no-op" convention, because this is an authorization control:
+
+- unless `ktor.environment` names a local environment (`test`, `dev`, `development`) — i.e. in `staging`, `production`, when unset (which counts as `production`), or for any unrecognised value — application boot SHALL fail fast with an error naming `INTERNAL_OIDC_ALLOWED_PRINCIPALS`, so a misconfigured deploy is a rejected revision rather than a running service whose workers silently `403` (an allowlist of local environments, so a typo fails closed);
+- in a local environment (`test`, `dev`, `development`) boot SHALL proceed — local development and test harnesses keep booting without the variable — with a WARN line `event=internal_oidc_allowlist_empty`, and every request to an OIDC-gated `/internal/*` route, including one carrying an otherwise-valid token, is rejected `403 {"error": "principal_not_allowed"}`.
+
+Each deployed environment SHALL set the allowlist to exactly the Cloud Scheduler service account(s) that invoke its workers; the per-environment accounts and their migration steps are operational configuration recorded in `docs/07-Operations.md` § Internal worker schedules, not in this spec.
+
+#### Scenario: Unset allowlist in dev or test boots and denies every caller
+- **WHEN** `INTERNAL_OIDC_ALLOWED_PRINCIPALS` is unset AND the application starts with `ktor.environment` = `test`
+- **THEN** boot succeeds AND a WARN `event=internal_oidc_allowlist_empty` is logged AND a request to `POST /internal/unban-worker` with an otherwise-valid token is rejected `403` with `{"error": "principal_not_allowed"}`
+
+#### Scenario: Empty allowlist fails boot outside a local environment
+- **WHEN** `INTERNAL_OIDC_ALLOWED_PRINCIPALS` is unset or blank AND `ktor.environment` is `staging`, `production`, unset, or an unrecognised value such as `prod`
+- **THEN** application boot fails with an error naming `INTERNAL_OIDC_ALLOWED_PRINCIPALS` before the HTTP server accepts connections
+
+#### Scenario: Blank allowlist entries resolve to an empty, denying set
+- **WHEN** `oidc.allowedPrincipals` is `" , ,"` AND `ktor.environment` is `dev`
+- **THEN** the resolved allowed-principals set is empty AND the WARN `event=internal_oidc_allowlist_empty` is logged (fail-closed, not "allow all")
+
+#### Scenario: Comma-separated allowlist is trimmed and lowercased
+- **WHEN** `oidc.allowedPrincipals` is `" Scheduler-A@p.iam.gserviceaccount.com , scheduler-b@p.iam.gserviceaccount.com ,"`
+- **THEN** the resolved set is exactly `{scheduler-a@p.iam.gserviceaccount.com, scheduler-b@p.iam.gserviceaccount.com}` AND no WARN is logged
 

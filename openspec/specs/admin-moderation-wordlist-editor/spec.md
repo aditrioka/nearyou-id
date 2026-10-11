@@ -5,7 +5,6 @@
 The `admin-moderation-wordlist-editor` capability is the operator's in-panel surface for editing the two text-moderation wordlists — `moderation_profanity_list` (Layer 1 sync REJECT) and `moderation_uu_ite_list` (Layer 2 soft-flag → `moderation_queue`) — that `content-moderation-keyword-lists` reads from the Firebase Remote Config **Server** template. Reached from the Feature Flag Admin page (mockup frame 20) at `GET /admin/feature-flags/wordlists/{list}`, it lets an operator curate the 300+ entry lists in-product — searchable list, add-single, bulk-CSV import, per-entry remove — all staged into a previewed diff and published once per session to the Server template via the shipped `RemoteConfigPublisher` seam (`If-Match` optimistic concurrency).
 
 Every publish is owner/admin-role- and CSRF-gated (CSRF before role), reason-required, entry-normalized to the `KeywordMatcher` contract (trim, Indonesian-locale lowercase with diacritics preserved, dedup), **empty-list-guarded** (an empty list disables a moderation layer and trips fallback), rate-limited on a distinct per-admin bucket, and recorded as exactly one immutable `moderation_wordlist_edited` audit row carrying a diff summary; the panel degrades read-only when Remote Config write credentials are absent. It mutates only the Remote Config Server list — the repo-committed Tier-3 `*.default.txt` fallback and the Tier-4 Secret Manager fallback stay on the quarterly legal-review path — replacing the prior out-of-band Firebase-Console edit path.
-
 ## Requirements
 ### Requirement: Authenticated GET /admin/feature-flags/wordlists/{list} renders the wordlist editor
 
@@ -81,7 +80,7 @@ The editor SHALL reject any publish whose resulting list contains zero entries, 
 
 ### Requirement: Entries are normalized to the matcher contract before publish
 
-Before diffing or publishing, every entry SHALL be trimmed, lowercased using the Indonesian locale (diacritics preserved, matching the `KeywordMatcher` contract), and the resulting list de-duplicated. Blank or whitespace-only entries SHALL be rejected/dropped. An entry exceeding the per-entry length cap (100 characters) SHALL be rejected; a resulting list exceeding the list-size cap (10000 entries) SHALL be rejected — each inline, with no publish and no audit row.
+Before diffing or publishing, every entry SHALL be trimmed, lowercased using the Indonesian locale (diacritics preserved, matching the `KeywordMatcher` contract), and the resulting list de-duplicated. Blank or whitespace-only entries SHALL be rejected/dropped. An entry exceeding the per-entry length cap (100 characters) SHALL be rejected; a resulting list exceeding the list-size cap (10000 entries) SHALL be rejected — each inline, with no publish and no audit row. Inline rejection applies to submissions within the editor paths' 4 MiB transport limit (`backend-bootstrap` § Global request body size limit); a request body above it is rejected `413 payload_too_large` before the route runs, with no publish and no audit row.
 
 #### Scenario: A mixed-case entry is lowercased with diacritics preserved
 - **WHEN** an admin adds the entry `"Dünia"`
@@ -110,6 +109,10 @@ Before diffing or publishing, every entry SHALL be trimmed, lowercased using the
 #### Scenario: An over-cap list is rejected
 - **WHEN** a staged edit would produce a list with more than 10000 entries
 - **THEN** the write is rejected with a validation error AND no publish occurs AND no audit row is written
+
+#### Scenario: A body above the transport limit is rejected 413 before the route runs
+- **WHEN** a `POST /admin/feature-flags/wordlists/{list}` or `POST /admin/feature-flags/wordlists/{list}/preview` declares a `Content-Length` above 4 MiB
+- **THEN** the response is `413` with error code `payload_too_large`, the CSRF and role gates and normalization never run, and nothing is published or audited
 
 ### Requirement: Bulk-CSV import skips duplicates and comment/blank lines with a report
 

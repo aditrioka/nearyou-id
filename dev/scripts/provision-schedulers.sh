@@ -15,8 +15,8 @@
 # WHAT it does (idempotent; re-running converges every job to the table below):
 #   1. Enables the Cloud Scheduler API.
 #   2. Creates the invoker service account `scheduler-invoker-<env>` if missing.
-#      Once the caller allowlist ships (issue #544, `INTERNAL_OIDC_ALLOWED_PRINCIPALS`),
-#      this SA email MUST be listed there, otherwise every job gets 403.
+#      This SA email MUST be listed in the caller allowlist
+#      `INTERNAL_OIDC_ALLOWED_PRINCIPALS` (#544), otherwise every job gets 403.
 #   3. Grants that SA `roles/run.invoker` on the Cloud Run service.
 #   4. Creates each job, or updates it if it already exists: schedule, time zone,
 #      URI, POST, OIDC SA + audience (= INTERNAL_OIDC_AUDIENCE), retry policy;

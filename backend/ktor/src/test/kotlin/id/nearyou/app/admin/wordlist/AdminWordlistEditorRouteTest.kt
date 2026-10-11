@@ -460,6 +460,28 @@ class AdminWordlistEditorRouteTest : StringSpec({
         }
     }
 
+    "#545 — publish and preview bodies above the 4 MiB transport limit → 413 before the route (no publish, no audit)" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val fake = FakeWordlistPublisher(profanity = listOf("a", "b"))
+        val huge = "a\nb\n" + "x".repeat(4 * 1024 * 1024)
+        AdminAuthTestSupport.withAdminApp(dataSource, remoteConfigPublisher = fake, productionBodyLimit = true) { client ->
+            for (path in listOf("/admin/feature-flags/wordlists/profanity", "/admin/feature-flags/wordlists/profanity/preview")) {
+                val res =
+                    client.post(path) {
+                        header(HttpHeaders.Cookie, cookie(token))
+                        header(AdminCsrfGate.X_CSRF_TOKEN_HEADER, AdminAuthTestSupport.csrfFor(token))
+                        contentType(ContentType.Application.FormUrlEncoded)
+                        setBody(formBody("entries" to huge, "reason" to "huge", "etag" to fake.etag))
+                    }
+                res.status shouldBe HttpStatusCode.PayloadTooLarge
+                res.bodyAsText() shouldContain "payload_too_large"
+            }
+            fake.publishedKeys.shouldBeEmpty()
+            AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).shouldBeEmpty()
+        }
+    }
+
     // ============================ preview endpoint (no publish) ==============================
 
     "POST /preview renders the staged diff without publishing or auditing" {
