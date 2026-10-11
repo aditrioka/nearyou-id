@@ -1,22 +1,33 @@
 package id.nearyou.app.screens.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
+import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_shared_post_deleted
 import id.nearyou.resources.generated.resources.chat_shared_post_edited_banner
 import id.nearyou.resources.generated.resources.chat_shared_post_label
+import id.nearyou.resources.generated.resources.ic_post_location
+import id.nearyou.resources.generated.resources.post_card_handle
+import id.nearyou.resources.theme.locationPin
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /** Test tag on the shared-post context card (a live, tappable card). */
@@ -33,6 +44,9 @@ const val EMBEDDED_POST_EDITED_BANNER_TAG: String = "embeddedPostEditedBanner"
  * immutable [snapshot] alone — never a live re-fetch (design D1). It shows the author handle +
  * display name, the post content, and the `cityName` label — NEVER a coordinate (the snapshot
  * carries none; the spatial-fuzzing invariant holds by construction).
+ *
+ * Frame 5 draws it as the compact read-only post card: the author [LetterAvatar] + bold name over the
+ * `@handle`, the content clamped to two lines, then the coral pin + city (a tap opens the full post).
  *
  * Two non-default states:
  *  - [isDeleted] (the source post was hard-deleted → `embeddedPostId` is null but the snapshot
@@ -58,7 +72,7 @@ fun EmbeddedPostCard(
             .testTag(EMBEDDED_POST_CARD_TAG)
             .then(if (isDeleted) Modifier else Modifier.clickable(onClick = onTap))
     OutlinedCard(modifier = cardModifier) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Text(
                 text = stringResource(Res.string.chat_shared_post_label),
                 style = MaterialTheme.typography.labelSmall,
@@ -72,29 +86,59 @@ fun EmbeddedPostCard(
                     modifier = Modifier.padding(top = 4.dp).testTag(EMBEDDED_POST_DELETED_TAG),
                 )
             } else {
-                Text(
-                    text = snapshot.authorDisplayName,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
-                    text = "@${snapshot.authorUsername}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    LetterAvatar(
+                        displayName = snapshot.authorDisplayName,
+                        username = snapshot.authorUsername,
+                        modifier = Modifier.size(32.dp),
+                    )
+                    Column {
+                        Text(
+                            text = snapshot.authorDisplayName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = stringResource(Res.string.post_card_handle, snapshot.authorUsername),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Text(
                     text = snapshot.content,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
                 if (snapshot.cityName.isNotBlank()) {
-                    Text(
-                        text = snapshot.cityName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
+                    Row(
+                        modifier = Modifier.padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(Res.drawable.ic_post_location),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.locationPin,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = snapshot.cityName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 if (editedSinceShared) {
                     Text(

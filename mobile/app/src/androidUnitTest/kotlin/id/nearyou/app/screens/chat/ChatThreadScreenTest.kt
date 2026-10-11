@@ -15,6 +15,7 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -25,6 +26,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
@@ -73,6 +75,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 private const val CONV = "11111111-1111-1111-1111-111111111111"
 private const val VIEWER = "22222222-2222-2222-2222-222222222222"
@@ -84,6 +87,8 @@ private const val NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu
 private const val TOO_LONG = "Pesan maksimal 2000 karakter."
 private const val RATIONALE = "Aktifkan notifikasi agar kamu tahu saat ada pesan baru."
 private const val RATIONALE_CONFIRM = "Izinkan notifikasi"
+private const val CTA_BACK = "Kembali"
+private const val CTA_CLOSE = "Tutup"
 
 /** Every indeterminate progress indicator (the initial-load spinner and the refreshing PTR spinner). */
 private val INDETERMINATE =
@@ -520,6 +525,67 @@ class ChatThreadScreenTest {
             setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(partnerDisplayName = ""), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(DELETED).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(DELETED).assertExists()
+            // The mask hides the route's handle too (no stale identity beside the placeholder).
+            onNodeWithText("@dewi.kuliner").assertDoesNotExist()
+        }
+    }
+
+    // Frame 5 (#286): the partner header is a back ARROW (described "Kembali") + the name over the @handle.
+    @Test
+    fun topBar_showsBackArrowAndPartnerHandle_andTheArrowInvokesOnBack() {
+        installKoin()
+        var backCount = 0
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = { backCount++ }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@dewi.kuliner").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Dewi Lestari").assertExists()
+            onNodeWithTag(CHAT_THREAD_BACK_TAG).assertContentDescriptionEquals(CTA_BACK)
+            onNodeWithText(CTA_CLOSE).assertDoesNotExist()
+            onNodeWithTag(CHAT_THREAD_BACK_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, backCount)
+        }
+    }
+
+    // #565: on a two-page thread the thread opens at the newest message without paging older first; reaching
+    // the top loads the older page while the reader KEEPS their place (no jump back to the newest message),
+    // and a pull at the very top still resyncs.
+    @Test
+    fun loadOlder_keepsTheScrollPosition_andAPullAtTheTopStillResyncs() {
+        val newestPage = (21..40).map { dto("m$it", content = "MSG_$it", createdAt = "2026-06-01T10:%02d:00Z".format(it)) }
+        val olderPage = (1..20).map { dto("m$it", content = "MSG_$it", createdAt = "2026-06-01T10:%02d:00Z".format(it)) }
+        installKoin(
+            historyOutcomes =
+                listOf(ChatThreadOutcome.Loaded(newestPage, "older-cursor"), ChatThreadOutcome.Loaded(olderPage, null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+            assertEquals(1, flow.loadHistoryCount, "opening the thread does not page older before it is positioned")
+
+            // Hold the older page so the reader's position can be read before and after it lands.
+            val olderGate = CompletableDeferred<Unit>()
+            flow.historyGate = olderGate
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            val listTop = onNodeWithTag(CHAT_THREAD_LIST_TAG).fetchSemanticsNode().positionInRoot.y
+            val before = onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y
+            olderGate.complete(Unit)
+            waitForIdle()
+
+            // The older page is prepended above; MSG_21 stays where the reader left it, the newest is off screen.
+            onAllNodesWithText("MSG_21").assertCountEquals(1)
+            assertEquals(before, onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y, "the reader keeps their place")
+            assertTrue(before >= listTop, "MSG_21 is at the top of the viewport")
+            onAllNodesWithText("MSG_40").assertCountEquals(0)
+
+            // Scroll through the prepended page to the real top; there the pull still resyncs.
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitForIdle()
+            onNodeWithText("MSG_1").assertExists()
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 3 }
         }
     }
 

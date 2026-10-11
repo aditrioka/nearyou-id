@@ -1,8 +1,12 @@
 package id.nearyou.app.screens.chat
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -34,13 +38,19 @@ private const val DELETED = "Akun Dihapus"
 private const val RETRY = "Coba lagi"
 private const val PARTNER_UUID = "11111111-1111-1111-1111-111111111111"
 
+private const val PREMIUM_BADGE = "Akun Premium"
+private const val CTA_BACK = "Kembali"
+private const val CTA_CLOSE = "Tutup"
+
 private fun item(
     id: String,
     displayName: String = "Dewi Lestari",
     lastMessageAt: String? = "2026-06-02T11:00:00Z",
+    username: String = "dewi.kuliner",
+    isPremium: Boolean = false,
 ) = ConversationListItemDto(
     conversation = ConversationDto(id = id, createdAt = "2026-06-01T10:00:00Z", lastMessageAt = lastMessageAt),
-    partner = PartnerProfileDto(id = PARTNER_UUID, username = "dewi.kuliner", displayName = displayName, isPremium = false),
+    partner = PartnerProfileDto(id = PARTNER_UUID, username = username, displayName = displayName, isPremium = isPremium),
 )
 
 /**
@@ -133,12 +143,53 @@ class ConversationListScreenTest {
 
     @Test
     fun deletedPartner_rendersAkunDihapusPlaceholder() {
-        // A blank display name (a stale/edge row) renders the chat_account_deleted placeholder.
-        installKoin(ConversationListOutcome.Loaded(listOf(item("c1", displayName = "")), null))
+        // A blank display name (a stale/edge row) renders the chat_account_deleted placeholder, with no handle
+        // or Premium badge beside it.
+        installKoin(ConversationListOutcome.Loaded(listOf(item("c1", displayName = "", isPremium = true)), null))
         runComposeUiTest {
             setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = {}, onOpenThread = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(DELETED).assertExists()
+            onNodeWithText("@dewi.kuliner").assertDoesNotExist()
+            onNodeWithContentDescription(PREMIUM_BADGE).assertDoesNotExist()
+        }
+    }
+
+    // mobile-chat § "Conversation rows render partner display identity": the row shows the username and the
+    // isPremium badge, not only the display name (#286).
+    @Test
+    fun contentRow_rendersUsernameAndThePremiumBadgeOnlyForPremiumPartners() {
+        installKoin(
+            ConversationListOutcome.Loaded(
+                listOf(
+                    item("c1", isPremium = true),
+                    item("c2", displayName = "Raka Pratama", username = "raka.jkt", isPremium = false),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = {}, onOpenThread = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().size == 2 }
+            onNodeWithText("@dewi.kuliner").assertExists()
+            onNodeWithText("@raka.jkt").assertExists()
+            onAllNodesWithContentDescription(PREMIUM_BADGE).assertCountEquals(1)
+        }
+    }
+
+    // Frame 2 (#286): the top bar leads with a back ARROW (described "Kembali"), not a "Tutup" text button.
+    @Test
+    fun backArrow_invokesOnBack() {
+        installKoin(ConversationListOutcome.Loaded(listOf(item("c1")), null))
+        var backCount = 0
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = { backCount++ }, onOpenThread = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CONVERSATION_LIST_BACK_TAG).assertContentDescriptionEquals(CTA_BACK)
+            onNodeWithText(CTA_CLOSE).assertDoesNotExist()
+            onNodeWithTag(CONVERSATION_LIST_BACK_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, backCount)
         }
     }
 

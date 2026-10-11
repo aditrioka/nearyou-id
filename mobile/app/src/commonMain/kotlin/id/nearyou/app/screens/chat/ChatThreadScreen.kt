@@ -12,25 +12,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,7 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,6 +65,7 @@ import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
+import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
@@ -70,10 +78,14 @@ import id.nearyou.resources.generated.resources.chat_message_redacted
 import id.nearyou.resources.generated.resources.chat_send
 import id.nearyou.resources.generated.resources.chat_send_blocked
 import id.nearyou.resources.generated.resources.chat_thread_input_placeholder
+import id.nearyou.resources.generated.resources.cta_back
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
+import id.nearyou.resources.generated.resources.ic_arrow_back
+import id.nearyou.resources.generated.resources.ic_send_filled
 import id.nearyou.resources.generated.resources.notif_permission_rationale
 import id.nearyou.resources.generated.resources.notif_permission_rationale_confirm
+import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.generated.resources.profile_report_rate_limited
 import id.nearyou.resources.generated.resources.profile_report_success_toast
@@ -84,6 +96,7 @@ import id.nearyou.resources.generated.resources.timeline_session_redirect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 
@@ -219,7 +232,8 @@ fun ChatThreadScreen(
     }
 
     ChatThreadContent(
-        partnerDisplayName = route.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
+        partnerDisplayName = route.partnerDisplayName,
+        partnerUsername = route.partnerUsername,
         uiState = uiState,
         isRefreshing = isRefreshing,
         sendBar = remember(sendOutcome, sendInFlight, input) { sendBarState(sendOutcome, sendInFlight, input) },
@@ -266,6 +280,7 @@ fun ChatThreadScreen(
 @Composable
 private fun ChatThreadContent(
     partnerDisplayName: String,
+    partnerUsername: String,
     uiState: ChatThreadUiState,
     isRefreshing: Boolean,
     sendBar: SendBarState,
@@ -283,7 +298,9 @@ private fun ChatThreadContent(
     // The single Scaffold of this root-stack overlay (mobile-design-system): its surface gives the bars the
     // theme background + content color (a bare Column left the title black-on-black in dark mode, #488).
     Scaffold(
-        topBar = { ChatThreadTopBar(partnerDisplayName = partnerDisplayName, onBack = onBack) },
+        topBar = {
+            ChatThreadTopBar(partnerDisplayName = partnerDisplayName, partnerUsername = partnerUsername, onBack = onBack)
+        },
         bottomBar = {
             // Bottom-bar insets: keep the send-state row + input above the nav bar AND the keyboard.
             Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding()) {
@@ -326,25 +343,53 @@ private fun ChatThreadContent(
     }
 }
 
+/**
+ * The frame-5 partner header: an M3 TopAppBar (its own status-bar inset — this overlay owns its Scaffold, 06-#4)
+ * with the back arrow, then the partner [LetterAvatar] (32dp) + bold display name over the `@username`. A blank
+ * route display name is the deleted/shadow-banned mask: the `chat_account_deleted` placeholder, no handle.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatThreadTopBar(
     partnerDisplayName: String,
+    partnerUsername: String,
     onBack: () -> Unit,
 ) {
-    // The overlay owns its Scaffold, so the custom bar applies its own status-bar inset (06-#4).
-    Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onBack, modifier = Modifier.testTag(CHAT_THREAD_BACK_TAG)) {
-            Text(text = stringResource(Res.string.cta_close))
-        }
-        Text(
-            text = partnerDisplayName,
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-    }
+    val masked = partnerDisplayName.isBlank()
+    val name = if (masked) stringResource(Res.string.chat_account_deleted) else partnerDisplayName
+    TopAppBar(
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LetterAvatar(displayName = name, username = partnerUsername, modifier = Modifier.size(32.dp))
+                Column {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (!masked && partnerUsername.isNotBlank()) {
+                        Text(
+                            text = stringResource(Res.string.post_card_handle, partnerUsername),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        },
+        navigationIcon = {
+            IconButton(onClick = onBack, modifier = Modifier.testTag(CHAT_THREAD_BACK_TAG)) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_arrow_back),
+                    contentDescription = stringResource(Res.string.cta_back),
+                )
+            }
+        },
+    )
 }
 
 @Composable
@@ -355,21 +400,29 @@ private fun MessageList(
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    // Load-older when the user scrolls to the very top (index 0 visible).
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .distinctUntilChanged()
-            .collect { if (it == 0) onLoadOlder() }
+    // #565: follow the tail only when the NEWEST row changes (an own send, a realtime inbound, a resync). An
+    // older page prepends rows but keeps the last id, so it never yanks the reader down; the id-keyed items
+    // keep their position. The first scroll is instant (an animated one could race a prepend and stop
+    // mid-thread). Saveable, so a config change keeps the reader's place instead of re-jumping to the end.
+    var followedLastId by rememberSaveable { mutableStateOf<String?>(null) }
+    val lastId = rows.lastOrNull()?.id
+    LaunchedEffect(lastId) {
+        if (lastId == null || lastId == followedLastId) return@LaunchedEffect
+        if (followedLastId == null) listState.scrollToItem(rows.lastIndex) else listState.animateScrollToItem(rows.lastIndex)
+        followedLastId = lastId
     }
-    // Keep the newest message in view as the list grows (sends / inbound).
-    LaunchedEffect(rows.size) {
-        if (rows.isNotEmpty()) listState.animateScrollToItem(rows.lastIndex)
+    // Load-older when the reader reaches the top — only once the thread has been positioned at the newest
+    // message (the list starts at index 0, which must not page before that first scroll).
+    LaunchedEffect(listState) {
+        snapshotFlow { followedLastId != null && listState.firstVisibleItemIndex == 0 }
+            .distinctUntilChanged()
+            .collect { atTop -> if (atTop) onLoadOlder() }
     }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(CHAT_THREAD_LIST_TAG),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(items = rows, key = { it.id }, contentType = { "message" }) { row ->
             // Realtime/optimistic rows animate in (mobile-design-system motion).
@@ -393,18 +446,25 @@ private fun MessageBubble(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val alignment = if (row.isOwn) Alignment.CenterEnd else Alignment.CenterStart
-    val bubbleColor =
-        if (row.isOwn) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    val onBubbleColor =
-        if (row.isOwn) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    // Frame 5: own = primaryContainer, received (and the redacted placeholder) = surfaceContainerHigh; 18dp
+    // corners with a 6dp tail corner on the sender's side.
+    val ownBubble = row.isOwn && !row.isRedacted
+    val bubbleColor = if (ownBubble) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val onBubbleColor = if (ownBubble) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val bubbleShape =
+        if (row.isOwn) {
+            RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 6.dp, bottomStart = 18.dp)
+        } else {
+            RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 6.dp)
+        }
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = alignment) {
         Surface(
-            color = if (row.isRedacted) MaterialTheme.colorScheme.surfaceVariant else bubbleColor,
-            shape = RoundedCornerShape(16.dp),
+            color = bubbleColor,
+            shape = bubbleShape,
             // Long-press opens the "Laporkan" menu — ONLY for a reportable (other-party, non-redacted)
             // message. The gate is `row.isReportable`; `senderId` never reaches this row (PII discipline).
             modifier =
-                Modifier.widthIn(max = 280.dp).then(
+                Modifier.widthIn(max = 300.dp).then(
                     if (row.isReportable) {
                         Modifier.combinedClickable(
                             onClick = {},
@@ -420,20 +480,14 @@ private fun MessageBubble(
                 // context card. The row projection already nulled the embed fields when redacted.
                 Text(
                     text = stringResource(Res.string.chat_message_redacted),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).testTag(CHAT_THREAD_REDACTED_TAG),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).testTag(CHAT_THREAD_REDACTED_TAG),
                 )
             } else {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    if (!row.content.isNullOrEmpty()) {
-                        Text(
-                            text = row.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = onBubbleColor,
-                        )
-                    }
-                    // chat-embedded-posts: the shared-post context card (embed-only or content+embed).
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    // chat-embedded-posts: the shared-post context card (embed-only or content+embed), drawn
+                    // ABOVE the message text as in frame 5.
                     // embeddedPostId == null + a present snapshot = the source post was hard-deleted
                     // ("post telah dihapus", not tappable). Tapping a live card navigates to its detail.
                     row.embeddedPostSnapshot?.let { snapshot ->
@@ -445,7 +499,14 @@ private fun MessageBubble(
                             // comparison; only the live signal is deferred — see the deferred requirement).
                             editedSinceShared = editedSinceShared(row.embeddedPostEditId, row.embeddedPostEditId),
                             onTap = { row.embeddedPostId?.let { id -> onOpenSharedPost(id, snapshot) } },
-                            modifier = if (row.content.isNullOrEmpty()) Modifier else Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    if (!row.content.isNullOrEmpty()) {
+                        Text(
+                            text = row.content,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = onBubbleColor,
+                            modifier = if (row.embeddedPostSnapshot == null) Modifier else Modifier.padding(top = 8.dp),
                         )
                     }
                 }
@@ -527,24 +588,39 @@ private fun ChatInputBar(
     sending: Boolean,
     onSend: () -> Unit,
 ) {
+    // Frame 5 input row (the frame-7 composer idiom, PostDetailComposer): a borderless surfaceContainerHigh pill
+    // field + a filled circular send button, 10dp apart, 12/10 padding.
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedTextField(
+        TextField(
             value = input,
             onValueChange = onInputChange,
             placeholder = { Text(text = stringResource(Res.string.chat_thread_input_placeholder)) },
             // Bounded: a long draft scrolls inside the field instead of growing the bottom bar over the thread.
             maxLines = 5,
+            shape = MaterialTheme.shapes.extraLarge,
+            colors =
+                TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
             modifier = Modifier.weight(1f).testTag(CHAT_THREAD_INPUT_TAG),
         )
-        Button(
+        FilledIconButton(
             onClick = onSend,
             enabled = canSend && !sending,
-            modifier = Modifier.padding(start = 8.dp).testTag(CHAT_THREAD_SEND_TAG),
+            modifier = Modifier.size(48.dp).testTag(CHAT_THREAD_SEND_TAG),
         ) {
-            Text(text = stringResource(Res.string.chat_send))
+            Icon(
+                painter = painterResource(Res.drawable.ic_send_filled),
+                contentDescription = stringResource(Res.string.chat_send),
+                modifier = Modifier.size(22.dp),
+            )
         }
     }
 }

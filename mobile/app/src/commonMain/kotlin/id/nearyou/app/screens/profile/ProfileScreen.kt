@@ -53,6 +53,7 @@ import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.UserProfile
 import id.nearyou.app.ui.components.BlockConfirmDialog
 import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.PremiumBadgeIcon
 import id.nearyou.app.ui.components.ReportDialog
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_send_blocked
@@ -60,7 +61,6 @@ import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
 import id.nearyou.resources.generated.resources.ic_action_settings
 import id.nearyou.resources.generated.resources.ic_more_vert
-import id.nearyou.resources.generated.resources.ic_premium_star
 import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.profile_action_failed
 import id.nearyou.resources.generated.resources.profile_action_user_unavailable
@@ -76,7 +76,6 @@ import id.nearyou.resources.generated.resources.profile_following_count
 import id.nearyou.resources.generated.resources.profile_following_open_cd
 import id.nearyou.resources.generated.resources.profile_not_found
 import id.nearyou.resources.generated.resources.profile_premium_badge
-import id.nearyou.resources.generated.resources.profile_premium_badge_icon_description
 import id.nearyou.resources.generated.resources.profile_report_action
 import id.nearyou.resources.generated.resources.profile_report_duplicate
 import id.nearyou.resources.generated.resources.profile_report_rate_limited
@@ -312,12 +311,7 @@ private fun ProfileContent(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (profile.isPremium) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_premium_star),
-                    contentDescription = stringResource(Res.string.profile_premium_badge_icon_description),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
+                PremiumBadgeIcon(size = 20.dp)
                 Text(
                     text = stringResource(Res.string.profile_premium_badge),
                     style = MaterialTheme.typography.labelMedium,
