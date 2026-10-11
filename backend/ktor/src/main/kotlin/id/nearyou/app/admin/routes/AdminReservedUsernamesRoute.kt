@@ -27,6 +27,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import java.net.URLEncoder
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /**
@@ -233,8 +234,8 @@ private fun ReservedUsernameRow.toViewMap(): Map<String, Any> {
         "reason" to reason,
         "source" to source,
         "isSeed" to (source == SOURCE_SEED),
-        "createdAt" to ISO_INSTANT.format(createdAt),
-        "updatedAt" to ISO_INSTANT.format(updatedAt),
+        "createdAt" to TS_FORMAT.format(createdAt),
+        "updatedAt" to TS_FORMAT.format(updatedAt),
         "editAction" to "/admin/reserved-usernames/$enc/edit-reason",
         "removeAction" to "/admin/reserved-usernames/$enc/remove",
     )
@@ -270,7 +271,10 @@ private const val SEARCH_MAX = 30
 private const val MAX_CSV_ROWS = 1000
 private const val MAX_CSV_BYTES = 256 * 1024
 
-private val ISO_INSTANT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
+// Same display shape as the sibling queue routes (deletion / export / grace):
+// a minute-precision UTC stamp, so the table columns don't overflow their card.
+private val TS_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 private const val MSG_ADDED = "Reserved username added."
 private const val MSG_UPDATED = "Reason updated."

@@ -20,6 +20,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.formUrlEncode
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -171,6 +173,7 @@ class AdminUsernameOversightRouteTest : StringSpec({
     }
 
     "8.1 — holds list excludes an elapsed hold; lists a future hold with its release date" {
+        val holdUntil = Instant.now().plusSeconds(10L * 24 * 3600)
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         val u = seedUser(username = "uholds")
@@ -179,7 +182,7 @@ class AdminUsernameOversightRouteTest : StringSpec({
             u,
             oldUsername = "sore_rina",
             newUsername = "rina_pagi",
-            releasedAt = Instant.now().plusSeconds(10L * 24 * 3600),
+            releasedAt = holdUntil,
         )
         UsernameOversightTestSupport.seedHistory(
             dataSource,
@@ -198,6 +201,13 @@ class AdminUsernameOversightRouteTest : StringSpec({
             val holdsSection = body.substringAfter("30-day hold")
             holdsSection shouldContain "sore_rina"
             holdsSection shouldNotContain "elapsedhandle"
+            // Release date in the sibling queues' minute-precision UTC shape; a raw
+            // ISO-8601 instant overflowed the hold card (no flag/history/hold cell may
+            // carry one).
+            val expected =
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC).format(holdUntil)
+            holdsSection shouldContain expected
+            Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}""").containsMatchIn(body) shouldBe false
         }
     }
 
