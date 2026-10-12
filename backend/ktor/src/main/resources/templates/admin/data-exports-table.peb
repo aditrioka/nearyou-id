@@ -19,7 +19,7 @@
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if quotaCap is not null %}
-    <p class="quota-chip">Trigger actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+    <p class="quota">{{ icon("speed") }}Trigger actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
 {% endif %}
 {# In-window total scoped to the active filters — the operational signal. #}
 <div class="summary">

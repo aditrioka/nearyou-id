@@ -73,7 +73,9 @@ class AdminDashboardTemplateTest : StringSpec({
     "renders sparkline bars from a per-hour series" {
         renderIndex(model(mapOf("postsSpark" to listOf(0, 40, 100)))) { body ->
             body shouldContain "class=\"spark\""
-            body shouldContain "height: 100%"
+            body shouldContain "<i class=\"h-40\"></i>"
+            body shouldContain "<i class=\"h-100\"></i>"
+            body shouldNotContain "style="
         }
     }
 })

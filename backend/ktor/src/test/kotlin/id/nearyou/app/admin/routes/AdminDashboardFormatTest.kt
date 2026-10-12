@@ -23,6 +23,12 @@ class AdminDashboardFormatTest : StringSpec({
         s[2] shouldBe 100
     }
 
+    "spark snaps every bar to a 5% step, so each height is an admin.css .h-N class" {
+        val s = spark(listOf(33L, 37L, 38L, 100L))
+        s shouldBe listOf(35, 35, 40, 100)
+        spark((1L..100L).toList()).all { it % SPARK_STEP_PCT == 0 }.shouldBeTrue()
+    }
+
     "spark of an all-zero series is all zero (empty sparkline)" {
         spark(listOf(0L, 0L, 0L)) shouldBe listOf(0, 0, 0)
     }

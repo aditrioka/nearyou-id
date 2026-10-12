@@ -11,6 +11,7 @@
    CSRF: the full-page (no-JS) render carries `csrfToken` so the in-row `_csrf`
    hidden fields populate; the HTMX-fragment render omits it (the layout's
    htmx:configRequest hook adds the X-CSRF-Token header from the meta tag). #}
+{% import "icons.peb" %}
 <div id="reserved-usernames-table">
 {% if message is not null %}
     <p class="outcome-message">{{ message }}</p>
@@ -27,7 +28,7 @@
         {% endif %}
     </div>
 {% endif %}
-<p class="quota-chip">Reserved-username actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+<p class="quota">{{ icon("speed") }}Reserved-username actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
 {% if hasRows %}
     <div class="tbl-wrap">
     <table class="tbl">

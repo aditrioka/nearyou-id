@@ -17,7 +17,7 @@
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if quotaCap is not null %}
-    <p class="quota-chip">Expedite actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+    <p class="quota">{{ icon("speed") }}Expedite actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
 {% endif %}
 {# Total pending hard-delete — the operational signal (a spike means a
    mass-deletion or webhook problem). #}
