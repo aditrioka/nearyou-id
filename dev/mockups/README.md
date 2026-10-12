@@ -51,7 +51,8 @@ building.
   named in the caption is the source of truth for its metrics.
 - **Admin board specifics**: "Sudah ada" frames mirror the real fields/columns/actions of the
   shipped `templates/admin/*.peb` (the *styling* is the target — the live panel takes it via the
-  vendored `admin.css`, PRs #226/#241); "Usulan" frames cite `docs/07-Operations.md` § Core Features /
+  vendored `admin.css`, PRs #226/#241, with the last frame-specific classes styled in #585);
+  "Usulan" frames cite `docs/07-Operations.md` § Core Features /
   `docs/08-Roadmap-Risk.md` Phase 3.5 / the tracking `follow-up` issue. A third tag **"Sebagian"**
   marks frames mixing both. In-frame copy is English (mirrors shipped templates); captions are
   Indonesian. Frame 4b encodes the **responsive contract** (fluid CSS, sidebar drawer, disclosure

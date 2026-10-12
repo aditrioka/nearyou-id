@@ -8,7 +8,8 @@
   Static high-fidelity mockup board for the NearYouID ADMIN PANEL (backend/ktor admin package:
   Pebble templates + HTMX + vendored vanilla CSS — NO client framework).
   - This board is the canonical UI/UX reference for /admin/*. The shipped panel takes this design
-    language through the vendored admin.css (PRs #226/#241); the board stays the styling target.
+    language through the vendored admin.css (PRs #226/#241; the last frame-specific classes were
+    styled in #585); the board stays the styling target.
   - Theme tokens mirror shared/resources NearYouColorScheme.kt LIGHT scheme (seed #1E4FD6) +
     NearYouColors.kt accents, Plus Jakarta Sans — same fidelity contract as the mobile board.
     Admin is light-only for MVP (solo-operator simplicity).
@@ -291,7 +292,8 @@
     design (docs/07 § Core Features, docs/08 Phase 3.5 + Pre-Launch). Panel hidup di
     <b>backend/ktor</b>: Pebble templates + HTMX + CSS vanilla vendored (tanpa framework client).
     Frame "Sudah ada" me-mirror field/kolom/aksi nyata dari <code>templates/admin/*.peb</code>;
-    styling-nya adalah target yang dituju (panel hidup memakainya lewat <code>admin.css</code>, PR #226/#241).
+    styling-nya adalah target yang dituju (panel hidup memakainya lewat <code>admin.css</code>, PR #226/#241;
+    class khusus-frame terakhir di-style di #585).
     Perilaku tetap dikuasai spec: <code>openspec/specs/admin-*</code> menang atas mockup bila bertentangan.
   </p>
   <div class="legend">
@@ -386,7 +388,7 @@
         </div>
         <div class="main">
           <div class="pg">Welcome back, oka</div>
-          <p class="pg-sub">Scaffold landing — quick links sementara Operational Dashboard (frame 3) belum dibangun.</p>
+          <p class="pg-sub">Operational dashboard — read-only platform overview.</p>
           <div class="three-col" style="margin-top:16px;">
             <div class="cardlet" style="margin-top:0;"><h4><span class="ms">flag</span>Report queue</h4>
               <div class="kv"><dt>Pending</dt><dd>4</dd><dt>Oldest</dt><dd>2 h ago</dd></div></div>
@@ -408,7 +410,8 @@
     <p>Yang shipped (<code>layout.peb</code>): sidebar bergrup dengan link ke setiap permukaan yang
     sudah ada (tanpa placeholder usulan) + tombol Logout (POST + <code>_csrf</code>); post edit history
     &amp; chat redaction dicapai secara kontekstual (dari kartu Report Queue), bukan dari nav. Sidebar di
-    atas adalah target lengkapnya — dot hijau = shipped, dot hollow = usulan. Kartu sesi:
+    atas adalah target lengkapnya — dot hijau = shipped, dot hollow = usulan. Panel utama = landing
+    dashboard <code>index.peb</code> (sapaan + kartu quick-link; widget lengkapnya di frame 3). Kartu sesi:
     identitas admin + role chip (owner/admin/moderator/read_only, V16 CHECK) + countdown idle. Deployment
     target <code>admin.nearyou.id</code> di belakang IAP (Phase 3.5 #2; staging hari ini masih
     <code>api-staging.nearyou.id/admin/*</code>). Spec: <code>admin-panel-scaffold</code>.</p>
@@ -467,14 +470,16 @@
     </div>
   </div>
   <div class="cap">
-    <h3>3 · Operational Dashboard <span class="path">— GET /admin/ (menggantikan scaffold)</span></h3>
-    <p>Semua metrik dari docs/07 § Core Features · Operational Dashboard: DAU/MAU, posts/signups/
-    reports per jam, error rate (Sentry), anomaly spike alert (banner), DB size trend, top 10 kota,
-    breakdown langganan paid vs referral, Realtime cost/MAU, refresh-token reuse log, attestation
-    failure rate, CSAM events, health check, RevenueCat sig-fail, Resend delivery,
-    <code>rejected_identifiers</code> insert rate, age-gate reject rate, embed Sentry + Amplitude.
-    Read-only agregat; tidak ada aksi destruktif di halaman ini.</p>
-    <span class="tag usulan">Usulan</span>
+    <h3>3 · Operational Dashboard <span class="path">— GET /admin/</span></h3>
+    <p>Target lengkap = semua metrik docs/07 § Core Features · Operational Dashboard. <b>Shipped</b>
+    (<code>index.peb</code>, spec <code>admin-operational-dashboard</code>, #296): sapaan + 3 kartu
+    quick-link frame 2, volume posts/signups/reports 24 jam + sparkline per jam, jumlah tolak gerbang
+    usia, top kota 7 hari (tabel), ukuran DB. <b>Masih usulan</b> (sumber datanya belum ada, sengaja
+    tidak dirender): DAU/MAU, error rate Sentry, banner anomaly spike, KPI CSAM / attestation /
+    token reuse / RevenueCat sig-fail / Resend, breakdown langganan paid vs referral + Realtime
+    cost/MAU, health check, embed Sentry + Amplitude. Read-only agregat; tidak ada aksi destruktif
+    di halaman ini.</p>
+    <span class="tag sebagian">Sebagian</span>
   </div>
 </div>
 
@@ -655,8 +660,11 @@
     bar → tombol disclosure “Filters (n)” + chip filter aktif; antrean berbasis kartu menumpuk
     natural (aksi jadi full-width); tabel data di layar lain dibungkus <code>overflow-x:auto</code>
     di bawah ±900px. Frame lain di board ini adalah snapshot 1240px dari kontrak yang sama —
-    saat membangun styling, terapkan kontrak ini, bukan lebar tetap.</p>
-    <span class="tag usulan">Usulan</span>
+    saat membangun styling, terapkan kontrak ini, bukan lebar tetap. Shipped di <code>admin.css</code>
+    (#226): drawer <code>.nav-toggle</code> di bawah 1024px, disclosure <code>.filters-toggle</code> +
+    chip filter aktif (<code>.filters-chips</code>) di bawah 900px — label shipped “Filters” tanpa
+    hitungan (n) — dan <code>.tbl-wrap</code> overflow-x.</p>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
@@ -733,10 +741,10 @@
           <span class="st prem" style="vertical-align:2px;"><span class="ms">workspace_premium</span>PREMIUM</span>
           <span class="st err" style="vertical-align:2px;">SUSPENDED</span></div>
           <p class="pg-sub">Search by username / ID hash · profile + history + full action set (docs/07 § User Management)</p></div>
-        <div class="quota"><span class="ms">speed</span>Destructive quota: <b>14/20</b> this hour
-          <span class="tag usulan" style="margin:0;padding:1px 6px;">USULAN</span></div>
+        <div class="quota"><span class="ms">speed</span>Destructive quota: <b>14/20</b> this hour</div>
       </div>
-      <div class="kpis" style="grid-template-columns:repeat(6,1fr);">
+      <div style="margin-top:14px;font-size:11px;"><span class="tag usulan" style="margin:0;padding:1px 6px;">USULAN — strip KPI</span></div>
+      <div class="kpis" style="grid-template-columns:repeat(6,1fr);margin-top:6px;">
         <div class="kpi"><div class="lbl">Joined</div><div class="val" style="font-size:14px;">2026-02-17</div></div>
         <div class="kpi"><div class="lbl">Posts</div><div class="val">182</div></div>
         <div class="kpi"><div class="lbl">Followers</div><div class="val">96</div></div>
@@ -773,13 +781,14 @@
   </div>
   <div class="cap">
     <h3>6 · User Management penuh — profil + riwayat + warning <span class="path">— /admin/users/{id} (halaman profil)</span></h3>
-    <p>docs/07 § User Management: search username/ID hash, halaman profil + history, aksi
-    <b>warning</b> (baru), suspend 7d, ban permanen, shadow ban, unban — melengkapi frame 5 yang
-    sudah shipped. Chip kuota destruktif = pre-launch #9 (limiter ±20/jam/admin, substrat
-    Redis vs COUNT <code>admin_actions_log</code> diputuskan saat design). Shadow-ban di sini =
-    surface standalone; aksinya sendiri sudah shipped via resolusi report queue. Riwayat menarik
-    <code>admin_actions_log</code> + <code>username_history</code>. Tanpa edit username langsung.</p>
-    <span class="tag usulan">Usulan</span><span class="tag sebagian">aksi suspend/unban/shadow-ban sudah shipped di frame 4–5</span>
+    <p>docs/07 § User Management. <b>Shipped</b> (<code>user-profile.peb</code>, spec
+    <code>admin-user-management</code>, #251): page head + status chip, chip kuota destruktif
+    (<code>admin-destructive-action-rate-limit</code>), kartu Profile, kartu Actions (warning,
+    suspend 7d, ban permanen owner/admin, shadow ban / lift, unban), kartu History
+    (<code>admin_actions_log</code> + <code>username_history</code>). <b>Masih usulan</b>: strip KPI
+    (Joined / Posts / Followers / Reports / Strikes) — butuh data baru lewat change
+    <code>admin-user-management</code> sendiri. Tanpa edit username langsung.</p>
+    <span class="tag sebagian">Sebagian</span>
   </div>
 </div>
 
@@ -852,32 +861,36 @@ after:  { is_banned: true,
       <div class="spacer"></div><span class="envchip">STAGING</span>
       <div class="admchip"><span class="av">O</span>oka<span class="rolechip owner">OWNER</span></div></div>
     <div class="main">
-      <div class="pg">Post detail — edit history</div>
-      <p class="pg-sub">post 9d2e51c0 · author <a>rina.sore</a> · 2 reports against this post</p>
-      <div class="cardlet"><h4><span class="ms">article</span>Current (v3) · 2026-06-10 21:40 UTC</h4>
+      <div class="pg">Post detail — edit history <span class="st neut" style="vertical-align:2px;">READ-ONLY</span></div>
+      <p class="pg-sub">post <span class="code">9d2e51c0-…</span> · author <a>rina.sore</a></p>
+      <div class="banner info" style="margin-top:12px;"><span class="ms">info</span>
+        <span>Read-only — versi disusun dari live post + snapshot <code>post_edits</code> (terbaru di atas).
+        Aksi moderasi konten tetap lewat <a>Report Queue</a>.</span></div>
+      <div class="cardlet"><h4>Versi terbaru · 2026-06-10 21:40 UTC</h4>
         <p style="margin-top:8px;font-size:13px;line-height:1.55;">Kopi senja di dekat alun-alun ☕
-        Promo beli 1 gratis 1 sampai jam 9 malam! Lokasi di bio.</p></div>
+        Promo beli 1 gratis 1 sampai jam 9 malam! Lokasi di bio.</p>
+        <p class="sub">oleh <a>rina.sore</a></p></div>
       <table class="tbl">
-        <thead><tr><th style="width:70px;">Version</th><th>Edited at (UTC)</th><th>Body snapshot</th></tr></thead>
+        <thead><tr><th style="width:96px;">Versi</th><th>Edited at (UTC)</th><th>Author</th><th>Body snapshot</th></tr></thead>
         <tbody>
-          <tr><td><b>v2</b></td><td>2026-06-10 20:12</td>
-            <td>Kopi senja di dekat alun-alun ☕ Promo beli 1 gratis 1! <span class="sub">+ “Lokasi di bio.” ditambahkan di v3</span></td></tr>
-          <tr><td><b>v1</b></td><td>2026-06-10 19:58</td>
+          <tr><td><b>Versi ke-2</b></td><td>2026-06-10 20:12</td><td><a>rina.sore</a></td>
+            <td>Kopi senja di dekat alun-alun ☕ Promo beli 1 gratis 1! <span class="st info">lokasi berubah</span></td></tr>
+          <tr><td><b>Versi ke-1</b></td><td>2026-06-10 19:58</td><td><a>rina.sore</a></td>
             <td>Kopi senja di dekat alun-alun ☕</td></tr>
         </tbody>
       </table>
-      <div class="banner info"><span class="ms">info</span>
-        <span>Versi = <code>ROW_NUMBER()</code> atas <code>post_edits</code> (riwayat juga tampil ke
-        user sebagai “Riwayat edit”). Read-only; aksi moderasi konten tetap lewat Report Queue.</span></div>
+      <div class="pager"><div class="btn text"><span class="ms">expand_more</span>Load older</div></div>
     </div>
   </div>
   <div class="cap">
     <h3>8 · Post Edit History <span class="path">— GET /admin/posts/{id}/edits</span></h3>
-    <p>docs/07 § Post Edit History + docs/08 Phase 3.5 #17: akses penuh riwayat edit via halaman
-    detail post (baca <code>post_edits</code>, tampilan versi ROW_NUMBER), tautan balik ke laporan
-    terhadap post. Pasangan dari filter “post has edit history” di Report Queue (#191) — keduanya
-    melayani prioritisasi review konten yang diedit setelah dilaporkan.</p>
-    <span class="tag usulan">Usulan</span>
+    <p>Mirror <code>post-edits.peb</code> + <code>post-edits-table.peb</code> (spec
+    <code>admin-post-edit-history</code>, #421; docs/07 § Post Edit History): live post sebagai
+    “Versi terbaru” di atas, lalu snapshot <code>post_edits</code> newest-first “Versi ke-N” dengan
+    kolom author; chip netral “lokasi berubah” saja — koordinat tidak pernah dirender. Keyset “Load
+    older” (live version hanya di halaman pertama). Dicapai dari kartu Report Queue, bukan dari nav;
+    tanpa kontrol aksi apa pun. Filter “post has edit history” di Report Queue tetap usulan (#191).</p>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
@@ -892,9 +905,9 @@ after:  { is_banned: true,
       <div class="admchip"><span class="av">O</span>oka<span class="rolechip owner">OWNER</span></div></div>
     <div class="main">
       <div class="pg">Redact chat message</div>
-      <p class="pg-sub">Severe violations only (PII leak, doxxing) · reachable from a chat_message report row</p>
+      <p class="pg-sub">Severe violations only (PII leak, doxxing) · reported message ±2 context · reachable from a chat_message report row</p>
       <div class="two-col">
-        <div class="cardlet" style="margin-top:14px;"><h4><span class="ms">forum</span>Context (reported message ±2)</h4>
+        <div class="cardlet" style="margin-top:14px;"><h4><span class="ms">flag</span>Context (reported message ±2)</h4>
           <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
             <div style="background:var(--sc);border-radius:10px;padding:8px 12px;max-width:85%;">oke, ketemu di kafe biasa ya</div>
             <div style="background:var(--error-container);color:var(--on-error-container);border:1px solid var(--error);border-radius:10px;padding:8px 12px;max-width:85%;">
@@ -902,26 +915,29 @@ after:  { is_banned: true,
               <span class="sub" style="color:inherit;">msg 51aa02f7 · 2026-06-11 08:30 UTC</span></div>
             <div style="background:var(--sc);border-radius:10px;padding:8px 12px;max-width:85%;align-self:flex-end;">woi jangan sebar alamat orang</div>
           </div></div>
-        <div class="cardlet" style="margin-top:14px;"><h4><span class="ms">chat_error</span>Redaction</h4>
+        <div class="cardlet" style="margin-top:14px;"><h4><span class="ms">block</span>Redaction</h4>
           <div class="field" style="margin-top:10px;"><label>Redaction reason (required)</label>
             <div class="ctl" style="min-width:100%;">doxxing — home address shared without consent</div></div>
           <div class="btn danger sm" style="margin-top:12px;"><span class="ms">block</span>Redact message</div>
           <div class="banner warn" style="margin-top:12px;"><span class="ms">warning</span>
-            <span>Role <b>owner/admin</b> saja. <code>redacted_at</code> + <code>redacted_by</code> ditulis
-            atomik (CHECK), partisipan menerima notifikasi <code>chat_message_redacted</code>; klien
-            merender “Pesan ini telah dihapus oleh moderator.” Audit:
+            <span>Role <b>owner/admin</b> only. <code>redacted_at</code> + <code>redacted_by</code> are
+            written atomically; both active participants receive a <code>chat_message_redacted</code>
+            notification; clients render “Pesan ini telah dihapus oleh moderator.” Audit:
             <code>admin_chat_redaction</code>.</span></div>
         </div>
       </div>
     </div>
   </div>
   <div class="cap">
-    <h3>9 · Chat Message Redaction <span class="path">— POST /admin/chat-messages/{id}/redact</span></h3>
-    <p>docs/07 § Chat Message Redaction + docs/08 Phase 3.5 #23 &amp; Phase 4 #24: redaksi pesan chat
-    untuk pelanggaran berat. Konteks chat ditampilkan terbatas (pesan dilaporkan ±2) — selaras
-    disclosure “admin-readable untuk appeal moderasi” di kebijakan privasi (docs/02 § chat).
-    CSRF-verified; reason wajib; atomicity CHECK <code>redacted_at</code>+<code>redacted_by</code>.</p>
-    <span class="tag usulan">Usulan</span>
+    <h3>9 · Chat Message Redaction <span class="path">— GET /admin/chat-messages/{id} · POST …/{id}/redact</span></h3>
+    <p>Mirror <code>chat-redaction.peb</code> + <code>chat-redaction-panel.peb</code> (spec
+    <code>admin-chat-message-redaction</code>, #290; docs/07 § Chat Message Redaction): redaksi pesan
+    chat untuk pelanggaran berat. Konteks chat ditampilkan terbatas (pesan dilaporkan ±2) — selaras
+    disclosure “admin-readable untuk appeal moderasi” di kebijakan privasi (docs/02 § chat); pesan
+    yang sudah diredaksi tampil sebagai placeholder, bukan isi aslinya. CSRF-verified; reason wajib
+    + <code>hx-confirm</code>; atomicity CHECK <code>redacted_at</code>+<code>redacted_by</code>.
+    Dicapai dari baris report <code>chat_message</code>, bukan dari nav.</p>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
@@ -1028,36 +1044,34 @@ after:  { is_banned: true,
       </div>
       <table class="tbl">
         <thead><tr><th>Identifier hash</th><th>Type</th><th>Reason</th><th>Rejected at (UTC)</th>
-          <th style="width:170px;">Clear <span class="tag usulan" style="margin:0;padding:1px 6px;">USULAN #190</span></th></tr></thead>
+          <th style="width:300px;">Actions</th></tr></thead>
         <tbody>
           <tr><td><span class="code">9f8a3c…d41e</span></td><td>google</td><td>age_under_18</td>
             <td>2026-06-11 06:21</td>
-            <td><div class="btn outl sm"><span class="ms">lock_open</span>Clear for re-verify</div></td></tr>
+            <td><div style="display:flex;gap:6px;align-items:center;"><div class="field"><div class="ctl" style="min-width:170px;"><span class="ph">Reason (required)</span></div></div><div class="btn danger sm">Clear</div></div></td></tr>
           <tr><td><span class="code">77b1e0…2a9c</span></td><td>google</td><td>age_under_18</td>
             <td>2026-06-10 22:48</td>
-            <td><div class="btn outl sm"><span class="ms">lock_open</span>Clear for re-verify</div></td></tr>
+            <td><div style="display:flex;gap:6px;align-items:center;"><div class="field"><div class="ctl" style="min-width:170px;"><span class="ph">Reason (required)</span></div></div><div class="btn danger sm">Clear</div></div></td></tr>
           <tr><td><span class="code">c54d92…88f0</span></td><td>apple</td><td>attestation_persistent_fail</td>
             <td>2026-06-10 18:02</td>
-            <td><div class="btn outl sm"><span class="ms">lock_open</span>Clear for re-verify</div></td></tr>
+            <td><div style="display:flex;gap:6px;align-items:center;"><div class="field"><div class="ctl" style="min-width:170px;"><span class="ph">Reason (required)</span></div></div><div class="btn danger sm">Clear</div></div></td></tr>
         </tbody>
       </table>
       <div class="pager"><div class="btn text"><span class="ms">expand_more</span>Load older</div></div>
       <div class="banner info"><span class="ms">info</span>
-        <span>Spike detection: pantau summary per-reason/per-type. Kolom “Clear” (usulan
-        <a href="https://github.com/aditrioka/nearyou-id/issues/190" style="color:inherit;">#190</a>) untuk
-        re-verifikasi dewasa yang sah via tiket support — role-gated + CSRF + audit + rate-limited;
-        sampai ship, clearing = jalur SQL out-of-band.</span></div>
+        <span>Spike detection: pantau summary per-reason/per-type. Kolom “Actions” (owner/admin saja)
+        untuk re-verifikasi dewasa yang sah via tiket support — reason wajib + <code>hx-confirm</code>,
+        CSRF, audit, dihitung kuota destruktif; moderator/read_only melihat tabel tanpa kolom ini.</span></div>
     </div>
   </div>
   <div class="cap">
-    <h3>10 · Rejected Identifiers viewer + clear action <span class="path">— GET /admin/rejected-identifiers · POST …/{id}/clear (usulan)</span></h3>
+    <h3>10 · Rejected Identifiers viewer + clear action <span class="path">— GET /admin/rejected-identifiers · POST …/{id}/clear</span></h3>
     <p>Mirror <code>rejected-identifiers.peb</code> + tabelnya: filter reason/type (select) + rentang
     tanggal UTC, summary count per-reason/per-type (di dalam fragment swap supaya ikut ter-update),
     kolom hash/type/reason/rejected-at, keyset <code>(rejected_at, id)</code>. Hash-only — disiplin
-    PII. Akses semua role admin. Aksi clear per-row = fast-follow
-    <code>admin-rejected-identifiers-clear-action</code> (#190). Spec:
+    PII. Akses baca semua role admin; aksi clear per-row owner/admin saja (#349, issue #190). Spec:
     <code>admin-rejected-identifiers-viewer</code>.</p>
-    <span class="tag ada">Sudah ada</span><span class="tag usulan">+ clear action (Usulan)</span>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
@@ -1115,6 +1129,9 @@ after:  { is_banned: true,
     <div class="main">
       <div class="pg">Block User Registry <span class="st neut" style="vertical-align:2px;">READ-ONLY</span></div>
       <p class="pg-sub">Search block pairs in user_blocks — dispute resolution / support tickets only</p>
+      <div class="banner info" style="margin-top:12px;"><span class="ms">info</span>
+        <span>Read-only — no create/remove block on behalf of a user. Block enforcement in the
+        product path stays via the bidirectional NOT-IN join (invariant BlockExclusionJoinRule).</span></div>
       <div class="filters">
         <div class="field"><label>Username or user ID (either side)</label>
           <div class="ctl" style="min-width:320px;"><span class="ms">search</span>budi_kopi</div></div>
@@ -1129,17 +1146,17 @@ after:  { is_banned: true,
             <td><a>akun_promosi99</a></td><td>2026-05-21 08:17</td><td>yes (mutual)</td></tr>
         </tbody>
       </table>
-      <div class="banner info"><span class="ms">info</span>
-        <span>Hanya pembacaan — tidak ada aksi create/remove block atas nama user. Enforcement blokir
-        di product path tetap via join NOT-IN bidirectional (invariant BlockExclusionJoinRule).</span></div>
+      <div class="pager"><div class="btn text"><span class="ms">expand_more</span>Load older</div></div>
     </div>
   </div>
   <div class="cap">
     <h3>12 · Block User Registry <span class="path">— GET /admin/blocks</span></h3>
-    <p>docs/07 § Block User Registry: pencarian pasangan blokir read-only untuk resolusi sengketa.
-    Tidak menambah/menghapus blokir. Menjaga ekspektasi privasi: surface ini bukti “siapa memblokir
-    siapa” hanya untuk konteks tiket support.</p>
-    <span class="tag usulan">Usulan</span>
+    <p>Mirror <code>block-registry.peb</code> + <code>block-registry-table.peb</code> (spec
+    <code>admin-block-registry</code>, #264; docs/07 § Block User Registry): pencarian pasangan blokir
+    read-only untuk resolusi sengketa (satu field, cocok username atau user ID di sisi mana pun),
+    keyset “Load older”. Tidak menambah/menghapus blokir. Menjaga ekspektasi privasi: surface ini
+    bukti “siapa memblokir siapa” hanya untuk konteks tiket support.</p>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
@@ -1153,55 +1170,70 @@ after:  { is_banned: true,
       <div class="spacer"></div><span class="envchip">STAGING</span>
       <div class="admchip"><span class="av">O</span>oka<span class="rolechip admin">ADMIN</span></div></div>
     <div class="main">
-      <div class="banner err" style="margin-top:0;"><span class="ms">gpp_maybe</span>
-        <span><b>1 unprocessed CF notification.</b> Review immediately — SOP target: same business day.
-        Handler invocation requires role <b>admin</b>+ and a valid CSRF token.</span></div>
+      <div class="pg">CSAM Detection Log</div>
+      <p class="pg-sub">csam_detection_archive — legal-preservation record (one row per matched image). Image
+        content is NEVER rendered here; only the image hash + on-demand, audit-logged decrypted metadata.</p>
+      <div class="banner err"><span class="ms">gpp_maybe</span>
+        <span><b>1 match with no Kominfo filing yet.</b> Review and file immediately — SOP target: same
+        business day. Recording a filing releases the row to the daily purge worker after its 90-day deadline.</span></div>
       <div class="cardlet"><h4><span class="ms">bolt</span>Admin-triggered handler (MVP path)</h4>
         <div class="filters" style="margin-top:8px;">
-          <div class="field"><label>Matched URL / image_id (from CF email)</label>
-            <div class="ctl" style="min-width:430px;">img.nearyou.id/p/4f1c09aa…</div></div>
+          <div class="field"><label>image_id (from CF email)</label>
+            <div class="ctl" style="min-width:240px;"><span class="ph">Cloudflare image id</span></div></div>
+          <div class="field"><label>image_hash (from CF email)</label>
+            <div class="ctl" style="min-width:240px;"><span class="ph">matched image hash</span></div></div>
           <div class="btn danger"><span class="ms">bolt</span>Invoke takedown handler</div>
         </div>
         <div style="font-size:11px;color:var(--on-surface-variant);margin-top:8px;">
-          Runs atomically: hard-delete post → permanent ban + token_version bump → cascade-delete
-          author's other posts → AES-256-GCM metadata archive → Kominfo report queue. Fully audit-logged
-          (before/after state).</div></div>
+          Runs atomically: tombstone post → permanent ban + token_version bump → cascade-tombstone the
+          uploader's other posts → AES-256-GCM metadata archive → Kominfo report queue. Fully audit-logged
+          (before/after state). A wrong image_id with no live upload archives only (no ban/cascade).</div></div>
       <div class="filters">
-        <div class="field"><label>Source</label><div class="ctl sel">any (cf_worker / admin_manual)</div></div>
+        <div class="field"><label>Source</label><div class="ctl sel"><span class="ph">any</span></div></div>
         <div class="field"><label>Kominfo status</label><div class="ctl sel"><span class="ph">any</span></div></div>
-        <div class="field"><label>From</label><div class="ctl"><span class="ms">calendar_today</span>2026-01-01</div></div>
+        <div class="field"><label>From (UTC)</label><div class="ctl"><span class="ms">calendar_today</span>2026-01-01</div></div>
+        <div class="field"><label>To (UTC)</label><div class="ctl"><span class="ms">calendar_today</span><span class="ph">—</span></div></div>
         <div class="btn filled"><span class="ms">filter_alt</span>Filter</div>
       </div>
+      <p style="margin-top:12px;font-size:12.5px;font-weight:700;">Pending Kominfo filing: 1</p>
       <table class="tbl">
-        <thead><tr><th>Detected (UTC)</th><th>Image hash</th><th>Source</th><th>Enforcement</th>
+        <thead><tr><th>Detected (UTC)</th><th>Image hash</th><th>Source</th><th>Enforcement / archive</th>
           <th>Kominfo</th><th>Unblock req</th></tr></thead>
         <tbody>
           <tr><td>2026-06-11 04:02</td><td><span class="code">a3f4…e2</span></td>
             <td><span class="st pend">admin_manual</span></td>
-            <td><span class="st err">PENDING REVIEW</span></td>
-            <td><span class="st neut">not filed</span></td><td>—</td></tr>
+            <td><span class="st ok">archived</span></td>
+            <td><span class="st neut">not filed</span>
+              <div style="display:flex;gap:6px;margin-top:6px;"><div class="field"><div class="ctl" style="min-width:150px;"><span class="ph">Kominfo report id (required)</span></div></div>
+              <div class="btn dangert sm"><span class="ms">gavel</span>File Kominfo</div></div></td>
+            <td>—</td></tr>
+          <tr><td colspan="6"><div class="btn outl sm"><span class="ms">key</span>Decrypt metadata</div></td></tr>
           <tr><td>2026-03-28 11:54</td><td><span class="code">0b77…9c</span></td>
             <td><span class="st info">cf_worker</span></td>
-            <td><span class="st ok">banned + archived</span></td>
-            <td><span class="code">KMF-2026-0312</span></td>
+            <td><span class="st ok">archived</span></td>
+            <td><span class="st ok">filed</span> <span class="code">KMF-2026-0312</span></td>
             <td><div class="btn outl sm">Review</div></td></tr>
+          <tr><td colspan="6"><div class="btn outl sm"><span class="ms">key</span>Decrypt metadata</div></td></tr>
         </tbody>
       </table>
+      <div class="pager"><div class="btn text"><span class="ms">expand_more</span>Next</div></div>
       <div class="banner info"><span class="ms">info</span>
-        <span>Dedup by <code>image_hash</code> (ON CONFLICT enriches <code>cf_match_id</code> tanpa
-        reset source). Decrypt <code>encrypted_metadata</code> hanya via helper panel — dibatasi role,
-        setiap decrypt tercatat di audit log.</span></div>
+        <span>Dedup is by <code>image_hash</code> (ON CONFLICT enriches <code>cf_match_id</code> without
+        resetting source). Decrypt <code>encrypted_metadata</code> only via the per-row helper — role-gated,
+        and every decrypt is recorded in the audit log. No image bytes are ever stored or rendered.</span></div>
     </div>
   </div>
   <div class="cap">
-    <h3>13 · CSAM Detection Log Viewer + handler + Kominfo <span class="path">— GET /admin/csam · POST /admin/csam/takedown (in-process handler)</span></h3>
-    <p>docs/07 § CSAM Detection Log Viewer + docs/06 (trigger path): arsip event
-    <code>csam_detection_archive</code> (filter source cf_worker vs admin_manual), invokasi handler
-    manual MVP (paste URL/image_id dari email CF), review unblock request, workflow Kominfo
-    (<code>kominfo_report_id</code>). Role gate: read-only admin DITOLAK memanggil handler
-    (test docs/08 Pre-Launch); replay CSRF lintas sesi ditolak. Konten gambar TIDAK pernah dirender
-    di panel — hanya hash + metadata.</p>
-    <span class="tag usulan">Usulan</span>
+    <h3>13 · CSAM Detection Log Viewer + handler + Kominfo <span class="path">— GET /admin/csam · POST /admin/csam/takedown · POST …/{id}/kominfo-report · POST …/{id}/decrypt</span></h3>
+    <p>Mirror <code>csam-log.peb</code> + <code>csam-log-table.peb</code> (spec
+    <code>admin-csam-detection-log</code>, #375; docs/07 § CSAM Detection Log Viewer + docs/06 trigger
+    path): arsip <code>csam_detection_archive</code> (filter source cf_worker vs admin_manual, status
+    Kominfo, rentang UTC), handler manual MVP in-process (paste image_id + image_hash dari email CF,
+    <code>hx-confirm</code>), filing Kominfo per baris (<code>kominfo_report_id</code>), decrypt metadata
+    per baris (diaudit), link review unblock ke console CF. Role gate admin+ untuk handler, filing dan
+    decrypt; replay CSRF lintas sesi ditolak. Konten gambar TIDAK pernah dirender di panel — hanya
+    hash + metadata.</p>
+    <span class="tag ada">Sudah ada</span>
   </div>
 </div>
 
