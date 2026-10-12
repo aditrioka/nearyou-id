@@ -27,6 +27,8 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -34,6 +36,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /** Comfortably unexpired so the Auth plugin attaches the Bearer without a proactive refresh. */
 private const val FUTURE_EPOCH = Long.MAX_VALUE / 2
@@ -174,8 +177,11 @@ class SettingsLogoutViewModelTest {
 
             vm.confirmLogout()
             vm.loggedOut.first { it }
-
             assertNull(store.read())
+            // #558: the RevenueCat logOut runs AFTER the loggedOut flip (intentional, see SettingsViewModel), on
+            // the MockEngine's thread, so await it. Real-time bound: runTest's virtual clock would fire it at once.
+            withContext(Dispatchers.Default) { withTimeout(5.seconds) { controller.logOutCalled.await() } }
+
             assertEquals(1, controller.logOutCount)
         }
 
