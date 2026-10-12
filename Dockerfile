@@ -22,7 +22,7 @@
 
 # ---- builder ---------------------------------------------------------------
 
-FROM eclipse-temurin:21.0.12_8-jdk-noble AS builder
+FROM eclipse-temurin:21.0.12.1_1-jdk-noble AS builder
 
 WORKDIR /workspace
 
@@ -95,7 +95,7 @@ RUN --mount=type=cache,target=/root/.gradle \
 
 # ---- runtime ---------------------------------------------------------------
 
-FROM eclipse-temurin:21.0.12_8-jre-noble AS runtime
+FROM eclipse-temurin:21.0.12.1_1-jre-noble AS runtime
 
 # Non-root user — Cloud Run doesn't enforce this, but it's a no-cost hardening
 # baseline and matches the "least privilege" principle in docs/06-Security-Privacy.md.
