@@ -23,15 +23,22 @@
 #     * secret slot:   export-peer-hash-secret  (keyed HMAC for peer references in the archive).
 #   Worker trigger:
 #     * the production trigger is Cloud Scheduler → `POST /internal/data-export-worker` with a
-#       Google-OIDC identity token whose audience == the API base URL. This script mints that
-#       token locally with `gcloud auth print-identity-token --audiences=<API_BASE>` (the
-#       invoking principal needs roles/run.invoker on the service); set TRIGGER_WORKER=0 to skip
-#       the worker push and rely on the real Cloud Scheduler cadence instead (then the poll in
-#       step 4 just waits for the scheduled run).
+#       Google-OIDC identity token minted by the invoker SA `scheduler-invoker-<env>`. The #544
+#       caller allowlist (INTERNAL_OIDC_ALLOWED_PRINCIPALS, deploy-staging.yml) rejects ANY other
+#       principal with 403, your own `gcloud auth print-identity-token` included, so this script
+#       force-runs the real job (`gcloud scheduler jobs run $SCHEDULER_JOB`, provisioned by
+#       provision-schedulers.sh) instead of calling the worker itself. The caller needs
+#       roles/cloudscheduler.jobRunner (or Owner) on the project. The run is async, so step 4's
+#       poll waits for the worker. Set TRIGGER_WORKER=0 to skip the force-run and wait for the
+#       `45 * * * *` WIB cadence instead (the default poll bound then stretches to 66 min, and
+#       the 15-min JWT is re-minted on a 401 mid-poll).
 #   Test user:
 #     * an existing staging users.id (NOT banned/suspended). Defaults to the canonical
 #       smoke-test user; override via arg 1. The JWT is minted via mint-dev-jwt.sh with the
-#       staging RSA key (mirrors smoke-premium-search.sh) — see step 1.
+#       staging RSA key (mirrors smoke-premium-search.sh) — see step 1. For staging:
+#         KTOR_RSA_PRIVATE_KEY="$(gcloud secrets versions access latest \
+#           --secret=staging-ktor-rsa-private-key --project=nearyou-staging)" \
+#           dev/scripts/smoke-account-data-export.sh
 #
 # Usage:
 #   dev/scripts/smoke-account-data-export.sh [--api-base <url>] [<user-uuid>]
@@ -39,8 +46,11 @@
 #     <user-uuid>  defaults to the canonical staging smoke-test user
 #   Env:
 #     KTOR_RSA_PRIVATE_KEY   staging RSA signing key for the JWT mint (see step 1).
-#     TRIGGER_WORKER=0       skip the OIDC worker push; wait for the scheduled run instead.
-#     POLL_TRIES / POLL_SLEEP   ready-poll bound (default 10 × 3s).
+#     TRIGGER_WORKER=0       skip the scheduler force-run; wait for the scheduled run instead.
+#     SCHEDULER_JOB / PROJECT_ID / REGION   the job to force-run (defaults:
+#                            nearyou-data-export-worker-staging / nearyou-staging / asia-southeast1).
+#     POLL_TRIES / POLL_SLEEP   ready-poll bound (default 40 × 6s = 4 min after a force-run;
+#                            660 × 6s = 66 min with TRIGGER_WORKER=0, one full hourly cadence).
 #
 # Exit codes: 0 pass · 1 assertion failed · 2 usage / mint / prerequisite error.
 set -euo pipefail
@@ -49,8 +59,13 @@ API_BASE="https://api-staging.nearyou.id"
 # Canonical staging smoke-test user (smoketest_adi); mirror mint-staging-jwt.sh's default.
 USER_UUID="986142e3-0f12-43fd-92a5-cf40e1b70bd4"
 TRIGGER_WORKER="${TRIGGER_WORKER:-1}"
-POLL_TRIES="${POLL_TRIES:-10}"
-POLL_SLEEP="${POLL_SLEEP:-3}"
+SCHEDULER_JOB="${SCHEDULER_JOB:-nearyou-data-export-worker-staging}"
+PROJECT_ID="${PROJECT_ID:-nearyou-staging}"
+REGION="${REGION:-asia-southeast1}"
+# A force-run is async (cold start + gather + R2 upload; 180s attempt deadline), so 4 min covers
+# it. Without one, the next `45 * * * *` tick can be up to an hour away.
+if [[ "$TRIGGER_WORKER" == "1" ]]; then POLL_TRIES="${POLL_TRIES:-40}"; else POLL_TRIES="${POLL_TRIES:-660}"; fi
+POLL_SLEEP="${POLL_SLEEP:-6}"
 
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -84,9 +99,15 @@ ok "health ready (200)"
 # 1. Mint a JWT for the test user (staging RSA key via KTOR_RSA_PRIVATE_KEY).
 #    Mirrors smoke-premium-search.sh step 1.
 # ----------------------------------------------------------------------------
-JWT="$("$repo_root/dev/scripts/mint-dev-jwt.sh" "$USER_UUID")"
-[[ -n "$JWT" ]] || { echo "ERROR: JWT mint failed (check KTOR_RSA_PRIVATE_KEY)." >&2; exit 2; }
-AUTH=(-H "Authorization: Bearer $JWT")
+# A non-local target means KTOR_RSA_PRIVATE_KEY is a REAL signing key: MINT_NO_DAEMON keeps it out
+# of a long-lived Gradle daemon's environment (same guard as mint-staging-jwt.sh).
+[[ "$API_BASE" == http://localhost* ]] || export MINT_NO_DAEMON=1
+mint() {
+    JWT="$("$repo_root/dev/scripts/mint-dev-jwt.sh" "$USER_UUID")"
+    [[ -n "$JWT" ]] || { echo "ERROR: JWT mint failed (check KTOR_RSA_PRIVATE_KEY)." >&2; exit 2; }
+    AUTH=(-H "Authorization: Bearer $JWT")
+}
+mint
 ok "JWT minted (${#JWT} chars)"
 echo
 
@@ -113,23 +134,16 @@ ok "re-POST export → same requestId (idempotent, no 2nd active row)"
 echo
 
 # ----------------------------------------------------------------------------
-# 3. Trigger the worker: POST /internal/data-export-worker with a Google-OIDC
-#    identity token (audience == API base). Mirrors how Cloud Scheduler invokes
-#    the /internal/* workers. Skippable via TRIGGER_WORKER=0.
+# 3. Trigger the worker by force-running its Cloud Scheduler job, so the call carries
+#    the allowlisted scheduler SA's OIDC token (a token you mint yourself gets 403 from
+#    the #544 allowlist). Async: step 4 polls for the result. Skippable via TRIGGER_WORKER=0.
 # ----------------------------------------------------------------------------
 if [[ "$TRIGGER_WORKER" == "1" ]]; then
-    OIDC=$(gcloud auth print-identity-token --audiences="$API_BASE" 2>/dev/null || true)
-    if [[ -z "$OIDC" ]]; then
-        warn "no OIDC token (gcloud auth print-identity-token failed) — skipping worker push; relying on the scheduled run"
-    else
-        WRESP=$(mktemp)
-        CODE=$(curl -s -o "$WRESP" -w "%{http_code}" --max-time 60 \
-            -H "Authorization: Bearer $OIDC" -X POST "$API_BASE/internal/data-export-worker")
-        [[ "$CODE" == "200" ]] || { cat "$WRESP" >&2; die "worker POST → $CODE (want 200; check OIDC audience + run.invoker IAM)"; }
-        ok "worker dispatched (200, processed=$(jq -r '.processed // "?"' "$WRESP") ready=$(jq -r '.ready // "?"' "$WRESP"))"
-    fi
+    gcloud scheduler jobs run "$SCHEDULER_JOB" --project="$PROJECT_ID" --location="$REGION" --quiet >/dev/null ||
+        { echo "ERROR: gcloud scheduler jobs run $SCHEDULER_JOB failed (needs roles/cloudscheduler.jobRunner; or set TRIGGER_WORKER=0)." >&2; exit 2; }
+    ok "scheduler job $SCHEDULER_JOB force-run (async; polling for the worker)"
 else
-    warn "TRIGGER_WORKER=0 — not pushing the worker; waiting for the Cloud Scheduler cadence"
+    warn "TRIGGER_WORKER=0 — not force-running the job; waiting for the Cloud Scheduler cadence"
 fi
 echo
 
@@ -140,7 +154,9 @@ echo
 SRESP=$(mktemp)
 READY=0
 for ((i = 1; i <= POLL_TRIES; i++)); do
-    curl -s -o "$SRESP" --max-time 15 "${AUTH[@]}" "$API_BASE/api/v1/account/export" || true
+    CODE=$(curl -s -o "$SRESP" -w "%{http_code}" --max-time 15 "${AUTH[@]}" "$API_BASE/api/v1/account/export" || true)
+    # The access JWT lives 15 min, so a cadence wait outlives it: re-mint and poll again.
+    if [[ "$CODE" == "401" ]]; then mint; continue; fi
     ST=$(jq -r '.status' "$SRESP" 2>/dev/null || echo "")
     if [[ "$ST" == "ready" ]]; then READY=1; break; fi
     if [[ "$ST" == "failed" || "$ST" == "expired" ]]; then die "status read returned terminal '$ST' (worker did not produce a ready export)"; fi
@@ -198,6 +214,19 @@ if [[ "$(head -c 2 "$ZIP")" == "PK" ]]; then
 else
     die "downloaded ${SIZE}B but it is not a ZIP (no PK magic; content-type=${CTYPE:-unset})"
 fi
+# Documented archive layout (docs/06 § Data Export Scope Matrix → DataExportArchiveService; the
+# same list DataExportWorkerTest "8.8" pins). Entry NAMES only are printed, never contents.
+ENTRIES=$(unzip -Z1 "$ZIP") || die "unzip could not read the archive's entry list"
+while IFS= read -r e; do echo "        $e"; done <<<"$ENTRIES"
+for f in profile.json username_history.csv posts.csv post_edits.csv likes.csv replies.csv \
+    follows.csv blocks.csv chat_messages.csv reports.csv notifications.csv moderation_actions.csv \
+    session_history.csv subscription_history.csv manifest.json README.txt; do
+    grep -qxF "$f" <<<"$ENTRIES" || die "archive is missing documented entry $f"
+done
+MANIFEST_FILES=$(unzip -p "$ZIP" manifest.json | jq -er '.files[]') || die "manifest.json has no readable files array"
+MANIFEST_MISSING=$(grep -vxF -f <(echo "$ENTRIES") <<<"$MANIFEST_FILES" || true)
+[[ -z "$MANIFEST_MISSING" ]] || die "manifest.json lists entries absent from the archive: $MANIFEST_MISSING"
+ok "archive has all 16 documented entries; every manifest.json file is present"
 echo
 
 # ----------------------------------------------------------------------------
