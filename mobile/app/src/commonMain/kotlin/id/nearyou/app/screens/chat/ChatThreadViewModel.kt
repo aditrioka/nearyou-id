@@ -27,7 +27,7 @@ import kotlin.uuid.Uuid
 
 /**
  * `ChatThreadRoute`-scoped ViewModel (design D4). It owns the merge of three message sources into one
- * ordered, id-deduplicated list (the pure [mergeChatMessages] + [chatMessageRows]):
+ * ordered, id-deduplicated list (the pure [mergeChatMessages] + [chatMessageRows] + [markDayStarts]):
  *  1. **REST history** — first page on entry + a REST resync on every (re)subscribe (no-outbox recovery);
  *     older pages on scroll-up via [loadOlder].
  *  2. **Optimistic sends** — appended locally on [send]; the temp client id is reconciled to the server
@@ -69,11 +69,7 @@ class ChatThreadViewModel(
     private var olderCursorSet: Boolean = false
     private var tempCounter: Int = 0
 
-    // True while an older page remains to load. The screen draws the first loaded row's day chip only once this is
-    // false (until then that row is not known to start its day).
-    private val _hasOlder = MutableStateFlow(false)
-    val hasOlder: StateFlow<Boolean> = _hasOlder.asStateFlow()
-
+    // The merged, day-marked rows ([markDayStarts]: the first loaded row's day chip waits until no older page remains).
     private val _rows = MutableStateFlow<List<ChatMessageRow>>(emptyList())
     val rows: StateFlow<List<ChatMessageRow>> = _rows.asStateFlow()
 
@@ -271,7 +267,6 @@ class ChatThreadViewModel(
     private fun setOlderCursor(cursor: String?) {
         olderCursor = cursor
         olderCursorSet = true
-        _hasOlder.value = cursor != null
     }
 
     private suspend fun resyncFirstPage(initial: Boolean) {
@@ -317,7 +312,7 @@ class ChatThreadViewModel(
 
     private fun recompute() {
         val merged = mergeChatMessages(rest.values.toList(), optimistic.values.toList(), realtime.values.toList())
-        _rows.value = chatMessageRows(merged, viewerId)
+        _rows.value = markDayStarts(chatMessageRows(merged, viewerId), hasOlder = olderCursor != null)
     }
 
     private fun parseConversationId(): Uuid = Uuid.parse(conversationId)

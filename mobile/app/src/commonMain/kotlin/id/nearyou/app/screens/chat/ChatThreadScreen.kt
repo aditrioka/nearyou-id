@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -72,14 +71,11 @@ import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.PremiumBadgeIcon
 import id.nearyou.app.ui.components.ReportDialog
-import id.nearyou.app.ui.components.localDateLabel
-import id.nearyou.app.ui.components.localDaysAgo
 import id.nearyou.app.ui.components.localTimeLabel
+import id.nearyou.app.ui.components.relativeDayLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_cap_upsell
-import id.nearyou.resources.generated.resources.chat_date_today
-import id.nearyou.resources.generated.resources.chat_date_yesterday
 import id.nearyou.resources.generated.resources.chat_error_too_long
 import id.nearyou.resources.generated.resources.chat_message_redacted
 import id.nearyou.resources.generated.resources.chat_send
@@ -196,7 +192,6 @@ fun ChatThreadScreen(
         }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
-    val hasOlder by viewModel.hasOlder.collectAsStateWithLifecycle()
     val sendOutcome by viewModel.sendOutcome.collectAsStateWithLifecycle()
     val sendInFlight by viewModel.sendInFlight.collectAsStateWithLifecycle()
     val reportTargetMessageId by viewModel.reportTargetMessageId.collectAsStateWithLifecycle()
@@ -259,7 +254,6 @@ fun ChatThreadScreen(
         onSend = { viewModel.send(input) },
         onRefresh = viewModel::retry,
         onLoadOlder = viewModel::loadOlder,
-        hasOlder = hasOlder,
         onReportMessage = viewModel::onReportMessageClicked,
         onOpenSharedPost = onOpenSharedPost,
         onBack = onBack,
@@ -308,7 +302,6 @@ private fun ChatThreadContent(
     onSend: () -> Unit,
     onRefresh: () -> Unit,
     onLoadOlder: () -> Unit,
-    hasOlder: Boolean,
     onReportMessage: (String) -> Unit,
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
     onBack: () -> Unit,
@@ -361,7 +354,7 @@ private fun ChatThreadContent(
                         message = stringResource(Res.string.timeline_session_redirect),
                         testTag = CHAT_THREAD_LIST_TAG,
                     )
-                is ChatThreadUiState.Content -> MessageList(uiState.rows, hasOlder, onLoadOlder, onReportMessage, onOpenSharedPost)
+                is ChatThreadUiState.Content -> MessageList(uiState.rows, onLoadOlder, onReportMessage, onOpenSharedPost)
             }
         }
     }
@@ -418,7 +411,6 @@ private fun ChatThreadTopBar(
 @Composable
 private fun MessageList(
     rows: List<ChatMessageRow>,
-    hasOlder: Boolean,
     onLoadOlder: () -> Unit,
     onReportMessage: (String) -> Unit,
     onOpenSharedPost: (postId: String, snapshot: EmbeddedPostSnapshot) -> Unit,
@@ -441,9 +433,11 @@ private fun MessageList(
         val shrank = rows.size < followedCount
         followedCount = rows.size
         if (lastId == null) return@LaunchedEffect
+        // The LazyColumn's last index: one item per message plus one per day chip.
+        val lastItemIndex = rows.size + rows.count { it.startsDay } - 1
         when {
-            followedLastId == null || shrank -> listState.scrollToItem(rows.lastIndex)
-            lastId != followedLastId -> listState.animateScrollToItem(rows.lastIndex)
+            followedLastId == null || shrank -> listState.scrollToItem(lastItemIndex)
+            lastId != followedLastId -> listState.animateScrollToItem(lastItemIndex)
         }
         followedLastId = lastId
         positioned = true
@@ -455,27 +449,29 @@ private fun MessageList(
             .distinctUntilChanged()
             .collect { atTop -> if (atTop) onLoadOlder() }
     }
-    // Frame 5 day chip: above each row that starts a local calendar day. The first loaded row only counts once
-    // no older page remains (before that it is not known to start its day). So an older page of the same day
-    // never moves a chip out of the reader's anchored row, which keeps the #565 prepend position exact.
-    val dayStartIds =
-        remember(rows, hasOlder) {
-            rows.filterIndexed { i, row ->
-                if (i == 0) !hasOlder else localDateLabel(row.createdAtIso) != localDateLabel(rows[i - 1].createdAtIso)
-            }.mapTo(HashSet()) { it.id }
-        }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag(CHAT_THREAD_LIST_TAG),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        items(items = rows, key = { it.id }, contentType = { "message" }) { row ->
-            // Realtime/optimistic rows animate in (mobile-design-system motion). The chip rides inside the row's
-            // item, so the items stay one per message and the id-keyed prepend anchoring is unchanged.
-            Column(modifier = Modifier.fillMaxWidth().animateItem()) {
-                if (row.id in dayStartIds) DayChip(row.createdAtIso)
-                MessageBubble(row = row, onReport = onReportMessage, onOpenSharedPost = onOpenSharedPost)
+        rows.forEach { row ->
+            // Frame 5 day chip (the VM's ChatMessageRow.startsDay) is its OWN keyed item above the row. A chip that
+            // appears when an older page of an earlier day lands is inserted above the reader's anchored row instead
+            // of growing it, so the #565 prepend position stays exact across days too.
+            if (row.startsDay) {
+                item(key = "day-" + row.id, contentType = "dayChip") {
+                    DayChip(instantIso = row.createdAtIso, modifier = Modifier.animateItem())
+                }
+            }
+            // Realtime/optimistic rows animate in (mobile-design-system motion).
+            item(key = row.id, contentType = "message") {
+                MessageBubble(
+                    row = row,
+                    onReport = onReportMessage,
+                    onOpenSharedPost = onOpenSharedPost,
+                    modifier = Modifier.animateItem(),
+                )
             }
         }
     }
@@ -483,21 +479,17 @@ private fun MessageList(
 
 /**
  * The frame-5 day chip (`datechip`: surfaceContainerHigh, 8dp corners, 12/5 padding, 6dp above / 10dp below):
- * "Hari ini", "Kemarin", or the date of [instantIso] in the device time zone.
+ * the [relativeDayLabel] of [instantIso] ("Hari ini", "Kemarin", or the date in the device time zone).
  */
 @Composable
-private fun DayChip(instantIso: String) {
-    val label =
-        when (localDaysAgo(instantIso)) {
-            null -> localDateLabel(instantIso)
-            in Int.MIN_VALUE..0 -> stringResource(Res.string.chat_date_today)
-            1 -> stringResource(Res.string.chat_date_yesterday)
-            else -> localDateLabel(instantIso)
-        }
-    Box(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), contentAlignment = Alignment.Center) {
+private fun DayChip(
+    instantIso: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), contentAlignment = Alignment.Center) {
         Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = RoundedCornerShape(8.dp)) {
             Text(
-                text = label,
+                text = relativeDayLabel(instantIso),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

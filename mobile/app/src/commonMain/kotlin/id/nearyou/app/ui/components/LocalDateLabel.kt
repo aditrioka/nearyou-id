@@ -1,8 +1,22 @@
 package id.nearyou.app.ui.components
 
+import androidx.compose.runtime.Composable
+import id.nearyou.resources.generated.resources.Res
+import id.nearyou.resources.generated.resources.date_today
+import id.nearyou.resources.generated.resources.date_yesterday
+import id.nearyou.resources.generated.resources.weekday_short_fri
+import id.nearyou.resources.generated.resources.weekday_short_mon
+import id.nearyou.resources.generated.resources.weekday_short_sat
+import id.nearyou.resources.generated.resources.weekday_short_sun
+import id.nearyou.resources.generated.resources.weekday_short_thu
+import id.nearyou.resources.generated.resources.weekday_short_tue
+import id.nearyou.resources.generated.resources.weekday_short_wed
+import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.daysUntil
 import kotlinx.datetime.toLocalDateTime
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -45,3 +59,49 @@ fun localDaysAgo(
     val date = Instant.parseOrNull(instantIso)?.toLocalDateTime(zone)?.date ?: return null
     return date.daysUntil(now.toLocalDateTime(zone).date)
 }
+
+/**
+ * The relative DAY of [instantIso] in the device time zone: today → "Hari ini", yesterday → "Kemarin", anything
+ * else (or a value that is not a full instant) → the date. The chat thread's day chip (mockup frame 5).
+ */
+@Composable
+fun relativeDayLabel(
+    instantIso: String,
+    now: Instant = Clock.System.now(),
+): String =
+    when (localDaysAgo(instantIso, now)) {
+        null -> localDateLabel(instantIso)
+        in Int.MIN_VALUE..0 -> stringResource(Res.string.date_today)
+        1 -> stringResource(Res.string.date_yesterday)
+        else -> localDateLabel(instantIso)
+    }
+
+/**
+ * The relative day-or-time of [instantIso] in the device time zone: today → the clock time ("09.12"), yesterday →
+ * "Kemarin", the rest of the past week → the short weekday ("Sel"), anything older → the date. A value that is not a
+ * full instant renders its date portion. The conversation row's last-message time (mockup frame 2).
+ */
+@Composable
+fun relativeDayTimeLabel(
+    instantIso: String,
+    now: Instant = Clock.System.now(),
+): String {
+    val daysAgo = localDaysAgo(instantIso, now) ?: return localDateLabel(instantIso)
+    return when {
+        daysAgo <= 0 -> localTimeLabel(instantIso) ?: localDateLabel(instantIso)
+        daysAgo == 1 -> stringResource(Res.string.date_yesterday)
+        daysAgo < 7 -> stringResource(weekdayShortLabel(instantIso))
+        else -> localDateLabel(instantIso)
+    }
+}
+
+private fun weekdayShortLabel(instantIso: String): StringResource =
+    when (Instant.parse(instantIso).toLocalDateTime(TimeZone.currentSystemDefault()).dayOfWeek) {
+        DayOfWeek.MONDAY -> Res.string.weekday_short_mon
+        DayOfWeek.TUESDAY -> Res.string.weekday_short_tue
+        DayOfWeek.WEDNESDAY -> Res.string.weekday_short_wed
+        DayOfWeek.THURSDAY -> Res.string.weekday_short_thu
+        DayOfWeek.FRIDAY -> Res.string.weekday_short_fri
+        DayOfWeek.SATURDAY -> Res.string.weekday_short_sat
+        DayOfWeek.SUNDAY -> Res.string.weekday_short_sun
+    }

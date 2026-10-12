@@ -288,7 +288,7 @@ The first time a user successfully sends a message (a per-install one-shot), the
 
 ### Requirement: Chat navigation uses serializable root-stack routes with no PII
 
-`ConversationListRoute` (parameterless `@Serializable data object`) and `ChatThreadRoute` (`@Serializable data class` carrying `conversationId: String` + the partner display fields `partnerUsername`/`partnerDisplayName`, both defaulted) SHALL be declared in `NavKeys.kt` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack). Both SHALL be pushed onto the ROOT back stack (overlaying the section shell), mirroring `PostDetailRoute`. `ChatThreadRoute` SHALL NOT declare a partner user-UUID property or any coordinate property (PII must not enter the serialized back stack).
+`ConversationListRoute` (parameterless `@Serializable data object`) and `ChatThreadRoute` (`@Serializable data class` carrying `conversationId: String` + the partner display fields `partnerUsername`/`partnerDisplayName` (defaulted `""`) and the display-only Premium badge flag `partnerIsPremium: Boolean` (defaulted `false`, so a back stack saved before it existed still decodes)) SHALL be declared in `NavKeys.kt` and registered in the `navSavedStateConfiguration` polymorphic `SerializersModule` (the iOS-saveable back stack). Both SHALL be pushed onto the ROOT back stack (overlaying the section shell), mirroring `PostDetailRoute`. `ChatThreadRoute` SHALL NOT declare a partner user-UUID property or any coordinate property (PII must not enter the serialized back stack).
 
 #### Scenario: ChatThreadRoute carries no PII
 - **WHEN** inspecting `ChatThreadRoute`

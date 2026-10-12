@@ -52,7 +52,7 @@ fun PushTapNavigationEffect(backStack: NavBackStack<NavKey>) {
                         bodyData = parseBodyData(routing),
                     )
                 when (val res = resolver.resolve(intent)) {
-                    is NotificationNavTargetResolver.Resolution.Target -> backStack.push(res.target)
+                    is NotificationNavTargetResolver.Resolution.Target -> backStack.add(res.target.toNavKey())
                     // The tap only opens the app — no navigation, no blocking affordance.
                     NotificationNavTargetResolver.Resolution.PostUnavailable,
                     NotificationNavTargetResolver.Resolution.None,
@@ -76,20 +76,18 @@ private fun parseBodyData(routing: PushTapRouting): JsonElement {
     }
 }
 
-private fun NavBackStack<NavKey>.push(target: NotificationNavTarget) {
-    when (target) {
-        is NotificationNavTarget.Post -> add(target.target.toRoute())
-        is NotificationNavTarget.Profile -> add(ProfileRoute(userId = target.userId))
+/** The root-stack route a resolved push-tap target opens (the same routes the in-app notification row pushes). */
+internal fun NotificationNavTarget.toNavKey(): NavKey =
+    when (this) {
+        is NotificationNavTarget.Post -> target.toRoute()
+        is NotificationNavTarget.Profile -> ProfileRoute(userId = userId)
         // No push is sent for appeal_decided today (in-app only); kept for the exhaustive shared resolver.
-        NotificationNavTarget.Appeal -> add(AppealRoute)
+        NotificationNavTarget.Appeal -> AppealRoute
         is NotificationNavTarget.ChatThread ->
-            add(
-                ChatThreadRoute(
-                    conversationId = target.conversationId,
-                    partnerUsername = target.partnerUsername,
-                    partnerDisplayName = target.partnerDisplayName,
-                    partnerIsPremium = target.partnerIsPremium,
-                ),
+            ChatThreadRoute(
+                conversationId = conversationId,
+                partnerUsername = partnerUsername,
+                partnerDisplayName = partnerDisplayName,
+                partnerIsPremium = partnerIsPremium,
             )
     }
-}

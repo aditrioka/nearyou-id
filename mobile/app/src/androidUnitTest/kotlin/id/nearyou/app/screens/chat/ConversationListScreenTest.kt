@@ -12,12 +12,29 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ConversationDto
 import id.nearyou.app.chat.ConversationListItemDto
 import id.nearyou.app.chat.ConversationListOutcome
 import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.chat.FakeChatFlow
+import id.nearyou.app.chat.FakeChatRealtimeSubscriber
 import id.nearyou.app.chat.FakeConversationsFlow
 import id.nearyou.app.chat.PartnerProfileDto
+import id.nearyou.app.chat.ViewerIdProvider
+import id.nearyou.app.data.report.FakeReportSubmitter
+import id.nearyou.app.data.report.ReportSubmitter
+import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.notifications.FakeNotificationPermissionController
+import id.nearyou.app.notifications.FakeNotificationPromptOneShot
+import id.nearyou.app.notifications.NotificationPermissionController
+import id.nearyou.app.notifications.NotificationPermissionStatus
+import id.nearyou.app.notifications.NotificationPromptOneShot
+import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.screens.routing.ConversationListRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.app.ui.components.localTimeLabel
@@ -81,7 +98,22 @@ class ConversationListScreenTest {
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         fake = FakeConversationsFlow(outcome = outcome, suspendForever = suspendForever)
-        startKoin { modules(module { single<ConversationsFlow> { fake } }) }
+        startKoin {
+            modules(
+                module {
+                    single<ConversationsFlow> { fake }
+                    // The host test lands on the chat thread after a row tap.
+                    single<ChatFlow> { FakeChatFlow() }
+                    single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
+                    single<ViewerIdProvider> { ViewerIdProvider { "viewer" } }
+                    single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<NotificationPermissionController> {
+                        FakeNotificationPermissionController(NotificationPermissionStatus.GRANTED)
+                    }
+                    single<NotificationPromptOneShot> { FakeNotificationPromptOneShot(claimed = true) }
+                },
+            )
+        }
     }
 
     @AfterTest
@@ -147,6 +179,21 @@ class ConversationListScreenTest {
             assertEquals("c1", tapped?.conversationId)
             assertEquals("Dewi Lestari", tapped?.partnerDisplayName)
             assertEquals("dewi.kuliner", tapped?.partnerUsername)
+        }
+    }
+
+    // Under the REAL appEntryProvider a row tap pushes the thread with the row's display identity AND its Premium flag
+    // (the thread header badge, #286).
+    @Test
+    fun rowTap_underHost_pushesTheThreadRouteWithThePartnerPremiumFlag() {
+        installKoin(ConversationListOutcome.Loaded(listOf(item("c1", isPremium = true)), null))
+        lateinit var backStack: NavBackStack<NavKey>
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(ConversationListRoute, onBackStack = { backStack = it }) } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CONVERSATION_ROW_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { backStack.last() is ChatThreadRoute }
+            assertEquals(ChatThreadRoute("c1", "dewi.kuliner", "Dewi Lestari", partnerIsPremium = true), backStack.last())
         }
     }
 

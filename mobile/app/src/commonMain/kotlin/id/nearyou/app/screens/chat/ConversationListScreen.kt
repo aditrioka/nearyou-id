@@ -33,32 +33,16 @@ import id.nearyou.app.ui.components.ListCenteredMessageState
 import id.nearyou.app.ui.components.ListErrorState
 import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.app.ui.components.PremiumBadgeIcon
-import id.nearyou.app.ui.components.localDateLabel
-import id.nearyou.app.ui.components.localDaysAgo
-import id.nearyou.app.ui.components.localTimeLabel
+import id.nearyou.app.ui.components.relativeDayTimeLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
-import id.nearyou.resources.generated.resources.chat_date_yesterday
 import id.nearyou.resources.generated.resources.chat_list_empty
 import id.nearyou.resources.generated.resources.chat_list_loading
 import id.nearyou.resources.generated.resources.chat_list_title
-import id.nearyou.resources.generated.resources.chat_weekday_fri
-import id.nearyou.resources.generated.resources.chat_weekday_mon
-import id.nearyou.resources.generated.resources.chat_weekday_sat
-import id.nearyou.resources.generated.resources.chat_weekday_sun
-import id.nearyou.resources.generated.resources.chat_weekday_thu
-import id.nearyou.resources.generated.resources.chat_weekday_tue
-import id.nearyou.resources.generated.resources.chat_weekday_wed
 import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.timeline_session_redirect
-import kotlinx.datetime.DayOfWeek
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
-import kotlin.time.Clock
-import kotlin.time.Instant
 
 /** Test tag on the scrollable surface (every state renders one so pull-to-refresh works from each). */
 const val CONVERSATION_LIST_TAG: String = "conversationList"
@@ -165,7 +149,7 @@ private fun ConversationRows(
 
 /**
  * One frame-2 two-line row (12/16 padding, 16dp gaps): the shared [LetterAvatar] (40dp), the partner display
- * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message time ([lastMessageTimeLabel]).
+ * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message time ([relativeDayTimeLabel]).
  * The list wire carries `last_message_at` but not the message text, so the second line is the handle; the
  * per-conversation unread count waits on #272. Also the share-to-chat picker's row ([ConversationPickerScreen]),
  * so both lists show the same identity treatment.
@@ -216,7 +200,7 @@ internal fun ConversationRowItem(
         }
         row.lastMessageAtIso?.let { iso ->
             Text(
-                text = lastMessageTimeLabel(iso),
+                text = relativeDayTimeLabel(iso),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag(CONVERSATION_ROW_TIME_TAG),
@@ -224,33 +208,3 @@ internal fun ConversationRowItem(
         }
     }
 }
-
-/**
- * The frame-2 trailing time of a conversation's last message, relative to [now] in the device time zone: today
- * → the clock time ("09.12"), yesterday → "Kemarin", the rest of the past week → the short weekday ("Sel"),
- * anything older → the date. A value that is not a full instant renders its date portion.
- */
-@Composable
-internal fun lastMessageTimeLabel(
-    instantIso: String,
-    now: Instant = Clock.System.now(),
-): String {
-    val daysAgo = localDaysAgo(instantIso, now) ?: return localDateLabel(instantIso)
-    return when {
-        daysAgo <= 0 -> localTimeLabel(instantIso) ?: localDateLabel(instantIso)
-        daysAgo == 1 -> stringResource(Res.string.chat_date_yesterday)
-        daysAgo < 7 -> stringResource(weekdayShortLabel(instantIso))
-        else -> localDateLabel(instantIso)
-    }
-}
-
-private fun weekdayShortLabel(instantIso: String): StringResource =
-    when (Instant.parse(instantIso).toLocalDateTime(TimeZone.currentSystemDefault()).dayOfWeek) {
-        DayOfWeek.MONDAY -> Res.string.chat_weekday_mon
-        DayOfWeek.TUESDAY -> Res.string.chat_weekday_tue
-        DayOfWeek.WEDNESDAY -> Res.string.chat_weekday_wed
-        DayOfWeek.THURSDAY -> Res.string.chat_weekday_thu
-        DayOfWeek.FRIDAY -> Res.string.chat_weekday_fri
-        DayOfWeek.SATURDAY -> Res.string.chat_weekday_sat
-        DayOfWeek.SUNDAY -> Res.string.chat_weekday_sun
-    }

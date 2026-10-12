@@ -628,6 +628,39 @@ class ChatThreadScreenTest {
         }
     }
 
+    // #584 review: when the older page ends on an EARLIER day, the first newest-page row now starts a day. Its chip is
+    // its own list item inserted above the reader's anchored row, so that row does not move (a chip drawn inside the
+    // row's item pushed its bubble down by the chip's height).
+    @Test
+    fun loadOlder_fromAnEarlierDay_keepsTheScrollPosition_andHeadsTheNewDayWithAChip() {
+        val day2 = "2026-06-02T10:21:00Z"
+        val newestOnDay2 = (21..40).map { dto("m$it", content = "MSG_$it", createdAt = "2026-06-02T10:%02d:00Z".format(it)) }
+        installKoin(
+            historyOutcomes =
+                listOf(ChatThreadOutcome.Loaded(newestOnDay2, "older-cursor"), ChatThreadOutcome.Loaded(olderPage(), null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+
+            val olderGate = CompletableDeferred<Unit>()
+            flow.historyGate = olderGate
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            onAllNodesWithTag(CHAT_THREAD_DAY_CHIP_TAG, useUnmergedTree = true).assertCountEquals(0)
+            val before = onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y
+            olderGate.complete(Unit)
+            waitForIdle()
+
+            assertEquals(before, onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y, "the reader keeps their place")
+            // Just above the anchored row: the new day's chip (chip(m1), m1..m20, chip(m21), m21, …).
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(21)
+            waitForIdle()
+            onNodeWithText(localDateLabel(day2)).assertExists()
+        }
+    }
+
     // #565 / #584 review: the tail still follows a NEW newest row while the reader is scrolled up in a long
     // thread — a realtime inbound brings the newest message into view.
     @Test
