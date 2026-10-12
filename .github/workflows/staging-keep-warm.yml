@@ -33,17 +33,24 @@ jobs:
       - name: GET staging /health/ready
         run: |
           # A cold start (Cloud Run boot + Flyway + DB connect) can outlast one
-          # request, so retry before failing. 5 attempts sit far below the
-          # 60/min per-IP /health/* limit.
+          # request, so retry before failing: worst case 5 x 30 s + 4 x 20 s =
+          # 230 s. 5 attempts sit far below the 60/min per-IP /health/* limit.
           for attempt in 1 2 3 4 5; do
+            rm -f body.json # curl -o leaves an old body in place when nothing arrives
             code=$(curl -sS -o body.json -w '%{http_code}' --max-time 30 "$READY_URL") || true
             echo "attempt $attempt: HTTP $code"
             if [ "$code" = "200" ]; then
               cat body.json
               exit 0
             fi
-            sleep 20
+            if [ "$attempt" -lt 5 ]; then sleep 20; fi
           done
-          cat body.json 2>/dev/null || true
-          echo "::error::staging /health/ready did not return 200 after 5 attempts (last HTTP $code). A 503 body names the failing check; a paused Supabase project must be restored from its dashboard."
+          # Trailing echo: the JSON body has no newline, and ::error:: only
+          # annotates when it starts a line.
+          if [ -f body.json ]; then cat body.json; echo; fi
+          # The startup probe gates on /health/ready and staging scales to zero,
+          # so a paused Supabase or a removed Upstash DB usually means no
+          # instance ever becomes ready: HTTP 000 or a 5xx without JSON, not
+          # the app's JSON 503.
+          echo "::error::staging /health/ready did not return 200 after 5 attempts (last HTTP $code). HTTP 000 or a 5xx without a JSON body = no instance passed its startup probe (often a paused Supabase project or a removed Upstash database): check the Cloud Run logs, then the Supabase dashboard and the Upstash console. A JSON 503 = a store failed under a running instance; its body names the check. Runbook: docs/07-Operations.md § Staging keep-warm ping."
           exit 1

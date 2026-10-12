@@ -265,7 +265,7 @@ Parity ~90% with prod; the main gap, cross-region latency, is not replicable loc
 **Explicit spec reduction**: free tiers + scale-to-zero — sized for QA smoke tests and pre-deploy validation, NOT to match production traffic.
 
 **Stack**:
-- **Backend**: separate Cloud Run service `nearyou-api-staging`, scale-to-zero, min-instance 0, max 2 instances
+- **Backend**: separate Cloud Run service `nearyou-backend-staging`, scale-to-zero, min-instance 0, max 1 instance (Flyway runs at startup; `deploy-staging.yml`)
 - **Database**: separate Supabase project on **Free tier** (500MB cap, 7-day idle auto-pause; the weekday keep-warm ping `.github/workflows/staging-keep-warm.yml` hits `/health/ready`, which touches this database and the Upstash one, so neither goes idle; see `07-Operations.md` § Staging keep-warm ping)
 - **Cache**: separate Upstash Redis **Free tier** database
 - **Object storage**: separate Cloudflare R2 bucket `nearyou-staging`, 10GB Free tier
@@ -324,7 +324,7 @@ Before Phase 3.5, only `dev` exists on a laptop. Staging is provisioned during P
 
 Free tier for all dev-phase components: Cloud Run (backend) + Cloud Run Jobs (backup + migrations); Supabase Free (500MB, 1-week idle auto-pause acceptable in dev); Upstash Free; Cloudflare R2 Free (10GB); FCM; App Attest; Grafana Cloud; Sentry; Amplitude; Firebase Remote Config; Play Integrity (10k verdicts/day — request increase to 100k pre-launch); Resend (3,000 emails/month). Domain: Niagahoster (~Rp15k/month, needed from the start for DNS + SSL).
 
-**Note**: Supabase Free auto-pauses after 7 days idle — switch to Supabase Pro at the start of the 500-user soft launch so the project stays hot for seed users. Staging remains Free tier indefinitely (auto-pause on quiet weekends is acceptable for a QA-only environment).
+**Note**: Supabase Free auto-pauses after 7 days idle — switch to Supabase Pro at the start of the 500-user soft launch so the project stays hot for seed users. Staging remains Free tier indefinitely; the weekday keep-warm ping (`07-Operations.md` § Staging keep-warm ping) keeps it under the 7-day idle pause.
 
 ### Launch Phase (Month 1+, ~Rp620-700k/month)
 
