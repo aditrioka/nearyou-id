@@ -49,7 +49,7 @@ class AppealRepository(
         }
 
     override suspend fun status(appealToken: String?): AppealStatusOutcome {
-        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired
+        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired(viaSession = false)
         return when (val result = apiClient.status(appealToken)) {
             is AppealStatusApiResult.Success -> {
                 val body = result.body
@@ -72,7 +72,10 @@ class AppealRepository(
             }
             is AppealStatusApiResult.HttpError ->
                 when (result.status) {
-                    401 -> AppealStatusOutcome.SessionExpired
+                    // viaSession only when the app-wide re-route really fired: SessionInvalidator clears the store
+                    // BEFORE it signals. A refresh that succeeded but whose retry still 401s leaves the store
+                    // populated and fires nothing, so the screen must route itself (#581).
+                    401 -> AppealStatusOutcome.SessionExpired(viaSession = appealToken == null && tokenStore.read() == null)
                     else -> AppealStatusOutcome.TransportError
                 }
         }

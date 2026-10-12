@@ -17,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -39,8 +40,8 @@ class AppealViewModelTest {
     private fun TestScope.vm(
         flow: FakeAppealFlow,
         token: String? = "tok-1",
+        session: AppealSession = AppealSession().apply { token?.let { set(it) } },
     ): AppealViewModel {
-        val session = AppealSession().apply { token?.let { set(it) } }
         val viewModel = AppealViewModel(flow, session)
         backgroundScope.launch { viewModel.uiState.collect {} }
         return viewModel
@@ -68,11 +69,29 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `no appeal token with no usable session re-routes to sign-in`() =
+    fun `no appeal token and no stored session re-routes to sign-in from the screen`() =
         runTest {
-            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired), token = null)
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = false)), token = null)
             advanceUntilIdle()
-            assertEquals(AppealStatus.SessionRedirect, viewModel.uiState.value.status)
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+        }
+
+    @Test
+    fun `a session-read 401 redirects viaSession so the app-wide re-route is not doubled`() =
+        runTest {
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = true)), token = null)
+            advanceUntilIdle()
+            assertEquals(AppealStatus.SessionRedirect(viaSession = true), viewModel.uiState.value.status)
+        }
+
+    @Test
+    fun `an appeal-token 401 on entry re-routes to sign-in from the screen and drops the dead token`() =
+        runTest {
+            val session = AppealSession().apply { set("tok-stale") }
+            val viewModel = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.SessionExpired(viaSession = false)), session = session)
+            advanceUntilIdle()
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+            assertNull(session.peek(), "a rejected appeal token is never reused")
         }
 
     @Test
@@ -169,14 +188,42 @@ class AppealViewModelTest {
         }
 
     @Test
-    fun `submit session-expired re-routes to sign-in`() =
+    fun `submit session-expired re-routes to sign-in from the screen and drops the dead token`() =
         runTest {
-            val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.SessionExpired))
+            val session = AppealSession().apply { set("tok-stale") }
+            val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.SessionExpired), session = session)
             advanceUntilIdle()
             viewModel.onTextChange("x")
             viewModel.onSubmit()
             advanceUntilIdle()
-            assertEquals(AppealStatus.SessionRedirect, viewModel.uiState.value.status)
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+            assertNull(session.peek(), "a rejected appeal token is never reused")
+        }
+
+    @Test
+    fun `a retryable submit failure keeps the appeal token for the resubmit`() =
+        runTest {
+            val session = AppealSession().apply { set("tok-1") }
+            val viewModel = vm(FakeAppealFlow(submitOutcome = AppealSubmitOutcome.TransportError), session = session)
+            advanceUntilIdle()
+            viewModel.onTextChange("x")
+            viewModel.onSubmit()
+            advanceUntilIdle()
+            assertEquals(AppealStatus.Form(AppealFormError.Transport), viewModel.uiState.value.status)
+            assertEquals("tok-1", session.peek(), "only a 401 drops the token")
+        }
+
+    @Test
+    fun `submit without an appeal token re-routes to sign-in from the screen with no request`() =
+        runTest {
+            val flow = FakeAppealFlow(statusOutcome = AppealStatusOutcome.None)
+            val viewModel = vm(flow, token = null)
+            advanceUntilIdle()
+            viewModel.onTextChange("x")
+            viewModel.onSubmit()
+            advanceUntilIdle()
+            assertEquals(AppealStatus.SessionRedirect(viaSession = false), viewModel.uiState.value.status)
+            assertEquals(0, flow.submitCount, "no submit is issued without the appeal token")
         }
 
     @Test

@@ -57,8 +57,11 @@ sealed interface AppealStatusOutcome {
         val reviewedAt: String?,
     ) : AppealStatusOutcome
 
-    /** `401` — the appeal token is stale/revoked. */
-    data object SessionExpired : AppealStatusOutcome
+    /** `401` (stale/revoked appeal token, or a rejected session), or no token and no stored session.
+     *  [viaSession] = the `401` came through the signed-in session client AND its rejected refresh already fired
+     *  the app-wide `SessionExpiryEffect` re-route (the store is cleared); false = nothing app-wide fired, the
+     *  screen must route. */
+    data class SessionExpired(val viaSession: Boolean) : AppealStatusOutcome
 
     /** Transport failure or `5xx`. */
     data object TransportError : AppealStatusOutcome

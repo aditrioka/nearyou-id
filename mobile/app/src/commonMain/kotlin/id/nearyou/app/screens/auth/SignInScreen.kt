@@ -163,7 +163,10 @@ fun SignInScreen(
         // appeal surface (which reads the limited appeal token AuthRepository stashed from the 403 body).
         if (uiState.showAppealEntry) {
             TextButton(
-                onClick = onOpenAppeal,
+                onClick = {
+                    viewModel.onAppealOpened()
+                    onOpenAppeal()
+                },
                 modifier = Modifier.padding(top = 8.dp).testTag(SIGNIN_APPEAL_TAG),
             ) {
                 Text(text = stringResource(Res.string.appeal_title))

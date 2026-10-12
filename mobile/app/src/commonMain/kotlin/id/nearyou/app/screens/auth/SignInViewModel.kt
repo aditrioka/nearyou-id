@@ -116,6 +116,14 @@ class SignInViewModel(
         }
     }
 
+    /**
+     * "Ajukan banding" tapped: the appeal consumes the banned outcome — the NoAccount `outcome = null`
+     * precedent. Every return to this kept `SignInRoute` (back, or the appeal's `replaceAll(SignInRoute)`
+     * re-sign-in, which keeps this ViewModel because the content key is unchanged) then shows the clean, usable
+     * CTA instead of the disabled banned state; a re-sign-in re-mints the appeal token (#581).
+     */
+    fun onAppealOpened() = state.update { it.copy(outcome = null) }
+
     /** One-shot consumer (docs/11 §2.2): the screen calls this after invoking the matching nav callback. */
     fun onNavigationHandled() = state.update { it.copy(navigation = null) }
 }

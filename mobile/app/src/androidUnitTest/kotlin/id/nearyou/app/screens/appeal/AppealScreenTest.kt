@@ -2,6 +2,7 @@ package id.nearyou.app.screens.appeal
 
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -13,6 +14,14 @@ import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.appeal.AppealStatusOutcome
 import id.nearyou.app.appeal.AppealSubmitOutcome
 import id.nearyou.app.appeal.FakeAppealFlow
+import id.nearyou.app.auth.AuthFlow
+import id.nearyou.app.auth.FakeAuthFlow
+import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.screens.auth.SIGNIN_APPEAL_TAG
+import id.nearyou.app.screens.routing.PendingReturnDestination
+import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.screens.routing.SignInRoute
+import id.nearyou.app.screens.routing.TestNavHost
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -25,6 +34,8 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.time.Instant
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val INTRO = "Kamu bisa mengajukan banding atas tindakan moderasi pada akunmu. Tim kami akan meninjau dan memberi keputusan."
@@ -38,31 +49,47 @@ private const val APPROVED_BODY_RESIGNIN = "Tindakan pada akunmu telah dicabut. 
 private const val APPROVED_BODY_ACTIVE = "Tindakan pada akunmu telah dicabut. Akunmu sudah aktif kembali." // appeal_approved_body_active
 private const val RATE_LIMITED_2 = "Terlalu banyak permintaan. Coba lagi dalam 2 menit."
 private const val COUNTER_FULL = "1000/1000"
+private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…" // timeline_session_redirect
+private const val CTA_GOOGLE = "Masuk dengan Google" // cta_signin_google
+private const val ERR_SUSPENDED = "Akun kamu sedang ditangguhkan sementara. Kamu bisa mengajukan banding." // signin_error_suspended
 
 /**
  * Render + behavior coverage of `AppealScreen` via the Robolectric-backed CMP UI runner (task 5.5). Drives
  * each state through a `FakeAppealFlow` (the outcome→state projection is covered purely by
  * `AppealViewModelTest`): the editor form, submit→Pending, an on-entry already-pending status, a submit
  * rate-limit, a decided-rejected status + reason, and the 1000-char editor cap — plus the signed-in read
- * (no appeal token, opened from an `appeal_decided` notification): an approval renders no re-sign-in action. The `KoinContext` +
- * multi-test startKoin cycle mirrors `SearchScreenTest`.
+ * (no appeal token, opened from an `appeal_decided` notification): an approval renders no re-sign-in action.
+ * Every session-redirect producer off the session (appeal-token `401`, no token + no session, submit `401`,
+ * no-token submit) routes to sign-in; a session-read `401` leaves it to `SessionExpiryEffect`. The `bannedPath_*`
+ * flows host the real [TestNavHost] from a suspended sign-in and assert where the user actually lands. The
+ * `KoinContext` + multi-test startKoin cycle mirrors `SearchScreenTest`.
  */
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)
 class AppealScreenTest {
+    private lateinit var appealSession: AppealSession
+    private lateinit var authFlow: FakeAuthFlow
+
+    /** The sign-in bindings ([signIn] = what "Masuk dengan Google" resolves to) back the [TestNavHost] flows. */
     private fun installKoin(
         status: AppealStatusOutcome = AppealStatusOutcome.None,
         submit: AppealSubmitOutcome = AppealSubmitOutcome.Submitted("a1"),
         token: String? = "tok-1",
+        signIn: SignInOutcome = SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z")),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
+        appealSession = AppealSession().apply { token?.let { set(it) } }
+        authFlow = FakeAuthFlow(outcome = signIn)
         startKoin {
             modules(
                 module {
                     single<AppealFlow> { FakeAppealFlow(statusOutcome = status, submitOutcome = submit) }
-                    single { AppealSession().apply { token?.let { set(it) } } }
+                    single { appealSession }
+                    single<AuthFlow> { authFlow }
+                    single { PendingSignupIdentity() }
+                    single { PendingReturnDestination() }
                 },
             )
         }
@@ -179,6 +206,105 @@ class AppealScreenTest {
             onNodeWithText(REJECTED_BODY, substring = true).assertExists()
             onNodeWithText(REJECTED_REASON, substring = true).assertExists()
             onNodeWithTag(APPEAL_RESIGNIN_TAG).assertDoesNotExist()
+        }
+    }
+
+    /** Renders the screen counting [AppealScreen]'s `onReSignIn` calls; [submitText] non-null types + submits. */
+    private fun ComposeUiTest.reSignInsAfter(submitText: String? = null): Int {
+        var reSignIns = 0
+        setContent { KoinContext { NearYouTheme { AppealScreen(onBack = {}, onReSignIn = { reSignIns++ }) } } }
+        waitForIdle()
+        if (submitText != null) {
+            onNodeWithTag(APPEAL_FIELD_TAG).performTextInput(submitText)
+            waitForIdle()
+            onNodeWithTag(APPEAL_SUBMIT_TAG).performClick()
+            waitForIdle()
+        }
+        return reSignIns
+    }
+
+    @Test
+    fun appealToken401OnEntry_routesToSignIn() {
+        installKoin(status = AppealStatusOutcome.SessionExpired(viaSession = false), token = "tok-1")
+        runComposeUiTest { assertEquals(1, reSignInsAfter(), "a stale appeal token has no session to invalidate") }
+    }
+
+    @Test
+    fun noTokenAndNoSessionOnEntry_routesToSignIn() {
+        installKoin(status = AppealStatusOutcome.SessionExpired(viaSession = false), token = null)
+        runComposeUiTest { assertEquals(1, reSignInsAfter(), "a restored back stack after process death ends at sign-in") }
+    }
+
+    @Test
+    fun session401OnEntry_leavesTheReRouteToSessionExpiryEffect() {
+        installKoin(status = AppealStatusOutcome.SessionExpired(viaSession = true), token = null)
+        runComposeUiTest {
+            assertEquals(0, reSignInsAfter(), "SessionExpiryEffect already re-routes an invalidated session")
+            onNodeWithText(SESSION_REDIRECT).assertExists()
+        }
+    }
+
+    @Test
+    fun submit401_routesToSignIn() {
+        installKoin(status = AppealStatusOutcome.None, submit = AppealSubmitOutcome.SessionExpired, token = "tok-1")
+        runComposeUiTest { assertEquals(1, reSignInsAfter(submitText = "mohon ditinjau")) }
+    }
+
+    @Test
+    fun submitWithoutAppealToken_routesToSignIn() {
+        installKoin(status = AppealStatusOutcome.None, token = null)
+        runComposeUiTest { assertEquals(1, reSignInsAfter(submitText = "mohon ditinjau")) }
+    }
+
+    /**
+     * The real banned path through the real [TestNavHost] back stack (`[SignInRoute, AppealRoute]`): a suspended
+     * sign-in → "Ajukan banding" → [act] re-routes to sign-in. The kept `SignInRoute` entry (same content key, so
+     * its ViewModel survives the `replaceAll`) must show a fresh, actionable sign-in — enabled CTA, no stale
+     * suspension banner or appeal entry — and the dead appeal token must be gone (#581).
+     */
+    private fun ComposeUiTest.assertBannedPathReSignInLandsOnAFreshSignIn(act: ComposeUiTest.() -> Unit) {
+        setContent { KoinContext { TestNavHost(SignInRoute) } }
+        onNodeWithText(CTA_GOOGLE).performClick()
+        waitForIdle()
+        onNodeWithText(ERR_SUSPENDED).assertExists()
+        onNodeWithTag(SIGNIN_APPEAL_TAG).performClick()
+        waitForIdle()
+        act()
+        waitForIdle()
+        onNodeWithText(ERR_SUSPENDED).assertDoesNotExist()
+        onNodeWithTag(SIGNIN_APPEAL_TAG).assertDoesNotExist()
+        onNodeWithText(CTA_GOOGLE).assertIsEnabled().performClick()
+        waitForIdle()
+        assertEquals(2, authFlow.signInInvocationCount, "the re-route lands on a sign-in the user can actually use")
+    }
+
+    @Test
+    fun bannedPath_appealToken401OnEntry_landsOnAFreshSignIn_andDropsTheToken() {
+        installKoin(status = AppealStatusOutcome.SessionExpired(viaSession = false), token = "tok-stale")
+        runComposeUiTest {
+            assertBannedPathReSignInLandsOnAFreshSignIn {}
+            assertNull(appealSession.peek(), "a rejected appeal token is dropped, never reused")
+        }
+    }
+
+    @Test
+    fun bannedPath_submit401_landsOnAFreshSignIn_andDropsTheToken() {
+        installKoin(status = AppealStatusOutcome.None, submit = AppealSubmitOutcome.SessionExpired, token = "tok-stale")
+        runComposeUiTest {
+            assertBannedPathReSignInLandsOnAFreshSignIn {
+                onNodeWithTag(APPEAL_FIELD_TAG).performTextInput("mohon ditinjau")
+                waitForIdle()
+                onNodeWithTag(APPEAL_SUBMIT_TAG).performClick()
+            }
+            assertNull(appealSession.peek(), "a rejected appeal token is dropped, never reused")
+        }
+    }
+
+    @Test
+    fun bannedPath_approvedDecisionReSignIn_landsOnAFreshSignIn() {
+        installKoin(status = AppealStatusOutcome.Decided(true, "suspension", null, null), token = "tok-1")
+        runComposeUiTest {
+            assertBannedPathReSignInLandsOnAFreshSignIn { onNodeWithTag(APPEAL_RESIGNIN_TAG).performClick() }
         }
     }
 
