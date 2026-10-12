@@ -3,6 +3,7 @@ package id.nearyou.app.health
 import id.nearyou.app.core.domain.health.PostgresProbe
 import id.nearyou.app.core.domain.health.ProbeError
 import id.nearyou.app.core.domain.health.ProbeResult
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -14,8 +15,18 @@ import javax.sql.DataSource
 /**
  * Production [PostgresProbe] implementation. Borrows a connection from the
  * supplied [DataSource] (typically the HikariCP pool) and issues `SELECT 1`
- * inside `withContext(Dispatchers.IO)`, wrapped by a cooperative
- * `withTimeoutOrNull` guard.
+ * on the pool-bounded [dbDispatcher] (docs/11 §3.2; production passes `DbDispatchers.db`),
+ * wrapped by a cooperative `withTimeoutOrNull` guard.
+ *
+ * No readiness-probe exemption from §3.2. When the pool is saturated the probe queues for a
+ * dispatcher slot instead of blocking an extra IO thread on the pool borrow (what raw
+ * `Dispatchers.IO` did). If its budget lapses while queued, the cancelled probe is discarded
+ * when the slot frees, without borrowing a connection from real work. Readiness waits for a
+ * free slot either way, as it waited for a free connection before, and then reports `timeout`:
+ * the accurate signal for an instance that cannot serve DB work. That is safe because
+ * `/health/ready` gates only the Cloud Run startup probe and uptime monitors; the liveness
+ * probe is `/health/live`, which never touches the DB, so a saturated pool cannot trigger a
+ * restart loop.
  *
  * Connection is returned to the pool via `.use { }` even if the timeout fires
  * after acquire. The coroutine-level guards are COOPERATIVE — they cannot abandon a
@@ -26,12 +37,13 @@ import javax.sql.DataSource
  */
 class JdbcPostgresProbe(
     private val dataSource: DataSource,
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : PostgresProbe {
     override suspend fun probe(timeout: Duration): ProbeResult {
         val startNs = System.nanoTime()
         val result =
             withTimeoutOrNull(timeout.toMillis()) {
-                withContext(Dispatchers.IO) {
+                withContext(dbDispatcher) {
                     runCatching {
                         dataSource.connection.use { conn ->
                             conn.createStatement().use { stmt ->

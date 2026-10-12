@@ -484,8 +484,8 @@ fun Application.module() {
             allowedPrincipals = resolveInternalOidcAllowedPrincipals(environment.config),
             jwkProvider = googleJwkProvider(),
         )
-    val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
-    val privacyFlipWorker = PrivacyFlipWorker(dataSource)
+    val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource, dbDispatchers.db)
+    val privacyFlipWorker = PrivacyFlipWorker(dataSource, dbDispatchers.db)
     // account-deletion-tombstone: user-facing request/cancel/status API + the daily
     // hard-delete worker (Cloud Scheduler → /internal/account-hard-delete-worker).
     val accountDeletionRepository = AccountDeletionRepository(dataSource, dbDispatchers.db)
@@ -513,7 +513,7 @@ fun Application.module() {
     val emailSender: EmailSender =
         emailSender(
             ResendConfig(
-                apiKey = secrets.resolve("resend-api-key").orEmpty(),
+                apiKey = secrets.resolve(ResendConfig.SLOT_API_KEY).orEmpty(),
                 // Staging recipient guard (docs/10 §3.9): redirect ALL mail to Resend's
                 // always-delivered test inbox so a synthetic/stale staging user can't email a
                 // real address. Null in production → real recipient.
@@ -878,7 +878,7 @@ fun Application.module() {
             }
         }
     val supabaseProbe: SupabaseRealtimeProbe = KtorSupabaseRealtimeProbe(httpClient, supabaseUrl)
-    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource)
+    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource, dbDispatchers.db)
 
     // Real Remote Config in staging/prod: the `search_enabled` kill switch +
     // `premium_*_cap_override` flags are now LIVE (StubRemoteConfig had stayed

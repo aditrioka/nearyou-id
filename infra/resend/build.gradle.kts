@@ -11,8 +11,6 @@ dependencies {
     implementation(libs.ktor.clientCore)
     implementation(libs.ktor.clientApache5)
     implementation(libs.kotlinx.serialization.json)
-    // Koin module factory (`emailSenderModule`) mirrors `:infra:redis`'s `redisKoinModule`.
-    implementation(libs.koin.core)
     implementation(libs.slf4j.api)
 
     testImplementation(libs.kotest.runnerJunit5)
