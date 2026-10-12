@@ -1,0 +1,54 @@
+name: Staging keep-warm
+
+# Weekday ping that keeps staging's free tiers awake (#537): Supabase Free
+# pauses a project after 7 idle days and Upstash Free removes an idle database.
+# GET /health/ready runs `SELECT 1` on Postgres and `PING` on Redis (plus the
+# Redis-backed per-IP limiter) — see backend HealthRoutes.kt — so one request
+# wakes Cloud Run (min-instances 0), Supabase and Upstash. A Mon-Fri cadence
+# caps the idle gap at ~3 days (Fri -> Mon), under both thresholds.
+#
+# No secrets, no checkout, no third-party actions. Schedules fire only from the
+# default branch; `workflow_dispatch` is the manual wake-up. Runbook:
+# docs/07-Operations.md § Staging keep-warm ping.
+on:
+  schedule:
+    # 01:17 UTC = 08:17 WIB, Mon-Fri, so the working day starts warm. Off the
+    # top of the hour, where GitHub delays or drops scheduled runs under load.
+    - cron: "17 1 * * 1-5"
+  workflow_dispatch:
+  # TEMPORARY (removed in the next commit): one real-runner run before merge,
+  # since workflow_dispatch only works once the file is on the default branch.
+  push:
+    branches:
+      - ci/staging-keep-warm-ping
+
+permissions: {}
+
+concurrency:
+  group: staging-keep-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      READY_URL: https://api-staging.nearyou.id/health/ready
+    steps:
+      - name: GET staging /health/ready
+        run: |
+          # A cold start (Cloud Run boot + Flyway + DB connect) can outlast one
+          # request, so retry before failing. 5 attempts sit far below the
+          # 60/min per-IP /health/* limit.
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sS -o body.json -w '%{http_code}' --max-time 30 "$READY_URL") || true
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "200" ]; then
+              cat body.json
+              exit 0
+            fi
+            sleep 20
+          done
+          cat body.json 2>/dev/null || true
+          echo "::error::staging /health/ready did not return 200 after 5 attempts (last HTTP $code). A 503 body names the failing check; a paused Supabase project must be restored from its dashboard."
+          exit 1

@@ -266,7 +266,7 @@ Parity ~90% with prod; the main gap, cross-region latency, is not replicable loc
 
 **Stack**:
 - **Backend**: separate Cloud Run service `nearyou-api-staging`, scale-to-zero, min-instance 0, max 2 instances
-- **Database**: separate Supabase project on **Free tier** (500MB cap, 7-day idle auto-pause accepted; CI smoke ping on active sprint days keeps it warm, quiet weekends let it pause)
+- **Database**: separate Supabase project on **Free tier** (500MB cap, 7-day idle auto-pause; the weekday keep-warm ping `.github/workflows/staging-keep-warm.yml` hits `/health/ready`, which touches this database and the Upstash one, so neither goes idle; see `07-Operations.md` § Staging keep-warm ping)
 - **Cache**: separate Upstash Redis **Free tier** database
 - **Object storage**: separate Cloudflare R2 bucket `nearyou-staging`, 10GB Free tier
 - **Images**: separate Cloudflare Images account usage tracked on the same zone, served via `img-staging.nearyou.id`, CSAM Tool enabled zone-wide
