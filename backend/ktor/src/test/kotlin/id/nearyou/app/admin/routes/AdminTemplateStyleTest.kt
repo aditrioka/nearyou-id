@@ -53,8 +53,10 @@ private val CSS_COMMENT = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
 private val CSS_CLASS = Regex("""\.([a-zA-Z][\w-]*)""")
 
 // The surface-specific families #525 named: feature flags, wordlist editor, and
-// the queue-fragment quota pill.
-private val FRAME_FAMILY = Regex("""(ff|wl)-[\w-]+|quota[\w-]*""")
+// the queue-fragment quota pill. Plus the pager links: appeals.peb pages with
+// `pagination-newer` and csam-log-table.peb with `pagination-next`, which once
+// had no rule beside `pagination-older`.
+private val FRAME_FAMILY = Regex("""(ff|wl)-[\w-]+|quota[\w-]*|pagination-[\w-]+""")
 
 private fun classTokens(template: String): List<String> =
     CLASS_ATTR.findAll(template)
