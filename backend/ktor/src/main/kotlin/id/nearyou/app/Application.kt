@@ -878,7 +878,7 @@ fun Application.module() {
             }
         }
     val supabaseProbe: SupabaseRealtimeProbe = KtorSupabaseRealtimeProbe(httpClient, supabaseUrl)
-    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource)
+    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource, dbDispatchers.db)
 
     // Real Remote Config in staging/prod: the `search_enabled` kill switch +
     // `premium_*_cap_override` flags are now LIVE (StubRemoteConfig had stayed

@@ -5,20 +5,35 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.r2.ObjectStore
 import id.nearyou.app.infra.r2.ObjectStoreUnconfiguredException
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.resend.EmailSender
 import id.nearyou.app.infra.resend.EmailTemplate
 import id.nearyou.app.infra.resend.SendResult
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import id.nearyou.app.notifications.DbNotificationEmitter
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
+import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
@@ -397,8 +412,11 @@ class DataExportWorkerTest : StringSpec({
      * the worker did (or did NOT) log. Mirrors the idiom in
      * [id.nearyou.app.admin.PrivacyFlipWorkerRouteTest].
      */
-    fun withLogCapture(block: (ListAppender<ILoggingEvent>) -> Unit) {
-        val logger = LoggerFactory.getLogger("id.nearyou.app.account.DataExportWorker") as LogbackLogger
+    fun withLogCapture(
+        loggerName: String = "id.nearyou.app.account.DataExportWorker",
+        block: (ListAppender<ILoggingEvent>) -> Unit,
+    ) {
+        val logger = LoggerFactory.getLogger(loggerName) as LogbackLogger
         val appender = ListAppender<ILoggingEvent>()
         appender.start()
         logger.addAppender(appender)
@@ -840,6 +858,42 @@ class DataExportWorkerTest : StringSpec({
         val second = runBlocking { worker(store, email).execute() }
         second.remainingCount shouldBe 0
         statusOf(requests.last()) shouldBe "ready"
+    }
+
+    "route: POST /internal/data-export-worker reports the cap remainder as `remaining` in the 200 body and the applied log" {
+        // The wire half of the per-run cap: DataExportWorkerRoute maps remainingCount to the
+        // `remaining` JSON field and the event=data_export_worker_applied log line.
+        val cap = DataExportWorker.MAX_EXPORTS_PER_RUN
+        val base = Instant.parse("1999-01-01T00:00:00Z")
+        (0..cap).forEach { i -> seedPendingRequest(seedUser(), base.plusSeconds(i.toLong())) }
+        val (pubKey, privKey) = rsaKeypair()
+        val verifier =
+            GoogleOidcTokenVerifier(
+                audience = TEST_AUDIENCE,
+                allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
+                jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
+            )
+        val routeWorker = worker(CapturingObjectStore(), RecordingEmailSender())
+
+        withLogCapture("id.nearyou.app.account.DataExportWorkerRoute") { appender ->
+            testApplication {
+                application {
+                    install(ContentNegotiation) { json() }
+                    routing { route("/internal") { dataExportWorkerRoute(routeWorker, verifier) } }
+                }
+                val resp =
+                    client.post("/internal/data-export-worker") {
+                        header(HttpHeaders.Authorization, "Bearer ${signedJwt(privKey, pubKey)}")
+                    }
+                resp.status shouldBe HttpStatusCode.OK
+                val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
+                body["processed"]?.jsonPrimitive?.int shouldBe cap
+                body["remaining"]?.jsonPrimitive?.int shouldBe 1
+            }
+            appender.list
+                .map { it.formattedMessage }
+                .single { it.contains("event=data_export_worker_applied") } shouldContain "remaining=1"
+        }
     }
 
     "2.2 processSingle fail-soft: gather/upload failure → failed + attempt_count++, no ready/notification" {

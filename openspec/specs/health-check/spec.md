@@ -214,9 +214,9 @@ The probe MUST NOT eagerly create a new connection — it reuses the connection 
 - **WHEN** Redis is unreachable AND `LettuceRedisProbe.ping(Duration.ofMillis(200))` is invoked
 - **THEN** the result is `ProbeResult(ok = false, latencyMs = >= 200, error = "timeout")`
 
-#### Scenario: Reuses connection from Koin singleton
+#### Scenario: Reuses the shared client's connection
 - **WHEN** `LettuceRedisProbe.ping(...)` is invoked twice in succession
-- **THEN** Lettuce does NOT open a new TCP connection for the second invocation (verified by Lettuce client metrics OR by inspecting the singleton lifecycle)
+- **THEN** Lettuce does NOT open a new TCP connection for the second invocation (verified by Lettuce client metrics OR by inspecting the shared `RedisClient` built by `redisHandlesFromUrl`)
 
 ### Requirement: `SupabaseRealtimeProbe` interface and Ktor implementation
 
