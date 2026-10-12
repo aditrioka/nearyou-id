@@ -16,11 +16,6 @@ on:
     # top of the hour, where GitHub delays or drops scheduled runs under load.
     - cron: "17 1 * * 1-5"
   workflow_dispatch:
-  # TEMPORARY (removed in the next commit): one real-runner run before merge,
-  # since workflow_dispatch only works once the file is on the default branch.
-  push:
-    branches:
-      - ci/staging-keep-warm-ping
 
 permissions: {}
 
