@@ -14,6 +14,7 @@ The recurring failure this file prevents: an agent runs *a* gate, it greens, and
 | **`deploy-staging.yml`** | `push` → `main` + `workflow_dispatch` | all main pushes | `deploy` (Docker build/push → `gcloud run deploy`, `RUN_FLYWAY_ON_STARTUP=true`) |
 | **`device-run.yml`** | `pull_request` → `main` + `workflow_dispatch` | `mobile/**`, `shared/**`, `scripts/**`, self | `device-run` (build staging-debug APK + Firebase Test Lab **Robo** crawl, posts a PR comment; opt out with the `skip-device-run` label) |
 | **`instrumented-test.yml`** | `pull_request` → `main` + `workflow_dispatch` | `mobile/**`, `shared/**`, `scripts/**`, self | `instrumented-test` (build staging-debug app + androidTest APKs, run `src/androidInstrumentedTest` on a Firebase Test Lab device via `scripts/test_android.sh`, one edited-in-place PR comment + screenshot artifact; same `skip-device-run` opt-out) |
+| **`staging-keep-warm.yml`** | `schedule` (Mon–Fri 01:17 UTC = 08:17 WIB) + `workflow_dispatch` | none (not PR-triggered) | `ping` (GET staging `/health/ready` with retry, red on non-200; keeps Supabase Free + Upstash Free from idling; not a test job — `07-Operations.md` § Staging keep-warm ping) |
 | **`claude.yml`** | `@claude` mentions on issue/PR events | none | not a test job |
 
 **`merge-gate`** (`needs: [changes, lint, test, migrate-supabase-parity, ios-test]`, `if: always()`) is the **sole** ruleset-required status check. `changes` is in its `needs` on purpose, so a path-filter bug that silently skips every heavy lane cannot pass the gate by accident.
