@@ -174,6 +174,23 @@ class ChatThreadUiStateTest {
         )
     }
 
+    // Frame 5 day chips: a row starts a day when its local date differs from the previous row's; the first row
+    // counts only once no older page remains. The two days are 24h apart, so they differ in every time zone.
+    @Test
+    fun `day starts mark each new local day and the first row only once no older page remains`() {
+        val rows =
+            chatMessageRows(
+                listOf(
+                    msg("m1", createdAt = "2026-06-01T10:00:00Z"),
+                    msg("m2", createdAt = "2026-06-01T10:05:00Z"),
+                    msg("m3", createdAt = "2026-06-02T10:00:00Z"),
+                ),
+                viewer,
+            )
+        assertEquals(listOf(false, false, true), markDayStarts(rows, hasOlder = true).map { it.startsDay })
+        assertEquals(listOf(true, false, true), markDayStarts(rows, hasOlder = false).map { it.startsDay })
+    }
+
     // ---- send-bar projection (7.3) ----
 
     @Test

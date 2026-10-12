@@ -19,6 +19,21 @@ data class ConversationRow(
     val lastMessageAtIso: String?,
 )
 
+/** The handle of the backend's COALESCE mask for a shadow-banned / deleted partner (`chat-conversations`). It
+ *  is a reserved username (seeded by V3), so no real user holds it. */
+internal const val MASKED_PARTNER_USERNAME: String = "akun_dihapus"
+
+/**
+ * True when a partner identity is the deleted / shadow-banned mask: the backend placeholder
+ * (`username = "akun_dihapus"`, `displayName = "Akun Dihapus"`), or a blank display name (a route restored
+ * from an older back stack, or a failed push-tap partner lookup). A masked partner renders the
+ * `chat_account_deleted` label with no handle and no Premium badge, on the list row and the thread header.
+ */
+internal fun isMaskedPartner(
+    username: String,
+    displayName: String,
+): Boolean = username == MASKED_PARTNER_USERNAME || displayName.isBlank()
+
 private fun ConversationListItemDto.toRow(): ConversationRow =
     ConversationRow(
         conversationId = conversation.id,

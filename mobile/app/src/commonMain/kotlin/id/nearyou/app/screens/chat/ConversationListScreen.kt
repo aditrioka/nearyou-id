@@ -1,24 +1,20 @@
 package id.nearyou.app.screens.chat
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,20 +22,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ConversationsFlow
-import id.nearyou.app.ui.components.localDateLabel
+import id.nearyou.app.ui.components.BackNavigationIcon
+import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.ListCenteredMessageState
+import id.nearyou.app.ui.components.ListErrorState
+import id.nearyou.app.ui.components.ListLoadingState
+import id.nearyou.app.ui.components.PremiumBadgeIcon
+import id.nearyou.app.ui.components.relativeDayTimeLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_list_empty
 import id.nearyou.resources.generated.resources.chat_list_loading
 import id.nearyou.resources.generated.resources.chat_list_title
-import id.nearyou.resources.generated.resources.cta_close
-import id.nearyou.resources.generated.resources.cta_retry
-import id.nearyou.resources.generated.resources.signin_error_network
+import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -52,6 +52,9 @@ const val CONVERSATION_ROW_TAG: String = "conversationRow"
 
 /** Test tag on the back affordance. */
 const val CONVERSATION_LIST_BACK_TAG: String = "conversationListBack"
+
+/** Test tag on a row's trailing last-message time. */
+const val CONVERSATION_ROW_TIME_TAG: String = "conversationRowTime"
 
 /**
  * The conversation-list surface ([ConversationListRoute][id.nearyou.app.screens.routing.ConversationListRoute],
@@ -94,44 +97,38 @@ private fun ConversationListContent(
     onOpenThread: (ConversationRow) -> Unit,
 ) {
     Scaffold(
-        topBar = { ChatTopBar(title = stringResource(Res.string.chat_list_title), onBack = onBack) },
+        // Frame 2 app bar: an M3 TopAppBar (64dp, titleLarge) that applies its own status-bar inset. The list
+        // overlays the shell via the root stack, so it leads with the back arrow (the frame-7 idiom).
+        topBar = {
+            TopAppBar(
+                title = { Text(text = stringResource(Res.string.chat_list_title)) },
+                navigationIcon = {
+                    BackNavigationIcon(onBack = onBack, modifier = Modifier.testTag(CONVERSATION_LIST_BACK_TAG))
+                },
+            )
+        },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
+            // The non-Content states are the shared list-state kit (docs/11 § 2.1), each scrollable so the
+            // pull works from it.
             when (uiState) {
-                ConversationListUiState.Loading -> CenteredState(stringResource(Res.string.chat_list_loading), spinner = true)
-                ConversationListUiState.Empty -> CenteredState(stringResource(Res.string.chat_list_empty), spinner = false)
-                ConversationListUiState.Error -> ErrorState(onRetry = onRetry)
+                ConversationListUiState.Loading ->
+                    ListLoadingState(message = stringResource(Res.string.chat_list_loading), testTag = CONVERSATION_LIST_TAG)
+                ConversationListUiState.Empty ->
+                    ListCenteredMessageState(message = stringResource(Res.string.chat_list_empty), testTag = CONVERSATION_LIST_TAG)
+                ConversationListUiState.Error -> ListErrorState(onRetry = onRetry, testTag = CONVERSATION_LIST_TAG)
                 ConversationListUiState.SessionRedirect ->
-                    CenteredState(stringResource(Res.string.timeline_session_redirect), spinner = false)
+                    ListCenteredMessageState(
+                        message = stringResource(Res.string.timeline_session_redirect),
+                        testTag = CONVERSATION_LIST_TAG,
+                    )
                 is ConversationListUiState.Content -> ConversationRows(uiState.rows, onOpenThread)
             }
         }
-    }
-}
-
-/** The back affordance — the list overlays the shell via the root stack (so "Tutup" = close it). */
-@Composable
-private fun ChatTopBar(
-    title: String,
-    onBack: () -> Unit,
-) {
-    // This screen owns its Scaffold (root-stack overlay), so the bar applies its own status-bar inset.
-    Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onBack, modifier = Modifier.testTag(CONVERSATION_LIST_BACK_TAG)) {
-            Text(text = stringResource(Res.string.cta_close))
-        }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(start = 8.dp),
-        )
     }
 }
 
@@ -142,86 +139,72 @@ private fun ConversationRows(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag(CONVERSATION_LIST_TAG),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(top = 8.dp),
     ) {
         items(items = rows, key = { it.conversationId }, contentType = { "conversation" }) { row ->
-            ConversationRowItem(row = row, onOpen = { onOpenThread(row) })
-            HorizontalDivider()
+            ConversationRowItem(row = row, rowTag = CONVERSATION_ROW_TAG, onOpen = { onOpenThread(row) })
         }
     }
 }
 
+/**
+ * One frame-2 two-line row (12/16 padding, 16dp gaps): the shared [LetterAvatar] (40dp), the partner display
+ * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message time ([relativeDayTimeLabel]).
+ * The list wire carries `last_message_at` but not the message text, so the second line is the handle; the
+ * per-conversation unread count waits on #272. Also the share-to-chat picker's row ([ConversationPickerScreen]),
+ * so both lists show the same identity treatment.
+ */
 @Composable
-private fun ConversationRowItem(
+internal fun ConversationRowItem(
     row: ConversationRow,
+    rowTag: String,
     onOpen: () -> Unit,
 ) {
-    Column(
+    // The backend COALESCE-masks a shadow-banned / deleted partner to "Akun Dihapus" / akun_dihapus. The mask (or a
+    // blank edge value) renders the chat_account_deleted label with no handle or badge beside it.
+    val masked = isMaskedPartner(row.partnerUsername, row.partnerDisplayName)
+    val name = if (masked) stringResource(Res.string.chat_account_deleted) else row.partnerDisplayName
+    Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onOpen)
-                .testTag(CONVERSATION_ROW_TAG)
+                .testTag(rowTag)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // The partner display name — already COALESCE-masked to chat_account_deleted server-side; an
-        // empty value (a stale pre-change route) also renders the deleted placeholder.
-        Text(
-            text = row.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        LetterAvatar(displayName = name, username = row.partnerUsername)
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (row.partnerIsPremium && !masked) PremiumBadgeIcon()
+            }
+            if (!masked) {
+                Text(
+                    text = stringResource(Res.string.post_card_handle, row.partnerUsername),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         row.lastMessageAtIso?.let { iso ->
             Text(
-                text = localDateLabel(iso),
-                style = MaterialTheme.typography.bodySmall,
+                text = relativeDayTimeLabel(iso),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.testTag(CONVERSATION_ROW_TIME_TAG),
             )
-        }
-    }
-}
-
-@Composable
-private fun CenteredState(
-    message: String,
-    spinner: Boolean,
-) {
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag(CONVERSATION_LIST_TAG)) {
-        item {
-            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (spinner) CircularProgressIndicator()
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(24.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ErrorState(onRetry: () -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag(CONVERSATION_LIST_TAG)) {
-        item {
-            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(Res.string.signin_error_network),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                    Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-                        Text(text = stringResource(Res.string.cta_retry))
-                    }
-                }
-            }
         }
     }
 }

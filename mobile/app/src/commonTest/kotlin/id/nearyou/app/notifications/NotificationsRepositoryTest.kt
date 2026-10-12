@@ -52,6 +52,19 @@ class NotificationsRepositoryTest {
         )
     }
 
+    // #286: the push-tap / notification chat route resolves the partner via user-profile-read, which carries the
+    // Premium flag the thread header badge renders.
+    @Test
+    fun `resolvePartner maps the profile read to the display identity with the Premium flag`() =
+        runTest {
+            val body =
+                """{"userId":"u1","username":"budi","displayName":"Budi","followerCount":0,"followingCount":0,""" +
+                    """"isSelf":false,"followedByViewer":false,"isPremium":true}"""
+            val repo = repository { respond(body, HttpStatusCode.OK, JSON_HEADERS) }
+
+            assertEquals(PartnerResolution.Resolved("budi", "Budi", isPremium = true), repo.resolvePartner("u1"))
+        }
+
     @Test
     fun `first-page request targets notifications with no cursor`() =
         runTest {
