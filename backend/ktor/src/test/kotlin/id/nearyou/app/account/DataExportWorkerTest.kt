@@ -19,6 +19,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
@@ -556,12 +557,31 @@ class DataExportWorkerTest : StringSpec({
         runBlocking { worker(store, email).execute() }
         val files = unzip(store.puts.values.single())
 
-        listOf(
-            "profile.json", "username_history.csv", "posts.csv", "post_edits.csv", "likes.csv",
-            "replies.csv", "follows.csv", "blocks.csv", "chat_messages.csv", "reports.csv",
-            "notifications.csv", "moderation_actions.csv", "session_history.csv",
-            "subscription_history.csv", "manifest.json", "README.txt",
-        ).forEach { name -> files.containsKey(name) shouldBe true }
+        // Exactly the documented set: a missing entry AND an extra (undocumented) one both fail.
+        files.keys shouldBe
+            setOf(
+                "profile.json", "username_history.csv", "posts.csv", "post_edits.csv", "likes.csv",
+                "replies.csv", "follows.csv", "blocks.csv", "chat_messages.csv", "reports.csv",
+                "notifications.csv", "moderation_actions.csv", "session_history.csv",
+                "subscription_history.csv", "manifest.json", "README.txt",
+            )
+    }
+
+    "8.8 manifest.json lists every archive entry except itself (README.txt included)" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val uid = seedUser()
+        seedPendingRequest(uid)
+
+        runBlocking { worker(store, email).execute() }
+        val files = unzip(store.puts.values.single())
+        val listed =
+            Json.parseToJsonElement(files.getValue("manifest.json")).jsonObject.getValue("files")
+                .jsonArray
+                .map { it.jsonPrimitive.content }
+
+        listed.toSet() shouldBe files.keys - "manifest.json"
+        listed.size shouldBe listed.toSet().size // no duplicates
     }
 
     "8.8 session history is sourced from login_events and now includes the IP + /24 subnet" {
