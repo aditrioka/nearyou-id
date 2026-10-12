@@ -60,6 +60,10 @@ The backend (`:infra:sentry-jvm`, spec `backend-error-reporting`) reports every 
 every 500 — to Sentry once a DSN is present. Until then it logs `event=sentry_disabled reason=dsn_missing`
 at startup and does nothing else. No symbol upload is needed (JVM stack traces are readable).
 
+**Staging status (#506):** steps 1–3 are done (project `nearyou-backend`, slot `staging-sentry-backend-dsn`
+v1 granted to the runtime SA, mapping live in `deploy-staging.yml`). Step 4 runs after the first `main`
+deploy that carries the mapping; step 5 waits for prod cutover.
+
 1. In the same Sentry org as mobile, create a **Java** project for the backend (e.g. `nearyou-backend`);
    copy its DSN. One project for staging + prod is fine — events carry `environment`.
 2. Store it in Secret Manager and let the Cloud Run runtime SA read it (the
