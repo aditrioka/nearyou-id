@@ -1731,7 +1731,10 @@
         Unduh Data Saya (docs/03 § Data Export) dan Hapus akun (docs/03 § Account Deletion) juga shipped di
         LAINNYA, mengapit Keluar, tapi sengaja tidak digambar (desain D5/D8, lihat <i>SettingsScreen.kt</i>);
         keduanya membuka dialog konfirmasi. Edit profil, Perjalanan Premium dan Kelola langganan masih
-        “Segera hadir” di app.</p>
+        “Segera hadir” di app. Dua state baris Ganti username tidak digambar (docs/03 § Cooldown Messaging,
+        “Username on downgrade”): Premium dalam cooldown 30 hari → baris nonaktif (judul/ikon pudar 38%),
+        subjudul <i>username_cooldown_countdown</i>; Free yang pernah ganti → banner <i>secondaryContainer</i>
+        di atas AKUN dengan <i>username_retained_banner</i>.</p>
       <span class="tag ada">Sudah ada di app — SettingsScreen (#249)</span>
     </div>
   </article>

@@ -15,6 +15,8 @@ The backend cooldown is DB-authoritative on `users.username_last_changed_at`. `U
 - **A proactive cooldown state inside the username screen.** The disabled row blocks the normal path into the screen during cooldown. The rare ways in (the Settings read failed, or the user tapped before it landed) still get the authoritative reactive `429 cooldown_active` countdown. A second proactive surface would add a state to the screen without changing what the user learns.
 - **Exposing the field on other-user reads or in admin.** Other users must not learn when someone renamed. The operator already has the Premium Username Change Oversight surface.
 - **Changing the backend cooldown or `PATCH` semantics.** None change.
+- **A downgrade-aware paywall hero.** From the retained gate, "Aktifkan Premium" opens `PaywallRoute(USERNAME)`. Its subheadline stays `username_premium_gate_body`. The paywall sells the feature set; the retained context was already given by the gate one tap earlier.
+- **Shortening the cooldown on re-subscribe.** A Free user who re-buys within 30 days of their last change still waits out the cooldown (`premium-username-customization` § "Re-subscribe re-enables changes without resetting the cooldown"). After the purchase lands, the Settings row then shows that countdown. The banner's "aktifkan Premium" stays true: Premium is what re-enables the change.
 
 ## Decisions
 
@@ -26,7 +28,9 @@ docs/03 § Cooldown Messaging names this field, and it answers both issues: #333
 
 ### D2. Settings gets its own NavEntry-scoped `SettingsUsernameEntryViewModel`
 
-Settings already hosts one VM per concern: `SettingsViewModel` (logout + toggles), `SettingsAccountDeletionViewModel` and `SettingsDataExportViewModel`. The username entry state is a fourth concern with its own read, so it gets its own VM. Folding it into `SettingsViewModel` would grow a VM that docs/11 § 2.2 already flags as known debt (8 `StateFlow`s). The new VM exposes ONE `StateFlow<UsernameEntryState>`. It is a single source flow with no derived inputs, so `asStateFlow()` is used, as in its two sibling Settings VMs.
+Settings already hosts one VM per concern: `SettingsViewModel` (logout + toggles), `SettingsAccountDeletionViewModel` and `SettingsDataExportViewModel`. The username entry state is a fourth concern with its own read, so it gets its own VM. Folding it into `SettingsViewModel` would grow a VM that docs/11 § 2.2 already flags as known debt (8 `StateFlow`s).
+
+The VM exposes ONE `StateFlow<UsernameEntryState>`. It is a `combine(profile, effectivePremium).stateIn(WhileSubscribed(5_000))` projection, the literal docs/11 § 2.2 shape (see D3 for the second input).
 
 It reads through the existing stateless `ProfileFlow.loadProfile(selfId)` and `SelfUserIdProvider`, the same seam the username screen uses (docs/11 § 2.6; no ApiClient in the VM). Settings resolves both through the screen's existing fail-safe `koin.getOrNull` idiom. An unbound graph (the existing Settings screen tests) or a failed read leaves the state `Open`. That is today's row, so nothing regresses.
 
@@ -35,19 +39,21 @@ It reads through the existing stateless `ProfileFlow.loadProfile(selfId)` and `S
 ### D3. The projection is a pure function of the profile and `now`
 
 ```
-usernameEntryState(profile, now):
-  profile.isPremium && cooldownDaysRemaining(profile.usernameLastChangedAt, now) != null → Cooldown(days)
-  !profile.isPremium && profile.usernameLastChangedAt != null                          → Retained(profile.username)
-  else                                                                                 → Open
+premium = profile.isPremium || effectivePremium
+usernameEntryState(profile, effectivePremium, now):
+  premium && cooldownDaysRemaining(profile.usernameLastChangedAt, now) != null → Cooldown(days)
+  !premium && profile.usernameLastChangedAt != null                          → Retained(profile.username)
+  else                                                                       → Open
 ```
 
 `usernameCooldownDaysRemaining(lastChangedAt, now)` returns `null` when the value is null or `now ≥ lastChangedAt + 30d`. Otherwise it returns the remaining whole days rounded up, through the shipped `cooldownDays(seconds)`. That is the same rounding the reactive `Retry-After` path uses, so the proactive and reactive counts agree. `now` is injected (`() -> Instant`, default `Clock.System.now()`), so the projection is deterministic in tests.
 
-**Billing retry:** `isPremium` is `premium_active` only, but the backend lets `premium_billing_retry` change usernames. A billing-retry user is therefore read as Free:
-- In cooldown, they see the row enabled, and the reactive `429` still counts down.
-- If they customized, they see the retained banner, which asks them to (re)activate Premium.
+**Billing retry (`effectivePremium`):** the profile's `isPremium` is `premium_active` only, but the backend lets `premium_billing_retry` change usernames. Settings already holds an effective-Premium signal with exactly the backend's set: the hide-distance seed read's `premium` (`GET /api/v1/user/hide-distance`, `subscriptionStatus in PREMIUM_STATES`), exposed as `SettingsViewModel.hideDistancePremium`.
 
-This is the same mis-classification `mobile-premium-username` already accepts for its gate ("harmless because re-subscribing is the intended action"). Fixing it would need a second wire field for a billing edge case.
+- The entry VM takes that `StateFlow<Boolean>` as a constructor input and ORs it in. This is the `UsernameCustomizationViewModel(premiumConfirmed: StateFlow<Boolean>)` precedent: a flow input, no new request and no new wire field.
+- The two reads land independently, and `combine` re-projects when either arrives.
+- If the hide-distance read fails, the flag stays `false`, so the result falls back to `isPremium`. The reactive paths still govern.
+- The username screen's own gate keeps its documented billing-retry behaviour (out of scope here).
 
 ### D4. Where the downgrade copy renders
 

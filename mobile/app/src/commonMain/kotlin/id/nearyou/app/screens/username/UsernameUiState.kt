@@ -4,6 +4,8 @@ import id.nearyou.app.ui.components.capCountdownMinutes
 import id.nearyou.app.username.UsernameChangeOutcome
 import id.nearyou.app.username.UsernameCheckOutcome
 import id.nearyou.app.username.UsernameFormatGuard
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Instant
 
 /** The inline status line shown under the field while editing (the docs/03 §119–125 availability/format
  *  feedback). Derived from the LOCAL format guard + the network probe outcome — never PII. */
@@ -73,6 +75,9 @@ data class UsernameUiState(
     val submitEnabled: Boolean = false,
     val confirmVisible: Boolean = false,
     val changed: Boolean = false,
+    /** The caller customized their handle before (self-read `usernameLastChangedAt != null`) — the gate then
+     *  shows the retained-username copy instead of the generic Premium pitch (#335). */
+    val usernameCustomized: Boolean = false,
 )
 
 private const val SECONDS_PER_DAY = 86_400L
@@ -86,6 +91,25 @@ fun cooldownDays(retryAfterSeconds: Long): Int {
     if (retryAfterSeconds <= 0) return 1
     val days = retryAfterSeconds / SECONDS_PER_DAY + if (retryAfterSeconds % SECONDS_PER_DAY > 0) 1 else 0
     return days.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+}
+
+/** The one-change-per-30-days cooldown. Mirrors the backend `UsernameChangeService.COOLDOWN`; the `PATCH`
+ *  stays authoritative (its `429 cooldown_active` backstops a drifted constant or a skewed device clock). */
+val USERNAME_CHANGE_COOLDOWN = 30.days
+
+/**
+ * The proactive cooldown (#333): whole days left until [lastChangedAt] + [USERNAME_CHANGE_COOLDOWN], rounded up
+ * like the reactive `Retry-After` path ([cooldownDays]) so both countdowns agree — or null when never changed or
+ * the cooldown has elapsed (`now` at or past the unlock instant, the backend's `!now.isBefore(unlockAt)`).
+ */
+fun usernameCooldownDaysRemaining(
+    lastChangedAt: Instant?,
+    now: Instant,
+): Int? {
+    if (lastChangedAt == null) return null
+    val remaining = lastChangedAt + USERNAME_CHANGE_COOLDOWN - now
+    if (!remaining.isPositive()) return null
+    return cooldownDays(remaining.inWholeSeconds.coerceAtLeast(1))
 }
 
 /**
@@ -103,6 +127,7 @@ fun usernameUiState(
     isSubmitting: Boolean,
     confirmVisible: Boolean,
     changed: Boolean,
+    usernameCustomized: Boolean = false,
 ): UsernameUiState {
     val status = computeStatus(currentUsername, candidate, isPremiumKnown, checkOutcome, changeOutcome, isSubmitting)
     val submitEnabled =
@@ -114,6 +139,7 @@ fun usernameUiState(
         submitEnabled = submitEnabled,
         confirmVisible = confirmVisible,
         changed = changed,
+        usernameCustomized = usernameCustomized,
     )
 }
 

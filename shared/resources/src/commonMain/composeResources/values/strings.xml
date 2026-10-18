@@ -558,10 +558,11 @@
     <!-- mobile-premium-username: the Ganti Username surface (docs/03-UX-Design.md §107-148), consuming the
          SHIPPED PATCH /api/v1/user/username + GET /api/v1/username/check. Error/session states REUSE
          signin_error_network / cta_retry / timeline_session_redirect; the Premium-gate CTA REUSES
-         cta_activate_premium (no duplicate-value key). The cooldown is surfaced REACTIVELY (429
-         cooldown_active → username_cooldown_countdown) — the proactive entry countdown is deferred (needs a
-         backend username_last_changed_at field). The 409 shows ONE generic message (the shipped
-         username_unavailable envelope carries no reason; the three distinct docs/03 messages are deferred). -->
+         cta_activate_premium (no duplicate-value key). username_cooldown_countdown serves both the reactive
+         cooldown (429 cooldown_active) and the proactive Settings-row countdown (#333, from the self-profile
+         usernameLastChangedAt); username_retained_banner is the docs/03 "Username on downgrade" copy, shown as
+         the Settings banner and the gate body for a customized Free user (#335). The 409 shows ONE generic
+         message (the shipped username_unavailable envelope carries no reason — final, not planned). -->
     <string name="username_title">Ganti Username</string>
     <string name="username_back_cd">Kembali</string>
     <string name="username_current_label" formatted="true">Username sekarang: @%1$s</string>
@@ -580,6 +581,7 @@
     <string name="username_confirm_dismiss">Batal</string>
     <string name="username_success_toast">Username berhasil diganti</string>
     <string name="username_premium_gate_body">Ganti username adalah fitur Premium.</string>
+    <string name="username_retained_banner" formatted="true">Username @%1$s tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium.</string>
 
     <!-- content-moderation-appeal (mobile-appeal). The ban/suspension appeal surface — docs/03 §228
          ("appeal path via Settings") + docs/08 Open Decision #2. Reuses cta_retry / timeline_loading /

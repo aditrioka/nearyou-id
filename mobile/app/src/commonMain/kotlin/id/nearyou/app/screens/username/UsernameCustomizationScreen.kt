@@ -60,6 +60,7 @@ import id.nearyou.resources.generated.resources.username_error_moderated
 import id.nearyou.resources.generated.resources.username_field_hint
 import id.nearyou.resources.generated.resources.username_premium_gate_body
 import id.nearyou.resources.generated.resources.username_probe_deferred
+import id.nearyou.resources.generated.resources.username_retained_banner
 import id.nearyou.resources.generated.resources.username_rate_limited
 import id.nearyou.resources.generated.resources.username_submit
 import id.nearyou.resources.generated.resources.username_success_toast
@@ -81,8 +82,8 @@ const val USERNAME_STATUS_TAG: String = "usernameStatus"
 
 /**
  * The Premium **Ganti Username** surface (`mobile-premium-username`) — reached from the Settings AKUN
- * "Ganti username" row (pushed unconditionally onto the ROOT back stack, overlaying the section bar, the
- * `SearchScreen` precedent). Injects [UsernameFlow] + [ProfileFlow] + [SelfUserIdProvider] and observes a
+ * "Ganti username" row (pushed onto the ROOT back stack, overlaying the section bar, the `SearchScreen`
+ * precedent; the row is disabled only during the proactive 30-day cooldown). Injects [UsernameFlow] + [ProfileFlow] + [SelfUserIdProvider] and observes a
  * route-scoped [UsernameCustomizationViewModel] that resolves the caller's Premium status on entry (the
  * screen owns the gate, design D2), runs the live local format validation + budget-aware probe, and gates
  * the change behind a confirmation modal.
@@ -126,6 +127,8 @@ fun UsernameCustomizationScreen(
                 UsernameStatus.Resolving -> CenteredLoading()
                 UsernameStatus.PremiumGate ->
                     PremiumGate(
+                        // #335: a caller who customized before keeps their handle — say so, not "fitur Premium".
+                        retainedUsername = uiState.currentUsername.takeIf { uiState.usernameCustomized && it.isNotEmpty() },
                         onActivatePremium = onActivatePremium,
                         // Clears the gate outcome, back to the editor with the candidate kept (#517).
                         onRetry = { viewModel.onCandidateChange(uiState.candidate) },
@@ -280,9 +283,12 @@ private fun ConfirmDialog(
 }
 
 /** The 403 gate. After a confirmed purchase it can only be the server tier lagging the webhook, so it shows
- *  the activating notice and a "Coba lagi" ([onRetry], back to the editor) instead of the upgrade pitch (#517). */
+ *  the activating notice and a "Coba lagi" ([onRetry], back to the editor) instead of the upgrade pitch (#517).
+ *  Otherwise a [retainedUsername] (the caller customized before) swaps the generic pitch for the docs/03
+ *  "Username on downgrade" copy (#335). */
 @Composable
 private fun PremiumGate(
+    retainedUsername: String?,
     onActivatePremium: () -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -291,9 +297,11 @@ private fun PremiumGate(
         Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text =
-                    stringResource(
-                        if (activating) Res.string.premium_activating_body else Res.string.username_premium_gate_body,
-                    ),
+                    when {
+                        activating -> stringResource(Res.string.premium_activating_body)
+                        retainedUsername != null -> stringResource(Res.string.username_retained_banner, retainedUsername)
+                        else -> stringResource(Res.string.username_premium_gate_body)
+                    },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,

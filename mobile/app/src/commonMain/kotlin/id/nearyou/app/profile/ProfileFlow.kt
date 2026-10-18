@@ -3,13 +3,15 @@ package id.nearyou.app.profile
 import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
+import kotlin.time.Instant
 
 /**
  * The display + action model of a user profile (the domain projection the screen renders). Compose-free
  * and PII-safe-by-rendering: [userId] is retained ONLY as the follow/block/report action target and the
  * route resource key — it MUST NEVER be rendered as a UI string. [bio] is null when absent; [isPrivate]
  * is non-null only on the self read (self-only state). [isPremium] is true iff the target's
- * `subscription_status` is `premium_active`.
+ * `subscription_status` is `premium_active`. [usernameLastChangedAt] is self-only too — the caller's last
+ * username change, null when never changed (non-null = "customized before", the downgrade-banner signal).
  */
 data class UserProfile(
     val userId: String,
@@ -22,6 +24,7 @@ data class UserProfile(
     val followedByViewer: Boolean,
     val isPremium: Boolean,
     val isPrivate: Boolean?,
+    val usernameLastChangedAt: Instant? = null,
 )
 
 /**

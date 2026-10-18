@@ -13,6 +13,7 @@
 - **Mobile data (`mobile-profile`).** `UserProfileResponse.usernameLastChangedAt: String? = null`. `UserProfile.usernameLastChangedAt: Instant?` is parsed fail-soft (an unparseable value reads as `null`).
 - **Settings entry (#333 + #335, `mobile-settings` + `mobile-premium-username`).** A new NavEntry-scoped `SettingsUsernameEntryViewModel` does a self-profile read. It does so on entry and again on every `ON_RESUME`, the docs/11 § 2.3 re-read idiom, so a return from a username change or a purchase shows fresh state. It projects one `UsernameEntryState`:
   - `Cooldown(days)`: Premium, with less than 30 days since the last change. The "Ganti username" row's subtitle becomes `username_cooldown_countdown`, and the row is **disabled**. It pushes nothing.
+  - "Premium" here is the self read's `isPremium` OR the hide-distance read's `premium`, which also counts `premium_billing_retry`.
   - `Retained(username)`: not Premium, and the user has customized before. A non-blocking banner at the top of Settings shows `username_retained_banner`. It is hidden during the post-purchase webhook-lag window. The row still pushes the route.
   - `Open`: anything else, including a failed or unbound read. The row is unchanged and pushes the route.
 - **Username screen gate (#335, `mobile-premium-username`).** The route's on-entry self read also records whether the user has customized. The `PremiumGate` panel then shows `username_retained_banner` with the current handle in place of `username_premium_gate_body`. The activating notice still wins during the lag window.
@@ -40,6 +41,7 @@ None.
   - ADD the Settings entry-state requirement;
   - the deferral requirement keeps only the not-planned items.
 - `mobile-settings`: the "Ganti username" backed row is no longer unconditional. Settings now does a self-profile read for the username entry state only.
+- `premium-username-customization`: the "Backend-only scope" requirement names `mobile-premium-username` as the delivered mobile UI, not a pending follow-on.
 
 ## Impact
 
@@ -50,5 +52,6 @@ None.
   - Backend: `core/data/.../UserProfileReader.kt` (`UserProfileRow`), `backend/ktor/.../user/{JdbcUserProfileReader,UserProfileService,UserProfileRoutes}.kt`, and `UserProfileRoutesTest.kt`.
   - Mobile: `profile/{ProfileApiClient,ProfileFlow,ProfileRepository}.kt`, new `screens/settings/SettingsUsernameEntryViewModel.kt`, `screens/settings/{SettingsScreen,SettingsComponents}.kt`, `screens/username/{UsernameUiState,UsernameCustomizationViewModel,UsernameCustomizationScreen}.kt`, and `strings.xml`.
   - Tests: `ProfileRepositoryTest`, new `SettingsUsernameEntryViewModelTest`, `UsernameUiStateTest`, `UsernameCustomizationViewModelTest`, `UsernameCustomizationScreenTest`, `SettingsScreenTest`, and the shared username fixtures.
+- **Other user read paths deliberately carry no field (docs/12 § 2.3).** The field is self-only, and every other path that returns a user is another user's projection: the timeline and post author, follow lists, search, chat participants, block lists, and admin user detail. Only the self branch of `GET /api/v1/users/{id}` returns the caller's own account state.
 - **Wire:** additive and optional. An older client ignores the key (`ignoreUnknownKeys`), and a newer client tolerates its absence. Staging deploy + smoke are needed before archive (runtime-impacting backend change, docs/11 § 5.4).
 - **Coordination:** no open PR touches these files (surveyed 2026-10-19). Wave 4 siblings add strings to `strings.xml`. Whoever merges second rebases.

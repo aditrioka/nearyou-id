@@ -71,6 +71,8 @@ During the post-purchase webhook-lag window (`mobile-premium-entitlement` § "Up
 - **GIVEN** `UsernameCustomizationScreen` whose Koin graph binds a `PremiumEntitlementSession` on which `onPurchaseConfirmed()` has run AND a `FakeUsernameFlow` returning `PremiumGate`
 - **WHEN** a submitted change meets the `403` and the gate's "Coba lagi" control is activated
 - **THEN** the gate showed `premium_activating_body` AND neither `username_premium_gate_body` nor an "Aktifkan Premium" control AND the retry returns to the editor holding the submitted candidate AND the hoisted `onActivatePremium` is never invoked
+- **AND WHEN** the same flow runs for a caller who customized before (non-null `usernameLastChangedAt`)
+- **THEN** the gate shows `premium_activating_body` and NOT `username_retained_banner` (the activating notice wins)
 
 ### Requirement: The screen resolves Premium status on entry; the Settings row pushes the route unless the proactive cooldown disables it
 
@@ -107,6 +109,22 @@ Because the client `isPremium` signal is `true` only for `premium_active` (NOT `
 - **WHEN** `purchaseConfirmed` becomes `true` and the user re-enters `"newname"`
 - **THEN** the `PremiumGate` outcome is cleared AND a fresh probe for `"newname"` is issued after the debounce
 
+### Requirement: Test coverage for the screen, projection, format guard, networking, and route
+
+The change SHALL ship: (1) a Robolectric `UsernameCustomizationScreenTest` (`mobile/app/src/androidUnitTest/...`) covering the field + live format feedback, each visual state (Editing·available / Editing·unavailable / Editing·probe-deferred / Submitting / Unavailable / Moderated / CooldownActive / RateLimited / PremiumGate / Disabled / SessionExpired / Error) via a `FakeUsernameFlow`, the on-entry gate resolution (not-Premium self-read → initial `PremiumGate`; Premium → editor) and the probe-path gate, the submit-confirmation modal (confirm fires / dismiss does not), and the success toast + `onChanged` pop — added to the `mobile/app/build.gradle.kts` Release-variant test-exclude list (per the `*ScreenTest` convention); (1b) an update to the existing (already Release-excluded) `SettingsScreenTest` asserting the "Ganti username" row pushes `UsernameCustomizationRoute` outside the proactive cooldown, is disabled with the day countdown inside it (including for a billing-retry caller), and that the retained-username banner shows for a customized Free caller, hides in the webhook-lag window, and is absent otherwise (the MODIFIED `mobile-settings` row routing); (1c) a commonTest `SettingsUsernameEntryViewModelTest` for the pure `usernameEntryState(...)` matrix and the ViewModel's read lifecycle (init read, single-flight `refresh()`, failed re-read keeps the state, unbound seam stays `Open`, the effective-Premium flag re-projects without a second read); (2) a commonTest `UsernameUiStateTest` for the pure projection (including the non-positive countdown floor, the `usernameCustomized` carry-through, and the proactive `usernameCooldownDaysRemaining` rounding + 30-day boundary); (3) commonTest for the format guard (length/charset/consecutive-dots matrix mirroring the backend's accept/reject examples, including the 30-accept / 31-reject boundary) and the `UsernameCustomizationRoute` serialized round-trip; (4) MockEngine-backed `UsernameApiClient` / `UsernameRepository` tests verifying the `PATCH` body + the `GET` `candidate` param, the shipped success/available wire parse, each change-status → `UsernameChangeOutcome` mapping (including the 429 `cooldown_active`/`rate_limited` and 422 `invalid_username`/`username_rejected` error-code splits and the `Retry-After` parse + non-positive floor), and each probe-status → `UsernameCheckOutcome` mapping; (5) an `iosTest` flow test (`UsernameFlowIosTest`) mirroring `SearchFlowIosTest` — exercising the username flow over a `FakeUsernameFlow` on the iOS/Native target so the new route + data seam compile and run on Kotlin/Native.
+
+#### Scenario: Test classes exist and are discoverable
+- **WHEN** running `./gradlew :mobile:app:testDevDebugUnitTest`
+- **THEN** `UsernameCustomizationScreenTest`, `UsernameUiStateTest`, `SettingsUsernameEntryViewModelTest`, the format-guard + route round-trip tests, the `UsernameApiClient`/`UsernameRepository` MockEngine tests, and the `SettingsScreenTest` "Ganti username" row-routing + entry-state assertions are discovered AND each documented state / mapping corresponds to at least one `@Test`
+
+#### Scenario: The iOS flow test exists for the Native target
+- **WHEN** inspecting `mobile/app/src/iosTest/...`
+- **THEN** a `UsernameFlowIosTest` exists (mirroring `SearchFlowIosTest`) exercising the username flow over a `FakeUsernameFlow` on the iOS/Native target
+
+#### Scenario: Screen test is excluded from the Release variant
+- **WHEN** inspecting `mobile/app/build.gradle.kts`
+- **THEN** the Release-variant exclude block lists `**/UsernameCustomizationScreenTest*` alongside the existing `*ScreenTest` exclusions AND `:mobile:app:testDevReleaseUnitTest` passes
+
 ### Requirement: Distinct unavailable messages and autocomplete are not planned
 
 This capability SHALL NOT implement the two items below. They are **not planned** and carry no tracking issue. (The proactive cooldown entry state, [#333](https://github.com/aditrioka/nearyou-id/issues/333), and the downgrade banner, [#335](https://github.com/aditrioka/nearyou-id/issues/335), formerly deferred here, ship per the § "The Settings entry shows the proactive cooldown and the downgrade banner" and § "The Premium gate" requirements.)
@@ -129,13 +147,13 @@ This capability SHALL NOT implement the two items below. They are **not planned*
 
 ### Requirement: The Settings entry shows the proactive cooldown and the downgrade banner
 
-`SettingsScreen` SHALL host a NavEntry-scoped `SettingsUsernameEntryViewModel` (resolved via `viewModel { … }`, alongside the screen's other per-concern ViewModels) that reads the caller's own profile through the existing `ProfileFlow.loadProfile(selfUserId)` + `SelfUserIdProvider` seam and exposes ONE `StateFlow<UsernameEntryState>`. The read SHALL run on entry and again on every `ON_RESUME` (the docs/11 § 2.3 re-read idiom), so a return from a username change or a purchase reflects fresh state; a resume while a read is in flight SHALL NOT start a second one, and a failed read SHALL keep the last state. The state SHALL be a pure function `usernameEntryState(profile, now)` over the loaded `UserProfile` and an injected clock:
+`SettingsScreen` SHALL host a NavEntry-scoped `SettingsUsernameEntryViewModel` (resolved via `viewModel { … }`, alongside the screen's other per-concern ViewModels) that reads the caller's own profile through the existing `ProfileFlow.loadProfile(selfUserId)` + `SelfUserIdProvider` seam and exposes ONE `StateFlow<UsernameEntryState>`. The read SHALL run on entry and again on every `ON_RESUME` (the docs/11 § 2.3 re-read idiom), so a return from a username change or a purchase reflects fresh state; a resume while a read is in flight SHALL NOT start a second one, and a failed read SHALL keep the last state. The state SHALL be a pure function `usernameEntryState(profile, effectivePremium, now)` over the loaded `UserProfile`, the screen's existing hide-distance seed read's `premium` flag (`GET /api/v1/user/hide-distance`, which counts `premium_active` AND `premium_billing_retry` — the backend's username-change set; no extra request), and an injected clock. "Premium" below means `profile.isPremium || effectivePremium`, re-projected when either input changes:
 
-- **`Cooldown(days)`** when `isPremium` AND `usernameLastChangedAt + 30 days > now` — `days` is the remaining whole days rounded up and floored to 1, through the same `cooldownDays(seconds)` rounding the reactive `429 cooldown_active` path uses. The "Ganti username" row SHALL then show `stringResource(Res.string.username_cooldown_countdown, days)` ("Ganti username berikutnya tersedia dalam %1$d hari.", docs/03 § Cooldown Messaging) as its subtitle and SHALL be disabled: not clickable, title/icon/chevron muted, and activating it pushes nothing ([#333](https://github.com/aditrioka/nearyou-id/issues/333)). The subtitle stays at full contrast.
-- **`Retained(username)`** when NOT `isPremium` AND `usernameLastChangedAt != null` (a downgraded user who customized — signup never sets the column). Settings SHALL render a non-blocking banner at the top of the list with `stringResource(Res.string.username_retained_banner, username)` ("Username @{username} tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium.", docs/03 "Username on downgrade", [#335](https://github.com/aditrioka/nearyou-id/issues/335)). The banner SHALL be hidden while a purchase is confirmed and the tier still lags the webhook (`rememberPremiumActivating()`). The row stays enabled and pushes the route (whose gate shows the same retained copy).
+- **`Cooldown(days)`** when Premium AND `usernameLastChangedAt + 30 days > now` — `days` is the remaining whole days rounded up and floored to 1, through the same `cooldownDays(seconds)` rounding the reactive `429 cooldown_active` path uses. The "Ganti username" row SHALL then show `stringResource(Res.string.username_cooldown_countdown, days)` ("Ganti username berikutnya tersedia dalam %1$d hari.", docs/03 § Cooldown Messaging) as its subtitle and SHALL be disabled: not clickable, title/icon/chevron muted, and activating it pushes nothing ([#333](https://github.com/aditrioka/nearyou-id/issues/333)). The subtitle stays at full contrast.
+- **`Retained(username)`** when NOT Premium AND `usernameLastChangedAt != null` (a downgraded user who customized — signup never sets the column). Settings SHALL render a non-blocking banner at the top of the list with `stringResource(Res.string.username_retained_banner, username)` ("Username @{username} tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium.", docs/03 "Username on downgrade", [#335](https://github.com/aditrioka/nearyou-id/issues/335)). The banner SHALL be hidden while a purchase is confirmed and the tier still lags the webhook (`rememberPremiumActivating()`). The row stays enabled and pushes the route (whose gate shows the same retained copy).
 - **`Open`** otherwise — including before the first read lands, when the read fails, when the self id is missing, or when the graph binds no `ProfileFlow` / `SelfUserIdProvider` (resolved fail-safe via `getOrNull`). The row renders and pushes exactly as before.
 
-The 30-day constant mirrors the backend `UsernameChangeService.COOLDOWN`; the server stays authoritative (a skewed device clock can only mis-count the days or leave the row enabled, and the reactive `429` then governs). The client `isPremium` is `premium_active` only, so a `premium_billing_retry` user reads as Free here — the same accepted mis-classification as the screen's gate.
+The 30-day constant mirrors the backend `UsernameChangeService.COOLDOWN`; the server stays authoritative (a skewed device clock can only mis-count the days or leave the row enabled, and the reactive `429` then governs). Until the hide-distance read lands (or if it fails) `effectivePremium` is `false`, so a billing-retry caller briefly projects as Free — the reactive `403`/`429` paths still govern any attempt.
 
 #### Scenario: A Premium user inside the cooldown sees a disabled row with the countdown
 - **GIVEN** a self read with `isPremium = true` and `usernameLastChangedAt` 16 days before `now`
@@ -160,6 +178,11 @@ The 30-day constant mirrors the backend `UsernameChangeService.COOLDOWN`; the se
 - **GIVEN** the `Retained` state AND a Koin graph binding a `PremiumEntitlementSession` on which `onPurchaseConfirmed()` has run
 - **WHEN** `SettingsScreen` renders
 - **THEN** no retained banner is shown
+
+#### Scenario: A billing-retry caller is treated as Premium
+- **GIVEN** a self read with `isPremium = false` (billing retry) and `usernameLastChangedAt` 16 days before `now`, AND a hide-distance seed read reporting `premium = true`
+- **WHEN** `SettingsScreen` renders
+- **THEN** the row shows the 14-day countdown and is disabled AND no retained banner is shown
 
 #### Scenario: A failed or unbound read leaves the row open
 - **GIVEN** a self read that returns `NetworkError`, and separately a Koin graph with no `ProfileFlow` bound

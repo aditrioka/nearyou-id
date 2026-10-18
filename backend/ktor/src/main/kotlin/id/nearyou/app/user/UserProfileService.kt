@@ -15,8 +15,8 @@ import java.util.UUID
  * blocked-either-direction) is mapped to [ProfileUserNotFoundException], which the route turns into
  * the single constant `404 user_not_found` (the leak-safe collapse — see [userProfileRoutes]).
  *
- * `isSelf` is computed here (`targetId == viewerId`); the reader carries the self-only field
- * (`isPrivate`) already nulled on the other-user path.
+ * `isSelf` is computed here (`targetId == viewerId`); the reader carries the self-only fields
+ * (`isPrivate`, `usernameLastChangedAt`) already nulled on the other-user path.
  */
 class UserProfileService(
     private val reader: UserProfileReader,
@@ -41,6 +41,7 @@ class UserProfileService(
             followedByViewer = row.followedByViewer,
             isPremium = row.isPremium,
             isPrivate = row.isPrivate,
+            usernameLastChangedAt = row.usernameLastChangedAt?.toString(),
         )
     }
 }

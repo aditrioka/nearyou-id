@@ -28,7 +28,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * Exposes ONE [StateFlow]<[UsernameUiState]> via `stateIn(WhileSubscribed)`.
  *
  * It owns: the input candidate; the **on-entry self-Premium resolution** (a self-profile read — Settings
- * pushes the route unconditionally, so the screen owns the gate, design D2); the **debounced budget-aware
+ * never diverts a Free user to the paywall, so the screen owns the gate, design D2); the **debounced budget-aware
  * probe** (500 ms; one `check` per settled candidate, stops after a `ProbeExhausted` to protect the 3/day
  * limit); the **submit** (gated behind a confirmation dialog); and the **success one-shot** ([VmState.changed],
  * cleared via [onChangedShown]). The authoritative gate is the reactive `403` from a probe/submit — the
@@ -53,6 +53,7 @@ class UsernameCustomizationViewModel(
         val isSubmitting: Boolean = false,
         val confirmVisible: Boolean = false,
         val changed: Boolean = false,
+        val customized: Boolean = false,
     )
 
     private val state = MutableStateFlow(VmState())
@@ -94,10 +95,12 @@ class UsernameCustomizationViewModel(
             isSubmitting = isSubmitting,
             confirmVisible = confirmVisible,
             changed = changed,
+            usernameCustomized = customized,
         )
 
-    /** On-entry: resolve the self profile → seed the current handle + the Premium gate. A missing id or a
-     *  read failure degrades to the editor (the reactive 403 then governs — never an error wall). */
+    /** On-entry: resolve the self profile → seed the current handle, the Premium gate, and whether the caller
+     *  customized before (the gate's retained copy, #335). A missing id or a read failure degrades to the
+     *  editor (the reactive 403 then governs — never an error wall). */
     private fun resolvePremiumOnEntry() {
         viewModelScope.launch {
             val id = selfUserIdProvider.selfUserId()
@@ -110,7 +113,11 @@ class UsernameCustomizationViewModel(
                     state.update {
                         // OR the confirmed purchase: a read lagging the webhook must not re-gate a buyer.
                         val premium = outcome.profile.isPremium || premiumConfirmed.value
-                        it.copy(currentUsername = outcome.profile.username, isPremiumKnown = premium)
+                        it.copy(
+                            currentUsername = outcome.profile.username,
+                            isPremiumKnown = premium,
+                            customized = outcome.profile.usernameLastChangedAt != null,
+                        )
                     }
                 // NotFound / NetworkError on the self read → editor (reactive 403 backstops correctness).
                 else -> state.update { it.copy(isPremiumKnown = true) }

@@ -99,7 +99,7 @@ Generated at the register step; shown as informational (not editable at signup).
 
 The banner countdown is personalized per user; during the 72h window the client treats the profile as private in every rendering path.
 
-**Username on downgrade**: the custom username stays as last-set (not reverted); further changes disabled until Premium is renewed. In-app banner:
+**Username on downgrade**: the custom username stays as last-set (not reverted); further changes disabled until Premium is renewed. In-app banner, shown at the top of Settings and as the "Ganti Username" gate body to a Free user who customized before (the self-profile `usernameLastChangedAt` is non-null; hidden while a just-confirmed purchase waits for the webhook):
 > "Username @{username} tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium."
 
 ---
@@ -116,7 +116,7 @@ Feature rules: `02-Product.md` § Premium Username Customization.
 
 ### Customization Screen
 
-> Reconciled 2026-07-02 to the shipped wire (`premium-username-customization` backend + `mobile-premium-username` client): the availability probe is **3/day rate-limited and non-authoritative**, and the `409` envelope carries **no unavailability reason** — so validation is local-first and the unavailable message is generic. The generic message is **final** (operator decision 2026-09-26): a per-reason message would tell a prober whether a handle is reserved, taken, or on its release hold, against the `premium-username-customization` anti-probing rule ([#334](https://github.com/aditrioka/nearyou-id/issues/334) closed as not planned). Still tracked: the proactive cooldown entry state [#333](https://github.com/aditrioka/nearyou-id/issues/333).
+> Reconciled 2026-07-02 to the shipped wire (`premium-username-customization` backend + `mobile-premium-username` client): the availability probe is **3/day rate-limited and non-authoritative**, and the `409` envelope carries **no unavailability reason** — so validation is local-first and the unavailable message is generic. The generic message is **final** (operator decision 2026-09-26): a per-reason message would tell a prober whether a handle is reserved, taken, or on its release hold, against the `premium-username-customization` anti-probing rule ([#334](https://github.com/aditrioka/nearyou-id/issues/334) closed as not planned). The proactive cooldown entry state ([#333](https://github.com/aditrioka/nearyou-id/issues/333)) ships, see § Cooldown Messaging.
 
 - Current username + field for the new one; **live LOCAL format validation** (debounced 500ms; 3–30 chars, lowercase/digit/dot/underscore rules) gates both the probe and submit — format errors surface instantly with no network call ("Username harus 3–30 karakter: huruf kecil, angka, titik, atau garis bawah (tidak di awal/akhir, tanpa titik ganda).")
 - **Budget-aware availability probe**: `GET /api/v1/username/check` fires only for a format-valid, settled, not-yet-probed candidate (NOT per keystroke — the probe is rate-limited 3/user/day). Probe available: "Username tersedia." Probe exhausted degrades gracefully, not an error: "Ketersediaan akan dicek saat kamu simpan." — the authoritative check happens at submit under the row lock.
@@ -128,7 +128,8 @@ Feature rules: `02-Product.md` § Premium Username Customization.
 
 ### Cooldown Messaging
 
-Cooldown is **reactive-only** at MVP: the countdown copy above renders when a change attempt returns `429 cooldown_active` (whole days rounded up from `Retry-After`). A proactive disabled entry-point state ("Ganti username berikutnya tersedia dalam {countdown} hari." shown before any attempt) needs the self-profile to expose `username_last_changed_at` — deferred, tracked in [#333](https://github.com/aditrioka/nearyou-id/issues/333).
+- **Proactive (entry point):** the self-profile read exposes `usernameLastChangedAt` (self-only). For a Premium user inside the 30 days, the Settings "Ganti username" row is **disabled**, and its subtitle reads "Ganti username berikutnya tersedia dalam {countdown} hari." (whole days left, rounded up) ([#333](https://github.com/aditrioka/nearyou-id/issues/333)).
+- **Reactive (authoritative):** the same copy renders when a change attempt returns `429 cooldown_active` (whole days rounded up from `Retry-After`). This covers a skewed device clock and a tap before the Settings read lands.
 
 ### Submit Confirmation
 

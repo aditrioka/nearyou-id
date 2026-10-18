@@ -5,7 +5,12 @@ import id.nearyou.app.username.UsernameCheckOutcome
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
 
 /**
  * Coverage of the pure [usernameUiState] projection: each outcome maps deterministically to its
@@ -22,6 +27,7 @@ class UsernameUiStateTest {
         isSubmitting: Boolean = false,
         confirmVisible: Boolean = false,
         changed: Boolean = false,
+        usernameCustomized: Boolean = false,
     ): UsernameUiState =
         usernameUiState(
             currentUsername = currentUsername,
@@ -32,6 +38,7 @@ class UsernameUiStateTest {
             isSubmitting = isSubmitting,
             confirmVisible = confirmVisible,
             changed = changed,
+            usernameCustomized = usernameCustomized,
         )
 
     @Test
@@ -111,5 +118,26 @@ class UsernameUiStateTest {
     fun `the changed one-shot propagates`() {
         assertTrue(project(changed = true).changed)
         assertFalse(project().changed)
+    }
+
+    @Test
+    fun `the customized flag rides along with the gate`() {
+        val gated = project(isPremiumKnown = false, usernameCustomized = true)
+        assertEquals(UsernameStatus.PremiumGate, gated.status)
+        assertTrue(gated.usernameCustomized)
+        assertFalse(project(isPremiumKnown = false).usernameCustomized)
+    }
+
+    @Test
+    fun `the proactive cooldown counts whole days up and ends at 30 days`() {
+        val now = Instant.parse("2026-10-19T12:00:00Z")
+        assertNull(usernameCooldownDaysRemaining(null, now))
+        assertEquals(14, usernameCooldownDaysRemaining(now - 16.days, now))
+        assertEquals(1, usernameCooldownDaysRemaining(now - 29.days - 1.hours, now))
+        assertEquals(1, usernameCooldownDaysRemaining(now - 30.days + 1.seconds, now))
+        assertNull(usernameCooldownDaysRemaining(now - 30.days, now), "unlocks exactly at 30 days, like the backend")
+        assertNull(usernameCooldownDaysRemaining(now - 45.days, now))
+        // A change 'in the future' (a device clock behind the server) counts the skew too: 30 d 12 h → 31.
+        assertEquals(31, usernameCooldownDaysRemaining(now + 12.hours, now))
     }
 }

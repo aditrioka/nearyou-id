@@ -66,7 +66,10 @@ fun Application.userProfileRoutes(service: UserProfileService) {
 /**
  * Wire DTO for the profile read. camelCase keys match the repo's mixed-case timeline-DTO convention.
  * `isPrivate` is self-only and `null` for other-user reads; `bio` is `null` when unset;
- * `followedByViewer` is `false` whenever `isSelf` is `true`.
+ * `followedByViewer` is `false` whenever `isSelf` is `true`. `usernameLastChangedAt` is self-only too —
+ * the ISO-8601 instant of the caller's last username change, `null` when they never changed it (it
+ * drives the client's proactive cooldown + "previously customized" banner; the `PATCH` cooldown stays
+ * authoritative). Null fields are omitted on the wire (`explicitNulls = false`).
  *
  * There is intentionally NO `suspendedUntil`: suspension is a session-terminating state (sets
  * `is_banned` + bumps `token_version`), so a suspended user is 403'd at the auth boundary and can
@@ -85,6 +88,7 @@ data class UserProfileResponse(
     val followedByViewer: Boolean,
     val isPremium: Boolean,
     val isPrivate: Boolean?,
+    val usernameLastChangedAt: String?,
 )
 
 private val USER_NOT_FOUND_BODY = """{"error":{"code":"user_not_found"}}"""
