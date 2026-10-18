@@ -52,7 +52,7 @@ Archive a completed change.
    EOF
    )"
    ```
-   Merge-ready body: lead with **Status: ✅ Implementation + archive complete. Merge-ready.**, drop in-progress framing, include final test counts + capability deltas (ADDED/MODIFIED from `openspec archive` output), list post-merge ticks (e.g. staging smoke) explicitly, and cite the one-PR-per-change convention so the reviewer understands the 10+ commits squash to ONE. Final retitle only if the dominant prefix changed (usually `feat(<area>): <name>` still fits).
+   Merge-ready body: lead with **Status: ✅ Implementation + archive complete. Merge-ready.**, drop in-progress framing, include final test counts + capability deltas (ADDED/MODIFIED from `openspec archive` output), the final `Review findings applied: <applied>/<total> (blocking <a>/<b>) — lenses: <list>` line (refreshed for the apply-time round, per `openspec/project.md` § Review channels), list post-merge ticks (e.g. staging smoke) explicitly, and cite the one-PR-per-change convention so the reviewer understands the 10+ commits squash to ONE. Final retitle only if the dominant prefix changed (usually `feat(<area>): <name>` still fits).
 
 8. **Display summary** — change name, schema, archive location, sync status, PR-body-refresh confirmation, any warnings.
 
