@@ -756,10 +756,15 @@ class ChatThreadScreenTest {
 
     // Frame 5 (#286): each bubble shows its send time ("09.12"), and a day chip heads the first row of each
     // day: the date for an older day, "Kemarin", then "Hari ini". A phone-height screen keeps all three rows composed.
+    // The screen's clock is pinned, so the labels cannot flip if the run crosses local midnight.
     @Test
     @Config(qualifiers = "w411dp-h891dp")
     fun bubblesShowTheirSendTime_andDayChipsHeadEachDay() {
-        val now = Clock.System.now()
+        val now = Instant.parse("2026-06-03T05:00:00Z")
+        val clock =
+            object : Clock {
+                override fun now() = now
+            }
         val older = (now - 3.days).toString()
         val yesterday = (now - 1.days).toString()
         val today = now.toString()
@@ -774,7 +779,7 @@ class ChatThreadScreenTest {
             ),
         )
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}, clock = clock) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("BARU").fetchSemanticsNodes().isNotEmpty() }
             assertEquals(
                 listOf(localDateLabel(older), "Kemarin", "Hari ini"),

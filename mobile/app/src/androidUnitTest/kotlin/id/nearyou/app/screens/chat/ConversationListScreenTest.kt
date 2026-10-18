@@ -231,10 +231,15 @@ class ConversationListScreenTest {
     }
 
     // mobile-chat § rows render "the relative last_message_at" (frame 2: "09.12" today, "Kemarin", the short
-    // weekday for the rest of the week, then the date).
+    // weekday for the rest of the week, then the date). The screen's clock is pinned, so the labels cannot flip if
+    // the run crosses local midnight.
     @Test
     fun rowTime_isRelative_clockTimeToday_kemarin_weekday_thenTheDate() {
-        val now = Clock.System.now()
+        val now = Instant.parse("2026-06-03T05:00:00Z")
+        val clock =
+            object : Clock {
+                override fun now() = now
+            }
         val today = now.toString()
         val yesterday = (now - 1.days).toString()
         val thisWeek = (now - 3.days).toString()
@@ -251,7 +256,7 @@ class ConversationListScreenTest {
             ),
         )
         runComposeUiTest {
-            setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = {}, onOpenThread = {}) } } }
+            setContent { KoinContext { NearYouTheme { ConversationListScreen(onBack = {}, onOpenThread = {}, clock = clock) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CONVERSATION_ROW_TAG).fetchSemanticsNodes().size == 4 }
             val weekday =
                 listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")[

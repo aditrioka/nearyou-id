@@ -43,6 +43,7 @@ import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
+import kotlin.time.Clock
 
 /** Test tag on the scrollable surface (every state renders one so pull-to-refresh works from each). */
 const val CONVERSATION_LIST_TAG: String = "conversationList"
@@ -70,6 +71,8 @@ const val CONVERSATION_ROW_TIME_TAG: String = "conversationRowTime"
 fun ConversationListScreen(
     onBack: () -> Unit,
     onOpenThread: (ConversationRow) -> Unit,
+    // The row times' "today". A screen test pins it so "09.12" / "Kemarin" cannot flip at local midnight.
+    clock: Clock = Clock.System,
 ) {
     val flow = koinInject<ConversationsFlow>()
     val viewModel = viewModel { ConversationListViewModel(flow) }
@@ -78,6 +81,7 @@ fun ConversationListScreen(
 
     ConversationListContent(
         uiState = uiState,
+        clock = clock,
         isRefreshing = isRefreshing,
         onRefresh = viewModel::reload,
         onRetry = viewModel::reload,
@@ -90,6 +94,7 @@ fun ConversationListScreen(
 @Composable
 private fun ConversationListContent(
     uiState: ConversationListUiState,
+    clock: Clock,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
@@ -126,7 +131,7 @@ private fun ConversationListContent(
                         message = stringResource(Res.string.timeline_session_redirect),
                         testTag = CONVERSATION_LIST_TAG,
                     )
-                is ConversationListUiState.Content -> ConversationRows(uiState.rows, onOpenThread)
+                is ConversationListUiState.Content -> ConversationRows(uiState.rows, clock, onOpenThread)
             }
         }
     }
@@ -135,6 +140,7 @@ private fun ConversationListContent(
 @Composable
 private fun ConversationRows(
     rows: List<ConversationRow>,
+    clock: Clock,
     onOpenThread: (ConversationRow) -> Unit,
 ) {
     LazyColumn(
@@ -142,7 +148,7 @@ private fun ConversationRows(
         contentPadding = PaddingValues(top = 8.dp),
     ) {
         items(items = rows, key = { it.conversationId }, contentType = { "conversation" }) { row ->
-            ConversationRowItem(row = row, rowTag = CONVERSATION_ROW_TAG, onOpen = { onOpenThread(row) })
+            ConversationRowItem(row = row, rowTag = CONVERSATION_ROW_TAG, onOpen = { onOpenThread(row) }, clock = clock)
         }
     }
 }
@@ -152,13 +158,14 @@ private fun ConversationRows(
  * name + [PremiumBadgeIcon] over the `@username`, and the trailing last-message time ([relativeDayTimeLabel]).
  * The list wire carries `last_message_at` but not the message text, so the second line is the handle; the
  * per-conversation unread count waits on #272. Also the share-to-chat picker's row ([ConversationPickerScreen]),
- * so both lists show the same identity treatment.
+ * so both lists show the same identity treatment. [clock] is the time label's "today".
  */
 @Composable
 internal fun ConversationRowItem(
     row: ConversationRow,
     rowTag: String,
     onOpen: () -> Unit,
+    clock: Clock = Clock.System,
 ) {
     // The backend COALESCE-masks a shadow-banned / deleted partner to "Akun Dihapus" / akun_dihapus. The mask (or a
     // blank edge value) renders the chat_account_deleted label with no handle or badge beside it.
@@ -200,7 +207,7 @@ internal fun ConversationRowItem(
         }
         row.lastMessageAtIso?.let { iso ->
             Text(
-                text = relativeDayTimeLabel(iso),
+                text = relativeDayTimeLabel(iso, clock.now()),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag(CONVERSATION_ROW_TIME_TAG),
