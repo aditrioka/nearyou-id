@@ -173,9 +173,9 @@ class DataExportArchiveService {
                 },
             )
 
-        // --- manifest + README (added last so the file list is complete) ----
-        files["manifest.json"] = manifestJson(bundle, generatedAt, files.keys).toByteArray(Charsets.UTF_8)
+        // --- README, then the manifest LAST so its file list covers every other entry ----
         files["README.txt"] = readmeText(generatedAt).toByteArray(Charsets.UTF_8)
+        files["manifest.json"] = manifestJson(bundle, generatedAt, files.keys).toByteArray(Charsets.UTF_8)
 
         return DataExportArchive(bytes = zip(files))
     }
@@ -216,7 +216,7 @@ class DataExportArchiveService {
                 put(
                     "files",
                     buildJsonArray {
-                        // Manifest lists every other file (itself excluded — it's added after this).
+                        // Manifest lists every other file (itself excluded), README.txt included.
                         fileNames.filter { it != "manifest.json" }.forEach { add(JsonPrimitive(it)) }
                     },
                 )

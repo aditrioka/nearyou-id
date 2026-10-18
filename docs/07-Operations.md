@@ -168,6 +168,23 @@ The Cloud Run service is `--allow-unauthenticated`, so Cloud Run IAM does not re
 - **Production:** set it to the prod scheduler SA before the first prod deploy. An empty value fails boot on staging/production (the revision is rejected and the previous one keeps serving); dev/test boot with a WARN and deny every caller.
 - **Triage:** a job whose attempts return `403 principal_not_allowed` runs as an SA missing from the list; `401 audience_mismatch` means its `--oidc-token-audience` differs from `INTERNAL_OIDC_AUDIENCE`.
 
+### Staging keep-warm ping (GitHub Actions)
+
+Staging runs on free tiers that go idle: Supabase Free pauses a project after 7 idle days, and Upstash Free removes a database left idle. The Scheduler jobs above wake Cloud Run and query Postgres, but no worker touches Redis. [`.github/workflows/staging-keep-warm.yml`](/.github/workflows/staging-keep-warm.yml) covers all three ([#537](https://github.com/aditrioka/nearyou-id/issues/537)).
+
+- **What:** one `GET https://api-staging.nearyou.id/health/ready` per weekday. The route runs `SELECT 1` on Postgres and `PING` on Redis, and its per-IP limiter writes a Redis counter, so one request wakes Cloud Run (`--min-instances=0`), Supabase and Upstash. Up to 5 attempts (30 s timeout each, 20 s apart, about 230 s worst case under the 5-minute job timeout) absorb a cold start; anything other than `200` fails the run.
+- **When:** `17 1 * * 1-5` UTC = Mon–Fri 08:17 WIB, so the working day starts warm. The longest idle gap is Friday to Monday, about 3 days. The minute is off the top of the hour because GitHub delays or drops scheduled runs at `:00` under load.
+- **Identity / cost:** none. No secrets, no checkout, no third-party actions, `permissions: {}`; it runs on a GitHub-hosted runner.
+- **Manual wake-up:** `gh workflow run staging-keep-warm.yml` (or *Run workflow* in the Actions tab), e.g. before a QA session after a quiet spell.
+- **Triage a red run:** the run log prints each attempt's HTTP code and the last body. Staging scales to zero, boot runs Flyway against Postgres, and the startup probe gates on `/health/ready` (`initialDelaySeconds=5,periodSeconds=10,failureThreshold=3` in `deploy-staging.yml`). So once a free tier has idled, no new instance becomes ready and the ping never reaches the app's own `503`.
+  - **`HTTP 000` (timeout) or a `5xx` without a JSON body:** the usual shape of a paused Supabase project or a removed Upstash database. Read the Cloud Run logs of `nearyou-backend-staging` (console → Cloud Run → Logs) for Flyway, connection or startup-probe failures. Then check the Supabase dashboard (paused project: restore it) and the Upstash console (database gone: create a new one, put its URL in the `staging-redis-url` slot per § Secret Management Runbook, then redeploy). If the logs show instances passing the probe, the fault is in front of them: Cloudflare, or traffic pinned to an old revision (§ Recovery from a failed-revision sequence on Cloud Run).
+  - **`4xx` (`403`, `429`):** the request was refused before the app served it. A `403` with an HTML body is most likely a Cloudflare challenge on the GitHub-hosted runner's IP, which becomes possible once staging DNS is proxied (Bucket 1, `08-Roadmap-Risk.md` Open Decision #36): check Cloudflare → Security → Events and let `/health/ready` through for that traffic. A `429` with the plain body `Too Many Requests` (and a `Retry-After` header) is the app's own per-IP `/health/*` limiter (60 per minute, `HealthRoutes.kt`); 5 attempts cannot trip it alone, so something else is sharing the client IP. Any other `429` is Cloud Run's "no available instance": with `--max-instances=1` the only instance is not ready, so triage it like `HTTP 000` above.
+  - **`503` with a JSON body:** a store failed under an instance that was already up. The body lists each check (`postgres`, `redis`, `supabase_realtime`) with its `ok` flag; fix the false one as above.
+  - After the fix, re-run with `gh workflow run staging-keep-warm.yml`.
+- **Auto-disable:** GitHub turns off `schedule:` triggers in a public repo after 60 days with no repository activity. Re-enable with `gh workflow enable staging-keep-warm.yml`.
+- **Rollback:** `gh workflow disable staging-keep-warm.yml`, or delete the file.
+- **Production:** not needed. Production is planned on `--min-instances=1` and paid tiers that do not idle (Open Decision #36).
+
 ---
 
 ## Secret Management Runbook

@@ -320,7 +320,10 @@ class AppealScreenTest {
                     NearYouTheme { AppealScreen(onBack = {}, onReSignIn = { reSignIns++ }) }
                 }
             }
-            waitUntil(timeoutMillis = 5_000) { backStack.lastOrNull() == SignInRoute }
+            // The re-route waits on real coroutines + MockEngine (401 → refresh → retry 401 → invalidate →
+            // SessionExpiryEffect), async w.r.t. compose idle. Generous ceiling for batch Robolectric CPU
+            // contention (#228): 5 s timed out once on a loaded CI runner while passing locally.
+            waitUntil(timeoutMillis = 30_000) { backStack.lastOrNull() == SignInRoute }
             assertEquals(listOf<NavKey>(SignInRoute), backStack.toList())
             assertNull(store.read(), "the fresh-but-rejected session is cleared")
             assertEquals(AppealRoute, returnDestination.peek(), "re-auth returns to the appeal")
