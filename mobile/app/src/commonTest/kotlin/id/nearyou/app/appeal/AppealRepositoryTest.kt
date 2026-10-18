@@ -15,10 +15,13 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -53,10 +56,11 @@ class AppealRepositoryTest {
         AppealRepository(
             AppealApiClient(rawClient(handler), sessionClient = rawClient { error("session client must not be used") }),
             tokenStore = InMemoryTokenStore(),
+            sessionInvalidator = SessionInvalidator(InMemoryTokenStore()),
         )
 
     private fun sessionRepository(
-        stored: TokenPair?,
+        store: InMemoryTokenStore,
         appealClientCalls: MutableList<String> = mutableListOf(),
         sessionHandler: MockRequestHandler,
     ): AppealRepository =
@@ -68,7 +72,8 @@ class AppealRepositoryTest {
                 },
                 sessionClient = rawClient(sessionHandler),
             ),
-            tokenStore = InMemoryTokenStore(stored),
+            tokenStore = store,
+            sessionInvalidator = SessionInvalidator(store),
         )
 
     @Test
@@ -202,7 +207,7 @@ class AppealRepositoryTest {
     fun `status 401 maps to SessionExpired`() =
         runTest {
             val repo = repository { respond("", HttpStatusCode.Unauthorized, JSON_HEADERS) }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status("t"))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = false), repo.status("t"))
         }
 
     @Test
@@ -212,7 +217,7 @@ class AppealRepositoryTest {
             var authHeader: String? = "unset"
             val appealCalls = mutableListOf<String>()
             val repo =
-                sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE), appealClientCalls = appealCalls) { request ->
+                sessionRepository(InMemoryTokenStore(TokenPair("at", "rt", Long.MAX_VALUE)), appealClientCalls = appealCalls) { request ->
                     path = request.url.encodedPath
                     authHeader = request.headers["Authorization"]
                     respond(
@@ -241,11 +246,11 @@ class AppealRepositoryTest {
             val appealCalls = mutableListOf<String>()
             var sessionCalls = 0
             val repo =
-                sessionRepository(stored = null, appealClientCalls = appealCalls) {
+                sessionRepository(InMemoryTokenStore(), appealClientCalls = appealCalls) {
                     sessionCalls++
                     respond("", HttpStatusCode.OK, JSON_HEADERS)
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = false), repo.status(null), "nothing app-wide fired")
             assertEquals(0, sessionCalls, "no session read without a stored session")
             assertEquals(emptyList(), appealCalls)
         }
@@ -253,6 +258,7 @@ class AppealRepositoryTest {
     /** The PRODUCTION session client shape — the shared bearer client with its refresh chain. */
     private fun sharedClientRepository(
         store: InMemoryTokenStore,
+        invalidator: SessionInvalidator = SessionInvalidator(store),
         handler: MockRequestHandler,
     ): AppealRepository =
         AppealRepository(
@@ -263,13 +269,14 @@ class AppealRepositoryTest {
                         installTimeouts = false,
                         apiBaseUrl = "http://test.local",
                         tokenStore = store,
-                        sessionInvalidator = SessionInvalidator(store),
+                        sessionInvalidator = invalidator,
                         engine = MockEngine(handler),
                         installLogging = false,
                         nowMillis = { 0L },
                     ),
             ),
             tokenStore = store,
+            sessionInvalidator = invalidator,
         )
 
     @Test
@@ -319,17 +326,42 @@ class AppealRepositoryTest {
                         else -> respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
                     }
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = true), repo.status(null))
             assertNull(store.read(), "the app-wide invalidation clears the session")
         }
 
     @Test
-    fun `null token session read 401 maps to SessionExpired`() =
+    fun `null token session read 401 that fired no invalidation invalidates the session`() =
         runTest {
+            val store = InMemoryTokenStore(TokenPair("at", "rt", Long.MAX_VALUE))
             val repo =
-                sessionRepository(stored = TokenPair("at", "rt", Long.MAX_VALUE)) {
+                sessionRepository(store) {
                     respond("", HttpStatusCode.Unauthorized, JSON_HEADERS)
                 }
-            assertEquals(AppealStatusOutcome.SessionExpired, repo.status(null))
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = true), repo.status(null))
+            assertNull(store.read(), "the canonical SessionInvalidator path clears the session")
+        }
+
+    @Test
+    fun `null token through the shared client whose refresh succeeds but whose retry still 401s invalidates the session`() =
+        runTest {
+            val store = InMemoryTokenStore(TokenPair("at-stale", "rt-1", Long.MAX_VALUE))
+            val invalidator = SessionInvalidator(store)
+            val repo =
+                sharedClientRepository(store, invalidator) { request ->
+                    when (request.url.encodedPath) {
+                        "/api/v1/auth/refresh" ->
+                            respond(
+                                """{"access_token":"at-new","refresh_token":"rt-new","expires_in":900}""",
+                                HttpStatusCode.OK,
+                                JSON_HEADERS,
+                            )
+                        // e.g. token_version bumped / the user deleted between the refresh and the retry.
+                        else -> respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
+                    }
+                }
+            assertEquals(AppealStatusOutcome.SessionExpired(viaSession = true), repo.status(null))
+            assertNull(store.read(), "the fresh-but-rejected pair is cleared")
+            assertNotNull(withTimeoutOrNull(1_000) { invalidator.sessionExpired.first() }, "the app-wide re-route signal is raised")
         }
 }

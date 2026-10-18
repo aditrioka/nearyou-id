@@ -263,8 +263,8 @@ fun appEntryProvider(
             // The ban/suspension appeal surface (mobile-appeal). Reached from the banned/suspended sign-in
             // (the 5.4 wiring, appeal token held) OR from an appeal_decided notification (signed in, no token —
             // the status read goes through the session). onBack pops; an approved decision on the banned path
-            // offers re-sign-in via `replaceAll` (picks up the lifted ban). The session-redirect state renders no
-            // action of its own — SessionExpiryEffect re-routes an invalidated session (banned-path gap: #581).
+            // offers re-sign-in via `replaceAll` (picks up the lifted ban). The session-redirect state calls
+            // onReSignIn itself, except after a session invalidation, which SessionExpiryEffect re-routes.
             AppealScreen(
                 onBack = { backStack.removeLastOrNull() },
                 onReSignIn = { backStack.replaceAll(SignInRoute) },
