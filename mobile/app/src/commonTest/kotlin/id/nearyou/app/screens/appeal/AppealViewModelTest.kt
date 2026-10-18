@@ -105,6 +105,18 @@ class AppealViewModelTest {
         }
 
     @Test
+    fun `the approved re-sign-in drops the appeal token so the kept sign-in consumes its banned state`() =
+        runTest {
+            val session = AppealSession().apply { set("tok-1") }
+            val approved = FakeAppealFlow(statusOutcome = AppealStatusOutcome.Decided(true, "suspension", null, null))
+            val viewModel = vm(approved, session = session)
+            advanceUntilIdle()
+            assertEquals("tok-1", session.peek(), "reading the approval keeps the token (a back still shows the ban)")
+            viewModel.onApprovedReSignIn()
+            assertNull(session.peek())
+        }
+
+    @Test
     fun `on-entry maps none-pending-decided status to their UI states`() =
         runTest {
             val none = vm(FakeAppealFlow(statusOutcome = AppealStatusOutcome.None))

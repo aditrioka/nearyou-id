@@ -75,8 +75,8 @@ const val APPEAL_RESIGNIN_TAG: String = "appealReSignIn"
  * Navigation-free: back invokes [onBack]; an approval read on the banned path offers [onReSignIn] (re-sign-in
  * picks up the lifted ban). The session-redirect state (a `401`, or neither an appeal token nor a stored
  * session) renders a redirect placeholder and routes back to sign-in via [onReSignIn] — except a `401` on
- * the signed-in session read that invalidated the session, which `SessionExpiryEffect` already re-routes
- * app-wide (#581). An approval read
+ * the signed-in session read, where the session is invalidated and `SessionExpiryEffect` re-routes app-wide
+ * (#581). An approval read
  * through the session renders no re-sign-in action — the user is already signed in. All copy via
  * `stringResource`; renders under `NearYouTheme`.
  */
@@ -119,7 +119,13 @@ fun AppealScreen(
                         body = stringResource(Res.string.appeal_pending_body),
                     )
                 is AppealStatus.Decided ->
-                    DecidedSurface(status = status, onReSignIn = onReSignIn)
+                    DecidedSurface(
+                        status = status,
+                        onReSignIn = {
+                            viewModel.onApprovedReSignIn()
+                            onReSignIn()
+                        },
+                    )
                 is AppealStatus.SessionRedirect ->
                     CenteredMessageWithAction(
                         message = stringResource(Res.string.timeline_session_redirect),

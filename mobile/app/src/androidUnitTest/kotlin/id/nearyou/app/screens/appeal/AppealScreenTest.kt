@@ -9,20 +9,38 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.rememberNavBackStack
+import id.nearyou.app.appeal.AppealApiClient
 import id.nearyou.app.appeal.AppealFlow
+import id.nearyou.app.appeal.AppealRepository
 import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.appeal.AppealStatusOutcome
 import id.nearyou.app.appeal.AppealSubmitOutcome
 import id.nearyou.app.appeal.FakeAppealFlow
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
+import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.SignInOutcome
+import id.nearyou.app.auth.TokenPair
+import id.nearyou.app.network.HttpClientFactory
 import id.nearyou.app.screens.auth.SIGNIN_APPEAL_TAG
+import id.nearyou.app.screens.routing.AppealRoute
+import id.nearyou.app.screens.routing.HomeRoute
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
+import id.nearyou.app.screens.routing.SessionExpiryEffect
 import id.nearyou.app.screens.routing.SignInRoute
 import id.nearyou.app.screens.routing.TestNavHost
+import id.nearyou.app.screens.routing.navSavedStateConfiguration
 import id.nearyou.app.theme.NearYouTheme
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -35,6 +53,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
@@ -245,6 +264,72 @@ class AppealScreenTest {
     }
 
     @Test
+    fun session401AfterASuccessfulRefresh_invalidates_soSessionExpiryEffectReRoutesWithTheReturnDestination() {
+        // The signed-in read (appeal_decided notification): the refresh succeeds but the retry still 401s, which
+        // the shared client hands back without invalidating (#595). The appeal goes through the canonical
+        // SessionInvalidator path, so the app-wide effect re-routes, keeps the return to this screen and marks
+        // the sign-in involuntary (its session-expired notice); the screen itself never navigates.
+        if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
+        val store = InMemoryTokenStore(TokenPair("at-stale", "rt-1", Long.MAX_VALUE))
+        val invalidator = SessionInvalidator(store)
+        val returnDestination = PendingReturnDestination()
+        val sessionClient =
+            HttpClientFactory.create(
+                installTimeouts = false,
+                apiBaseUrl = "http://test.local",
+                tokenStore = store,
+                sessionInvalidator = invalidator,
+                engine =
+                    MockEngine { request ->
+                        if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                            respond(
+                                """{"access_token":"at-new","refresh_token":"rt-new","expires_in":900}""",
+                                HttpStatusCode.OK,
+                                headersOf("Content-Type", "application/json"),
+                            )
+                        } else {
+                            respond("", HttpStatusCode.Unauthorized, headersOf("WWW-Authenticate", "Bearer realm=\"nearyou\""))
+                        }
+                    },
+                installLogging = false,
+                nowMillis = { 0L },
+            )
+        val flow =
+            AppealRepository(
+                AppealApiClient(HttpClient(MockEngine { error("no appeal token is held") }), sessionClient = sessionClient),
+                tokenStore = store,
+                sessionInvalidator = invalidator,
+            )
+        startKoin {
+            modules(
+                module {
+                    single<AppealFlow> { flow }
+                    single { AppealSession() }
+                    single { invalidator }
+                    single { returnDestination }
+                },
+            )
+        }
+        runComposeUiTest {
+            var reSignIns = 0
+            lateinit var backStack: NavBackStack<NavKey>
+            setContent {
+                KoinContext {
+                    backStack = rememberNavBackStack(navSavedStateConfiguration, HomeRoute, AppealRoute)
+                    SessionExpiryEffect(backStack)
+                    NearYouTheme { AppealScreen(onBack = {}, onReSignIn = { reSignIns++ }) }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { backStack.lastOrNull() == SignInRoute }
+            assertEquals(listOf<NavKey>(SignInRoute), backStack.toList())
+            assertNull(store.read(), "the fresh-but-rejected session is cleared")
+            assertEquals(AppealRoute, returnDestination.peek(), "re-auth returns to the appeal")
+            assertTrue(returnDestination.wasInvoluntary(), "the sign-in shows the session-expired notice")
+            assertEquals(0, reSignIns, "the app-wide path routes, not the screen")
+        }
+    }
+
+    @Test
     fun submit401_routesToSignIn() {
         installKoin(status = AppealStatusOutcome.None, submit = AppealSubmitOutcome.SessionExpired, token = "tok-1")
         runComposeUiTest { assertEquals(1, reSignInsAfter(submitText = "mohon ditinjau")) }
@@ -305,6 +390,27 @@ class AppealScreenTest {
         installKoin(status = AppealStatusOutcome.Decided(true, "suspension", null, null), token = "tok-1")
         runComposeUiTest {
             assertBannedPathReSignInLandsOnAFreshSignIn { onNodeWithTag(APPEAL_RESIGNIN_TAG).performClick() }
+        }
+    }
+
+    @Test
+    fun bannedPath_backFromTheAppeal_keepsTheSuspensionAndTheDisabledCta() {
+        // mobile-auth-signin: both banned sub-states remain on SignInScreen with the CTA disabled. A plain back
+        // still holds the appeal token, so the kept SignInRoute shows the suspension state, not a fresh sign-in.
+        installKoin(status = AppealStatusOutcome.None, token = "tok-1")
+        runComposeUiTest {
+            setContent { KoinContext { TestNavHost(SignInRoute) } }
+            onNodeWithText(CTA_GOOGLE).performClick()
+            waitForIdle()
+            onNodeWithTag(SIGNIN_APPEAL_TAG).performClick()
+            waitForIdle()
+            onNodeWithText(INTRO).assertExists()
+            onNodeWithTag(APPEAL_BACK_TAG).performClick()
+            waitForIdle()
+            onNodeWithText(ERR_SUSPENDED).assertExists()
+            onNodeWithTag(SIGNIN_APPEAL_TAG).assertExists()
+            onNodeWithText(CTA_GOOGLE).assertIsNotEnabled()
+            assertEquals("tok-1", appealSession.peek(), "a back keeps the still-valid token for a re-open")
         }
     }
 

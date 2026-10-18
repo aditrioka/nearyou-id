@@ -144,6 +144,10 @@ class AppealViewModel(
         }
     }
 
+    /** The banned-path approval's re-sign-in (the screen navigates right after): the token's job is done, and
+     *  dropping it is what makes the kept sign-in entry consume its banned outcome (#581). */
+    fun onApprovedReSignIn() = session.clear()
+
     /** Retry the on-entry own-status read after a [AppealStatus.LoadError]. */
     fun onRetryLoad() = loadOnEntry()
 }

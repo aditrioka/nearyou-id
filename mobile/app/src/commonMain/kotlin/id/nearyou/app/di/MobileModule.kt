@@ -610,7 +610,9 @@ val mobileModule =
                 sessionClient = get(),
             )
         }
-        single { AppealRepository(get(), tokenStore = get(), diagnosticLog = get<DiagnosticSink>()::log) }
+        single {
+            AppealRepository(get(), tokenStore = get(), sessionInvalidator = get(), diagnosticLog = get<DiagnosticSink>()::log)
+        }
         single<AppealFlow> { get<AppealRepository>() }
 
         // mobile-fcm-token-registration — the push-token registration graph. Reuses the shared

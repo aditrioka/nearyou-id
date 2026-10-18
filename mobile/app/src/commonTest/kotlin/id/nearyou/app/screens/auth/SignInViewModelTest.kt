@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.auth
 
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.screens.routing.PendingReturnDestination
@@ -8,6 +9,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -48,7 +50,8 @@ class SignInViewModelTest {
         authFlow: FakeAuthFlow = FakeAuthFlow(),
         pendingSignupIdentity: PendingSignupIdentity = PendingSignupIdentity(),
         pendingReturnDestination: PendingReturnDestination = PendingReturnDestination(),
-    ): SignInViewModel = SignInViewModel(authFlow, pendingSignupIdentity, pendingReturnDestination)
+        appealSession: AppealSession = AppealSession(),
+    ): SignInViewModel = SignInViewModel(authFlow, pendingSignupIdentity, pendingReturnDestination, appealSession)
 
     @Test
     fun uiState_delegatesToSignInUiState() =
@@ -137,24 +140,59 @@ class SignInViewModelTest {
             assertFalse(viewModel.uiState.value.ctaEnabled, "Banned disables the CTA")
         }
 
+    /** A suspended sign-in whose 403 stashed [token] in [session] (what `AuthRepository` does), then opens the appeal. */
+    private fun TestScope.suspendedThenAppealOpened(
+        session: AppealSession,
+        token: String?,
+    ): SignInViewModel {
+        val viewModel =
+            vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z"))), appealSession = session)
+        backgroundScope.launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+        token?.let(session::set)
+        viewModel.onSignInClick()
+        advanceUntilIdle()
+        viewModel.onAppealOpened()
+        advanceUntilIdle()
+        return viewModel
+    }
+
+    private fun SignInViewModel.assertUsableCleanSignIn() {
+        assertTrue(uiState.value.ctaEnabled, "the returned-to CTA is usable")
+        assertFalse(uiState.value.showAppealEntry, "no stale appeal entry")
+        assertNull(uiState.value.errorBanner, "no stale suspension banner")
+        assertNull(uiState.value.navigation)
+    }
+
     @Test
-    fun openingTheAppeal_consumesTheBannedOutcome_soAReturnShowsAUsableCta() =
+    fun aBackFromTheAppeal_keepsTheSpecdDisabledBannedState() =
+        runTest(dispatcher) {
+            // mobile-auth-signin: both banned sub-states remain on SignInScreen with the CTA disabled. The token is
+            // still held after a plain back, so the kept SignInRoute entry still shows the suspension + appeal entry.
+            val viewModel = suspendedThenAppealOpened(AppealSession(), token = "appeal-tok")
+            assertEquals(SignInErrorBanner.SUSPENDED, viewModel.uiState.value.errorBanner)
+            assertFalse(viewModel.uiState.value.ctaEnabled, "Banned keeps the CTA disabled")
+            assertTrue(viewModel.uiState.value.showAppealEntry, "the appeal entry is still offered")
+        }
+
+    @Test
+    fun theAppealDroppingItsToken_consumesTheBannedOutcome_soTheReSignInShowsAUsableCta() =
         runTest(dispatcher) {
             // #581: the appeal's re-sign-in is replaceAll(SignInRoute), which keeps THIS entry's ViewModel (same
-            // content key). The appeal consumes the banned outcome (the NoAccount precedent), so the return lands
-            // on the clean initial CTA rather than the disabled banned state with a dead appeal entry.
-            val viewModel =
-                vm(authFlow = FakeAuthFlow(outcome = SignInOutcome.Banned(Instant.parse("2026-07-03T00:00:00Z"))))
-            backgroundScope.launch { viewModel.uiState.collect {} }
+            // content key). Its exits drop the token (a rejected one, or an approved decision), which consumes
+            // the banned outcome, so the re-sign-in lands on the clean initial CTA, not the stale ban.
+            val session = AppealSession()
+            val viewModel = suspendedThenAppealOpened(session, token = "appeal-tok")
+            session.clear()
             advanceUntilIdle()
-            viewModel.onSignInClick()
-            advanceUntilIdle()
-            viewModel.onAppealOpened()
-            advanceUntilIdle()
-            assertTrue(viewModel.uiState.value.ctaEnabled, "the returned-to CTA is usable")
-            assertFalse(viewModel.uiState.value.showAppealEntry, "no stale appeal entry")
-            assertNull(viewModel.uiState.value.errorBanner, "no stale suspension banner")
-            assertNull(viewModel.uiState.value.navigation)
+            viewModel.assertUsableCleanSignIn()
+        }
+
+    @Test
+    fun openingTheAppealWithNoTokenHeld_consumesTheBannedOutcomeAtOnce() =
+        runTest(dispatcher) {
+            // A 403 without an appeal token: the appeal can only re-route to re-sign-in and no drop will follow.
+            suspendedThenAppealOpened(AppealSession(), token = null).assertUsableCleanSignIn()
         }
 
     @Test
