@@ -9,9 +9,11 @@ import kotlin.test.assertTrue
 
 /**
  * Pure projection tests for the `chat-embedded-posts` mobile merge model — the edited-since-shared
- * banner gate (task 8.3) and the redaction-precedence row projection (task 8.6). No Compose, no
- * coroutines: these are deterministic functions of the inputs.
+ * banner gate over `editedAt` (`chat-embed-live-edit-banner` D1) and its row projection, plus the
+ * redaction-precedence row projection (task 8.6). No Compose, no coroutines: deterministic functions.
  */
+private const val SHARED_EDITED_AT = "2026-06-01T11:00:00Z"
+
 class EmbeddedPostProjectionTest {
     private val snapshot =
         EmbeddedPostSnapshot(
@@ -20,14 +22,13 @@ class EmbeddedPostProjectionTest {
             content = "halo dunia",
             cityName = "Jakarta",
             createdAt = "2026-06-01T10:00:00Z",
-            editedAt = null,
+            editedAt = SHARED_EDITED_AT,
         )
 
     private fun embedMessage(
         id: String,
         redacted: Boolean = false,
         postId: String? = "p1",
-        anchor: String? = null,
     ) = ChatMessage(
         id = id,
         senderId = "viewer",
@@ -37,35 +38,63 @@ class EmbeddedPostProjectionTest {
         isRedacted = redacted,
         embeddedPostId = postId,
         embeddedPostSnapshot = snapshot,
-        embeddedPostEditId = anchor,
     )
 
-    // ---- 8.3 edited-since-shared banner gate -----------------------------------
+    // ---- edited-since-shared banner gate (editedAt, design D1) -------------------
 
     @Test
-    fun banner_shown_when_anchor_differs_from_live_latest_edit() {
-        assertTrue(editedSinceShared(anchorEditId = "edit-1", liveLatestEditId = "edit-2"))
-    }
-
-    @Test
-    fun banner_hidden_when_anchor_equals_live_latest_edit() {
-        assertFalse(editedSinceShared(anchorEditId = "edit-1", liveLatestEditId = "edit-1"))
-    }
-
-    @Test
-    fun banner_hidden_when_both_unedited() {
-        assertFalse(editedSinceShared(anchorEditId = null, liveLatestEditId = null))
+    fun banner_shown_when_live_post_edited_after_the_share() {
+        assertTrue(editedSinceShared(sharedEditedAt = SHARED_EDITED_AT, liveEditedAt = "2026-06-02T09:00:00Z"))
     }
 
     @Test
     fun banner_shown_when_unedited_at_share_but_edited_since() {
-        assertTrue(editedSinceShared(anchorEditId = null, liveLatestEditId = "edit-9"))
+        assertTrue(editedSinceShared(sharedEditedAt = null, liveEditedAt = "2026-06-02T09:00:00Z"))
     }
 
     @Test
-    fun banner_hidden_when_live_edit_unknown() {
-        // A null live signal means "not fetched" — never a false-positive banner from missing data.
-        assertFalse(editedSinceShared(anchorEditId = "edit-1", liveLatestEditId = null))
+    fun banner_hidden_when_no_edit_since_the_share() {
+        assertFalse(editedSinceShared(sharedEditedAt = SHARED_EDITED_AT, liveEditedAt = SHARED_EDITED_AT))
+    }
+
+    @Test
+    fun banner_hidden_when_equal_instants_are_formatted_differently() {
+        // Compared as instants: a formatting difference between two equal instants never raises the banner.
+        assertFalse(editedSinceShared(sharedEditedAt = "2026-06-01T11:00:00Z", liveEditedAt = "2026-06-01T11:00:00.000Z"))
+    }
+
+    @Test
+    fun banner_hidden_when_both_unedited() {
+        assertFalse(editedSinceShared(sharedEditedAt = null, liveEditedAt = null))
+    }
+
+    @Test
+    fun banner_hidden_when_live_edit_state_unknown() {
+        // A null live value means unknown (in flight / Unavailable) — never a false-positive banner from missing data.
+        assertFalse(editedSinceShared(sharedEditedAt = SHARED_EDITED_AT, liveEditedAt = null))
+    }
+
+    @Test
+    fun banner_hidden_when_either_value_is_unparseable() {
+        assertFalse(editedSinceShared(sharedEditedAt = SHARED_EDITED_AT, liveEditedAt = "not-a-timestamp"))
+        assertFalse(editedSinceShared(sharedEditedAt = "not-a-timestamp", liveEditedAt = "2026-06-02T09:00:00Z"))
+    }
+
+    @Test
+    fun live_card_row_carries_the_banner_from_the_live_map() {
+        val edited = chatMessageRows(listOf(embedMessage(id = "m1")), "viewer", mapOf("p1" to "2026-06-02T09:00:00Z"))
+        assertTrue(edited.single().editedSinceShared)
+        val unchanged = chatMessageRows(listOf(embedMessage(id = "m1")), "viewer", mapOf("p1" to SHARED_EDITED_AT))
+        assertFalse(unchanged.single().editedSinceShared)
+        // No live entry for the post (not read yet) → unknown → no banner.
+        assertFalse(chatMessageRows(listOf(embedMessage(id = "m1")), "viewer").single().editedSinceShared)
+    }
+
+    @Test
+    fun redacted_and_deleted_source_rows_never_carry_the_banner() {
+        val live = mapOf("p1" to "2026-06-02T09:00:00Z")
+        assertFalse(chatMessageRows(listOf(embedMessage(id = "m1", redacted = true)), "viewer", live).single().editedSinceShared)
+        assertFalse(chatMessageRows(listOf(embedMessage(id = "m1", postId = null)), "viewer", live).single().editedSinceShared)
     }
 
     // ---- 8.6 redaction precedence ----------------------------------------------
@@ -89,7 +118,6 @@ class EmbeddedPostProjectionTest {
         assertFalse(row.hasEmbeddedPost)
         assertNull(row.embeddedPostSnapshot)
         assertNull(row.embeddedPostId)
-        assertNull(row.embeddedPostEditId)
     }
 
     @Test

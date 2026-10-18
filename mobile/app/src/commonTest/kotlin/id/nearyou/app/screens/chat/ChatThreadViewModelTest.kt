@@ -13,6 +13,9 @@ import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
+import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
+import id.nearyou.app.post.FakePostEditFlow
+import id.nearyou.app.post.PostRefreshOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,6 +41,11 @@ private const val VIEWER = "22222222-2222-2222-2222-222222222222"
 private const val OTHER = "33333333-3333-3333-3333-333333333333"
 private const val SERVER_MSG = "44444444-4444-4444-4444-444444444444"
 private const val MSG_ID = "55555555-5555-5555-5555-555555555555"
+private const val POST_A = "66666666-6666-6666-6666-666666666666"
+private const val POST_B = "77777777-7777-7777-7777-777777777777"
+private const val POST_C = "88888888-8888-8888-8888-888888888888"
+private const val SHARED_EDITED_AT = "2026-06-01T09:00:00Z"
+private const val EDITED_LATER = "2026-06-02T09:00:00Z"
 
 @OptIn(ExperimentalCoroutinesApi::class, ExperimentalUuidApi::class)
 class ChatThreadViewModelTest {
@@ -48,6 +56,26 @@ class ChatThreadViewModelTest {
         createdAt: String = "2026-06-01T10:00:00Z",
         redactedAt: String? = null,
     ) = ChatMessageDto(id = id, conversationId = CONV, senderId = sender, content = content, createdAt = createdAt, redactedAt = redactedAt)
+
+    private fun snapshot(editedAt: String? = SHARED_EDITED_AT) =
+        EmbeddedPostSnapshot(
+            authorUsername = "raka",
+            authorDisplayName = "Raka",
+            content = "halo",
+            cityName = "Jakarta",
+            createdAt = "2026-06-01T08:00:00Z",
+            editedAt = editedAt,
+        )
+
+    // An embed-only message sharing [postId] (null = the source post was hard-deleted, snapshot kept).
+    private fun embedDto(
+        id: String,
+        postId: String?,
+        sharedEditedAt: String? = SHARED_EDITED_AT,
+        createdAt: String = "2026-06-01T10:00:00Z",
+        redactedAt: String? = null,
+    ) = dto(id, content = null, createdAt = createdAt, redactedAt = redactedAt)
+        .copy(embeddedPostId = postId, embeddedPostSnapshot = snapshot(sharedEditedAt))
 
     private fun inbound(
         id: String,
@@ -68,12 +96,14 @@ class ChatThreadViewModelTest {
         flow: FakeChatFlow,
         subscriber: FakeChatRealtimeSubscriber,
         reportSubmitter: ReportSubmitter = FakeReportSubmitter(),
+        postEditFlow: FakePostEditFlow = FakePostEditFlow(),
     ) = ChatThreadViewModel(
         conversationId = CONV,
         flow = flow,
         chatRealtimeSubscriber = subscriber,
         viewerIdProvider = ViewerIdProvider { VIEWER },
         reportSubmitter = reportSubmitter,
+        postEditFlow = postEditFlow,
         nowIso = { "2026-06-01T12:00:00Z" },
         resubscribeDelayMillis = 3000L,
     )
@@ -550,6 +580,7 @@ class ChatThreadViewModelTest {
                     chatRealtimeSubscriber = FakeChatRealtimeSubscriber(),
                     viewerIdProvider = ViewerIdProvider { VIEWER },
                     reportSubmitter = submitter,
+                    postEditFlow = FakePostEditFlow(),
                     nowIso = { "2026-06-01T12:00:00Z" },
                     resubscribeDelayMillis = 3000L,
                     diagnosticLog = { loggedLines += it },
@@ -590,5 +621,154 @@ class ChatThreadViewModelTest {
             assertEquals(ReportTargetType.CHAT_MESSAGE, submitter.lastTarget)
             assertEquals(MSG_ID, submitter.lastTargetId)
             assertEquals(ChatReportMessage.SUCCESS, viewModel.reportMessage.value)
+        }
+
+    // --- chat-embed-live-edit-banner: the per-card live edit read ---
+
+    private fun ChatThreadViewModel.bannerById(): Map<String, Boolean> = rows.value.associate { it.id to it.editedSinceShared }
+
+    @Test
+    fun liveEditedAtDrivesTheBanner() =
+        test {
+            val flow =
+                FakeChatFlow(
+                    listOf(
+                        ChatThreadOutcome.Loaded(
+                            listOf(
+                                embedDto("m1", POST_A),
+                                embedDto("m2", POST_B),
+                                embedDto("m3", POST_C, sharedEditedAt = null),
+                            ),
+                            null,
+                        ),
+                    ),
+                )
+            val edits =
+                FakePostEditFlow(
+                    refreshOutcomesByPost =
+                        mapOf(
+                            // Edited after the share → banner.
+                            POST_A to PostRefreshOutcome.Loaded("halo", EDITED_LATER, isAuthor = false),
+                            // No edit since the share → no banner.
+                            POST_B to PostRefreshOutcome.Loaded("halo", SHARED_EDITED_AT, isAuthor = false),
+                            // Unedited at share time, edited since → banner.
+                            POST_C to PostRefreshOutcome.Loaded("halo", EDITED_LATER, isAuthor = false),
+                        ),
+                )
+            val viewModel = vm(flow, FakeChatRealtimeSubscriber(), postEditFlow = edits)
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            advanceUntilIdle()
+            assertEquals(mapOf("m1" to true, "m2" to false, "m3" to true), viewModel.bannerById())
+            val content = viewModel.uiState.value
+            assertTrue(content is ChatThreadUiState.Content && content.rows.first().editedSinceShared, "folded into the one uiState")
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun unknownOrNeverEditedLiveStateShowsNoBanner() =
+        test {
+            val flow =
+                FakeChatFlow(
+                    listOf(
+                        ChatThreadOutcome.Loaded(listOf(embedDto("m1", POST_A), embedDto("m2", POST_B, sharedEditedAt = null)), null),
+                    ),
+                )
+            val edits =
+                FakePostEditFlow(
+                    refreshOutcomesByPost =
+                        mapOf(
+                            // Unavailable = a failure or a 404 (the viewer can no longer see the post) → unknown.
+                            POST_A to PostRefreshOutcome.Unavailable,
+                            // Never edited, then or now.
+                            POST_B to PostRefreshOutcome.Loaded("halo", editedAt = null, isAuthor = false),
+                        ),
+                )
+            val viewModel = vm(flow, FakeChatRealtimeSubscriber(), postEditFlow = edits)
+            advanceUntilIdle()
+            assertEquals(mapOf("m1" to false, "m2" to false), viewModel.bannerById())
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun noBannerWhileTheLiveReadIsInFlight() =
+        test {
+            val flow = FakeChatFlow(listOf(ChatThreadOutcome.Loaded(listOf(embedDto("m1", POST_A)), null)))
+            val gate = CompletableDeferred<Unit>()
+            val edits =
+                FakePostEditFlow(
+                    refreshOutcome = PostRefreshOutcome.Loaded("halo", EDITED_LATER, isAuthor = false),
+                    refreshGate = gate,
+                )
+            val viewModel = vm(flow, FakeChatRealtimeSubscriber(), postEditFlow = edits)
+            advanceUntilIdle()
+            assertEquals(listOf(POST_A), edits.refreshedPostIds, "the read started")
+            assertFalse(viewModel.rows.value.single().editedSinceShared, "in flight = unknown = no banner")
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.rows.value.single().editedSinceShared)
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun eachSharedPostIsReadOncePerThreadVisit() =
+        test {
+            val sub = FakeChatRealtimeSubscriber()
+            val flow =
+                FakeChatFlow(
+                    listOf(
+                        // First page: two shares of A + one of B, with an older page behind it.
+                        ChatThreadOutcome.Loaded(
+                            listOf(embedDto("m2", POST_A), embedDto("m3", POST_A), embedDto("m4", POST_B)),
+                            "older-cursor",
+                        ),
+                        // The older page shares A again.
+                        ChatThreadOutcome.Loaded(listOf(embedDto("m1", POST_A, createdAt = "2026-06-01T09:30:00Z")), null),
+                        // A later resync (pull-to-refresh) returns the first page again.
+                        ChatThreadOutcome.Loaded(listOf(embedDto("m2", POST_A)), null),
+                    ),
+                )
+            val edits = FakePostEditFlow(refreshOutcome = PostRefreshOutcome.Loaded("halo", EDITED_LATER, isAuthor = false))
+            val viewModel = vm(flow, sub, postEditFlow = edits)
+            advanceUntilIdle()
+            viewModel.loadOlder()
+            advanceUntilIdle()
+            // A realtime message sharing A arrives.
+            sub.emit(
+                inbound(MSG_ID, content = null).copy(
+                    embeddedPostId = Uuid.parse(POST_A),
+                    embeddedPostSnapshot = snapshot(),
+                ),
+            )
+            advanceUntilIdle()
+            viewModel.retry()
+            advanceUntilIdle()
+            assertEquals(listOf(POST_A, POST_B), edits.refreshedPostIds.sorted(), "one read per distinct post")
+            assertTrue(viewModel.rows.value.all { it.editedSinceShared }, "every card of A and B shows the banner")
+            viewModel.tearDown()
+        }
+
+    @Test
+    fun deletedSourceAndRedactedEmbedsAreNeverRead() =
+        test {
+            val flow =
+                FakeChatFlow(
+                    listOf(
+                        ChatThreadOutcome.Loaded(
+                            listOf(
+                                // Hard-deleted source: snapshot kept, embedded_post_id null.
+                                embedDto("m1", postId = null),
+                                // Redacted embed: the placeholder renders, never the card.
+                                embedDto("m2", POST_A, redactedAt = "2026-06-01T11:00:00Z"),
+                            ),
+                            null,
+                        ),
+                    ),
+                )
+            val edits = FakePostEditFlow(refreshOutcome = PostRefreshOutcome.Loaded("halo", EDITED_LATER, isAuthor = false))
+            val viewModel = vm(flow, FakeChatRealtimeSubscriber(), postEditFlow = edits)
+            advanceUntilIdle()
+            assertTrue(edits.refreshedPostIds.isEmpty(), "no live read for a deleted-source or redacted embed")
+            assertEquals(mapOf("m1" to false, "m2" to false), viewModel.bannerById())
+            viewModel.tearDown()
         }
 }

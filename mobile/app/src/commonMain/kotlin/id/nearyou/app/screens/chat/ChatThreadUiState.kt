@@ -7,6 +7,7 @@ import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.screens.post.codePointLength
 import id.nearyou.app.ui.components.localDateLabel
+import kotlin.time.Instant
 
 /** The chat message length cap — 2000 code points (`chat-conversations` content guard, docs/02 §319).
  *  The client gate is a UX nicety; the server NFKC-normalizes + length-guards authoritatively. */
@@ -28,7 +29,6 @@ data class ChatMessage(
     // null after the source post is hard-deleted (snapshot still present → "deleted" card state).
     val embeddedPostId: String? = null,
     val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
-    val embeddedPostEditId: String? = null,
 )
 
 /** Maps a REST/realtime DTO to the merge model — content is forced null when redacted (defensive; the
@@ -43,7 +43,6 @@ fun ChatMessageDto.toChatMessage(): ChatMessage =
         isRedacted = redactedAt != null,
         embeddedPostId = embeddedPostId,
         embeddedPostSnapshot = embeddedPostSnapshot,
-        embeddedPostEditId = embeddedPostEditId,
     )
 
 /**
@@ -65,7 +64,8 @@ data class ChatMessageRow(
     // ("post telah dihapus" state, not tappable).
     val embeddedPostId: String? = null,
     val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
-    val embeddedPostEditId: String? = null,
+    // The live post was edited after the share ([editedSinceShared] over the VM's live read) — the card's banner.
+    val editedSinceShared: Boolean = false,
     // Frame 5: this row starts a local calendar day, so the thread draws a day chip above it ([markDayStarts]).
     val startsDay: Boolean = false,
 ) {
@@ -127,29 +127,33 @@ private fun mergeOne(
         // the same id); prefer whichever source populated it.
         embeddedPostId = a.embeddedPostId ?: b.embeddedPostId,
         embeddedPostSnapshot = a.embeddedPostSnapshot ?: b.embeddedPostSnapshot,
-        embeddedPostEditId = a.embeddedPostEditId ?: b.embeddedPostEditId,
     )
 }
 
 /** Projects merged messages to display rows: own-vs-other by `senderId == viewerId`; redacted rows carry
- *  null content (the screen substitutes the redacted placeholder). No `senderId` survives the projection. */
+ *  null content (the screen substitutes the redacted placeholder). No `senderId` survives the projection.
+ *  [liveEditedAt] maps a shared post id to its live `editedAt` (absent / null = unknown or never edited) and
+ *  feeds each live card's [ChatMessageRow.editedSinceShared]. */
 fun chatMessageRows(
     merged: List<ChatMessage>,
     viewerId: String,
+    liveEditedAt: Map<String, String?> = emptyMap(),
 ): List<ChatMessageRow> =
     merged.map { message ->
         // Redaction precedence (design D9): a redacted message renders the neutral placeholder and
         // NEVER the context card, so the embed fields are dropped from the row when redacted.
         val redacted = message.isRedacted
+        val livePostId = if (redacted) null else message.embeddedPostId
         ChatMessageRow(
             id = message.id,
             content = if (redacted) null else message.content,
             isOwn = message.senderId == viewerId,
             isRedacted = redacted,
             createdAtIso = message.createdAtIso,
-            embeddedPostId = if (redacted) null else message.embeddedPostId,
+            embeddedPostId = livePostId,
             embeddedPostSnapshot = if (redacted) null else message.embeddedPostSnapshot,
-            embeddedPostEditId = if (redacted) null else message.embeddedPostEditId,
+            editedSinceShared =
+                livePostId != null && editedSinceShared(message.embeddedPostSnapshot?.editedAt, liveEditedAt[livePostId]),
         )
     }
 
@@ -245,23 +249,19 @@ fun sendBarState(
 
 /**
  * The edited-since-shared banner gate (`mobile-chat-embedded-posts`): the context card shows the
- * "diedit sejak dibagikan" banner when the live post's latest-edit signal ([liveLatestEditId])
- * differs from the message's [anchorEditId] (the version-at-share-time anchor). Both-null (the post
- * was unedited at share time AND is still unedited) → no banner. A null [liveLatestEditId] is treated
- * as "live edit state UNKNOWN" → no banner (never a false positive from missing data).
- *
- * DEFERRED (live source): the chat thread does not yet fetch a per-card live-edit signal — the card
- * renders from the immutable snapshot (design D1) and the thread fetches no live post state. Until
- * that source is wired the runtime caller passes [liveLatestEditId] == [anchorEditId] (no banner).
- * This pure gate IS the spec'd comparison (and is exercised directly by the banner test); only the
- * live-edit fetch is deferred to a follow-up, captured as an explicit spec requirement.
+ * "diedit sejak dibagikan" banner when the live post's latest-edit timestamp ([liveEditedAt], from
+ * `single-post-read`) is known and differs from the snapshot's share-time [sharedEditedAt]. Both are
+ * `MAX(post_edits.edited_at)` and `(post_id, edited_at)` is unique, so they differ exactly when an edit
+ * landed after the share. Compared as instants, not strings. A null (unknown / never edited) [liveEditedAt],
+ * or an unparseable value on either side → no banner: never a false positive from missing data.
  */
 fun editedSinceShared(
-    anchorEditId: String?,
-    liveLatestEditId: String?,
+    sharedEditedAt: String?,
+    liveEditedAt: String?,
 ): Boolean {
-    if (liveLatestEditId == null) return false
-    return anchorEditId != liveLatestEditId
+    val live = liveEditedAt?.let(Instant::parseOrNull) ?: return false
+    val shared = sharedEditedAt ?: return true // unedited at share time, edited since
+    return Instant.parseOrNull(shared)?.let { it != live } ?: false
 }
 
 /**
