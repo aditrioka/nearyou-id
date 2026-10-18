@@ -720,6 +720,29 @@ class AdminUserModerationRouteTest : StringSpec({
         }
     }
 
+    "lookup + profile + history render the panel's minute-precision UTC stamp, never an ISO instant" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val uid = seedUser(isBanned = true, suspendedUntil = Instant.parse("2099-05-20T23:30:45.5Z"))
+        insertUserAudit(dataSource, admin.id, uid, "user_suspended", ageMinutes = 10)
+        insertUsernameHistory(dataSource, uid, "uA", "uB", ageMinutes = 20)
+        val iso = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}""")
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val lookup =
+                client.get("/admin/users") {
+                    header(HttpHeaders.Cookie, cookie(token))
+                    parameter("q", uid.toString())
+                }.bodyAsText()
+            lookup shouldContain "Suspended until 2099-05-20 23:30 UTC"
+            iso.containsMatchIn(lookup) shouldBe false
+            // profile: status line, suspended_until, account created, both history rows
+            val profile = client.get("/admin/users/$uid") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            profile shouldContain "Suspended until 2099-05-20 23:30 UTC"
+            profile shouldContain "uA → uB"
+            iso.containsMatchIn(profile) shouldBe false
+        }
+    }
+
     "7.2 the two sources are interleaved into ONE combined newest-first order" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)

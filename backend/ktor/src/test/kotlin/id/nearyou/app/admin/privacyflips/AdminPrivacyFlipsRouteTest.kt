@@ -81,6 +81,9 @@ class AdminPrivacyFlipsRouteTest : StringSpec({
             body shouldContain "IN_WINDOW"
             body shouldContain "<header>"
             body shouldContain "<nav>"
+            // scheduled flip in the panel's minute-precision UTC stamp, never an ISO instant
+            body shouldContain "2026-06-13 13:00 UTC"
+            Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}""").containsMatchIn(body) shouldBe false
         }
     }
 

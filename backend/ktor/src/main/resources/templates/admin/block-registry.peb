@@ -3,6 +3,7 @@
 {% block title %}Block Registry — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>Block User Registry <span class="st neut">READ-ONLY</span></h2>
 <p class="pg-sub">Search block pairs in user_blocks — dispute resolution / support tickets only</p>
 
@@ -10,9 +11,9 @@
    block on behalf of a user — enforcement stays in the product path via the
    bidirectional NOT-IN join (the BlockExclusionJoinRule invariant). There is
    no action control of any kind on this surface. #}
-<div class="banner info">
-    Read-only — no create/remove block on behalf of a user. Block enforcement in the
-    product path stays via the bidirectional NOT-IN join (invariant BlockExclusionJoinRule).
+<div class="banner info">{{ icon("info") }}
+    <span>Read-only — no create/remove block on behalf of a user. Block enforcement in the
+    product path stays via the bidirectional NOT-IN join (invariant BlockExclusionJoinRule).</span>
 </div>
 
 {# Search form. hx-get swaps only the #block-registry-table fragment;

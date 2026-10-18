@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -22,8 +23,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import java.net.URLEncoder
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -194,11 +193,11 @@ private fun GraceRow.toViewMap(): Map<String, Any> =
         put("usersLink", "/admin/users?q=${URLEncoder.encode(username, Charsets.UTF_8)}")
         put("expediteAction", "/admin/subscriptions/grace/$id/expedite")
         put("store", platform ?: "")
-        put("retrySince", retrySince?.let { TS_FORMAT.format(it) } ?: "")
+        put("retrySince", retrySince?.let { ADMIN_TS_FORMAT.format(it) } ?: "")
         put(
             "lastWebhook",
             if (lastEventType != null && lastEventAt != null) {
-                "$lastEventType · ${TS_FORMAT.format(lastEventAt)}"
+                "$lastEventType · ${ADMIN_TS_FORMAT.format(lastEventAt)}"
             } else {
                 ""
             },
@@ -206,7 +205,7 @@ private fun GraceRow.toViewMap(): Map<String, Any> =
         put("expedited", expeditedBy != null && expeditedAt != null)
         if (expeditedBy != null && expeditedAt != null) {
             put("expeditedBy", expeditedBy)
-            put("expeditedAt", TS_FORMAT.format(expeditedAt))
+            put("expeditedAt", ADMIN_TS_FORMAT.format(expeditedAt))
         }
     }
 
@@ -228,9 +227,6 @@ private const val STORE_MAX = 16
 // overflow guard.
 private const val TICKET_MAX = 64
 private const val NOTE_MAX = 200
-
-private val TS_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // User-facing informational messages (admin panel is English-only).
 private const val MSG_INVALID_ID = "Invalid user id."

@@ -11,12 +11,13 @@
    `csrfToken` so the `_csrf` hidden field populates; the HTMX-fragment render
    omits it (the layout's htmx:configRequest hook adds the X-CSRF-Token header
    from the meta tag). #}
+{% import "icons.peb" %}
 <div id="subscription-grace-table">
 {% if message is not null %}
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if quotaCap is not null %}
-    <p class="quota-chip">Expedite actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+    <p class="quota">{{ icon("speed") }}Expedite actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
 {% endif %}
 {# Total in the billing-retry window — the operational signal (a spike means a
    billing or webhook problem). #}

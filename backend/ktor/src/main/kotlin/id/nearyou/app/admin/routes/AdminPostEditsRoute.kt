@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.postedits.PostEditHistoryService
 import id.nearyou.app.admin.postedits.PostVersionView
 import io.ktor.server.application.call
@@ -8,7 +9,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import java.net.URLEncoder
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -106,11 +106,9 @@ fun Route.adminPostEdits(
     }
 }
 
-private val EDITED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
-
 /**
  * Pre-format a version row for the template. `editedAt` renders via
- * [DateTimeFormatter.ISO_INSTANT] — always UTC with a `Z` suffix, never a
+ * [ADMIN_TS_FORMAT] — the panel-wide minute-precision UTC stamp, never a
  * host-local interpretation. `authorUrl` deep-links to the SHIPPED
  * `/admin/users?q=` lookup; it falls back to the user id when the username is
  * absent (a hard-deleted author — referentially guarded but handled defensively)
@@ -132,7 +130,7 @@ internal fun PostVersionView.toViewMap(): Map<String, Any> {
         "versionLabel" to versionLabel,
         "isLive" to isLive,
         "content" to content,
-        "editedAt" to EDITED_AT_FORMAT.format(timestamp),
+        "editedAt" to ADMIN_TS_FORMAT.format(timestamp),
         "authorDisplay" to display,
         "authorUrl" to "/admin/users?q=${URLEncoder.encode(display, Charsets.UTF_8)}",
         "locationChanged" to locationChanged,

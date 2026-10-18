@@ -32,7 +32,7 @@
     <div class="tbl-wrap">
     <table class="tbl">
         <thead>
-            <tr><th>When (UTC)</th><th>User</th><th>Candidate</th>{% if canWrite %}<th style="width:280px;">Resolution</th>{% endif %}</tr>
+            <tr><th>When (UTC)</th><th>User</th><th>Candidate</th>{% if canWrite %}<th class="col-resolution">Resolution</th>{% endif %}</tr>
         </thead>
         <tbody>
         {% for row in flags %}
@@ -54,7 +54,7 @@
                 </td>
                 {% if canWrite %}
                 <td>
-                    <div style="display:flex;gap:6px;">
+                    <div class="row-actions">
                         <form action="{{ row.resolveAction }}"
                               method="POST"
                               hx-post="{{ row.resolveAction }}"
@@ -99,7 +99,7 @@
 
 <div class="two-col">
 {# ---- 2. username_history viewer (read-only) ------------------------------- #}
-<div class="cardlet" style="margin-top:14px;">
+<div class="cardlet">
     <h4>username_history (read-only)</h4>
     <div class="filterbar">
         <form class="filters"
@@ -118,7 +118,7 @@
 {% if hasHistory %}
     <div class="tbl-wrap">
     <table class="tbl">
-        <thead><tr><th>Changed (UTC)</th><th>Old &rarr; New</th><th>User</th></tr></thead>
+        <thead><tr><th class="col-ts">Changed (UTC)</th><th class="col-handle">Old &rarr; New</th><th class="col-handle">User</th></tr></thead>
         <tbody>
         {% for row in history %}
             <tr>
@@ -152,12 +152,12 @@
 </div>
 
 {# ---- 3. 30-day hold — manual release -------------------------------------- #}
-<div class="cardlet" style="margin-top:14px;">
+<div class="cardlet">
     <h4>30-day hold — manual release ({{ holdReleaseCap }}/hour)</h4>
 {% if hasHolds %}
     <div class="tbl-wrap">
     <table class="tbl">
-        <thead><tr><th>Held handle</th><th>User</th><th>Auto-release (UTC)</th>{% if canWrite %}<th></th>{% endif %}</tr></thead>
+        <thead><tr><th class="col-handle">Held handle</th><th class="col-handle">User</th><th class="col-ts">Auto-release (UTC)</th>{% if canWrite %}<th></th>{% endif %}</tr></thead>
         <tbody>
         {% for row in holds %}
             <tr>

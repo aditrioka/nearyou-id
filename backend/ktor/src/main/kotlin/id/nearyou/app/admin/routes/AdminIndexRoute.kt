@@ -83,18 +83,29 @@ internal fun relativeAge(
 }
 
 /** Minimum rendered bar height (% of the spark box) for a non-zero hour, so a 1-count bar stays visible. */
-private const val SPARK_MIN_PCT = 8
+private const val SPARK_MIN_PCT = 10
+
+/** Bar heights snap to this % step, each one a `.spark .h-N` rule in admin.css. */
+internal const val SPARK_STEP_PCT = 5
 
 /**
  * Precompute sparkline bar heights (% of the box) from a per-hour series,
- * scaled to the series max. Server-side (no template arithmetic): the
- * template just binds each height. All-zero series → all-zero bars (empty
- * sparkline).
+ * scaled to the series max and rounded to the nearest [SPARK_STEP_PCT].
+ * Server-side (no template arithmetic): the template binds each height as an
+ * `h-N` class, so the bars need no inline style (docs/11 § 3.6, CSP-safe).
+ * All-zero series → all-zero bars (empty sparkline).
  */
 internal fun spark(series: List<Long>): List<Int> {
     val max = series.maxOrNull() ?: 0L
     if (max <= 0L) return series.map { 0 }
-    return series.map { if (it <= 0L) 0 else maxOf(SPARK_MIN_PCT, ((it * 100) / max).toInt()) }
+    return series.map {
+        if (it <= 0L) {
+            0
+        } else {
+            val pct = ((it * 100) / max).toInt()
+            maxOf(SPARK_MIN_PCT, (pct + SPARK_STEP_PCT / 2) / SPARK_STEP_PCT * SPARK_STEP_PCT)
+        }
+    }
 }
 
 /** Human-readable byte size for the DB-size widget (binary units, en-US decimal). */

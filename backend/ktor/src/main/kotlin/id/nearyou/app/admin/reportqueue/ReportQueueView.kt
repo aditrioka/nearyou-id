@@ -1,6 +1,6 @@
 package id.nearyou.app.admin.reportqueue
 
-import java.time.format.DateTimeFormatter
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 
 /**
  * Shared row → template-model shaping for the report-queue table, used by BOTH
@@ -21,7 +21,7 @@ internal fun ReportQueueRow.toViewMap(): Map<String, Any?> =
         // target has no queue row → the template renders no queue form.
         "id" to id.toString(),
         "queueId" to queueId?.toString(),
-        "createdAt" to REPORT_CREATED_AT_FORMAT.format(createdAt),
+        "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
         "targetType" to targetType,
         "targetId" to targetId.toString(),
         "reasonCategory" to reasonCategory,
@@ -37,4 +37,3 @@ internal fun ReportQueueRow.toViewMap(): Map<String, Any?> =
     )
 
 private const val REPORT_EM_DASH = "—"
-private val REPORT_CREATED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
