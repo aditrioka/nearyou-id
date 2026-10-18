@@ -52,4 +52,6 @@ private fun FollowListItemDto.toDomain(): FollowListUser =
         username = username,
         displayName = displayName,
         isPremium = isPremium,
+        followedByViewer = followedByViewer,
+        isSelf = isSelf,
     )

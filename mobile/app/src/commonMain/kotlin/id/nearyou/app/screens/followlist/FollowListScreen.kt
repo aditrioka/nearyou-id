@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,9 +19,13 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -28,6 +33,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -37,11 +43,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.followlist.FollowListFlow
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.followlist.FollowListUser
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.screens.profile.resource
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.PremiumBadgeIcon
 import id.nearyou.resources.generated.resources.Res
@@ -54,7 +64,9 @@ import id.nearyou.resources.generated.resources.follow_list_tab_followers
 import id.nearyou.resources.generated.resources.follow_list_tab_following
 import id.nearyou.resources.generated.resources.follow_list_title
 import id.nearyou.resources.generated.resources.post_card_handle
+import id.nearyou.resources.generated.resources.profile_follow
 import id.nearyou.resources.generated.resources.profile_not_found
+import id.nearyou.resources.generated.resources.profile_unfollow
 import id.nearyou.resources.generated.resources.signin_error_network
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -67,6 +79,9 @@ const val FOLLOW_LIST_PAGER_TAG: String = "followListPager"
 const val FOLLOW_LIST_BACK_TAG: String = "followListBack"
 const val FOLLOW_LIST_LOAD_MORE_RETRY_TAG: String = "followListLoadMoreRetry"
 
+/** The inline row follow toggle (one constant tag on every row — the row UUID never enters the semantics tree). */
+const val FOLLOW_LIST_TOGGLE_TAG: String = "followListToggle"
+
 /**
  * The follow-list surface (`mobile-follow-lists`) — a root-stack overlay reached via `FollowListRoute`,
  * opened by tapping the profile's follower / following counts. Renders a single screen with two tabs
@@ -77,6 +92,10 @@ const val FOLLOW_LIST_LOAD_MORE_RETRY_TAG: String = "followListLoadMoreRetry"
  * first reveal ([FollowListViewModel.onTabRevealed]). Each row taps through to [onOpenProfile]
  * (`ProfileRoute`). Owns its own back-bar chrome (a `TopAppBar` + back, like the other-user `ProfileScreen`
  * overlay). No hardcoded UI string literal appears here.
+ *
+ * Each non-self row carries an inline follow toggle (`mobile-follow-list-inline-follow`) driven by the VM's
+ * `ProfileFlow`-backed [FollowListViewModel.onToggleFollow]; its 429 / constant-404 message surfaces as a
+ * snackbar. A row tap records the opened user, and every `ON_RESUME` lets the VM re-read that one user.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,8 +107,24 @@ fun FollowListScreen(
     modifier: Modifier = Modifier,
 ) {
     val flow = koinInject<FollowListFlow>()
-    val viewModel = viewModel { FollowListViewModel(flow, userId, initialTab) }
+    val profileFlow = koinInject<ProfileFlow>()
+    val viewModel = viewModel { FollowListViewModel(flow, profileFlow, userId, initialTab) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Return from a row's profile → re-read that one user (its follow state / visibility may have changed
+    // there). The VM no-ops when no row was opened (incl. the first resume).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResumed() }
+
+    // One-shot toggle message (429 / constant 404) → snackbar; the shipped profile copy.
+    val message = uiState.message
+    val messageText = message?.let { stringResource(it.resource()) }
+    LaunchedEffect(message) {
+        if (messageText != null) {
+            snackbarHostState.showSnackbar(messageText)
+            viewModel.onMessageShown()
+        }
+    }
     val tabs = FollowListTab.entries
     val pagerState = rememberPagerState(initialPage = initialTab.ordinal) { tabs.size }
     val scope = rememberCoroutineScope()
@@ -112,6 +147,7 @@ fun FollowListScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             PrimaryTabRow(selectedTabIndex = pagerState.currentPage) {
@@ -139,7 +175,12 @@ fun FollowListScreen(
                     onRetry = { viewModel.onRetry(tab) },
                     onLoadMore = { viewModel.onLoadMore(tab) },
                     onRetryLoadMore = { viewModel.onRetryLoadMore(tab) },
-                    onOpenProfile = onOpenProfile,
+                    followInFlight = uiState.followInFlight,
+                    onToggleFollow = viewModel::onToggleFollow,
+                    onOpenProfile = { rowUserId ->
+                        viewModel.onRowOpened(rowUserId)
+                        onOpenProfile(rowUserId)
+                    },
                 )
             }
         }
@@ -171,6 +212,8 @@ private fun FollowListTabContent(
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onRetryLoadMore: () -> Unit,
+    followInFlight: Set<String>,
+    onToggleFollow: (userId: String) -> Unit,
     onOpenProfile: (userId: String) -> Unit,
 ) {
     PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
@@ -185,6 +228,8 @@ private fun FollowListTabContent(
                     content = state,
                     onLoadMore = onLoadMore,
                     onRetryLoadMore = onRetryLoadMore,
+                    followInFlight = followInFlight,
+                    onToggleFollow = onToggleFollow,
                     onOpenProfile = onOpenProfile,
                 )
         }
@@ -196,6 +241,8 @@ private fun FollowListRows(
     content: FollowListTabUiState.Content,
     onLoadMore: () -> Unit,
     onRetryLoadMore: () -> Unit,
+    followInFlight: Set<String>,
+    onToggleFollow: (userId: String) -> Unit,
     onOpenProfile: (userId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -216,7 +263,12 @@ private fun FollowListRows(
         contentPadding = PaddingValues(vertical = 8.dp),
     ) {
         items(items = content.users, key = { it.userId }, contentType = { "followUser" }) { user ->
-            FollowListRow(user = user, onClick = { onOpenProfile(user.userId) })
+            FollowListRow(
+                user = user,
+                isFollowInFlight = user.userId in followInFlight,
+                onToggleFollow = { onToggleFollow(user.userId) },
+                onClick = { onOpenProfile(user.userId) },
+            )
         }
         when {
             content.loadMoreFailed -> item { LoadMoreFailedFooter(onRetry = onRetryLoadMore) }
@@ -229,10 +281,13 @@ private fun FollowListRows(
  * One member row — the identity treatment reused from the profile / post card (letter avatar + display
  * name + `@username` + a Premium badge when applicable). The whole row is the tap target → the row user's
  * profile. The row `userId` (a UUID) is the navigation key only — it is NEVER rendered as a UI string.
+ * A non-self row ends with the inline [FollowToggle] (it consumes its own click — no navigation).
  */
 @Composable
 private fun FollowListRow(
     user: FollowListUser,
+    isFollowInFlight: Boolean,
+    onToggleFollow: () -> Unit,
     onClick: () -> Unit,
 ) {
     Row(
@@ -260,6 +315,40 @@ private fun FollowListRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (!user.isSelf) {
+            FollowToggle(
+                followed = user.followedByViewer,
+                enabled = !isFollowInFlight,
+                onClick = onToggleFollow,
+                modifier = Modifier.testTag(FOLLOW_LIST_TOGGLE_TAG),
+            )
+        }
+    }
+}
+
+/**
+ * The inline row follow toggle — mockup frame 7's identity-row "Ikuti" (`btn tonal sm`: tonal, 34 dp tall,
+ * 16 dp side padding, pill, bold label). Not followed → `FilledTonalButton` "Ikuti"; followed → an
+ * `OutlinedButton` "Mengikuti" at the same metrics (the profile toggle's followed treatment). The M3 button
+ * keeps its 48 dp minimum touch target around the 34 dp visual. Copy is the shipped profile toggle's.
+ */
+@Composable
+private fun FollowToggle(
+    followed: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val buttonModifier = modifier.height(34.dp)
+    val padding = PaddingValues(horizontal = 16.dp)
+    if (followed) {
+        OutlinedButton(onClick = onClick, enabled = enabled, modifier = buttonModifier, contentPadding = padding) {
+            Text(text = stringResource(Res.string.profile_unfollow), fontWeight = FontWeight.Bold)
+        }
+    } else {
+        FilledTonalButton(onClick = onClick, enabled = enabled, modifier = buttonModifier, contentPadding = padding) {
+            Text(text = stringResource(Res.string.profile_follow), fontWeight = FontWeight.Bold)
         }
     }
 }

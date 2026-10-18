@@ -18,6 +18,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * target) — and MUST NEVER be rendered as a UI string. [createdAt] is the follow-edge timestamp (the
  * cursor axis), not a profile field and not rendered. [username] / [displayName] are NOT NULL on the wire
  * (V2); there is no `akun_dihapus` placeholder on these lists — hidden members are excluded server-side.
+ * [followedByViewer] / [isSelf] are the CALLING viewer's relation to the row user (the inline row toggle's
+ * starting state) and are REQUIRED — deliberately no default: a body without them (a pre-change backend)
+ * fails to parse → `NetworkError`, never a silent "not followed" that would render a wrong "Ikuti".
  */
 @Serializable
 data class FollowListItemDto(
@@ -25,6 +28,8 @@ data class FollowListItemDto(
     val username: String,
     val displayName: String,
     val isPremium: Boolean,
+    val followedByViewer: Boolean,
+    val isSelf: Boolean,
     val createdAt: String,
 )
 

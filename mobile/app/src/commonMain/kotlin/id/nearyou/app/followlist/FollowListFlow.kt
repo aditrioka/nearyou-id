@@ -18,12 +18,16 @@ enum class FollowListTab { Followers, Following }
  * placeholder or null-identity fallback on these lists (hidden members are excluded server-side via
  * `visible_users`, per `social-list-profile-summaries` — design D2). [isPremium] is true iff the row user's
  * `subscription_status` is `premium_active` (the `user-profile-read` formula the backend applies).
+ * [followedByViewer] drives the inline row toggle's label ("Ikuti" / "Mengikuti") and is patched in place by
+ * the toggle; [isSelf] (the row is the calling viewer) hides the toggle.
  */
 data class FollowListUser(
     val userId: String,
     val username: String,
     val displayName: String,
     val isPremium: Boolean,
+    val followedByViewer: Boolean = false,
+    val isSelf: Boolean = false,
 )
 
 /** A loaded page: the visible rows + the keyset [nextCursor] (null on the last page → no further fetch). */

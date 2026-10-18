@@ -3,6 +3,7 @@ package id.nearyou.app.screens.followlist
 import id.nearyou.app.followlist.FollowListOutcome
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.followlist.FollowListUser
+import id.nearyou.app.screens.profile.ProfileMessage
 
 /**
  * One tab's rendered state — mutually exclusive (mirrors `NearbyTimelineUiState`). The PII-free
@@ -71,12 +72,18 @@ fun followListTabUiState(
  * that feeds each tab's `PullToRefreshBox(isRefreshing = …)`. A refresh keeps the tab's prior projection
  * (it never flips back to [FollowListTabUiState.Loading]) — the separate refresh flag is exactly the
  * `isInitialLoad`-vs-`isRefreshing` separation the canonical list pattern requires.
+ *
+ * [followInFlight] holds the row userIds whose inline follow toggle is mid-write (their toggles render
+ * disabled); [message] is the toggle's one-shot snackbar (a 429 / constant 404), cleared via
+ * `onMessageShown()` — state, not an event bus (docs/11 § 2.2).
  */
 data class FollowListUiState(
     val followers: FollowListTabUiState,
     val following: FollowListTabUiState,
     val followersRefreshing: Boolean,
     val followingRefreshing: Boolean,
+    val followInFlight: Set<String> = emptySet(),
+    val message: ProfileMessage? = null,
 ) {
     fun tab(tab: FollowListTab): FollowListTabUiState =
         when (tab) {

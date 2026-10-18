@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.profile
 
+import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.profile.UserProfile
 
@@ -51,6 +52,28 @@ enum class ProfileMessage {
     /** A block / report / create-or-return failure → a generic "try again" copy. */
     ACTION_FAILED,
 }
+
+/** A resolved follow toggle: the follow value to settle on + the message to surface (null = none). */
+data class FollowSettlement(
+    val followed: Boolean,
+    val message: ProfileMessage?,
+)
+
+/**
+ * THE follow-toggle settlement, shared by `ProfileViewModel` and `FollowListViewModel` so the profile
+ * toggle and the inline follow-list row toggle cannot drift (`mobile-follow-list-inline-follow` D3):
+ * success settles on the server-confirmed value; `RateLimited` / `TargetGone` revert to
+ * [previouslyFollowed] with their message; `NetworkError` reverts silently (the toggle snapping back IS
+ * the feedback).
+ */
+fun FollowToggleOutcome.settle(previouslyFollowed: Boolean): FollowSettlement =
+    when (this) {
+        FollowToggleOutcome.Followed -> FollowSettlement(followed = true, message = null)
+        FollowToggleOutcome.Unfollowed -> FollowSettlement(followed = false, message = null)
+        is FollowToggleOutcome.RateLimited -> FollowSettlement(previouslyFollowed, ProfileMessage.FOLLOW_RATE_LIMITED)
+        FollowToggleOutcome.TargetGone -> FollowSettlement(previouslyFollowed, ProfileMessage.TARGET_UNAVAILABLE)
+        FollowToggleOutcome.NetworkError -> FollowSettlement(previouslyFollowed, message = null)
+    }
 
 /**
  * "Kirim pesan" resolved (`profile-send-message`): the conversation to open + the partner's DISPLAY

@@ -1,5 +1,6 @@
 package id.nearyou.app.screens.profile
 
+import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.profile.UserProfile
 import kotlin.test.Test
@@ -96,5 +97,38 @@ class ProfileUiStateTest {
             )
         assertEquals(ProfileMessage.BLOCK_SUCCESS, state.message)
         assertTrue(state.navigateBack)
+    }
+
+    // ---- the shared follow-toggle settlement (profile + follow-list row toggle, D3) ----
+
+    @Test
+    fun `settle - success settles on the server-confirmed value with no message`() {
+        assertEquals(FollowSettlement(followed = true, message = null), FollowToggleOutcome.Followed.settle(previouslyFollowed = false))
+        assertEquals(FollowSettlement(followed = false, message = null), FollowToggleOutcome.Unfollowed.settle(previouslyFollowed = true))
+    }
+
+    @Test
+    fun `settle - 429 and the constant 404 revert with their message`() {
+        assertEquals(
+            FollowSettlement(followed = false, message = ProfileMessage.FOLLOW_RATE_LIMITED),
+            FollowToggleOutcome.RateLimited(retryAfterSeconds = 30).settle(previouslyFollowed = false),
+        )
+        assertEquals(
+            FollowSettlement(followed = true, message = ProfileMessage.FOLLOW_RATE_LIMITED),
+            FollowToggleOutcome.RateLimited(retryAfterSeconds = 30).settle(previouslyFollowed = true),
+        )
+        assertEquals(
+            FollowSettlement(followed = false, message = ProfileMessage.TARGET_UNAVAILABLE),
+            FollowToggleOutcome.TargetGone.settle(previouslyFollowed = false),
+        )
+    }
+
+    @Test
+    fun `settle - a network error reverts silently`() {
+        assertEquals(FollowSettlement(followed = true, message = null), FollowToggleOutcome.NetworkError.settle(previouslyFollowed = true))
+        assertEquals(
+            FollowSettlement(followed = false, message = null),
+            FollowToggleOutcome.NetworkError.settle(previouslyFollowed = false),
+        )
     }
 }
