@@ -54,7 +54,7 @@ Without knowledge of `secret`, there SHALL be no feasible algorithm in this code
 
 ### Requirement: JITTER_SECRET resolution via SecretResolver
 
-The backend SHALL resolve the HMAC key via `secretKey(env, "jitter-secret")` through the existing `SecretResolver` chain, consistent with `invite-code-secret`. In dev, the secret comes from the `JITTER_SECRET` environment variable (hyphen-to-underscore normalized). The secret MUST be 32 bytes (base64-decoded) to match the HMAC-SHA256 key size convention.
+The backend SHALL resolve the HMAC key via `secrets.resolve("jitter-secret")` (the bare slot name) through the existing `SecretResolver` chain, consistent with `invite-code-secret`. The secret comes from the `JITTER_SECRET` environment variable (hyphen-to-underscore normalized; tests may set the same-named JVM system property) in every env; the staging deploy binds it from the `staging-jitter-secret` Secret Manager slot via `--set-secrets`, and the slot is never composed via `secretKey(env, ...)` inside `resolve()`. The secret MUST be 32 bytes (base64-decoded) to match the HMAC-SHA256 key size convention.
 
 #### Scenario: Env var resolution
 - **WHEN** `SecretResolver.resolve("jitter-secret")` is invoked with `KTOR_ENV=dev` and `JITTER_SECRET=<base64 32 bytes>`

@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -26,7 +27,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import java.net.URLEncoder
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -235,7 +235,7 @@ private fun FlagRow.toViewMap(): Map<String, Any> {
     val m =
         mutableMapOf<String, Any>(
             "queueId" to queueId.toString(),
-            "createdAt" to ISO_INSTANT.format(createdAt),
+            "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
             "candidate" to (candidate ?: ""),
             "hasCandidate" to (candidate?.isNotBlank() ?: false),
             "resolveAction" to "/admin/username-oversight/flags/$queueId/resolve",
@@ -253,7 +253,7 @@ private fun FlagRow.toViewMap(): Map<String, Any> {
 private fun HistoryRow.toViewMap(): Map<String, Any> {
     val m =
         mutableMapOf<String, Any>(
-            "changedAt" to ISO_INSTANT.format(changedAt),
+            "changedAt" to ADMIN_TS_FORMAT.format(changedAt),
             "oldUsername" to oldUsername,
             "newUsername" to newUsername,
         )
@@ -270,7 +270,7 @@ private fun HoldRow.toViewMap(): Map<String, Any> {
     val m =
         mutableMapOf<String, Any>(
             "oldUsername" to oldUsername,
-            "releasedAt" to ISO_INSTANT.format(releasedAt),
+            "releasedAt" to ADMIN_TS_FORMAT.format(releasedAt),
             "releaseAction" to "/admin/username-oversight/holds/$id/release",
         )
     if (username != null) {
@@ -285,8 +285,6 @@ private fun HoldRow.toViewMap(): Map<String, Any> {
 private const val HX_REQUEST = "HX-Request"
 private const val FIELD_RESOLUTION = "resolution"
 private const val SEARCH_MAX = 30
-
-private val ISO_INSTANT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
 
 // English-only informational messages (matching the existing admin templates).
 private const val MSG_INVALID_ID = "Invalid id."

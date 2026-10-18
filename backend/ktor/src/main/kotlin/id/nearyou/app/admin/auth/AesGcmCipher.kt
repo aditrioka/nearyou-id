@@ -19,8 +19,8 @@ import javax.crypto.spec.SecretKeySpec
  * The admin's UUID (16 raw bytes) is bound as Additional Authenticated Data
  * via [Cipher.updateAAD] before [Cipher.doFinal]. Decryption with the wrong
  * AAD (e.g. another admin's UUID — a row-swap attack) fails with
- * `AEADBadTagException`. The key is sourced via `secretKey(env, name)` per
- * the project's secret-helper convention; no constant is hardcoded outside
+ * `AEADBadTagException`. The key is sourced via the bare-slot
+ * `SecretResolver.resolve(...)` per the project's secrets convention; no constant is hardcoded outside
  * test fixtures.
  *
  * JCA built-in (`AES/GCM/NoPadding`) — no third-party dependency. JDK 11+
@@ -41,8 +41,8 @@ object AesGcmCipher {
      * BYTEA of length `12 + plaintext.size + 16` (nonce || ciphertext || tag).
      *
      * Throws [IllegalArgumentException] if the key length is not 32 bytes
-     * (AES-256). Caller should source [key] via the `secretKey(env, name)`
-     * helper, never from a hardcoded constant.
+     * (AES-256). Caller should source [key] via the bare-slot
+     * `SecretResolver.resolve(...)`, never from a hardcoded constant.
      */
     fun encrypt(
         plaintext: ByteArray,

@@ -15,7 +15,10 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.SemanticsNodeInteractionCollection
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
@@ -25,11 +28,15 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import id.nearyou.app.chat.ChatFlow
@@ -44,6 +51,7 @@ import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
+import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
 import id.nearyou.app.notifications.FakeNotificationPermissionController
 import id.nearyou.app.notifications.FakeNotificationPromptOneShot
@@ -59,8 +67,11 @@ import id.nearyou.app.theme.NearYouTheme
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_CLOSE_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_PREMIUM_TAG
 import id.nearyou.app.ui.components.DAILY_CAP_DIALOG_TAG
+import id.nearyou.app.ui.components.localDateLabel
+import id.nearyou.app.ui.components.localTimeLabel
 import id.nearyou.resources.theme.NearYouColorScheme
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -73,6 +84,12 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Instant
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 private const val CONV = "11111111-1111-1111-1111-111111111111"
 private const val VIEWER = "22222222-2222-2222-2222-222222222222"
@@ -84,6 +101,10 @@ private const val NETWORK = "Tidak bisa terhubung. Periksa koneksi internet kamu
 private const val TOO_LONG = "Pesan maksimal 2000 karakter."
 private const val RATIONALE = "Aktifkan notifikasi agar kamu tahu saat ada pesan baru."
 private const val RATIONALE_CONFIRM = "Izinkan notifikasi"
+private const val CTA_BACK = "Kembali"
+private const val CTA_CLOSE = "Tutup"
+private const val PREMIUM_BADGE = "Akun Premium"
+private const val MSG_NEW_ID = "66666666-6666-6666-6666-666666666666"
 
 /** Every indeterminate progress indicator (the initial-load spinner and the refreshing PTR spinner). */
 private val INDETERMINATE =
@@ -111,9 +132,10 @@ private fun dto(
 @Suppress("DEPRECATION")
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
-@OptIn(ExperimentalTestApi::class)
+@OptIn(ExperimentalTestApi::class, ExperimentalUuidApi::class)
 class ChatThreadScreenTest {
     private lateinit var flow: FakeChatFlow
+    private lateinit var realtime: FakeChatRealtimeSubscriber
     private lateinit var reportSubmitter: FakeReportSubmitter
     private lateinit var notificationController: FakeNotificationPermissionController
     private lateinit var promptOneShot: FakeNotificationPromptOneShot
@@ -128,6 +150,7 @@ class ChatThreadScreenTest {
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         flow = FakeChatFlow(historyOutcomes = historyOutcomes, sendOutcome = sendOutcome)
+        realtime = FakeChatRealtimeSubscriber()
         reportSubmitter = FakeReportSubmitter(reportOutcome)
         notificationController = FakeNotificationPermissionController(notificationStatus)
         promptOneShot = FakeNotificationPromptOneShot(claimed = rationaleAlreadyShown)
@@ -135,7 +158,7 @@ class ChatThreadScreenTest {
             modules(
                 module {
                     single<ChatFlow> { flow }
-                    single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
+                    single<ChatRealtimeSubscriber> { realtime }
                     single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
                     single<ReportSubmitter> { reportSubmitter }
                     single<NotificationPermissionController> { notificationController }
@@ -147,8 +170,21 @@ class ChatThreadScreenTest {
         }
     }
 
-    private fun route(partnerDisplayName: String = "Dewi Lestari") =
-        ChatThreadRoute(conversationId = CONV, partnerUsername = "dewi.kuliner", partnerDisplayName = partnerDisplayName)
+    private fun route(
+        partnerDisplayName: String = "Dewi Lestari",
+        partnerUsername: String = "dewi.kuliner",
+        partnerIsPremium: Boolean = false,
+    ) = ChatThreadRoute(
+        conversationId = CONV,
+        partnerUsername = partnerUsername,
+        partnerDisplayName = partnerDisplayName,
+        partnerIsPremium = partnerIsPremium,
+    )
+
+    /** The 20-message newest page (MSG_21..MSG_40, cursor to an older page) and that older page (MSG_1..MSG_20). */
+    private fun newestPage() = (21..40).map { dto("m$it", content = "MSG_$it", createdAt = "2026-06-01T10:%02d:00Z".format(it)) }
+
+    private fun olderPage() = (1..20).map { dto("m$it", content = "MSG_$it", createdAt = "2026-06-01T10:%02d:00Z".format(it)) }
 
     @AfterTest
     fun tearDown() {
@@ -392,17 +428,19 @@ class ChatThreadScreenTest {
      * Composes the thread under a [SaveableStateRegistry] and returns a `restore()` that simulates a
      * config change: save, drop the branch, re-enter the SAME slot with the captured values (the
      * `PostDetailScreenTest` harness — the junit4 `StateRestorationTester` is not on this classpath). The
-     * route-scoped ViewModel survives, as it does across a real recreation.
+     * route-scoped ViewModel survives, as it does across a real recreation. With [processDeath] the restore
+     * also clears the ViewModel store, so a NEW ViewModel reloads the thread (only the saved state survives).
      */
-    private fun ComposeUiTest.restorableChatThread(): () -> Unit {
+    private fun ComposeUiTest.restorableChatThread(processDeath: Boolean = false): () -> Unit {
         var savedState: Map<String, List<Any?>>? = null
         var registry: SaveableStateRegistry? = null
         var generation by mutableStateOf(0)
+        var owner = TestViewModelStoreOwner()
         setContent {
             if (generation != -1) {
                 val current = remember(generation) { SaveableStateRegistry(restoredValues = savedState, canBeSaved = { true }) }
                 registry = current
-                CompositionLocalProvider(LocalSaveableStateRegistry provides current) {
+                CompositionLocalProvider(LocalSaveableStateRegistry provides current, LocalViewModelStoreOwner provides owner) {
                     KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } }
                 }
             }
@@ -411,9 +449,17 @@ class ChatThreadScreenTest {
             runOnIdle { savedState = registry!!.performSave() }
             runOnIdle { generation = -1 }
             waitForIdle()
+            if (processDeath) {
+                owner.viewModelStore.clear()
+                owner = TestViewModelStoreOwner()
+            }
             runOnIdle { generation = 1 }
             waitForIdle()
         }
+    }
+
+    private class TestViewModelStoreOwner : ViewModelStoreOwner {
+        override val viewModelStore: ViewModelStore = ViewModelStore()
     }
 
     /** The resolved text color the node was laid out with (M3 `Text` merges LocalContentColor into the style). */
@@ -520,8 +566,247 @@ class ChatThreadScreenTest {
             setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(partnerDisplayName = ""), onBack = {}) } } }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(DELETED).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText(DELETED).assertExists()
+            // The mask hides the route's handle too (no stale identity beside the placeholder).
+            onNodeWithText("@dewi.kuliner").assertDoesNotExist()
         }
     }
+
+    // Frame 5 (#286): the partner header is a back ARROW (described "Kembali") + the name over the @handle.
+    @Test
+    fun topBar_showsBackArrowAndPartnerHandle_andTheArrowInvokesOnBack() {
+        installKoin()
+        var backCount = 0
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = { backCount++ }) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("@dewi.kuliner").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Dewi Lestari").assertExists()
+            onNodeWithTag(CHAT_THREAD_BACK_TAG).assertContentDescriptionEquals(CTA_BACK)
+            onNodeWithText(CTA_CLOSE).assertDoesNotExist()
+            onNodeWithTag(CHAT_THREAD_BACK_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, backCount)
+        }
+    }
+
+    // #565: on a two-page thread the thread opens at the newest message without paging older first; reaching
+    // the top loads the older page while the reader KEEPS their place (no jump back to the newest message),
+    // and a pull at the very top still resyncs.
+    @Test
+    fun loadOlder_keepsTheScrollPosition_andAPullAtTheTopStillResyncs() {
+        installKoin(
+            historyOutcomes =
+                listOf(ChatThreadOutcome.Loaded(newestPage(), "older-cursor"), ChatThreadOutcome.Loaded(olderPage(), null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+            assertEquals(1, flow.loadHistoryCount, "opening the thread does not page older before it is positioned")
+
+            // Hold the older page so the reader's position can be read before and after it lands.
+            val olderGate = CompletableDeferred<Unit>()
+            flow.historyGate = olderGate
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            val listTop = onNodeWithTag(CHAT_THREAD_LIST_TAG).fetchSemanticsNode().positionInRoot.y
+            val before = onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y
+            olderGate.complete(Unit)
+            waitForIdle()
+
+            // The older page is prepended above; MSG_21 stays where the reader left it, the newest is off screen.
+            onAllNodesWithText("MSG_21").assertCountEquals(1)
+            assertEquals(before, onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y, "the reader keeps their place")
+            assertTrue(before >= listTop, "MSG_21 is at the top of the viewport")
+            onAllNodesWithText("MSG_40").assertCountEquals(0)
+
+            // Scroll through the prepended page to the real top; there the pull still resyncs.
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitForIdle()
+            onNodeWithText("MSG_1").assertExists()
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performTouchInput { swipeDown() }
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 3 }
+        }
+    }
+
+    // #584 review: when the older page ends on an EARLIER day, the first newest-page row now starts a day. Its chip is
+    // its own list item inserted above the reader's anchored row, so that row does not move (a chip drawn inside the
+    // row's item pushed its bubble down by the chip's height).
+    @Test
+    fun loadOlder_fromAnEarlierDay_keepsTheScrollPosition_andHeadsTheNewDayWithAChip() {
+        val day2 = "2026-06-02T10:21:00Z"
+        val newestOnDay2 = (21..40).map { dto("m$it", content = "MSG_$it", createdAt = "2026-06-02T10:%02d:00Z".format(it)) }
+        installKoin(
+            historyOutcomes =
+                listOf(ChatThreadOutcome.Loaded(newestOnDay2, "older-cursor"), ChatThreadOutcome.Loaded(olderPage(), null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+
+            val olderGate = CompletableDeferred<Unit>()
+            flow.historyGate = olderGate
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            onAllNodesWithTag(CHAT_THREAD_DAY_CHIP_TAG, useUnmergedTree = true).assertCountEquals(0)
+            val before = onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y
+            olderGate.complete(Unit)
+            waitForIdle()
+
+            assertEquals(before, onNodeWithText("MSG_21").fetchSemanticsNode().positionInRoot.y, "the reader keeps their place")
+            // Just above the anchored row: the new day's chip (chip(m1), m1..m20, chip(m21), m21, …).
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(21)
+            waitForIdle()
+            onNodeWithText(localDateLabel(day2)).assertExists()
+        }
+    }
+
+    // #565 / #584 review: the tail still follows a NEW newest row while the reader is scrolled up in a long
+    // thread — a realtime inbound brings the newest message into view.
+    @Test
+    fun realtimeInbound_whileScrolledUpInALongThread_bringsTheNewestRowIntoView() {
+        installKoin(
+            historyOutcomes =
+                listOf(ChatThreadOutcome.Loaded(newestPage(), "older-cursor"), ChatThreadOutcome.Loaded(olderPage(), null)),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            waitForIdle()
+            onAllNodesWithText("MSG_40").assertCountEquals(0)
+            waitUntil(timeoutMillis = 5_000) { realtime.active }
+
+            runBlocking { realtime.emit(inbound(MSG_NEW_ID, content = "MSG_NEW", createdAt = "2026-06-01T11:00:00Z")) }
+
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_NEW").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("MSG_NEW").assertIsDisplayed()
+        }
+    }
+
+    // #584 review: after process death the new ViewModel reloads only the newest page. A reader who had paged
+    // older is re-pinned to the newest message (the restored index would point at a different message), and
+    // the restored top position does not page older before that re-pin.
+    @Test
+    fun processDeath_afterPagingOlder_rePinsToTheNewestMessage() {
+        installKoin(
+            historyOutcomes =
+                listOf(
+                    ChatThreadOutcome.Loaded(newestPage(), "older-cursor"),
+                    ChatThreadOutcome.Loaded(olderPage(), null),
+                    ChatThreadOutcome.Loaded(newestPage(), "older-cursor"),
+                ),
+        )
+        runComposeUiTest {
+            val restore = restorableChatThread(processDeath = true)
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitUntil(timeoutMillis = 5_000) { flow.loadHistoryCount == 2 }
+            waitForIdle()
+            onNodeWithTag(CHAT_THREAD_LIST_TAG).performScrollToIndex(0)
+            waitForIdle()
+            onNodeWithText("MSG_1").assertExists()
+
+            restore()
+
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("MSG_40").fetchSemanticsNodes().isNotEmpty() }
+            waitForIdle()
+            onNodeWithText("MSG_40").assertIsDisplayed()
+            assertEquals(3, flow.loadHistoryCount, "the restored top position does not page older before the re-pin")
+        }
+    }
+
+    // Frame 5 (#286): a Premium partner's header carries the shared Premium badge; a non-Premium one does not.
+    @Test
+    fun topBar_showsThePremiumBadgeOnlyForAPremiumPartner() {
+        installKoin()
+        runComposeUiTest {
+            var premium by mutableStateOf(true)
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(partnerIsPremium = premium), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(CHAT_THREAD_PREMIUM_BADGE_TAG).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(CHAT_THREAD_PREMIUM_BADGE_TAG).assertContentDescriptionEquals(PREMIUM_BADGE)
+            premium = false
+            waitForIdle()
+            onNodeWithTag(CHAT_THREAD_PREMIUM_BADGE_TAG).assertDoesNotExist()
+        }
+    }
+
+    // mobile-chat § "Shadow-banned/deleted partner top-bar is masked": the BACKEND mask shape (displayName
+    // "Akun Dihapus", username "akun_dihapus") renders the placeholder with no "@akun_dihapus" handle or badge.
+    @Test
+    fun backendMaskedPartner_topBarRendersThePlaceholder_withoutTheMaskHandleOrBadge() {
+        installKoin()
+        runComposeUiTest {
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        ChatThreadScreen(
+                            route = route(partnerDisplayName = "Akun Dihapus", partnerUsername = "akun_dihapus", partnerIsPremium = true),
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(DELETED).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("@akun_dihapus").assertDoesNotExist()
+            onNodeWithTag(CHAT_THREAD_PREMIUM_BADGE_TAG).assertDoesNotExist()
+        }
+    }
+
+    // Frame 5 (#286): each bubble shows its send time ("09.12"), and a day chip heads the first row of each
+    // day: the date for an older day, "Kemarin", then "Hari ini". A phone-height screen keeps all three rows composed.
+    // The screen's clock is pinned, so the labels cannot flip if the run crosses local midnight.
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun bubblesShowTheirSendTime_andDayChipsHeadEachDay() {
+        val now = Instant.parse("2026-06-03T05:00:00Z")
+        val clock =
+            object : Clock {
+                override fun now() = now
+            }
+        val older = (now - 3.days).toString()
+        val yesterday = (now - 1.days).toString()
+        val today = now.toString()
+        installKoin(
+            ChatThreadOutcome.Loaded(
+                listOf(
+                    dto("m1", content = "LAMA", createdAt = older),
+                    dto("m2", content = "KEMARIN", createdAt = yesterday),
+                    dto("m3", sender = VIEWER, content = "BARU", createdAt = today),
+                ),
+                null,
+            ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}, clock = clock) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("BARU").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(
+                listOf(localDateLabel(older), "Kemarin", "Hari ini"),
+                onAllNodesWithTag(CHAT_THREAD_DAY_CHIP_TAG, useUnmergedTree = true).texts(),
+            )
+            assertEquals(
+                listOf(older, yesterday, today).map { localTimeLabel(it) },
+                onAllNodesWithTag(CHAT_THREAD_MESSAGE_TIME_TAG, useUnmergedTree = true).texts(),
+            )
+        }
+    }
+
+    private fun SemanticsNodeInteractionCollection.texts(): List<String> =
+        fetchSemanticsNodes().map { node -> node.config[SemanticsProperties.Text].joinToString("") { it.text } }
+
+    private fun inbound(
+        id: String,
+        content: String,
+        createdAt: String,
+    ) = ChatMessageInbound(
+        id = Uuid.parse(id),
+        conversationId = Uuid.parse(CONV),
+        senderId = Uuid.parse(OTHER),
+        content = content,
+        createdAt = Instant.parse(createdAt),
+        redactedAt = null,
+    )
 
     // --- mobile-chat-message-report ---
 

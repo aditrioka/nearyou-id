@@ -15,7 +15,7 @@ package id.nearyou.app.infra.r2
  * canonical `secrets.resolve("redis-url")` / RevenueCat `secrets.resolve(SECRET_BEARER)`
  * convention (NOT `secrets.resolve(secretKey(env, …))`).
  *
- * [isComplete] is the blank-aware guard the Koin factory uses to fall back to
+ * [isComplete] is the blank-aware guard the [objectStore] factory uses to fall back to
  * [NoOpObjectStore] when any credential is unset (dev/test/un-provisioned staging).
  */
 data class R2Config(

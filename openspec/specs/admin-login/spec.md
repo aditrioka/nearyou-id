@@ -60,7 +60,7 @@ The system SHALL accept `POST /admin/login` with form-encoded `email`, `password
 
 > **AMENDED (apply phase, 2026-05-29):** the original spec said "200 + HX-Redirect" unconditionally. Manual-browser-testing analysis surfaced that a plain `<form method=POST>` submit (which `login.peb` uses) does NOT route through HTMX, so the HTMX-only `HX-Redirect` header is ignored and the browser shows a blank page on success. Resolved via the dual-mode above (a dated re-check confirmed HX-Redirect is canonical only when HTMX processes the response; POST-redirect-GET 303 is canonical for plain server-rendered form posts). See `design.md` D6a.
 
-Password verification SHALL use Argon2id via the `com.password4j:password4j` library with the parameters tuned per `design.md` Decision 2. TOTP verification SHALL use RFC 6238 via the `dev.samstevens.totp:totp` library with SHA-1, 30-second step, 6 digits, and ±1 step skew tolerance per `design.md` Decision 3. The TOTP secret SHALL be decrypted from `admin_users.totp_secret_encrypted` via AES-256-GCM using the key sourced from GCP Secret Manager slot `admin-totp-secret-aes-key` (or `staging-admin-totp-secret-aes-key` in staging) via the `secretKey(env, name)` helper.
+Password verification SHALL use Argon2id via the `com.password4j:password4j` library with the parameters tuned per `design.md` Decision 2. TOTP verification SHALL use RFC 6238 via the `dev.samstevens.totp:totp` library with SHA-1, 30-second step, 6 digits, and ±1 step skew tolerance per `design.md` Decision 3. The TOTP secret SHALL be decrypted from `admin_users.totp_secret_encrypted` via AES-256-GCM using the key sourced from GCP Secret Manager slot `admin-totp-secret-aes-key` (or `staging-admin-totp-secret-aes-key` in staging), read via the bare-slot `secrets.resolve("admin-totp-secret-aes-key")` (the deploy binds the env-namespaced slot; `secretKey(env, name)` only names it for diagnostics).
 
 #### Scenario: Login succeeds with valid credentials
 
@@ -430,7 +430,7 @@ The system SHALL accept `POST /admin/logout` as a CSRF-required authenticated ro
 
 ### Requirement: TOTP secret decryption uses AES-256-GCM with key from GCP Secret Manager and admin-UUID AAD binding
 
-The system SHALL decrypt `admin_users.totp_secret_encrypted` at login-verify time via `javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")`. The AES-256 key SHALL be sourced via the `secretKey(env, "admin-totp-secret-aes-key")` helper (the `KTOR_ENV`-namespaced secret slot — `staging-admin-totp-secret-aes-key` in staging, `admin-totp-secret-aes-key` in production). The ciphertext format SHALL be `BYTEA = nonce (12 bytes) || ciphertext || auth_tag (16 bytes)` per `design.md` Decision 1. The GCM authentication tag SHALL be verified — if verification fails (tampered ciphertext, wrong key, or AAD mismatch), the decryption SHALL throw and the login attempt SHALL be treated as `totp_secret_missing` (the bootstrap procedure produces valid ciphertext; a tamper signals storage corruption or row-swap, not a normal login flow).
+The system SHALL decrypt `admin_users.totp_secret_encrypted` at login-verify time via `javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")`. The AES-256 key SHALL be sourced via `secrets.resolve("admin-totp-secret-aes-key")` (the bare slot name; env var `ADMIN_TOTP_SECRET_AES_KEY`, which the deploy binds to the `KTOR_ENV`-namespaced secret slot — `staging-admin-totp-secret-aes-key` in staging, `admin-totp-secret-aes-key` in production); `secretKey(env, "admin-totp-secret-aes-key")` names that slot only in the missing-secret error and is never passed to `resolve()`. The ciphertext format SHALL be `BYTEA = nonce (12 bytes) || ciphertext || auth_tag (16 bytes)` per `design.md` Decision 1. The GCM authentication tag SHALL be verified — if verification fails (tampered ciphertext, wrong key, or AAD mismatch), the decryption SHALL throw and the login attempt SHALL be treated as `totp_secret_missing` (the bootstrap procedure produces valid ciphertext; a tamper signals storage corruption or row-swap, not a normal login flow).
 
 The admin's UUID (`admin_users.id`, as 16 raw bytes from the UUID's most-significant + least-significant longs) SHALL be bound as Additional Authenticated Data (AAD) via `Cipher.updateAAD(adminUuidBytes)` before the `doFinal()` call on BOTH the encrypt and decrypt paths (per `design.md` Decision 1). This prevents a DB-write attacker from swapping admin A's encrypted TOTP secret into admin B's `totp_secret_encrypted` column — the AAD mismatch produces an `AEADBadTagException` on decrypt.
 
@@ -450,12 +450,12 @@ The admin's UUID (`admin_users.id`, as 16 raw bytes from the UUID's most-signifi
 #### Scenario: Key is sourced via secretKey helper, not a hardcoded constant
 
 - **WHEN** the source code is grep'd for the literal AES key value
-- **THEN** no match SHALL exist outside test fixtures (the key value is sourced exclusively via `secretKey(env, "admin-totp-secret-aes-key")` at runtime)
+- **THEN** no match SHALL exist outside test fixtures (the key value is sourced exclusively via `secrets.resolve("admin-totp-secret-aes-key")` at runtime)
 
 #### Scenario: secret slot name matches the env-namespaced helper convention
 
-- **WHEN** `KTOR_ENV = 'staging'`, the `secretKey(env, "admin-totp-secret-aes-key")` call SHALL resolve the GCP Secret Manager slot named `staging-admin-totp-secret-aes-key`
-- **AND** when `KTOR_ENV = 'production'`, it SHALL resolve `admin-totp-secret-aes-key` (unprefixed, per the project's secret-namespacing convention)
+- **WHEN** `KTOR_ENV = 'staging'`, the `secretKey(env, "admin-totp-secret-aes-key")` call SHALL name the GCP Secret Manager slot `staging-admin-totp-secret-aes-key`
+- **AND** when `KTOR_ENV = 'production'`, it SHALL name `admin-totp-secret-aes-key` (unprefixed, per the project's secret-namespacing convention)
 
 #### Scenario: AAD-bound encrypt-decrypt round-trip succeeds when the admin UUID matches
 

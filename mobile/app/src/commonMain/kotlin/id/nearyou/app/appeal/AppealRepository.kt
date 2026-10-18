@@ -1,5 +1,6 @@
 package id.nearyou.app.appeal
 
+import id.nearyou.app.auth.SessionInvalidator
 import id.nearyou.app.auth.TokenStore
 
 /**
@@ -11,11 +12,13 @@ import id.nearyou.app.auth.TokenStore
  *
  * A null-token [status] read goes through the signed-in session — unless [tokenStore] holds no session, in
  * which case it is [AppealStatusOutcome.SessionExpired] with NO request (a 401 on the shared client would
- * fire the app-wide session-invalidation path instead of today's quiet re-sign-in redirect).
+ * fire the app-wide session-invalidation path instead of today's quiet re-sign-in redirect). A session-read
+ * `401` always ends in [SessionInvalidator.invalidate] — the canonical clear + re-route + identity cleanup.
  */
 class AppealRepository(
     private val apiClient: AppealApiClient,
     private val tokenStore: TokenStore,
+    private val sessionInvalidator: SessionInvalidator,
     // Diagnostic sink for non-user-facing error detail (no-op default for tests). MUST NOT carry tokens.
     private val diagnosticLog: (String) -> Unit = {},
 ) : AppealFlow {
@@ -49,7 +52,7 @@ class AppealRepository(
         }
 
     override suspend fun status(appealToken: String?): AppealStatusOutcome {
-        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired
+        if (appealToken == null && tokenStore.read() == null) return AppealStatusOutcome.SessionExpired(viaSession = false)
         return when (val result = apiClient.status(appealToken)) {
             is AppealStatusApiResult.Success -> {
                 val body = result.body
@@ -72,7 +75,13 @@ class AppealRepository(
             }
             is AppealStatusApiResult.HttpError ->
                 when (result.status) {
-                    401 -> AppealStatusOutcome.SessionExpired
+                    401 -> {
+                        // A rejected refresh already invalidated (the store is cleared). A refresh that succeeded
+                        // but whose retry still 401s fires nothing (#595), so invalidate here: SessionExpiryEffect
+                        // then re-routes, captures the return destination and shows the notice (#581).
+                        if (appealToken == null && tokenStore.read() != null) sessionInvalidator.invalidate()
+                        AppealStatusOutcome.SessionExpired(viaSession = appealToken == null)
+                    }
                     else -> AppealStatusOutcome.TransportError
                 }
         }

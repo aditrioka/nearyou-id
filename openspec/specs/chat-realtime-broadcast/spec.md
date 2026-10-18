@@ -235,7 +235,7 @@ The publish call SHALL be wrapped by `:infra:otel`'s `withSpan("chat.realtime.pu
 
 The handler-completion-required preservation rule continues to apply: when the JVM crashes between the chat-foundation commit and the publish call (or before the WARN log fires), neither the WARN log nor the span will be emitted. This is the documented crash-window contract per the `chat-realtime-broadcast` change's design § D1 (archived under `openspec/changes/archive/2026-05-04-chat-realtime-broadcast/design.md` § D1); an outbox / replay log is still NOT introduced.
 
-The Supabase service role key SHALL NEVER appear in any log field. Two enforcement scenarios apply: (1) literal-source-grep — any source-code occurrence of the literal `supabase-service-role-key` SHALL be only at the `secretKey(env, "supabase-service-role-key")` call site; (2) defense-in-depth — the resolved key VALUE itself SHALL NEVER appear in any log field captured during the publish call path.
+The Supabase service role key SHALL NEVER appear in any log field. Two enforcement scenarios apply: (1) literal-source-grep — any source-code occurrence of the literal `supabase-service-role-key` SHALL be only at the `secrets.resolve("supabase-service-role-key")` value read and its `secretKey(env, "supabase-service-role-key")` diagnostic slot name; (2) defense-in-depth — the resolved key VALUE itself SHALL NEVER appear in any log field captured during the publish call path.
 
 #### Scenario: WARN log emitted on PublishResult.Failure
 - **GIVEN** the test-double `FakeChatRealtimeClient.publish` returns `PublishResult.Failure("java.io.IOException")`
@@ -271,12 +271,12 @@ The Supabase service role key SHALL NEVER appear in any log field. Two enforceme
 - **WHEN** the captured `"chat.realtime.publish"` span's attributes and events are scanned for the literal sentinel
 - **THEN** the literal does NOT appear in any attribute value, event attribute, or span name (the forbidden-attributes contract from `observability-otel-foundation` applies)
 
-#### Scenario: Service role key slot name appears only at secretKey call site
+#### Scenario: Service role key slot name appears only at the resolve and secretKey call site
 - **WHEN** searching the backend source for the literal string `"supabase-service-role-key"`
-- **THEN** the only occurrences are calls to `secretKey(env, "supabase-service-role-key")`
+- **THEN** the only occurrences are the `secrets.resolve("supabase-service-role-key")` value read and the `secretKey(env, "supabase-service-role-key")` diagnostic slot name beside it
 
 #### Scenario: Service role key VALUE never appears in logs
-- **GIVEN** the resolved service role key value `K` (loaded at startup via `secretKey(env, ...)`) AND a test that captures all log lines emitted during a `publish` invocation (across both success and failure paths)
+- **GIVEN** the resolved service role key value `K` (loaded at startup via `secrets.resolve("supabase-service-role-key")`) AND a test that captures all log lines emitted during a `publish` invocation (across both success and failure paths)
 - **WHEN** the captured log messages are scanned for `K` (substring match)
 - **THEN** `K` does NOT appear in any captured log line as a field value or message substring
 
@@ -322,18 +322,18 @@ The following are explicit non-goals of the original `chat-realtime-broadcast` c
 
 ### Requirement: Credential resolution via secretKey helper
 
-`SupabaseBroadcastChatClient` SHALL obtain its Supabase service role key via `secretKey(env, "supabase-service-role-key")` at startup. The helper resolves to GCP Secret Manager slot `staging-supabase-service-role-key` in staging and `supabase-service-role-key` in production per the env-aware naming convention from `CLAUDE.md` § Critical invariants.
+`SupabaseBroadcastChatClient` SHALL obtain its Supabase service role key from `secrets.resolve("supabase-service-role-key")` (the bare slot name; env var `SUPABASE_SERVICE_ROLE_KEY`) at startup. The deploy binds that env var to GCP Secret Manager slot `staging-supabase-service-role-key` in staging and `supabase-service-role-key` in production; `secretKey(env, "supabase-service-role-key")` composes that slot name only for the missing-secret diagnostic and is never passed to `resolve()`, per the secrets invariant in `CLAUDE.md` § Critical invariants.
 
 The credential SHALL be loaded once at startup and held in the Supabase SDK client instance. The credential SHALL NOT be refreshed mid-process; rotation requires a process restart (matches the existing precedent for other long-lived credentials such as `supabase-jwt-secret`).
 
 **Non-goal: the publish path bypasses RLS by design.** The Supabase service role key is RLS-bypassing — that's its intended property at this call site. The V15 `participants_can_subscribe` RLS policy gates SUBSCRIBERS, not the server-originated publisher. A future maintainer reading this spec MUST NOT attempt to "tighten" the publish path by switching to the anon key or the HS256 client token; both would fail to authorize a server-side broadcast. RLS gating at the subscriber side is sufficient for the privacy model; publish-side shadow-ban skip + bidirectional block check (in the chat handler from chat-foundation) provide the publisher-side equivalents.
 
-#### Scenario: secretKey helper used at single call site
-- **WHEN** searching the backend source for `secretKey(env, "supabase-service-role-key")`
-- **THEN** there is exactly one call site (the `SupabaseBroadcastChatClient` initializer or its DI provider)
+#### Scenario: Bare-slot resolve used at single call site
+- **WHEN** searching the backend source for `secrets.resolve("supabase-service-role-key")`
+- **THEN** there is exactly one call site (the `SupabaseBroadcastChatClient` DI provider in `Application.kt`), and no `resolve(secretKey(...))` composes the slot
 
 #### Scenario: Hardcoded service role key forbidden
-- **WHEN** searching the backend source for any non-`secretKey(...)` reference to a Supabase service role key value
+- **WHEN** searching the backend source for any reference to a Supabase service role key value other than the `secrets.resolve(...)` read
 - **THEN** zero occurrences are found
 
 ### Requirement: Integration test coverage
@@ -358,7 +358,7 @@ The credential SHALL be loaded once at startup and held in the Supabase SDK clie
 16. **Retry timing assertion**: when a stub adapter delays each attempt and the test captures wall-clock timestamps, the inter-attempt gaps approximate 100ms / 300ms / 900ms (±150ms tolerance to absorb CI runner scheduler jitter — matches the `:infra:redis` integration test precedent) for 4 total attempts.
 17. **D2 shadow-ban race**: a Free caller's principal has `viewer.isShadowBanned = FALSE` AND a moderator flips `users.is_shadow_banned = TRUE` (in a separate connection) BEFORE the handler reaches the publish step (sequencing pinned via test-injectable hook between auth completion and publish dispatch — NOT via Thread.sleep, which would be flaky); assert the response is HTTP 201 AND `publish` IS invoked (stale-state-acceptable per D2). Then in a fresh request from the same user, the new principal has `viewer.isShadowBanned = TRUE` and `publish` is correctly NOT invoked.
 18. **2000-char content boundary on broadcast path**: send a message with `content` of length exactly 2000 chars (the chat-foundation upper bound); assert HTTP 201 AND the captured broadcast payload's `content` field is exactly the 2000-char string (no truncation, no escaping artifacts).
-19. **secretKey wiring**: a unit-level test (or DI-wiring test) asserts `SupabaseBroadcastChatClient` is constructed with the value returned from `secretKey(env, "supabase-service-role-key")` (verifiable via a test-injected mock `SecretResolver` that records the key it was queried for).
+19. **secretKey wiring**: a unit-level test (or DI-wiring test) asserts `secretKey(env, "supabase-service-role-key")` names the staging-prefixed slot in staging and the bare slot in production (the diagnostic slot name); the VALUE is read via the bare `secrets.resolve("supabase-service-role-key")`, and the source-wide `resolve(secretKey(` ban (`SecretsTest`) guards against composing the slot into `resolve()`.
 20. **Service-role-key not in logs**: configure a `ListAppender`; trigger a success and a failure publish; scan all captured log messages for the exact resolved key value; assert zero matches across both success and failure paths.
 
 ---

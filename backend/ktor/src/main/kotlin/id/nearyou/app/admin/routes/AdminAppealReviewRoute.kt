@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.appealreview.AppealQueueRow
 import id.nearyou.app.admin.appealreview.AppealReviewRepository
@@ -42,9 +43,9 @@ import java.util.UUID
  *
  * Post-Redirect-Get (no-JS path): every decision outcome 303-redirects back to
  * `/admin/appeals`, so the re-queried queue reflects the result (a no-op /
- * not-found simply shows the current pending set). The unstyled surface (the admin
- * board has no appeal frame yet — docs/11 §3.6) uses plain forms; HTMX follows the
- * redirect identically.
+ * not-found simply shows the current pending set). The surface mirrors admin mockup
+ * frame 23 (Appeal Review, `dev/mockups/nearyou-admin-mockup.html`, docs/11 §3.6) with
+ * plain forms in the report-queue card idiom; HTMX follows the redirect identically.
  */
 fun Route.adminAppealReview(
     repository: AppealReviewRepository,
@@ -125,7 +126,7 @@ private fun AppealQueueRow.toViewMap(): Map<String, Any> =
         "userId" to userId.toString(),
         "actionType" to actionType,
         "appealText" to appealText,
-        "createdAt" to createdAt.toString(),
+        "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
     )
 
 /** Parse the `{id}` path segment as a UUID; null when malformed (→ 400, no write). */

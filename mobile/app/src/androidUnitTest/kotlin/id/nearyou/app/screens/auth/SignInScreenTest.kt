@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SignInOutcome
@@ -81,6 +82,7 @@ class SignInScreenTest {
                     // SignInScreen sets this on the 404 path; AgeGateScreen reads it after navigation.
                     single { PendingSignupIdentity() }
                     single { returnDestination }
+                    single { AppealSession() }
                 },
             )
         }

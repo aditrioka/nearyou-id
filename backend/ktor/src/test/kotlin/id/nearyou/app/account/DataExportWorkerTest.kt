@@ -5,20 +5,35 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.infra.oidc.GoogleOidcTokenVerifier
 import id.nearyou.app.infra.r2.ObjectStore
 import id.nearyou.app.infra.r2.ObjectStoreUnconfiguredException
 import id.nearyou.app.infra.repo.JdbcNotificationRepository
 import id.nearyou.app.infra.resend.EmailSender
 import id.nearyou.app.infra.resend.EmailTemplate
 import id.nearyou.app.infra.resend.SendResult
+import id.nearyou.app.internal.TEST_OIDC_PRINCIPAL
 import id.nearyou.app.notifications.DbNotificationEmitter
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
+import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -203,9 +218,19 @@ class DataExportWorkerTest : StringSpec({
         return id
     }
 
-    fun seedPendingRequest(userId: UUID): UUID {
+    // Old requested_at: seeded rows sort ahead of any residual pending row in a shared DB, so the
+    // oldest-first per-run cap (MAX_EXPORTS_PER_RUN) always reaches them.
+    fun seedPendingRequest(
+        userId: UUID,
+        requestedAt: Instant = Instant.parse("2000-01-01T00:00:00Z"),
+    ): UUID {
         val id = UUID.randomUUID()
-        exec("INSERT INTO data_export_requests (id, user_id, status) VALUES (?, ?, 'pending')", id, userId)
+        exec(
+            "INSERT INTO data_export_requests (id, user_id, status, requested_at) VALUES (?, ?, 'pending', ?)",
+            id,
+            userId,
+            Timestamp.from(requestedAt),
+        )
         return id
     }
 
@@ -388,8 +413,11 @@ class DataExportWorkerTest : StringSpec({
      * the worker did (or did NOT) log. Mirrors the idiom in
      * [id.nearyou.app.admin.PrivacyFlipWorkerRouteTest].
      */
-    fun withLogCapture(block: (ListAppender<ILoggingEvent>) -> Unit) {
-        val logger = LoggerFactory.getLogger("id.nearyou.app.account.DataExportWorker") as LogbackLogger
+    fun withLogCapture(
+        loggerName: String = "id.nearyou.app.account.DataExportWorker",
+        block: (ListAppender<ILoggingEvent>) -> Unit,
+    ) {
+        val logger = LoggerFactory.getLogger(loggerName) as LogbackLogger
         val appender = ListAppender<ILoggingEvent>()
         appender.start()
         logger.addAppender(appender)
@@ -805,7 +833,7 @@ class DataExportWorkerTest : StringSpec({
         notificationCount(uid) shouldBe 0
     }
 
-    "2.2 execute() drains its whole pending snapshot through the seam (two requests → both ready)" {
+    "2.2 execute() processes its pending snapshot through the seam, below the cap (two requests → both ready)" {
         // Proves the batch run processes its pending set via the same single-request seam
         // (account-data-export spec "The batch worker uses the same seam") — two distinct
         // users' pending requests both reach ready in one execute() pass.
@@ -820,10 +848,72 @@ class DataExportWorkerTest : StringSpec({
 
         result.readyCount shouldBe 2
         result.processedCount shouldBe 2
+        result.remainingCount shouldBe 0
         statusOf(r1) shouldBe "ready"
         statusOf(r2) shouldBe "ready"
         notificationCount(u1) shouldBe 1
         notificationCount(u2) shouldBe 1
+    }
+
+    "execute() processes at most MAX_EXPORTS_PER_RUN (oldest first); the remainder stays pending for the next run" {
+        val store = CapturingObjectStore()
+        val email = RecordingEmailSender()
+        val cap = DataExportWorker.MAX_EXPORTS_PER_RUN
+        val base = Instant.parse("1999-01-01T00:00:00Z")
+        // Inserted NEWEST first, so heap/insertion order is the reverse of requested_at order:
+        // only the snapshot's `ORDER BY requested_at ASC` makes the oldest `cap` rows win.
+        val requests =
+            (cap downTo 0)
+                .map { i -> seedPendingRequest(seedUser(), base.plusSeconds(i.toLong())) }
+                .reversed() // index 0 = oldest
+
+        val first = runBlocking { worker(store, email).execute() }
+
+        first.processedCount shouldBe cap
+        first.remainingCount shouldBe 1 // the cap is reported, not a silent truncation
+        requests.take(cap).forEach { statusOf(it) shouldBe "ready" }
+        statusOf(requests.last()) shouldBe "pending"
+
+        // The next scheduled run picks up the remainder.
+        val second = runBlocking { worker(store, email).execute() }
+        second.remainingCount shouldBe 0
+        statusOf(requests.last()) shouldBe "ready"
+    }
+
+    "route: POST /internal/data-export-worker reports the cap remainder as `remaining` in the 200 body and the applied log" {
+        // The wire half of the per-run cap: DataExportWorkerRoute maps remainingCount to the
+        // `remaining` JSON field and the event=data_export_worker_applied log line.
+        val cap = DataExportWorker.MAX_EXPORTS_PER_RUN
+        val base = Instant.parse("1999-01-01T00:00:00Z")
+        (0..cap).forEach { i -> seedPendingRequest(seedUser(), base.plusSeconds(i.toLong())) }
+        val (pubKey, privKey) = rsaKeypair()
+        val verifier =
+            GoogleOidcTokenVerifier(
+                audience = TEST_AUDIENCE,
+                allowedPrincipals = setOf(TEST_OIDC_PRINCIPAL),
+                jwkProvider = StaticJwkProvider(mapOf(TEST_KID to FakeJwk(TEST_KID, pubKey))),
+            )
+        val routeWorker = worker(CapturingObjectStore(), RecordingEmailSender())
+
+        withLogCapture("id.nearyou.app.account.DataExportWorkerRoute") { appender ->
+            testApplication {
+                application {
+                    install(ContentNegotiation) { json() }
+                    routing { route("/internal") { dataExportWorkerRoute(routeWorker, verifier) } }
+                }
+                val resp =
+                    client.post("/internal/data-export-worker") {
+                        header(HttpHeaders.Authorization, "Bearer ${signedJwt(privKey, pubKey)}")
+                    }
+                resp.status shouldBe HttpStatusCode.OK
+                val body = Json.parseToJsonElement(resp.bodyAsText()).jsonObject
+                body["processed"]?.jsonPrimitive?.int shouldBe cap
+                body["remaining"]?.jsonPrimitive?.int shouldBe 1
+            }
+            appender.list
+                .map { it.formattedMessage }
+                .single { it.contains("event=data_export_worker_applied") } shouldContain "remaining=1"
+        }
     }
 
     "2.2 processSingle fail-soft: gather/upload failure → failed + attempt_count++, no ready/notification" {

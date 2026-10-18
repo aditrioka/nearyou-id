@@ -6,7 +6,7 @@ The rate-limit-infrastructure capability provides the shared Redis-backed primit
 ## Requirements
 ### Requirement: `:infra:redis` module exists and exposes a Lettuce-backed client
 
-A Gradle module `:infra:redis` SHALL exist as a Kotlin/JVM module (`src/main`). The module MUST add Lettuce (group `io.lettuce`, artifact `lettuce-core`) as a dependency declared in `gradle/libs.versions.toml`. The module MUST expose a Koin module that provides a singleton `RedisClient` (Lettuce `io.lettuce.core.RedisClient`) configured from the URL resolved via `secretKey(env, "redis-url")` through the existing `SecretResolver` chain.
+A Gradle module `:infra:redis` SHALL exist as a Kotlin/JVM module (`src/main`). The module MUST add Lettuce (group `io.lettuce`, artifact `lettuce-core`) as a dependency declared in `gradle/libs.versions.toml`. The module MUST expose one factory function (`RedisHandles.kt` — `redisHandlesFromUrl(url)`) that builds the Lettuce `io.lettuce.core.RedisClient` from a Redis URL, so `:backend:ktor` never imports the Lettuce SDK. `redisHandlesFromUrl` builds ONE shared `RedisClient` behind the rate limiter, the health probe, and the string cache; the module MUST NOT expose a per-consumer factory that builds a private client. The module does not ship a Koin module; `Application.kt` resolves the URL once via the existing `SecretResolver` chain with the bare slot name `redis-url` (env var `REDIS_URL`) and passes it to the factory.
 
 The module MUST NOT be imported from `:core:domain` or `:core:data` — only `:backend:ktor` and `:lint:detekt-rules` (test fixtures) may depend on it. No vendor SDK leaks: the `RateLimiter` interface (next requirement) is the only seam into business code.
 
@@ -23,8 +23,8 @@ The module MUST NOT be imported from `:core:domain` or `:core:data` — only `:b
 - **THEN** neither declares a dependency on `:infra:redis`
 
 #### Scenario: Redis URL resolved via SecretResolver
-- **WHEN** the `:infra:redis` Koin module instantiates the `RedisClient` with `KTOR_ENV=staging`
-- **THEN** the URL passed to `RedisClient.create(...)` is the value returned by `secretKey("staging", "redis-url")` (e.g. `staging-redis-url` slot in GCP Secret Manager)
+- **WHEN** `Application.kt` builds the shared Redis handles with `KTOR_ENV=staging`
+- **THEN** the URL passed to `redisHandlesFromUrl(...)` is the value of `secrets.resolve("redis-url")` (env var `REDIS_URL`), which the staging deploy binds as `REDIS_URL=staging-redis-url:latest` from GCP Secret Manager; it is NOT composed via `secretKey("staging", "redis-url")`, which would look up a `STAGING_REDIS_URL` env var the deploy never sets
 
 ### Requirement: `RateLimiter` interface in `:core:domain`
 

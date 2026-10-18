@@ -202,7 +202,13 @@ class ProfileViewModel(
                         } else {
                             s.copy(
                                 isOpeningChat = false,
-                                openChat = ProfileChatTarget(outcome.conversationId, profile.username, profile.displayName),
+                                openChat =
+                                    ProfileChatTarget(
+                                        outcome.conversationId,
+                                        profile.username,
+                                        profile.displayName,
+                                        profile.isPremium,
+                                    ),
                             )
                         }
                     CreateConversationOutcome.Blocked -> s.copy(isOpeningChat = false, message = ProfileMessage.CHAT_BLOCKED)

@@ -8,21 +8,23 @@
    `csrfToken` is omitted (the layout's htmx:configRequest hook adds the
    X-CSRF-Token header from the meta tag instead). The `etag` hidden field is the
    optimistic-concurrency token captured at render. #}
+{% import "icons.peb" %}
 <div id="ff-content">
 {% if message is not null %}
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 
 {% if not writeAvailable %}
-    <div class="banner warn ff-readonly-notice">
-        Writes unavailable — the Remote Config write role is not configured on this admin service.
-        Showing current state read-only; ask the operator to grant the Remote Config write role.
+    <div class="banner warn">{{ icon("warning") }}
+        <span>Writes unavailable — the Remote Config write role is not configured on this admin service.
+        Showing current state read-only; ask the operator to grant the Remote Config write role.</span>
     </div>
 {% endif %}
 
 <p class="pg-sub">Firebase Remote Config · Server template · audit-logged (<code>feature_flag_toggled</code>) · rate-limited {{ cap }}/hour/admin · template version {{ version }}</p>
 
-<div class="cardlet">
+<div class="cardlet ff-flags">
+    <div class="tbl-wrap">
     <table class="tbl">
         <tbody>
         {% for f in flags %}
@@ -56,7 +58,7 @@
                                 <input type="text" name="reason" class="ff-reason" placeholder="reason (required)" required>
                                 <button type="submit" class="btn {% if f.on %}outl{% else %}filled{% endif %} sm">Turn {% if f.on %}off{% else %}on{% endif %}</button>
                             {% elseif f.kind == "enum" %}
-                                <select name="value" class="ff-enum">
+                                <select name="value">
                                     {% for v in f.enumValues %}<option value="{{ v }}"{% if v == f.value %} selected{% endif %}>{{ v }}</option>{% endfor %}
                                 </select>
                                 <input type="text" name="reason" class="ff-reason" placeholder="reason (required)" required>
@@ -68,13 +70,14 @@
                             {% endif %}
                         </form>
                     {% else %}
-                        <span class="note ff-disabled">read-only</span>
+                        <span class="muted">read-only</span>
                     {% endif %}
                 </td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 {# Moderation wordlist parameters — READ-ONLY here (count + version). This page does
@@ -82,7 +85,7 @@
    wordlist-editor sub-surface (frame-20 "edit" affordance), which owns content
    editing. moderation_match_threshold stays inline-editable above. #}
 <div class="cardlet ff-wordlists">
-    <h4>Moderation wordlist parameters <span class="st neut">READ-ONLY</span></h4>
+    <h4>{{ icon("filter_alt") }}Moderation wordlist parameters <span class="st neut">READ-ONLY</span></h4>
     <dl class="kv">
         {% for l in lists %}
             <dt>{{ l.key }}</dt>
@@ -97,8 +100,8 @@
     </dl>
 </div>
 
-<div class="banner warn">
-    Each change: confirm + reason → audit log (<code>feature_flag_toggled</code>) + the {{ cap }}/hour rate limit.
-    Security-touching flags (e.g. <code>attestation_mode</code>) require owner/admin.
+<div class="banner warn">{{ icon("warning") }}
+    <span>Each change: confirm + reason → audit log (<code>feature_flag_toggled</code>) + the {{ cap }}/hour rate limit.
+    Security-touching flags (e.g. <code>attestation_mode</code>) require owner/admin.</span>
 </div>
 </div>

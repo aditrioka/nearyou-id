@@ -4,24 +4,25 @@
    no-JS path. #wl-content is the hx-target swapped in place. Every value is
    Pebble-autoescaped on output — no `raw` filter (operator-supplied entries are
    HTML-escaped). #}
+{% import "icons.peb" %}
 <div id="wl-content">
 {% if message is not null %}
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 
 {% if not writeAvailable %}
-    <div class="banner warn wl-readonly-notice">
-        Writes unavailable — the Remote Config write role is not configured on this admin service.
-        Showing the current list read-only; ask the operator to grant the Remote Config write role.
+    <div class="banner warn">{{ icon("warning") }}
+        <span>Writes unavailable — the Remote Config write role is not configured on this admin service.
+        Showing the current list read-only; ask the operator to grant the Remote Config write role.</span>
     </div>
 {% endif %}
 
 <p class="pg-sub">{{ listParam }} · Firebase Remote Config · Server template · audit-logged (<code>moderation_wordlist_edited</code>) · rate-limited {{ quotaUsed }}/{{ quotaCap }} this hour · template version {{ version }}</p>
 
-<div class="banner info wl-scope-note">
-    Edits the Remote Config <b>Server</b> list only — the repo fallback (<code>*.default.txt</code>) and the
+<div class="banner info">{{ icon("info") }}
+    <span>Edits the Remote Config <b>Server</b> list only — the repo fallback (<code>*.default.txt</code>) and the
     Secret Manager fallback are updated separately at the quarterly legal review. Edits take effect after the
-    ≤5-minute moderation cache TTL (not instant in enforcement).
+    ≤5-minute moderation cache TTL (not instant in enforcement).</span>
 </div>
 
 {% if diffResulting is not null %}
@@ -32,14 +33,14 @@
 {% endif %}
 
 {% if importAdded is not null %}
-<div class="banner info wl-import-report">
-    Import: {{ importAdded }} added, {{ importDuplicatesSkipped }} duplicates skipped,
-    {{ importCommentBlankSkipped }} comment/blank lines skipped.
+<div class="banner info">{{ icon("info") }}
+    <span>Import: {{ importAdded }} added, {{ importDuplicatesSkipped }} duplicates skipped,
+    {{ importCommentBlankSkipped }} comment/blank lines skipped.</span>
 </div>
 {% endif %}
 
 <div class="cardlet">
-    <h4>Entries <span class="st neut wl-count">{{ entryCount }} entries</span></h4>
+    <h4>Entries <span class="st neut">{{ entryCount }} entries</span></h4>
     <input type="text" class="wl-filter" placeholder="Filter entries…" aria-label="Filter entries">
     <ul class="wl-list">
         {% for e in entries %}<li class="wl-entry">{{ e }}</li>{% endfor %}
@@ -47,7 +48,7 @@
 </div>
 
 {% if canWrite %}
-<form class="wl-form"
+<form class="cardlet wl-form"
       action="/admin/feature-flags/wordlists/{{ listSlug }}"
       method="POST"
       hx-post="/admin/feature-flags/wordlists/{{ listSlug }}"
@@ -79,8 +80,8 @@
     </div>
 </form>
 {% else %}
-<div class="banner warn wl-no-write">
-    Read-only — wordlist edits require the owner/admin role{% if not writeAvailable %} and the Remote Config write credential{% endif %}.
+<div class="banner warn">{{ icon("warning") }}
+    <span>Read-only — wordlist edits require the owner/admin role{% if not writeAvailable %} and the Remote Config write credential{% endif %}.</span>
 </div>
 {% endif %}
 

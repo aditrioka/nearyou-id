@@ -62,6 +62,20 @@ class AdminActionsLogRouteTest : StringSpec({
         }
     }
 
+    "7.2b — created_at renders as the panel's minute-precision UTC stamp, not an ISO instant" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        // 23:30 UTC is already the 21st in WIB: a host-local render would move the day.
+        ActionsLogTestSupport.seedActionLog(dataSource, admin.id, "admin_login_success", Instant.parse("2026-05-20T23:30:45.5Z"))
+
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/actions-log?admin_id=${admin.id}") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            body shouldContain "2026-05-20 23:30 UTC"
+            body shouldNotContain "2026-05-20T23:30"
+        }
+    }
+
     "7.3 — unauthenticated GET redirects (302) to /admin/login" {
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val res = client.get("/admin/actions-log")

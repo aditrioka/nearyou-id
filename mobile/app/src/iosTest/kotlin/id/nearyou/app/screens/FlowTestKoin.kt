@@ -1,5 +1,6 @@
 package id.nearyou.app.screens
 
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.consent.ConsentFlow
 import id.nearyou.app.consent.FakeConsentFlow
@@ -61,6 +62,8 @@ private val flowTestDefaults =
         single<ProfileFlow> { FakeProfileFlow() }
         single<ConsentSnapshotStore> { InMemoryConsentSnapshotStore() }
         single<ConsentFlow> { FakeConsentFlow() }
+        // The sign-in screen observes the appeal-token holder (its banned state lasts while a token is held).
+        single { AppealSession() }
         // The shell's unread badge + the push-tap effect.
         single<NotificationsFlow> { FakeNotificationsFlow() }
         // No token → registers nothing, issues no HTTP (the shell's push-token seam).

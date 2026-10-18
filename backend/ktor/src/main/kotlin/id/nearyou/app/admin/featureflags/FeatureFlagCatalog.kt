@@ -63,8 +63,9 @@ object FeatureFlagCatalog {
 
     /**
      * Read-only moderation wordlists (count + version only). Array-CONTENT editing
-     * is out of scope here — deferred to `admin-moderation-wordlist-editor` (spec
-     * Req "Wordlist array-content editing is out of scope and guarded read-only").
+     * is owned by the shipped `admin-moderation-wordlist-editor`, which the panel
+     * links to (admin-feature-flags Req "Wordlist content editing is delegated to
+     * the dedicated wordlist editor").
      */
     val READ_ONLY_LISTS: List<FlagDef> =
         listOf(

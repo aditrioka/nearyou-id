@@ -1,52 +1,40 @@
 package id.nearyou.app.screens.chat
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.chat.ChatFlow
 import id.nearyou.app.chat.ConversationsFlow
+import id.nearyou.app.ui.components.BackNavigationIcon
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
-import id.nearyou.app.ui.components.localDateLabel
+import id.nearyou.app.ui.components.ListCenteredMessageState
+import id.nearyou.app.ui.components.ListErrorState
+import id.nearyou.app.ui.components.ListLoadingState
 import id.nearyou.resources.generated.resources.Res
-import id.nearyou.resources.generated.resources.chat_account_deleted
 import id.nearyou.resources.generated.resources.chat_cap_upsell
 import id.nearyou.resources.generated.resources.chat_list_loading
 import id.nearyou.resources.generated.resources.chat_picker_empty
 import id.nearyou.resources.generated.resources.chat_picker_title
 import id.nearyou.resources.generated.resources.chat_share_blocked
 import id.nearyou.resources.generated.resources.chat_share_failed
-import id.nearyou.resources.generated.resources.cta_close
-import id.nearyou.resources.generated.resources.cta_retry
-import id.nearyou.resources.generated.resources.signin_error_network
 import id.nearyou.resources.generated.resources.timeline_session_redirect
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
@@ -74,7 +62,12 @@ const val CONVERSATION_PICKER_BACK_TAG: String = "conversationPickerBack"
 fun ConversationPickerScreen(
     postId: String,
     onBack: () -> Unit,
-    onSelectConversation: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit,
+    onSelectConversation: (
+        conversationId: String,
+        partnerUsername: String,
+        partnerDisplayName: String,
+        partnerIsPremium: Boolean,
+    ) -> Unit,
     onActivatePremium: () -> Unit = {},
 ) {
     val conversationsFlow = koinInject<ConversationsFlow>()
@@ -90,7 +83,12 @@ fun ConversationPickerScreen(
         when (val result = shareResult) {
             is ChatShareResult.Navigate -> {
                 viewModel.clearShareResult()
-                onSelectConversation(result.conversationId, result.partnerUsername, result.partnerDisplayName)
+                onSelectConversation(
+                    result.conversationId,
+                    result.partnerUsername,
+                    result.partnerDisplayName,
+                    result.partnerIsPremium,
+                )
             }
             ChatShareResult.Blocked -> {
                 viewModel.clearShareResult()
@@ -122,14 +120,18 @@ fun ConversationPickerScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // The non-Content states are the shared list-state kit (docs/11 § 2.1).
             when (val state = uiState) {
                 ConversationListUiState.Loading ->
-                    PickerCenteredState(stringResource(Res.string.chat_list_loading), spinner = true)
+                    ListLoadingState(message = stringResource(Res.string.chat_list_loading), testTag = CONVERSATION_PICKER_TAG)
                 ConversationListUiState.Empty ->
-                    PickerCenteredState(stringResource(Res.string.chat_picker_empty), spinner = false)
-                ConversationListUiState.Error -> PickerErrorState(onRetry = viewModel::reload)
+                    ListCenteredMessageState(message = stringResource(Res.string.chat_picker_empty), testTag = CONVERSATION_PICKER_TAG)
+                ConversationListUiState.Error -> ListErrorState(onRetry = viewModel::reload, testTag = CONVERSATION_PICKER_TAG)
                 ConversationListUiState.SessionRedirect ->
-                    PickerCenteredState(stringResource(Res.string.timeline_session_redirect), spinner = false)
+                    ListCenteredMessageState(
+                        message = stringResource(Res.string.timeline_session_redirect),
+                        testTag = CONVERSATION_PICKER_TAG,
+                    )
                 is ConversationListUiState.Content ->
                     PickerRows(rows = state.rows, onPick = viewModel::shareTo)
             }
@@ -137,21 +139,15 @@ fun ConversationPickerScreen(
     }
 }
 
+/** The same root-stack overlay app bar as the conversation list (frame 2): an M3 TopAppBar (its own status-bar
+ *  inset) with the shared back arrow, replacing the old "Tutup" text-button row. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PickerTopBar(onBack: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TextButton(onClick = onBack, modifier = Modifier.testTag(CONVERSATION_PICKER_BACK_TAG)) {
-            Text(text = stringResource(Res.string.cta_close))
-        }
-        Text(
-            text = stringResource(Res.string.chat_picker_title),
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-    }
+    TopAppBar(
+        title = { Text(text = stringResource(Res.string.chat_picker_title)) },
+        navigationIcon = { BackNavigationIcon(onBack = onBack, modifier = Modifier.testTag(CONVERSATION_PICKER_BACK_TAG)) },
+    )
 }
 
 @Composable
@@ -161,76 +157,11 @@ private fun PickerRows(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag(CONVERSATION_PICKER_TAG),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(top = 8.dp),
     ) {
         items(items = rows, key = { it.conversationId }, contentType = { "conversation" }) { row ->
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = { onPick(row) })
-                        .testTag(CONVERSATION_PICKER_ROW_TAG)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Text(
-                    text = row.partnerDisplayName.ifBlank { stringResource(Res.string.chat_account_deleted) },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                row.lastMessageAtIso?.let { iso ->
-                    Text(
-                        text = localDateLabel(iso),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-            }
-            HorizontalDivider()
-        }
-    }
-}
-
-@Composable
-private fun PickerCenteredState(
-    message: String,
-    spinner: Boolean,
-) {
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag(CONVERSATION_PICKER_TAG)) {
-        item {
-            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (spinner) CircularProgressIndicator()
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(24.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PickerErrorState(onRetry: () -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize().testTag(CONVERSATION_PICKER_TAG)) {
-        item {
-            Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(Res.string.signin_error_network),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                    Button(onClick = onRetry, modifier = Modifier.padding(top = 16.dp)) {
-                        Text(text = stringResource(Res.string.cta_retry))
-                    }
-                }
-            }
+            // The conversation-list row (frame 2), so the picker shows the same partner identity.
+            ConversationRowItem(row = row, rowTag = CONVERSATION_PICKER_ROW_TAG, onOpen = { onPick(row) })
         }
     }
 }

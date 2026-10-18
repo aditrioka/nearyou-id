@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.actionslog.ActionLogQuery
 import id.nearyou.app.admin.actionslog.ActionLogRow
@@ -11,7 +12,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import java.net.URLEncoder
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -112,8 +112,6 @@ private const val TARGET_TYPE_MAX = 32 // VARCHAR(32) column width
 private const val TARGET_ID_MAX = 256 // TEXT column — clamp an unbounded query param to a sane bound
 private const val EM_DASH = "—"
 
-private val CREATED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
-
 /**
  * Pre-format a row into display strings for the template. NULL columns
  * become an em-dash placeholder (design.md D8). Pebble autoescaping escapes
@@ -122,7 +120,7 @@ private val CREATED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
  */
 private fun ActionLogRow.toViewMap(): Map<String, String> =
     mapOf(
-        "createdAt" to CREATED_AT_FORMAT.format(createdAt),
+        "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
         "adminDisplay" to "$adminDisplayName <$adminEmail>",
         "actionType" to actionType,
         "target" to

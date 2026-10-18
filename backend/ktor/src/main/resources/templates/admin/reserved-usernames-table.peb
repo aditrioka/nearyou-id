@@ -11,23 +11,24 @@
    CSRF: the full-page (no-JS) render carries `csrfToken` so the in-row `_csrf`
    hidden fields populate; the HTMX-fragment render omits it (the layout's
    htmx:configRequest hook adds the X-CSRF-Token header from the meta tag). #}
+{% import "icons.peb" %}
 <div id="reserved-usernames-table">
 {% if message is not null %}
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if report is not null %}
-    <div class="banner info">
-        Bulk result: <b>{{ report.addedCount }}</b> added,
+    <div class="banner info">{{ icon("info") }}
+        <div>Bulk result: <b>{{ report.addedCount }}</b> added,
         <b>{{ report.skippedDuplicateCount }}</b> skipped (duplicate),
         <b>{{ report.skippedInvalidCount }}</b> skipped (invalid).
         {% if report.skippedInvalidCount > 0 %}
         <ul class="bulk-invalid">
         {% for inv in report.skippedInvalid %}<li>line {{ inv.line }}: {{ inv.problem }}</li>{% endfor %}
         </ul>
-        {% endif %}
+        {% endif %}</div>
     </div>
 {% endif %}
-<p class="quota-chip">Reserved-username actions this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+<p class="quota">{{ icon("speed") }}Reserved-username actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
 {% if hasRows %}
     <div class="tbl-wrap">
     <table class="tbl">

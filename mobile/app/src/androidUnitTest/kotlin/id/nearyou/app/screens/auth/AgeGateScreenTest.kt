@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SignUpOutcome
@@ -85,6 +86,7 @@ class AgeGateScreenTest {
                     single { holder }
                     // The absent-identity guard re-routes to SignInRoute, which koinInjects this (D5).
                     single { PendingReturnDestination() }
+                    single { AppealSession() }
                 },
             )
         }

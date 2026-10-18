@@ -31,8 +31,12 @@ sealed interface AppealStatus {
         val viaSession: Boolean = false,
     ) : AppealStatus
 
-    /** A `401`, or neither an appeal token nor a stored session — the screen routes back to sign-in. */
-    data object SessionRedirect : AppealStatus
+    /** A `401`, or neither an appeal token nor a stored session — the screen routes back to sign-in.
+     *  [viaSession] = a `401` on the signed-in session read, which invalidates the session:
+     *  `SessionExpiryEffect` re-routes app-wide, so the screen does not navigate (re-routing first would
+     *  make the effect capture an auth-route top and lose the return to this screen). False (appeal-token `401`,
+     *  any submit redirect, no session) = the screen routes itself. */
+    data class SessionRedirect(val viaSession: Boolean) : AppealStatus
 
     /** The on-entry own-status read failed (transport / 5xx) — retryable. */
     data object LoadError : AppealStatus

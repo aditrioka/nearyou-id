@@ -156,6 +156,7 @@ class NotificationsViewModelNavTest {
                     actorUserId = "actor-1",
                     bodyData = convBody("conv-1"),
                 ),
+                partnerResolution = PartnerResolution.Resolved("budi", "Budi", isPremium = true),
             )
 
         viewModel.onRowTap("n1")
@@ -165,6 +166,7 @@ class NotificationsViewModelNavTest {
         assertEquals("conv-1", target.conversationId)
         assertEquals("budi", target.partnerUsername)
         assertEquals("Budi", target.partnerDisplayName)
+        assertEquals(true, target.partnerIsPremium, "the partner's Premium flag reaches the thread header badge")
     }
 
     @Test

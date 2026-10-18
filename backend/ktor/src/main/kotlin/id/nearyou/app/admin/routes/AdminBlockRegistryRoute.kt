@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.blockregistry.AdminBlockRegistryRepository
 import id.nearyou.app.admin.blockregistry.BlockRegistryCursor
 import id.nearyou.app.admin.blockregistry.BlockRegistryQuery
@@ -10,7 +11,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import java.net.URLEncoder
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -115,11 +115,9 @@ fun Route.adminBlockRegistry(
 
 private const val USERNAME_MAX = 60 // users.username VARCHAR(60) column width
 
-private val CREATED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
-
 /**
  * Pre-format a row into display values for the template. `createdAt` renders via
- * [DateTimeFormatter.ISO_INSTANT] — always UTC with a `Z` suffix, never a
+ * [ADMIN_TS_FORMAT] — the panel-wide minute-precision UTC stamp, never a
  * host-local interpretation. The `blockerUrl` / `blockedUrl` deep-links target
  * the SHIPPED `/admin/users?q=` lookup (design.md D5), NOT the in-flight
  * `/admin/users/{id}` profile page. Pebble autoescaping escapes the usernames on
@@ -131,6 +129,6 @@ private fun BlockRegistryRow.toViewMap(): Map<String, Any> =
         "blockedUsername" to blockedUsername,
         "blockerUrl" to "/admin/users?q=${URLEncoder.encode(blockerUsername, Charsets.UTF_8)}",
         "blockedUrl" to "/admin/users?q=${URLEncoder.encode(blockedUsername, Charsets.UTF_8)}",
-        "createdAt" to CREATED_AT_FORMAT.format(createdAt),
+        "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
         "bidirectional" to bidirectional,
     )

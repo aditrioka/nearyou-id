@@ -28,7 +28,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * an `appeal_decided` notification; the repository short-circuits to `SessionExpired` when there is no
  * session either). The single-in-flight submit maps each [AppealSubmitOutcome] to the screen status, and a
  * fresh submit (or `AlreadyPending`) transitions to [AppealStatus.Pending]. A submit without a token or a
- * `401` surfaces [AppealStatus.SessionRedirect] (the token is one-shot — re-sign-in re-mints it).
+ * `401` surfaces [AppealStatus.SessionRedirect] and drops the rejected token from [AppealSession] (the token
+ * is one-shot — re-sign-in re-mints it; a dead one is never reused). Every submit redirect is
+ * `viaSession = false`: submits use the raw appeal client, so no app-wide re-route fires.
  */
 class AppealViewModel(
     private val flow: AppealFlow,
@@ -77,16 +79,19 @@ class AppealViewModel(
                     AppealStatusOutcome.TransportError
                 }
             ensureActive()
-            state.update { it.copy(status = outcome.toStatus(viaSession = token == null)) }
+            if (outcome is AppealStatusOutcome.SessionExpired) session.clear()
+            state.update { it.copy(status = outcome.toStatus(sessionRead = token == null)) }
         }
     }
 
-    private fun AppealStatusOutcome.toStatus(viaSession: Boolean): AppealStatus =
+    private fun AppealStatusOutcome.toStatus(sessionRead: Boolean): AppealStatus =
         when (this) {
             AppealStatusOutcome.None -> AppealStatus.Form()
             is AppealStatusOutcome.Pending -> AppealStatus.Pending(actionType)
-            is AppealStatusOutcome.Decided -> AppealStatus.Decided(approved, decisionReason, viaSession)
-            AppealStatusOutcome.SessionExpired -> AppealStatus.SessionRedirect
+            is AppealStatusOutcome.Decided -> AppealStatus.Decided(approved, decisionReason, sessionRead)
+            // The outcome's own flag, not [sessionRead]: the no-session short-circuit issues no request, so
+            // nothing app-wide re-routes and the screen must.
+            is AppealStatusOutcome.SessionExpired -> AppealStatus.SessionRedirect(viaSession)
             AppealStatusOutcome.TransportError -> AppealStatus.LoadError
         }
 
@@ -104,7 +109,7 @@ class AppealViewModel(
     fun onSubmit() {
         val token =
             session.peek() ?: run {
-                state.update { it.copy(status = AppealStatus.SessionRedirect) }
+                state.update { it.copy(status = AppealStatus.SessionRedirect(viaSession = false)) }
                 return
             }
         val current = state.value
@@ -129,12 +134,19 @@ class AppealViewModel(
                     is AppealSubmitOutcome.RateLimited ->
                         AppealStatus.Form(AppealFormError.RateLimited(capCountdownMinutes(outcome.retryAfterSeconds)))
                     AppealSubmitOutcome.InvalidText -> AppealStatus.Form(AppealFormError.InvalidText)
-                    AppealSubmitOutcome.SessionExpired -> AppealStatus.SessionRedirect
+                    AppealSubmitOutcome.SessionExpired -> {
+                        session.clear()
+                        AppealStatus.SessionRedirect(viaSession = false)
+                    }
                     AppealSubmitOutcome.TransportError -> AppealStatus.Form(AppealFormError.Transport)
                 }
             state.update { it.copy(isSubmitting = false, status = status) }
         }
     }
+
+    /** The banned-path approval's re-sign-in (the screen navigates right after): the token's job is done, and
+     *  dropping it is what makes the kept sign-in entry consume its banned outcome (#581). */
+    fun onApprovedReSignIn() = session.clear()
 
     /** Retry the on-entry own-status read after a [AppealStatus.LoadError]. */
     fun onRetryLoad() = loadOnEntry()

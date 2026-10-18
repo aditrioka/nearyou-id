@@ -18,6 +18,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.formUrlEncode
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -76,6 +77,18 @@ class AdminReservedUsernamesRouteTest : StringSpec({
             body shouldContain "ruaescape"
             body shouldContain "&lt;script&gt;"
             body shouldNotContain "<script>alert(1)</script>"
+        }
+    }
+
+    "timestamps render as a minute-precision UTC stamp, not ISO-8601 instants" {
+        val admin = seedAdmin()
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        ReservedUsernamesTestSupport.seed(dataSource, track("ruats"), createdAt = Instant.parse("2026-05-20T13:45:30.123456Z"))
+        AdminAuthTestSupport.withAdminApp(dataSource) { client ->
+            val body =
+                client.get("/admin/reserved-usernames?q=ruats") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+            body shouldContain "2026-05-20 13:45 UTC"
+            body shouldNotContain "2026-05-20T13:45"
         }
     }
 

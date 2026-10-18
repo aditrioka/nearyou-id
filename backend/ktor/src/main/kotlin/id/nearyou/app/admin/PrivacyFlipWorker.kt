@@ -1,5 +1,6 @@
 package id.nearyou.app.admin
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -45,9 +46,11 @@ data class PrivacyFlipResult(
  */
 class PrivacyFlipWorker(
     private val dataSource: DataSource,
+    // Pool-bounded JDBC dispatcher (docs/11 §3.2); production passes DbDispatchers.db.
+    private val dbDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun execute(): PrivacyFlipResult =
-        withContext(Dispatchers.IO) {
+        withContext(dbDispatcher) {
             val startNanos = System.nanoTime()
             val ids = mutableListOf<UUID>()
             dataSource.connection.use { conn ->

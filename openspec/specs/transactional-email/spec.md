@@ -1,11 +1,11 @@
 # transactional-email Specification
 
 ## Purpose
-The transactional-email capability provides a vendor-neutral `EmailSender` contract (`:infra:resend`) — send a templated transactional email with an idempotency key and bounded retry — backed by the Resend REST API via a raw Ktor client (Resend publishes no Kotlin/JVM SDK, so this mirrors the `:infra:cloudflare-images` raw-client precedent, adding no new library pin). The API key is resolved via the secret helper; a fail-soft `NoOpEmailSender` binds when unconfigured; and the recipient address and message body are never logged (no-PII-in-logs). It is a reusable substrate — first consumed by `account-data-export`'s export-ready email; future consumers include deletion-confirmation, subscription receipts, and the Apple relay-change notice.
+The transactional-email capability provides a vendor-neutral `EmailSender` contract (`:infra:resend`) — send a templated transactional email with an idempotency key and bounded retry — backed by the Resend REST API via a raw Ktor client (Resend publishes no Kotlin/JVM SDK, so this mirrors the `:infra:cloudflare-images` raw-client precedent, adding no new library pin). The API key is resolved via the `SecretResolver` bare slot; a fail-soft `NoOpEmailSender` binds when unconfigured; and the recipient address and message body are never logged (no-PII-in-logs). It is a reusable substrate — first consumed by `account-data-export`'s export-ready email; future consumers include deletion-confirmation, subscription receipts, and the Apple relay-change notice.
 ## Requirements
 ### Requirement: Vendor-neutral transactional-email contract
 
-A new `:infra:resend` module SHALL provide a vendor-neutral `EmailSender` interface — `send(to, template, idempotencyKey)` — backed by the Resend REST API (`POST /emails`) via a **raw Ktor client** (no official Resend Kotlin SDK exists; this mirrors the `:infra:cloudflare-images` "no JVM SDK → raw Ktor client" precedent, so it adds **no new library pin**). Email templates (HTML + text) MUST be versioned in-repo under `/backend/email-templates/`. The Resend API key MUST be resolved via `secretKey(env, name)`. No Resend-specific transport type may be imported outside `:infra:resend`; `:backend:ktor` depends only on the `EmailSender` interface.
+A new `:infra:resend` module SHALL provide a vendor-neutral `EmailSender` interface — `send(to, template, idempotencyKey)` — backed by the Resend REST API (`POST /emails`) via a **raw Ktor client** (no official Resend Kotlin SDK exists; this mirrors the `:infra:cloudflare-images` "no JVM SDK → raw Ktor client" precedent, so it adds **no new library pin**). Email templates (HTML + text) MUST be versioned in-repo under `/backend/email-templates/`. The Resend API key MUST be resolved through the existing `SecretResolver` chain with the bare slot name `ResendConfig.SLOT_API_KEY` (`resend-api-key`, env var `RESEND_API_KEY`), which the staging deploy binds as `RESEND_API_KEY=staging-resend-api-key:latest` from GCP Secret Manager; it is NOT composed via `secretKey(env, name)`, which would look up a `STAGING_RESEND_API_KEY` env var the deploy never sets. No Resend-specific transport type may be imported outside `:infra:resend`; `:backend:ktor` depends only on the `EmailSender` interface.
 
 #### Scenario: Send issues a Resend POST /emails with the rendered template
 - **WHEN** `send(to, template, idempotencyKey)` is called against a configured sender
@@ -15,9 +15,9 @@ A new `:infra:resend` module SHALL provide a vendor-neutral `EmailSender` interf
 - **WHEN** Resend returns a `5xx` on the first attempt(s)
 - **THEN** the sender retries up to 3 attempts total with exponential backoff before surfacing a failure result (it does not crash the caller)
 
-#### Scenario: API key resolved via the secret helper
-- **WHEN** the `:infra:resend` sender is constructed
-- **THEN** the Resend API key is read through `secretKey(env, name)` (no direct secret-name env read)
+#### Scenario: API key resolved via the SecretResolver bare slot
+- **WHEN** `Application.kt` constructs the `:infra:resend` sender
+- **THEN** it builds the config with `ResendConfig.fromSecrets(secrets::resolve, ktorEnv)`, whose API key is the value of `secrets.resolve(ResendConfig.SLOT_API_KEY)` (env var `RESEND_API_KEY`), the unprefixed slot the deploy binds; it is NOT composed via `secretKey(env, name)` and there is no direct secret-name env read
 
 ### Requirement: Idempotent send prevents duplicate delivery
 

@@ -123,12 +123,13 @@ fun appEntryProvider(
                 onOpenAppeal = { backStack.add(AppealRoute) },
                 // Notification chat_message deep-link (mobile-notifications-deep-link-targets): push the
                 // thread directly atop the shell (the VM resolved the partner identity via user-profile-read).
-                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName, partnerIsPremium ->
                     backStack.add(
                         ChatThreadRoute(
                             conversationId = conversationId,
                             partnerUsername = partnerUsername,
                             partnerDisplayName = partnerDisplayName,
+                            partnerIsPremium = partnerIsPremium,
                         ),
                     )
                 },
@@ -262,8 +263,8 @@ fun appEntryProvider(
             // The ban/suspension appeal surface (mobile-appeal). Reached from the banned/suspended sign-in
             // (the 5.4 wiring, appeal token held) OR from an appeal_decided notification (signed in, no token —
             // the status read goes through the session). onBack pops; an approved decision on the banned path
-            // offers re-sign-in via `replaceAll` (picks up the lifted ban). The session-redirect state renders no
-            // action of its own — SessionExpiryEffect re-routes an invalidated session (banned-path gap: #581).
+            // offers re-sign-in via `replaceAll` (picks up the lifted ban). The session-redirect state calls
+            // onReSignIn itself, except after a session invalidation, which SessionExpiryEffect re-routes.
             AppealScreen(
                 onBack = { backStack.removeLastOrNull() },
                 onReSignIn = { backStack.replaceAll(SignInRoute) },
@@ -281,8 +282,8 @@ fun appEntryProvider(
                 targetUserId = route.userId,
                 onBack = { backStack.removeLastOrNull() },
                 onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
-                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
-                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName, partnerIsPremium ->
+                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName, partnerIsPremium))
                 },
             )
         }
@@ -308,6 +309,7 @@ fun appEntryProvider(
                             conversationId = row.conversationId,
                             partnerUsername = row.partnerUsername,
                             partnerDisplayName = row.partnerDisplayName,
+                            partnerIsPremium = row.partnerIsPremium,
                         ),
                     )
                 },
@@ -348,9 +350,9 @@ fun appEntryProvider(
             ConversationPickerScreen(
                 postId = route.postId,
                 onBack = { backStack.removeLastOrNull() },
-                onSelectConversation = { conversationId, partnerUsername, partnerDisplayName ->
+                onSelectConversation = { conversationId, partnerUsername, partnerDisplayName, partnerIsPremium ->
                     backStack.removeLastOrNull()
-                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
+                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName, partnerIsPremium))
                 },
                 // cap-upsell-parity: a share is a chat send — the same 50/day cap dialog → CHAT_CAP.
                 onActivatePremium = { backStack.openPaywall(PaywallEntry.CHAT_CAP) },

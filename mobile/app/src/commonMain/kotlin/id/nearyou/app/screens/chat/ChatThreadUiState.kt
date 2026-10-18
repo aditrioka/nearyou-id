@@ -6,6 +6,7 @@ import id.nearyou.app.chat.SendOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.screens.post.codePointLength
+import id.nearyou.app.ui.components.localDateLabel
 
 /** The chat message length cap — 2000 code points (`chat-conversations` content guard, docs/02 §319).
  *  The client gate is a UX nicety; the server NFKC-normalizes + length-guards authoritatively. */
@@ -65,6 +66,8 @@ data class ChatMessageRow(
     val embeddedPostId: String? = null,
     val embeddedPostSnapshot: EmbeddedPostSnapshot? = null,
     val embeddedPostEditId: String? = null,
+    // Frame 5: this row starts a local calendar day, so the thread draws a day chip above it ([markDayStarts]).
+    val startsDay: Boolean = false,
 ) {
     /** True when this row should render the shared-post context card (a non-redacted embed message). */
     val hasEmbeddedPost: Boolean get() = !isRedacted && embeddedPostSnapshot != null
@@ -148,6 +151,20 @@ fun chatMessageRows(
             embeddedPostSnapshot = if (redacted) null else message.embeddedPostSnapshot,
             embeddedPostEditId = if (redacted) null else message.embeddedPostEditId,
         )
+    }
+
+/**
+ * Marks each row that starts a local calendar day ([localDateLabel] in the device time zone) — the frame-5 day
+ * chip. The first row counts only when [hasOlder] is false: while an older page remains it is not known to start
+ * its day, and a chip drawn there would have to move when an older page of the same day lands.
+ */
+fun markDayStarts(
+    rows: List<ChatMessageRow>,
+    hasOlder: Boolean,
+): List<ChatMessageRow> =
+    rows.mapIndexed { i, row ->
+        val startsDay = if (i == 0) !hasOlder else localDateLabel(row.createdAtIso) != localDateLabel(rows[i - 1].createdAtIso)
+        if (startsDay == row.startsDay) row else row.copy(startsDay = startsDay)
     }
 
 /**

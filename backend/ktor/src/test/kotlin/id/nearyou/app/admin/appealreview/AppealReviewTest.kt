@@ -379,6 +379,9 @@ class AppealReviewTest : StringSpec({
                 val body = resp.bodyAsText()
                 body shouldContain "PendingNeedleAlfa" // the pending appeal is listed with its text
                 (body.contains("ApprovedNeedleBravo")) shouldBe false // the approved appeal is excluded
+                // the panel-wide minute-precision UTC stamp, not Instant.toString()
+                body shouldContain "1970-06-01 00:00 UTC"
+                (body.contains("1970-06-01T00:00")) shouldBe false
             }
         } finally {
             cleanupUser(pendingUser)

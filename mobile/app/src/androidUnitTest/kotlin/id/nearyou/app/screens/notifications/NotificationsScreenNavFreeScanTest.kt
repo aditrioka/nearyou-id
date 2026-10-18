@@ -77,7 +77,7 @@ class NotificationsScreenNavFreeScanTest {
         )
         val pushTap = File(findRepoRoot(), "$routing/PushTapNavigationEffect.kt").readText().stripComments()
         assertTrue(
-            pushTap.contains("NotificationNavTarget.Appeal -> add($appealRouteNeedle)"),
+            pushTap.contains("NotificationNavTarget.Appeal -> $appealRouteNeedle"),
             "the push-tap consumer must push AppealRoute for the shared resolver's Appeal target",
         )
     }

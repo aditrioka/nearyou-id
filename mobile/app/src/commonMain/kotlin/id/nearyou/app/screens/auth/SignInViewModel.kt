@@ -2,6 +2,7 @@ package id.nearyou.app.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.SignInOutcome
 import id.nearyou.app.screens.routing.PendingReturnDestination
@@ -9,6 +10,7 @@ import id.nearyou.app.screens.routing.PendingSignupIdentity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -50,11 +52,17 @@ data class SignInScreenUiState(
  * stashes the verified `id_token` in [PendingSignupIdentity] BEFORE raising the [SignInNavTarget.AgeGate]
  * one-shot, and clears the consumed outcome so a system-back to a retained `SignInRoute` lands on a clean
  * initial screen (the `SignInScreen.kt` `outcome = null` precedent).
+ *
+ * The banned outcome lasts while its [AppealSession] token is held (#581): a back from the appeal keeps the
+ * spec'd disabled banned state, while the appeal's re-sign-in exits (a rejected token, an approved decision)
+ * drop the token and so consume the outcome — this entry survives the appeal's `replaceAll(SignInRoute)`
+ * (same content key), and must then show a usable CTA, not the stale ban.
  */
 class SignInViewModel(
     private val authFlow: AuthFlow,
     private val pendingSignupIdentity: PendingSignupIdentity,
     pendingReturnDestination: PendingReturnDestination,
+    private val appealSession: AppealSession,
 ) : ViewModel() {
     private data class VmState(
         val outcome: SignInOutcome? = null,
@@ -69,6 +77,14 @@ class SignInViewModel(
         state
             .map { it.toUiState() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), state.value.toUiState())
+
+    init {
+        viewModelScope.launch {
+            appealSession.isHeld.drop(1).collect { held -> if (!held) clearBannedOutcome() }
+        }
+    }
+
+    private fun clearBannedOutcome() = state.update { if (it.outcome is SignInOutcome.Banned) it.copy(outcome = null) else it }
 
     private fun VmState.toUiState(): SignInScreenUiState {
         val projected = signInUiState(outcome = outcome, inFlight = inFlight)
@@ -114,6 +130,12 @@ class SignInViewModel(
                 // outcome drives the CTA label / banner / appeal entry. No navigation.
                 state.update { it.copy(inFlight = false, outcome = result) }
         }
+    }
+
+    /** "Ajukan banding" tapped. With no token held (a 403 without one) the appeal can only re-route to
+     *  re-sign-in, and no drop will come, so the banned outcome is consumed now. */
+    fun onAppealOpened() {
+        if (appealSession.peek() == null) clearBannedOutcome()
     }
 
     /** One-shot consumer (docs/11 §2.2): the screen calls this after invoking the matching nav callback. */
