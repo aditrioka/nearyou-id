@@ -323,8 +323,8 @@ class ChatThreadViewModel(
         val merged = mergeChatMessages(rest.values.toList(), optimistic.values.toList(), realtime.values.toList())
         val rows = chatMessageRows(merged, viewerId, liveEditedAt)
         _rows.value = markDayStarts(rows, hasOlder = olderCursor != null)
-        // A live card's row carries its post id; redacted + deleted-source rows carry null, so they are never read.
-        rows.forEach { row -> row.embeddedPostId?.let(::readLiveEditState) }
+        // Only a live card is read: a redacted row has no card, and a deleted-source row carries a null post id.
+        rows.forEach { row -> if (row.hasEmbeddedPost) row.embeddedPostId?.let(::readLiveEditState) }
     }
 
     // ponytail: one read per shared post per thread visit — an edit made while the thread stays open shows on the

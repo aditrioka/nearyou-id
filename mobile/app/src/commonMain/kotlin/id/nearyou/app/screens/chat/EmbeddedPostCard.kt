@@ -48,7 +48,7 @@ const val EMBEDDED_POST_EDITED_BANNER_TAG: String = "embeddedPostEditedBanner"
  * Two non-default states:
  *  - [isDeleted] (the source post was hard-deleted → `embeddedPostId` is null but the snapshot
  *    survives): renders the "post telah dihapus" state and is NOT tappable ([onTap] is not wired).
- *  - [editedSinceShared] (the live post moved past the share-time anchor): shows the
+ *  - [editedSinceShared] (the live post's `editedAt` differs from the snapshot's): shows the
  *    "diedit sejak dibagikan" banner. The card otherwise still renders the snapshot.
  *
  * Tapping a live (non-deleted) card invokes [onTap] (the thread navigates to the live post-detail,

@@ -25,8 +25,6 @@ import id.nearyou.app.notifications.FakeNotificationPermissionController
 import id.nearyou.app.notifications.FakeNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPromptOneShot
-import id.nearyou.app.post.FakePostEditFlow
-import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.screens.startFlowTestKoin
 import id.nearyou.app.screens.stopFlowTestKoin
@@ -83,7 +81,6 @@ class ChatThreadReportFlowIosTest {
                 single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
                 single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
                 single<ReportSubmitter> { FakeReportSubmitter(ReportOutcome.Submitted) }
-                single<PostEditFlow> { FakePostEditFlow() }
                 single<NotificationPermissionController> { FakeNotificationPermissionController() }
                 single<NotificationPromptOneShot> { FakeNotificationPromptOneShot() }
             },

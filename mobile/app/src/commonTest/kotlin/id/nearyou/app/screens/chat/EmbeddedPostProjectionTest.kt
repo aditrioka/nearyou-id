@@ -95,6 +95,9 @@ class EmbeddedPostProjectionTest {
         val live = mapOf("p1" to "2026-06-02T09:00:00Z")
         assertFalse(chatMessageRows(listOf(embedMessage(id = "m1", redacted = true)), "viewer", live).single().editedSinceShared)
         assertFalse(chatMessageRows(listOf(embedMessage(id = "m1", postId = null)), "viewer", live).single().editedSinceShared)
+        // A post id with no snapshot renders no card, so it never carries the banner either.
+        val noSnapshot = embedMessage(id = "m1").copy(embeddedPostSnapshot = null)
+        assertFalse(chatMessageRows(listOf(noSnapshot), "viewer", live).single().editedSinceShared)
     }
 
     // ---- 8.6 redaction precedence ----------------------------------------------

@@ -44,6 +44,7 @@ private const val MSG_ID = "55555555-5555-5555-5555-555555555555"
 private const val POST_A = "66666666-6666-6666-6666-666666666666"
 private const val POST_B = "77777777-7777-7777-7777-777777777777"
 private const val POST_C = "88888888-8888-8888-8888-888888888888"
+private const val POST_D = "99999999-9999-9999-9999-999999999999"
 private const val SHARED_EDITED_AT = "2026-06-01T09:00:00Z"
 private const val EDITED_LATER = "2026-06-02T09:00:00Z"
 
@@ -721,8 +722,14 @@ class ChatThreadViewModelTest {
                             listOf(embedDto("m2", POST_A), embedDto("m3", POST_A), embedDto("m4", POST_B)),
                             "older-cursor",
                         ),
-                        // The older page shares A again.
-                        ChatThreadOutcome.Loaded(listOf(embedDto("m1", POST_A, createdAt = "2026-06-01T09:30:00Z")), null),
+                        // The older page shares A again and a new post C.
+                        ChatThreadOutcome.Loaded(
+                            listOf(
+                                embedDto("m0", POST_C, createdAt = "2026-06-01T09:20:00Z"),
+                                embedDto("m1", POST_A, createdAt = "2026-06-01T09:30:00Z"),
+                            ),
+                            null,
+                        ),
                         // A later resync (pull-to-refresh) returns the first page again.
                         ChatThreadOutcome.Loaded(listOf(embedDto("m2", POST_A)), null),
                     ),
@@ -730,19 +737,20 @@ class ChatThreadViewModelTest {
             val edits = FakePostEditFlow(refreshOutcome = PostRefreshOutcome.Loaded("halo", EDITED_LATER, isAuthor = false))
             val viewModel = vm(flow, sub, postEditFlow = edits)
             advanceUntilIdle()
+            assertEquals(listOf(POST_A, POST_B), edits.refreshedPostIds.sorted(), "the first page reads A and B once each")
             viewModel.loadOlder()
             advanceUntilIdle()
-            // A realtime message sharing A arrives.
-            sub.emit(
-                inbound(MSG_ID, content = null).copy(
-                    embeddedPostId = Uuid.parse(POST_A),
-                    embeddedPostSnapshot = snapshot(),
-                ),
-            )
+            assertEquals(listOf(POST_A, POST_B, POST_C), edits.refreshedPostIds.sorted(), "an older page reads only its new post C")
+            // Realtime messages arrive sharing a new post D, then A again.
+            for ((id, post) in listOf(MSG_ID to POST_D, SERVER_MSG to POST_A)) {
+                sub.emit(
+                    inbound(id, content = null).copy(embeddedPostId = Uuid.parse(post), embeddedPostSnapshot = snapshot()),
+                )
+            }
             advanceUntilIdle()
             viewModel.retry()
             advanceUntilIdle()
-            assertEquals(listOf(POST_A, POST_B), edits.refreshedPostIds.sorted(), "one read per distinct post")
+            assertEquals(listOf(POST_A, POST_B, POST_C, POST_D), edits.refreshedPostIds.sorted(), "one read per distinct post")
             assertTrue(viewModel.rows.value.all { it.editedSinceShared }, "every card of A and B shows the banner")
             viewModel.tearDown()
         }

@@ -143,6 +143,7 @@ fun chatMessageRows(
         // Redaction precedence (design D9): a redacted message renders the neutral placeholder and
         // NEVER the context card, so the embed fields are dropped from the row when redacted.
         val redacted = message.isRedacted
+        val snapshot = if (redacted) null else message.embeddedPostSnapshot
         val livePostId = if (redacted) null else message.embeddedPostId
         ChatMessageRow(
             id = message.id,
@@ -151,9 +152,9 @@ fun chatMessageRows(
             isRedacted = redacted,
             createdAtIso = message.createdAtIso,
             embeddedPostId = livePostId,
-            embeddedPostSnapshot = if (redacted) null else message.embeddedPostSnapshot,
+            embeddedPostSnapshot = snapshot,
             editedSinceShared =
-                livePostId != null && editedSinceShared(message.embeddedPostSnapshot?.editedAt, liveEditedAt[livePostId]),
+                snapshot != null && livePostId != null && editedSinceShared(snapshot.editedAt, liveEditedAt[livePostId]),
         )
     }
 

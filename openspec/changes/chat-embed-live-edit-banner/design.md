@@ -25,7 +25,7 @@ Facts this design rests on (verified on `origin/main` dcfa6f28):
 
 The banner shows when the live `editedAt` is known and differs from the snapshot's `editedAt`. The values are compared as instants (stdlib `kotlin.time.Instant.parseOrNull`), not as strings, so a formatting difference between two equal instants cannot raise a banner. If either value fails to parse, the banner stays hidden.
 
-This is equivalent to the original edit-id comparison, not an approximation. Because `(post_id, edited_at)` is unique and edit rows are append-only, `MAX(edited_at)` names exactly one row, the latest edit, and moves if and only if a new edit row lands. The table below shows each case.
+This is equivalent to the original edit-id comparison, not an approximation. Because `(post_id, edited_at)` is unique and edit rows are append-only, `MAX(edited_at)` names exactly one row, the latest edit. The original anchor was chosen by `ORDER BY edited_at DESC` too, so both pick the same row. If `clock_timestamp()` ever stepped backwards, a new edit could leave `MAX` unchanged. The banner would then be missed, which fails in the safe direction. The table below shows each case.
 
 | share-time `editedAt` | live `editedAt` | meaning | banner |
 |---|---|---|---|
