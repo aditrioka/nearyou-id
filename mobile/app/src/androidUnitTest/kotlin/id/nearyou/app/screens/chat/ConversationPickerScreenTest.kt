@@ -31,6 +31,8 @@ import id.nearyou.app.notifications.FakeNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
+import id.nearyou.app.post.FakePostEditFlow
+import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.screens.paywall.FakePurchaseController
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.screens.routing.ConversationPickerRoute
@@ -92,6 +94,7 @@ class ConversationPickerScreenTest {
                     single<ChatRealtimeSubscriber> { FakeChatRealtimeSubscriber() }
                     single<ViewerIdProvider> { ViewerIdProvider { "viewer" } }
                     single<ReportSubmitter> { FakeReportSubmitter() }
+                    single<PostEditFlow> { FakePostEditFlow() }
                     single<NotificationPermissionController> {
                         FakeNotificationPermissionController(NotificationPermissionStatus.GRANTED)
                     }
