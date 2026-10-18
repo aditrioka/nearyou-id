@@ -51,7 +51,8 @@
 #     <user-uuid>  defaults to the canonical staging smoke-test user
 #   Env:
 #     KTOR_RSA_PRIVATE_KEY   staging RSA signing key for the JWT mint (see step 1).
-#     TRIGGER_WORKER=0       skip the worker trigger; wait for the scheduled run instead.
+#     TRIGGER_WORKER=0       skip the worker trigger; wait for the scheduled run instead
+#                            (0 or 1 only, default 1; any other value exits 2).
 #     SCHEDULER_JOB / PROJECT_ID / REGION   the job to force-run (defaults, staging --api-base
 #                            only: nearyou-data-export-worker-staging / nearyou-staging;
 #                            REGION asia-southeast1 everywhere).
@@ -68,6 +69,9 @@ API_BASE="$STAGING_API_BASE"
 # Canonical staging smoke-test user (smoketest_adi); mirror mint-staging-jwt.sh's default.
 USER_UUID="986142e3-0f12-43fd-92a5-cf40e1b70bd4"
 TRIGGER_WORKER="${TRIGGER_WORKER:-1}"
+# Anything else (e.g. "true") would silently act as 0: no trigger, a 66-min cadence wait.
+[[ "$TRIGGER_WORKER" == "0" || "$TRIGGER_WORKER" == "1" ]] ||
+    { echo "ERROR: TRIGGER_WORKER must be 0 or 1 (got '$TRIGGER_WORKER')." >&2; exit 2; }
 REGION="${REGION:-asia-southeast1}"
 # A force-run is async (cold start + gather + R2 upload; 180s attempt deadline), so 4 min covers
 # it. Without one, the next `45 * * * *` tick can be up to an hour away.
