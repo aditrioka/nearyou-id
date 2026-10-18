@@ -26,7 +26,7 @@ The endpoint MUST require authentication; an unauthenticated request SHALL recei
 
 ### Requirement: HS256 secret resolved through secretKey helper
 
-The signing key SHALL be obtained from the `SUPABASE_JWT_SECRET` environment binding (config key `auth.supabaseJwtSecret`); boot MUST fail fast when it is absent. Hardcoded secret strings MUST NOT appear in the codebase. The env-prefix concern (`staging-supabase-jwt-secret` vs `supabase-jwt-secret` Secret Manager slots) is honored at the DEPLOY layer: Cloud Run binds the env-specific slot VALUE to the prod-style env var name, the same convention as every other staging secret (`REDIS_URL=staging-redis-url:latest` precedent — composing the slot name in-process via `secretKey(env, ...)` produced `STAGING_*` env lookups Cloud Run never sets and broke a staging boot; see the RedisModule wiring comment in Application.kt).
+The signing key SHALL be obtained from the `SUPABASE_JWT_SECRET` environment binding (config key `auth.supabaseJwtSecret`); boot MUST fail fast when it is absent. Hardcoded secret strings MUST NOT appear in the codebase. The env-prefix concern (`staging-supabase-jwt-secret` vs `supabase-jwt-secret` Secret Manager slots) is honored at the DEPLOY layer: Cloud Run binds the env-specific slot VALUE to the prod-style env var name, the same convention as every other staging secret (`REDIS_URL=staging-redis-url:latest` precedent — composing the slot name in-process via `secretKey(env, ...)` produced `STAGING_*` env lookups Cloud Run never sets and broke a staging boot; see the Redis wiring comment in Application.kt).
 
 #### Scenario: Boot fails fast without the secret
 - **WHEN** the application boots without `SUPABASE_JWT_SECRET` set

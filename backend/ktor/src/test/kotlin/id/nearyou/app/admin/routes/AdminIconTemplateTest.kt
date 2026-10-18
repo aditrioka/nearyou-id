@@ -31,7 +31,9 @@ import java.io.File
  * 2. Render: every template that carried the spans (plus the frame-6
  *    `user-profile.peb` redline, #282) emits the expected `data-icon` glyphs
  *    and never the `missing-<name>` sentinel the macro prints for an unknown
- *    name. Standalone Pebble render — no DB, runs in PR CI.
+ *    name. The #525 quota pill + feature-flag / wordlist banner glyphs ride
+ *    along (a fragment missing its `icons.peb` import fails to render at all).
+ *    Standalone Pebble render — no DB, runs in PR CI.
  */
 class AdminIconTemplateTest : StringSpec({
 
@@ -52,6 +54,13 @@ class AdminIconTemplateTest : StringSpec({
         }
     }
 
+    "chat-redaction-panel.peb warn banner uses the warning glyph, not the error one" {
+        renderTemplate("chat-redaction-panel.peb", redactionModel) { body ->
+            Regex("""class="banner warn">\s*<svg class="ic" data-icon="warning"""").containsMatchIn(body) shouldBe true
+            body shouldNotContain "data-icon=\"error\""
+        }
+    }
+
     "user-profile.peb history chips are toned per action and username rows are self-attributed" {
         renderTemplate("user-profile.peb", profileModel()) { body ->
             body shouldContain "<span class=\"st err\">user_suspended</span>"
@@ -69,17 +78,44 @@ private val MS_CLASS = Regex("""class=["'](?:[^"']*\s)?ms(?:\s[^"']*)?["']""")
 
 private data class RenderCase(val template: String, val model: Map<String, Any>, val icons: List<String>)
 
+// The per-admin hourly quota pill (`.quota` + speed glyph, #525) on the queue fragments.
+private val quota: Map<String, Any> = mapOf("quotaUsed" to 3, "quotaCap" to 10)
+
 private val deletionModel: Map<String, Any> =
-    mapOf(
-        "hasRows" to true,
-        "rows" to listOf(mapOf("expedited" to false, "dueNow" to false, "expediteAction" to "/admin/deletion-requests/x/expedite")),
-    )
+    quota +
+        mapOf(
+            "hasRows" to true,
+            "rows" to listOf(mapOf("expedited" to false, "dueNow" to false, "expediteAction" to "/admin/deletion-requests/x/expedite")),
+        )
 
 private val exportModel: Map<String, Any> =
-    mapOf(
-        "hasRows" to true,
-        "rows" to listOf(mapOf("delivered" to false, "triggerable" to true, "triggerAction" to "/admin/data-exports/x/trigger")),
-    )
+    quota +
+        mapOf(
+            "hasRows" to true,
+            "rows" to listOf(mapOf("delivered" to false, "triggerable" to true, "triggerAction" to "/admin/data-exports/x/trigger")),
+        )
+
+private val featureFlagsModel: Map<String, Any> =
+    mapOf("writeAvailable" to false, "flags" to emptyList<Any>(), "lists" to emptyList<Any>(), "cap" to 5, "version" to "7")
+
+private val wordlistModel: Map<String, Any> =
+    quota +
+        mapOf(
+            "writeAvailable" to false,
+            "canWrite" to false,
+            "listParam" to "moderation_profanity_list",
+            "version" to "7",
+            "entries" to listOf("kata"),
+            "entryCount" to 1,
+            "importAdded" to 1,
+            "importDuplicatesSkipped" to 0,
+            "importCommentBlankSkipped" to 0,
+        )
+
+// Frame 9 redaction form branch (target not yet redacted): its `.banner.warn`
+// carries the board's `warning` glyph, not the error one.
+private val redactionModel: Map<String, Any> =
+    mapOf("context" to emptyList<Any>(), "targetIsRedacted" to false, "messageId" to "x")
 
 private val csamModel: Map<String, Any> =
     mapOf(
@@ -93,6 +129,22 @@ private val csamModel: Map<String, Any> =
                     "kominfoAction" to "/admin/csam/x/kominfo",
                     "hasMetadata" to true,
                     "decryptAction" to "/admin/csam/x/decrypt",
+                ),
+            ),
+    )
+
+// Frame 23 (Appeal Review) draws `lock_open` on Approve — same unban glyph as user-profile.peb (#392).
+private val appealModel: Map<String, Any> =
+    mapOf(
+        "hasRows" to true,
+        "rows" to
+            listOf(
+                mapOf(
+                    "id" to "x",
+                    "actionType" to "suspension",
+                    "userId" to "u",
+                    "createdAt" to "2026-06-11T09:42:00Z",
+                    "appealText" to "t",
                 ),
             ),
     )
@@ -113,7 +165,7 @@ private fun profileModel(): Map<String, Any> =
                 "isBanned" to true,
                 "isPermanentlyBanned" to false,
                 "isShadowBanned" to false,
-                "statusLabel" to "Suspended until 2026-06-18T09:42:00Z",
+                "statusLabel" to "Suspended until 2026-06-18 09:42 UTC",
             ),
         "history" to
             listOf(
@@ -121,14 +173,14 @@ private fun profileModel(): Map<String, Any> =
                 historyAction("user_warned"),
                 historyAction("user_unbanned"),
                 historyAction("some_future_action"),
-                mapOf("kind" to "username", "at" to "2026-04-02T10:11:00Z", "oldUsername" to "kopibudi", "newUsername" to "budi_kopi"),
+                mapOf("kind" to "username", "at" to "2026-04-02 10:11 UTC", "oldUsername" to "kopibudi", "newUsername" to "budi_kopi"),
             ),
     )
 
 private fun historyAction(type: String): Map<String, Any> =
     mapOf(
         "kind" to "action",
-        "at" to "2026-06-11T09:42:00Z",
+        "at" to "2026-06-11 09:42 UTC",
         "adminDisplayName" to "oka",
         "actionType" to type,
         "reason" to "—",
@@ -138,12 +190,19 @@ private fun historyAction(type: String): Map<String, Any> =
 
 private val RENDER_CASES =
     listOf(
-        RenderCase("deletion-requests.peb", deletionModel, listOf("warning", "bolt")),
-        RenderCase("deletion-requests-table.peb", deletionModel, listOf("bolt")),
-        RenderCase("data-exports.peb", exportModel, listOf("info", "play_arrow")),
-        RenderCase("data-exports-table.peb", exportModel, listOf("play_arrow")),
+        RenderCase("deletion-requests.peb", deletionModel, listOf("warning", "bolt", "speed")),
+        RenderCase("deletion-requests-table.peb", deletionModel, listOf("bolt", "speed")),
+        RenderCase("data-exports.peb", exportModel, listOf("info", "play_arrow", "speed")),
+        RenderCase("data-exports-table.peb", exportModel, listOf("play_arrow", "speed")),
+        RenderCase("subscription-grace-table.peb", quota + mapOf("hasRows" to false), listOf("speed")),
+        RenderCase("referral-grants-content.peb", quota, listOf("speed")),
+        RenderCase("reserved-usernames-table.peb", quota + mapOf("hasRows" to false), listOf("speed")),
+        RenderCase("feature-flags-content.peb", featureFlagsModel, listOf("warning", "filter_alt")),
+        RenderCase("wordlist-editor-content.peb", wordlistModel, listOf("warning", "info")),
+        RenderCase("chat-redaction-panel.peb", redactionModel, listOf("flag", "block", "warning")),
         RenderCase("csam-log.peb", csamModel, listOf("gpp_maybe", "bolt", "filter_alt", "info", "gavel", "key")),
         RenderCase("csam-log-table.peb", csamModel, listOf("gavel", "key")),
+        RenderCase("appeals.peb", appealModel, listOf("lock_open")),
         RenderCase(
             "user-profile.peb",
             profileModel(),

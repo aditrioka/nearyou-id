@@ -121,8 +121,8 @@ fun AppShellScreen(
     // HomeScreen so the Nearby + Global feeds re-fetch page 1 once on a change.
     feedReloadKey: Int = 0,
     onOpenChat: () -> Unit = {},
-    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String) -> Unit =
-        { _, _, _ -> },
+    onOpenChatThread: (conversationId: String, partnerUsername: String, partnerDisplayName: String, partnerIsPremium: Boolean) -> Unit =
+        { _, _, _, _ -> },
     onOpenPost: (PostDetailTarget) -> Unit = {},
     onOpenPostReply: (PostDetailTarget) -> Unit = {},
     onOpenProfile: (authorUserId: String) -> Unit = {},

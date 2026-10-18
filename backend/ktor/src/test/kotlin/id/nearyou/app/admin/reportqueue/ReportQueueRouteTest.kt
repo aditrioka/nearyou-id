@@ -79,6 +79,9 @@ class ReportQueueRouteTest : StringSpec({
             body shouldContain "rq-5-1-marker"
             body shouldContain "<header>" // full page extends layout
             body shouldContain "<nav>"
+            // created_at in the panel's minute-precision UTC stamp (frame 4), never an ISO instant
+            body shouldContain "2090-01-01 00:00 UTC"
+            body shouldNotContain "2090-01-01T00:00"
         }
     }
 

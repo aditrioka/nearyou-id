@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -24,8 +25,6 @@ import io.ktor.server.routing.post
 import java.net.URLEncoder
 import java.time.Duration
 import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -201,8 +200,8 @@ private fun DeletionRow.toViewMap(now: Instant): Map<String, Any> =
         put("username", username)
         put("usersLink", "/admin/users?q=${URLEncoder.encode(username, Charsets.UTF_8)}")
         put("expediteAction", "/admin/deletion-requests/$id/expedite")
-        put("requestedAt", TS_FORMAT.format(requestedAt))
-        put("scheduledAt", TS_FORMAT.format(scheduledHardDeleteAt))
+        put("requestedAt", ADMIN_TS_FORMAT.format(requestedAt))
+        put("scheduledAt", ADMIN_TS_FORMAT.format(scheduledHardDeleteAt))
         put("source", source)
         put("countdown", countdownLabel(now, scheduledHardDeleteAt))
         put("countdownClass", countdownClass(now, scheduledHardDeleteAt))
@@ -210,7 +209,7 @@ private fun DeletionRow.toViewMap(now: Instant): Map<String, Any> =
         put("expedited", expeditedBy != null && expeditedAt != null)
         if (expeditedBy != null && expeditedAt != null) {
             put("expeditedBy", expeditedBy)
-            put("expeditedAt", TS_FORMAT.format(expeditedAt))
+            put("expeditedAt", ADMIN_TS_FORMAT.format(expeditedAt))
         }
     }
 
@@ -261,9 +260,6 @@ private const val REASON_MAX = 200
 
 // Countdown rows within this many days render with the amber `pend` urgency pill.
 private const val IMMINENT_DAYS = 3L
-
-private val TS_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // User-facing informational messages (admin panel is English-only).
 private const val MSG_INVALID_ID = "Invalid deletion-request id."

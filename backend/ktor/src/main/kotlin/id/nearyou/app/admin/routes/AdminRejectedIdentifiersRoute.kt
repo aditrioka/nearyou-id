@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -26,7 +27,6 @@ import io.ktor.server.routing.post
 import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -221,8 +221,6 @@ private const val MSG_CLEARED = "Rejected identifier cleared. The user can re-ve
 private const val MSG_NOT_FOUND = "That rejected identifier no longer exists (already cleared?). No change made."
 private const val MSG_QUOTA_EXCEEDED = "Clear quota exceeded (10/hour). Try again later. No change made."
 
-private val REJECTED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
-
 /**
  * Pre-format a row into display strings for the template. Pebble autoescaping
  * escapes every value on output, so no value needs manual escaping here. The
@@ -231,7 +229,7 @@ private val REJECTED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTAN
  */
 private fun RejectedIdentifierRow.toViewMap(): Map<String, String> =
     mapOf(
-        "rejectedAt" to REJECTED_AT_FORMAT.format(rejectedAt),
+        "rejectedAt" to ADMIN_TS_FORMAT.format(rejectedAt),
         "identifierHash" to identifierHash,
         "identifierType" to identifierType,
         "reason" to reason,

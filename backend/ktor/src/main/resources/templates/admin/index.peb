@@ -37,17 +37,17 @@
     <div class="cardlet">
         <h4>{{ icon("article") }}Posts</h4>
         <dl class="kv"><dt>Last 24 h</dt><dd>{{ postsLast24h }}</dd></dl>
-        <span class="spark" aria-hidden="true">{% for h in postsSpark %}<i style="height: {{ h }}%"></i>{% endfor %}</span>
+        <span class="spark" aria-hidden="true">{% for h in postsSpark %}<i class="h-{{ h }}"></i>{% endfor %}</span>
     </div>
     <div class="cardlet">
         <h4>{{ icon("group") }}Signups</h4>
         <dl class="kv"><dt>Last 24 h</dt><dd>{{ signupsLast24h }}</dd><dt>Age-gate rejected</dt><dd>{{ ageGateRejections24h }}</dd></dl>
-        <span class="spark" aria-hidden="true">{% for h in signupsSpark %}<i style="height: {{ h }}%"></i>{% endfor %}</span>
+        <span class="spark" aria-hidden="true">{% for h in signupsSpark %}<i class="h-{{ h }}"></i>{% endfor %}</span>
     </div>
     <div class="cardlet">
         <h4>{{ icon("flag") }}Reports</h4>
         <dl class="kv"><dt>Last 24 h</dt><dd>{{ reportsLast24h }}</dd></dl>
-        <span class="spark" aria-hidden="true">{% for h in reportsSpark %}<i style="height: {{ h }}%"></i>{% endfor %}</span>
+        <span class="spark" aria-hidden="true">{% for h in reportsSpark %}<i class="h-{{ h }}"></i>{% endfor %}</span>
     </div>
 </div>
 

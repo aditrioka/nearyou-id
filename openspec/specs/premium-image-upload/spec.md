@@ -105,7 +105,7 @@ Client-side compression is out of scope (deferred to the mobile UI).
 
 ### Requirement: Cloudflare Images server-side storage and delivery URL
 
-The system SHALL upload the moderated bytes to Cloudflare Images via server-side upload (the backend holds the bytes — Direct Creator Upload is NOT used, because it would bypass upfront moderation). The returned delivery URL SHALL be served from the `img` custom subdomain (`img-staging.nearyou.id` / `img.nearyou.id`) per resolved Open Decision #32. The Cloudflare API token and account hash SHALL be read via the `secretKey(env, name)` helper.
+The system SHALL upload the moderated bytes to Cloudflare Images via server-side upload (the backend holds the bytes — Direct Creator Upload is NOT used, because it would bypass upfront moderation). The returned delivery URL SHALL be served from the `img` custom subdomain (`img-staging.nearyou.id` / `img.nearyou.id`) per resolved Open Decision #32. The Cloudflare API token and account hash SHALL be read via the bare-slot `SecretResolver` (`secrets.resolve("cloudflare-images-api-token")` / `secrets.resolve("cloudflare-images-account-hash")`; the deploy binds the env-namespaced slots).
 
 #### Scenario: Stored image is addressable via the img subdomain
 - **WHEN** an image is successfully stored in Cloudflare Images
@@ -133,11 +133,11 @@ The `:infra:cloudflare-images` and `:infra:cloud-vision` modules SHALL expose co
 
 ### Requirement: Vendor SDKs isolated to :infra:* and secrets via helper
 
-The Cloudflare Images and Google Cloud Vision vendor SDKs/HTTP clients SHALL live only inside `:infra:cloudflare-images` and `:infra:cloud-vision`; `:backend:ktor` SHALL depend only on their interfaces. All credentials SHALL be read via `secretKey(env, name)`; direct secret-name reads are forbidden.
+The Cloudflare Images and Google Cloud Vision vendor SDKs/HTTP clients SHALL live only inside `:infra:cloudflare-images` and `:infra:cloud-vision`; `:backend:ktor` SHALL depend only on their interfaces. All credentials SHALL be read via `secrets.resolve(<bare slot>)` through the `SecretResolver` chain (the deploy binds the env-namespaced slot); `resolve(secretKey(...))` and direct `System.getenv` secret reads are forbidden.
 
 #### Scenario: Static analysis confirms isolation
 - **WHEN** the codebase is scanned
-- **THEN** no Cloudflare/Vision SDK or HTTP-client import appears outside `:infra:cloudflare-images` / `:infra:cloud-vision`, and no credential is read other than via `secretKey(env, name)`
+- **THEN** no Cloudflare/Vision SDK or HTTP-client import appears outside `:infra:cloudflare-images` / `:infra:cloud-vision`, and no credential is read other than via the bare-slot `secrets.resolve(...)`
 
 ### Requirement: CSAM subsystem is deferred (not shipped in this change), but served-image CSAM coverage is a launch precondition
 

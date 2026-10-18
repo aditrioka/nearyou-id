@@ -207,11 +207,11 @@ form.filters {
   text-transform: uppercase;
   color: var(--on-surface-variant);
 }
-form.filters input,
-form.filters select,
-.rc-actions select,
-.user-state input[type='text'],
-.action-tile input[type='text'] {
+/* every text-like control in the authenticated shell shares the board's
+   `.field .ctl` look (in-row reason inputs included — they used to render
+   with browser defaults); :where() keeps the specificity at 0 so any
+   context rule (width / height) still wins */
+:where(body.shell > main) :where(input[type='text'], input[type='search'], input[type='number'], input[type='date'], select, textarea) {
   height: 34px;
   min-width: 130px;
   padding: 0 12px;
@@ -222,9 +222,8 @@ form.filters select,
   font-size: 12.5px;
   color: var(--on-surface);
 }
-form.filters input::placeholder,
-.user-state input::placeholder,
-.action-tile input::placeholder { color: var(--outline); }
+:where(body.shell > main) :where(textarea) { height: auto; padding: 8px 12px; line-height: 1.5; }
+:where(body.shell > main) ::placeholder { color: var(--outline); }
 .field-wide input { min-width: 340px; }
 
 /* ---- buttons ------------------------------------------------------------ */
@@ -288,6 +287,14 @@ table.tbl td {
 }
 table.tbl tbody tr:last-child td { border-bottom: none; }
 table.tbl td.t { white-space: nowrap; }
+/* fixed column widths (no inline styles in templates — docs/11 § 3.6) */
+table.tbl th.col-version { width: 96px; }
+table.tbl th.col-resolution { width: 280px; }
+/* side-by-side in-row action forms (frame 22 Accept / Reject) */
+.row-actions { display: flex; gap: 6px; }
+/* secondary line under a cell's / card's primary value (board `.tbl td .sub`) */
+.sub { display: block; font-size: 11px; font-weight: 400; color: var(--on-surface-variant); margin-top: 2px; }
+span.muted { color: var(--on-surface-variant); }
 table.tbl td.ua {
   font-size: 11px;
   color: var(--on-surface-variant);
@@ -318,7 +325,8 @@ table.tbl details summary {
 }
 
 .code,
-table.tbl code {
+table.tbl code,
+.wl-entry {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   background: var(--sc);
@@ -378,6 +386,19 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
   margin-top: 14px;
 }
 .two-col .cardlet { margin-top: 0; }
+/* a half-width card can't afford one-line headers: let them wrap when the
+   columns are tight (username-oversight hold table clipped "Release now") */
+.two-col table.tbl thead th { white-space: normal; }
+/* handle columns: a long handle (auto-generated ones run 20-30 chars, the
+   column allows 60) wraps instead of pushing the table past its card, but the
+   column never narrows below a ~10-char handle, so a short handle stays whole
+   instead of splitting mid-word (110 px also leaves the date column room for
+   its date on one line at 1280 px) */
+.two-col table.tbl th.col-handle { min-width: 110px; }
+/* …and a stamp column keeps its date on one line (it would split at the
+   hyphens: "2026-" / "10-28"), wrapping only before the time */
+.two-col table.tbl th.col-ts { min-width: 100px; }
+.two-col table.tbl td a { overflow-wrap: anywhere; }
 
 .kv {
   display: grid;
@@ -410,19 +431,32 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
   margin-top: 10px;
 }
 .spark i { width: 4px; background: var(--primary); border-radius: 1px 1px 0 0; min-height: 1px; }
+/* bar height = data, quantized to 5 % steps by spark() so it is a class, not
+   an inline style (docs/11 § 3.6; CSP-safe). h-0 falls back to min-height. */
+.spark .h-5 { height: 5%; } .spark .h-10 { height: 10%; } .spark .h-15 { height: 15%; } .spark .h-20 { height: 20%; }
+.spark .h-25 { height: 25%; } .spark .h-30 { height: 30%; } .spark .h-35 { height: 35%; } .spark .h-40 { height: 40%; }
+.spark .h-45 { height: 45%; } .spark .h-50 { height: 50%; } .spark .h-55 { height: 55%; } .spark .h-60 { height: 60%; }
+.spark .h-65 { height: 65%; } .spark .h-70 { height: 70%; } .spark .h-75 { height: 75%; } .spark .h-80 { height: 80%; }
+.spark .h-85 { height: 85%; } .spark .h-90 { height: 90%; } .spark .h-95 { height: 95%; } .spark .h-100 { height: 100%; }
 
 /* informational banner (frame 2 CSRF note; mirrors the login error banner) */
 .banner {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  display: block;
   border-radius: 10px;
   padding: 11px 14px;
   font-size: 12px;
   line-height: 1.5;
   font-weight: 600;
 }
-.banner .ic { margin-top: 1px; }
+/* icon + text column without flex: a flex banner split bare text and inline
+   <code>/<b> children into separate columns. The icon floats; the text span
+   is its own block formatting context beside it. */
+.banner > .ic { float: left; margin: 1px 10px 0 0; }
+.banner > .ic ~ span,
+.banner > .ic ~ div { display: flow-root; }
+/* a list inside a banner (reserved-usernames bulk result) keeps its bullets
+   inside the tint instead of at the banner edge (the * reset zeroes padding) */
+.banner ul { margin-top: 4px; padding-left: 16px; }
 .banner.info {
   margin-top: 16px;
   background: var(--primary-container);
@@ -439,6 +473,8 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
   padding: 8px 12px;
   margin-top: 14px;
 }
+/* neutral variant — a fail-soft notice, not a success (CSAM decrypt unavailable) */
+.outcome-message.muted { background: var(--sc); color: var(--on-surface-variant); }
 .empty-state {
   text-align: center;
   color: var(--on-surface-variant);
@@ -472,7 +508,9 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 
 /* ---- pager -------------------------------------------------------------- */
 .pager { display: flex; justify-content: center; margin-top: 12px; }
-.pagination-older {
+.pagination-older,
+.pagination-next,
+.pagination-newer {
   display: inline-flex;
   align-items: center;
   height: 34px;
@@ -578,6 +616,12 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 }
 .quota .ic { width: 13px; height: 13px; }
 .quota b { font-weight: 900; }
+/* the same pill inside a swappable queue fragment (deletion / export / grace
+   / reserved-usernames / referral grants). Deliberate divergence from frames
+   6/21, which park it in the page head (.pg-row): the count lives in the
+   HTMX-swapped fragment so it refreshes after each action, so it sits on its
+   own line under the filter bar. */
+p.quota { margin-top: 12px; }
 /* each action keeps its audit-only reason field, so the board's button row
    becomes a grid of tiles (stacks naturally, frame 4b) */
 .three-col {
@@ -815,9 +859,108 @@ body.bare > main {
 .chat-bubble .meta { display: block; margin-top: 4px; font-size: 10.5px; color: inherit; opacity: .8; }
 .chat-bubble .embed-tag { font-style: italic; opacity: .85; }
 .chat-bubble.redacted { font-style: italic; color: var(--on-surface-variant); }
+/* frame-9 redaction card: h4 → 10 px → full-width reason field → 12 px →
+   button (the warn banner after the form keeps its own 12 px) */
+.cardlet > form.resolve-queue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
+}
+.cardlet > form.resolve-queue .field { align-self: stretch; }
+/* …and the already-redacted branch's line (the frame-13 note style) */
+.cardlet > p.note { margin-top: 10px; font-size: 11px; color: var(--on-surface-variant); }
 
-/* warn banner — the owner/admin + atomic-write notice on the redaction panel.
-   Mirrors .banner.info shape with the error-container tint frame 9 uses. */
-.banner.warn { margin-top: 12px; background: var(--error-container); color: var(--on-error-container); }
+/* warn banner — warning tint, as every board `.banner.warn` (frames 9, 15,
+   19, 20); `.banner.err` below is the error tint. */
+.banner.warn { margin-top: 12px; background: var(--warning-container); color: var(--on-warning-container); }
 /* error banner — the CSAM "no Kominfo filing yet" pending signal (frame 13 .banner.err) */
 .banner.err { margin-top: 14px; background: var(--error-container); color: var(--on-error-container); }
+/* a filter-shaped action form directly inside a card (frame 13 handler) */
+.cardlet > form.filters { margin-top: 8px; }
+/* …and the explanatory line under it (frame 13: 11px muted note) */
+.cardlet > form.filters + p { margin-top: 8px; font-size: 11px; color: var(--on-surface-variant); }
+/* reserved-usernames "Bulk add CSV" disclosure: the summary is the board's
+   outlined button (frame 21); the opened form stacks the textarea + submit */
+details.bulk-add { margin-top: 12px; }
+details.bulk-add > summary { list-style: none; }
+details.bulk-add > summary::-webkit-details-marker { display: none; }
+details.bulk-add[open] > summary { background: var(--sc); }
+details.bulk-add > form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  max-width: 560px;
+}
+details.bulk-add .field { align-self: stretch; }
+/* in-row action forms with a reason input: the controls share one wrapping
+   line 6 px apart (frames 15/18/21 row actions), inputs at the .btn.sm height
+   beside them; without this the grace monitor's two inputs stacked touching.
+   An admin_added row's edit + remove forms sit side by side. */
+form.expedite,
+form.edit-reason,
+form.remove-reserved { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; vertical-align: middle; }
+form.expedite input,
+form.edit-reason input { height: 28px; }
+form.edit-reason input { width: 170px; min-width: 0; }
+form.remove-reserved { margin-left: 6px; }
+
+/* ---- feature flags (frame 20) ------------------------------------------- */
+.ff-flags { padding: 6px 18px; }
+.ff-flags .tbl-wrap { margin-top: 0; }
+.ff-flags table.tbl { border: none; border-radius: 0; }
+tr.ff-row td { vertical-align: middle; }
+.ff-value { white-space: nowrap; }
+.ff-control { text-align: right; }
+.ff-form {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+/* controls match the .btn.sm height they sit beside */
+.ff-form select,
+.ff-form .ff-reason,
+.ff-form .ff-int { height: 28px; min-width: 0; }
+.ff-form .ff-reason { width: 170px; }
+.ff-form .ff-int { width: 84px; }
+.ff-wordlists dd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.wl-edit-link { font-size: 11.5px; }
+
+/* ---- moderation wordlist editor (frame-20 "edit" sub-surface) ----------- */
+.wl-diff p { margin-top: 8px; font-size: 12.5px; }
+.wl-added { color: var(--success); }
+.wl-removed { color: var(--error); }
+.wl-filter { display: block; width: 100%; max-width: 340px; margin-top: 10px; }
+.wl-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.wl-form { display: flex; flex-direction: column; gap: 6px; }
+.wl-label {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--on-surface-variant);
+}
+.wl-label:first-of-type { margin-top: 0; }
+.wl-entries,
+.wl-import {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+.wl-add,
+.wl-reason { width: 100%; }
+.wl-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.wl-back { margin-top: 14px; font-size: 12.5px; }

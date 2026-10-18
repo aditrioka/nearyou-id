@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -28,7 +29,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -558,7 +558,7 @@ private suspend fun ApplicationCall.respondActionRedirect(targetId: UUID) {
 /** Pre-format a user's moderation state into autoescaped display strings for
  *  the template (NULL `suspended_until` → em-dash). */
 private fun UserModerationState.toViewMap(): Map<String, Any> {
-    val suspendedUntilDisplay = suspendedUntil?.let { ISO_INSTANT.format(it) } ?: EM_DASH
+    val suspendedUntilDisplay = suspendedUntil?.let { ADMIN_TS_FORMAT.format(it) } ?: EM_DASH
     val statusLabel =
         when {
             !isBanned -> "Active"
@@ -578,7 +578,7 @@ private fun UserModerationState.toViewMap(): Map<String, Any> {
 /** Pre-format the profile identity + moderation state for `user-profile.peb`
  *  (NULL instants → em-dash). Every value is Pebble-autoescaped on output. */
 private fun UserProfile.toProfileViewMap(): Map<String, Any> {
-    val suspendedUntilDisplay = suspendedUntil?.let { ISO_INSTANT.format(it) } ?: EM_DASH
+    val suspendedUntilDisplay = suspendedUntil?.let { ADMIN_TS_FORMAT.format(it) } ?: EM_DASH
     val statusLabel =
         when {
             !isBanned -> "Active"
@@ -591,7 +591,7 @@ private fun UserProfile.toProfileViewMap(): Map<String, Any> {
         "displayName" to displayName,
         "isPremium" to isPremium,
         "subscriptionStatus" to subscriptionStatus,
-        "createdAt" to (createdAt?.let { ISO_INSTANT.format(it) } ?: EM_DASH),
+        "createdAt" to (createdAt?.let { ADMIN_TS_FORMAT.format(it) } ?: EM_DASH),
         "privateProfileOptIn" to privateProfileOptIn,
         "isBanned" to isBanned,
         "suspendedUntil" to suspendedUntilDisplay,
@@ -621,7 +621,7 @@ private fun buildHistory(
             a.createdAt to
                 mapOf<String, Any>(
                     "kind" to "action",
-                    "at" to ISO_INSTANT.format(a.createdAt),
+                    "at" to ADMIN_TS_FORMAT.format(a.createdAt),
                     "adminDisplayName" to a.adminDisplayName,
                     "actionType" to a.actionType,
                     "reason" to (a.reason ?: EM_DASH),
@@ -634,7 +634,7 @@ private fun buildHistory(
             u.changedAt to
                 mapOf<String, Any>(
                     "kind" to "username",
-                    "at" to ISO_INSTANT.format(u.changedAt),
+                    "at" to ADMIN_TS_FORMAT.format(u.changedAt),
                     "oldUsername" to u.oldUsername,
                     "newUsername" to u.newUsername,
                 )
@@ -646,7 +646,6 @@ private fun buildHistory(
 
 private const val REASON_FIELD = "reason"
 private const val EM_DASH = "—"
-private val ISO_INSTANT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
 
 // User-facing informational messages (admin panel is English-only, matching
 // the existing index/login/actions-log templates).

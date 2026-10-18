@@ -454,6 +454,18 @@
     <string name="chat_send_blocked">Tidak dapat mengirim pesan ke user ini</string>
     <string name="chat_open_action">Pesan</string>
     <string name="chat_account_deleted">Akun Dihapus</string>
+    <!-- Relative day labels (ui/components/LocalDateLabel.kt; #286, mockup frames 2 + 5): the chat thread's day
+         chip ("Hari ini" / "Kemarin" / the date) and the conversation row's last-message time (today = the clock
+         time, then "Kemarin", then the short weekday for the rest of the week, then the date). -->
+    <string name="date_today">Hari ini</string>
+    <string name="date_yesterday">Kemarin</string>
+    <string name="weekday_short_mon">Sen</string>
+    <string name="weekday_short_tue">Sel</string>
+    <string name="weekday_short_wed">Rab</string>
+    <string name="weekday_short_thu">Kam</string>
+    <string name="weekday_short_fri">Jum</string>
+    <string name="weekday_short_sat">Sab</string>
+    <string name="weekday_short_sun">Min</string>
     <!-- chat-embedded-posts (share a post into a DM): the post-detail "Bagikan ke chat" action, the
          conversation picker, the in-thread context card chrome (edited-since-shared banner +
          hard-deleted state), and the picker result one-shots. BI consistent with the existing register

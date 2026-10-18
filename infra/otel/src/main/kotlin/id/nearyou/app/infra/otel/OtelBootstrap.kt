@@ -26,8 +26,6 @@ import java.util.concurrent.atomic.AtomicReference
  * ```kotlin
  * OtelBootstrap.start(env, secrets::resolve)
  * ```
- *
- * Mirrors the `:infra:redis` precedent (`redisKoinModule(env, resolveSecret)`).
  */
 fun interface SecretResolver {
     fun resolve(name: String): String?
@@ -287,8 +285,7 @@ object OtelBootstrap {
      * Mirror of `secretKey(env, name)` from `:backend:ktor`'s `Secrets.kt`.
      * Inlined here to keep the `:infra:otel` boundary clean — taking a
      * dependency on `:backend:ktor` would invert the module hierarchy.
-     * The duplication trade-off is identical to the `:infra:redis`
-     * precedent (`redisUrlSlot(env)`).
+     * Only names slots in operator-facing messages; resolution uses the bare name.
      */
     internal fun slotName(
         env: String,

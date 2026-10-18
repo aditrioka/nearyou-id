@@ -10,12 +10,13 @@
    CSRF on the grant form: the full-page (no-JS) render carries `csrfToken` so the
    `_csrf` hidden field populates; the HTMX-fragment render omits it (the layout's
    htmx:configRequest hook adds the X-CSRF-Token header from the meta tag). #}
+{% import "icons.peb" %}
 <div id="rg-content">
 {% if message is not null %}
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if quotaCap is not null %}
-    <p class="quota-chip">Manual grants this hour: {{ quotaUsed }}/{{ quotaCap }}</p>
+    <p class="quota">{{ icon("speed") }}Manual grants this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
 {% endif %}
 
 {% if user is not null %}
@@ -46,7 +47,7 @@
             <button type="submit" class="btn filled">Grant 7 days Premium</button>
         </form>
         {% endif %}
-        <div class="banner info">
+        <div class="banner warn">{{ icon("warning") }}
             <span>Dispatches a 1-week promotional Premium entitlement via RevenueCat and records one immutable audit-log row. It does NOT write <code>granted_entitlements</code> — the inviter 5-referral track and lifetime reward stay untouched. Premium activates on the RevenueCat GRANT webhook echo (audit-only when RevenueCat is unconfigured). Rate-limited + audit-logged.</span>
         </div>
     </div>
@@ -56,7 +57,7 @@
     </div>
 {% endif %}
 
-<h3>Past manual grants</h3>
+<h3 class="section-title">Past manual grants</h3>
 {% if hasRows %}
     <div class="tbl-wrap">
     <table class="tbl">

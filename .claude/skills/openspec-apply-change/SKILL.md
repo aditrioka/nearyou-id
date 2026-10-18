@@ -100,13 +100,13 @@ Implement tasks from an OpenSpec change.
    ```
    `gh pr ready` is a UX signal only (does NOT trigger qodo — Manual mode). The `/review` comment is the actual qodo trigger (posts ~1 min later). If `gh pr ready` says already-ready, proceed silently and still post `/review` (each invocation re-reviews current state). **On `CONFLICTING` halt:** the user rebases onto main, force-pushes, re-invokes `/opsx:apply` — expect to need a fast-forward re-poke commit before CI's heavy lanes run (memory `feedback_ci_force_push_orphans_before`).
 
-   **8.2 — Spawn sub-agent review (parallel to qodo).** Triage: trivial (single-file <100 LOC, no migration, no new public API) → ONE general-lens sub-agent. Non-trivial → FOUR parallel lens sub-agents (one message, multiple Agent calls), each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words grouped by severity:
+   **8.2 — Spawn sub-agent review (parallel to qodo).** Lens count per `openspec/project.md` § Review channels (calibrated 2026-10-12, #541). **FOUR lenses** only when the change adds a Flyway migration OR touches a security invariant: the 16 critical invariants, or an auth / RLS / rate-limit / secret / encryption / attestation / moderation path. When unsure, treat it as touched. **ONE general-lens** sub-agent otherwise. **Hard cap: at most 2 review sub-agents in flight.** Four lenses run as two waves of two: general + security-and-invariant, then code-correctness + test-coverage. Each sub-agent gets the PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + a structured report under 600 words, grouped by severity:
    - **general** — design coherence, scope drift from `proposal.md`, dead code, dependency-order sanity, **standards conformance (docs/11 Pattern Registry — undeclared pattern forks are blocking)**.
    - **security-and-invariant** — CLAUDE.md 16 critical invariants, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
    - **code-correctness** — bugs, edge cases, races, null-handling, off-by-one, transaction boundaries, error propagation.
    - **test-coverage** — missing scenarios from `tasks.md`, untested edge cases, integration-test surface, fixture seeding.
 
-   Sub-agents take 2–4 min; qodo posts ~1 min after `/review` — usually already done by the time sub-agents return.
+   Sub-agents take 2–4 min; qodo posts ~1 min after `/review` — usually already done by the time sub-agents return. After the round, update the PR body's `Review findings applied: <applied>/<total> (blocking <a>/<b>) — lenses: <list>` line (§ Review channels).
 
    **8.3 — Collect qodo output:**
    ```bash

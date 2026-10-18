@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.auth.FakeAuthFlow
 import id.nearyou.app.auth.SelfUserIdProvider
@@ -96,6 +97,7 @@ class RootRouterScreenTest {
                     // (the involuntary-entry flag / return-destination holder, D5).
                     single { PendingSignupIdentity() }
                     single { PendingReturnDestination() }
+                    single { AppealSession() }
                     // The authenticated route lands on Home → NearbyTimelineScreen, which koinInjects a
                     // NearbyTimelineFlow and loads on entry — provide a fast fake so the route completes.
                     single<NearbyTimelineFlow> { FakeNearbyTimelineFlow(NearbyTimelineOutcome.Loaded(emptyList(), null, null)) }

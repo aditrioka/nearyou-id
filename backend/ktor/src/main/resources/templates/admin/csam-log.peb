@@ -23,7 +23,7 @@
    `csrfToken`; the HTMX-fragment render relies on the layout's configRequest hook. #}
 <div class="cardlet">
     <h4>{{ icon("bolt") }}Admin-triggered handler (MVP path)</h4>
-    <form class="filters" style="margin-top:8px;"
+    <form class="filters"
           action="/admin/csam/takedown"
           method="POST"
           hx-post="/admin/csam/takedown"

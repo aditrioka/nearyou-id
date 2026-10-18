@@ -36,6 +36,9 @@ class FakePurchaseController(
     /** When set, [logIn] suspends until it completes — models a hanging vendor call. */
     var logInGate: CompletableDeferred<Unit>? = null
 
+    /** Completes on the first counted [logOut] — awaitable when the call lands after a signal the test sees. */
+    val logOutCalled = CompletableDeferred<Unit>()
+
     override suspend fun fetchOfferings(): OfferingsResult = offerings
 
     override suspend fun purchase(pkg: PaywallPackage): PurchaseResult {
@@ -59,6 +62,7 @@ class FakePurchaseController(
     override suspend fun logOut() {
         identityFailure?.let { throw it }
         logOutCount++
+        logOutCalled.complete(Unit)
     }
 
     fun setOfferings(value: OfferingsResult) {

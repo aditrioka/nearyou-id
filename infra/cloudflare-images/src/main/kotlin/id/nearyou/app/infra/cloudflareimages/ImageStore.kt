@@ -9,7 +9,7 @@ data class StoredImage(
 )
 
 /**
- * Cloudflare Images config. `apiToken` is secret (`secretKey(env, "cloudflare-images-api-token")`);
+ * Cloudflare Images config. `apiToken` is secret (bare slot `cloudflare-images-api-token`);
  * `accountId` + `accountHash` are non-sensitive (dashboard-visible, like slot names per the
  * public-repo posture); `deliveryBaseUrl` is the `img` custom subdomain (Open Decision #32).
  */

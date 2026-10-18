@@ -70,6 +70,7 @@
     --tertiary-container:#FFD7F5; --on-tertiary-container:#5B3D57;
     --surface:#FAF8FF;            --on-surface:#1A1B21;
     --on-surface-variant:#45464F;
+    --surface-variant:#E2E1EC;
     --surface-dim:#DAD9E0;
     --sc-lowest:#FFFFFF; --sc-low:#F4F2FA; --sc:#EFEDF4; --sc-high:#E9E7EF; --sc-highest:#E3E1E9;
     --outline:#79747E;            --outline-variant:#C4C5D7;
@@ -96,6 +97,7 @@
     --tertiary-container:#5B3D57; --on-tertiary-container:#FFD7F5;
     --surface:#121318;            --on-surface:#E3E1E9;
     --on-surface-variant:#C6C5D0;
+    --surface-variant:#45464F;
     --surface-dim:#121318;
     --sc-lowest:#0D0E13; --sc-low:#1A1B21; --sc:#1E1F25; --sc-high:#292A2F; --sc-highest:#34343A;
     --outline:#8E90A0;            --outline-variant:#45464F;
@@ -484,6 +486,22 @@
   .feat { display:flex; gap:10px; align-items:center; font-size:12.5px; font-weight:500; padding:4px 0; }
   .feat .ms { font-size:17px; color:var(--success); flex:none; }
 
+  /* ===== undang teman (ReferralScreen) — M3 type scale: bodyMedium 14/20, labelLarge 14/20 w500,
+     headlineSmall 24/32; shapes.medium = 12dp ===== */
+  .ref { padding:16px 24px; }
+  .ref .r-body { font-size:14px; line-height:20px; color:var(--on-surface-variant); }
+  .ref .r-label { font-size:14px; line-height:20px; font-weight:500; margin-top:24px; }
+  .ref .r-code { margin-top:8px; background:var(--surface-variant); border-radius:12px;
+    padding:20px 16px; text-align:center; font-size:24px; line-height:32px; }
+  .ref .r-count { font-size:24px; line-height:32px; margin-top:4px; }
+  .ref .r-reward { margin-top:16px; background:var(--primary-container); color:var(--on-primary-container);
+    border-radius:12px; padding:16px; font-size:14px; line-height:20px; }
+  /* M3 Snackbar: inverseSurface, extraSmall shape (4dp) */
+  .snackbar { position:absolute; left:12px; right:12px; bottom:28px; z-index:25;
+    background:var(--inverse-surface); color:var(--inverse-on-surface); border-radius:4px;
+    padding:14px 16px; font-size:14px; line-height:20px;
+    box-shadow:0 3px 6px rgba(0,0,0,.2); }
+
   /* gradient picture placeholders */
   .pic-food   { background:linear-gradient(135deg,#FFC36B 0%,#FF8F5C 45%,#E05B3E 100%); position:relative; overflow:hidden; }
   .pic-food::after { content:''; position:absolute; inset:0;
@@ -743,7 +761,8 @@
       <p>SearchBar M3 · ListItem 2 baris: avatar (dot online = success), display name, chat terakhir,
         waktu + badge jumlah belum dibaca (primary) · FAB <i>edit_square</i> untuk pesan baru
         · chat 1:1, batas 2000 karakter per spec.</p>
-      <span class="tag usulan">Belum dibangun — sesuai docs/02 § Chat</span>
+      <span class="tag ada">Sudah ada di app — ConversationListScreen (#247), dibuka dari Beranda</span>
+      <span class="tag usulan">Usulan — seksi bottom-nav Pesan, SearchBar, FAB pesan baru</span>
     </div>
   </article>
 
@@ -846,7 +865,8 @@
         Premium", frame 9; angka tenure butuh field backend dari <i>subscription_events</i>), bio,
         lokasi, statistik · FilledTonalButton <b>Edit Profil</b> full-width · SecondaryTabRow
         · ikon ✦ warna tier di samping nama (Arya emas, Dewi safir).</p>
-      <span class="tag usulan">Belum dibangun — pengganti placeholder "Profil segera hadir"</span>
+      <span class="tag ada">Sudah ada di app — ProfileScreen (#245): header, badge Premium, bio, pengikut/mengikuti</span>
+      <span class="tag usulan">Usulan — angka tenure, lokasi + tanggal gabung, Edit Profil (frame 8), tab Postingan/Disukai</span>
     </div>
   </article>
 
@@ -1052,7 +1072,7 @@
         tombol kirim-pesan, dan <b>di dalam bubble terkirim</b> bersama teks pesan (spek docs/02:
         <i>embedded_post_snapshot</i> disalin saat chat dimulai)
         · input TextField pill + tombol kirim primary · batas pesan 2000 karakter.</p>
-      <span class="tag usulan">Belum dibangun — sesuai docs/02 § Chat</span>
+      <span class="tag ada">Sudah ada di app — ChatThreadScreen + EmbeddedPostCard (#247)</span>
     </div>
   </article>
 
@@ -1096,7 +1116,7 @@
       <p>Full-screen dialog: tutup ✕ + tombol <b>Posting</b> (string <i>cta_post</i> asli) · TextField
         multiline · chip lokasi coral container + catatan privasi fuzzing (UU PDP) · toolbar lampiran
         gambar · counter <b>78/280</b> sesuai <i>post_create_char_counter</i>.</p>
-      <span class="tag ada">Sudah ada — di-extend dengan lampiran gambar (media = roadmap)</span>
+      <span class="tag ada">Sudah ada — lampiran gambar Premium shipped (image-attached-posts #354)</span>
     </div>
   </article>
 
@@ -1182,7 +1202,7 @@
       <p>Post diperbesar (bodyLarge → 17sp) + tombol <b>Ikuti</b> tonal · daftar balasan (cap 280 kar.)
         dengan suka per balasan · bar tulis balasan menempel bawah · counter balasan tanpa
         block-exclusion sesuai keputusan privasi <i>post-replies-v8</i>.</p>
-      <span class="tag ada">In-flight #159 — layar post-detail</span>
+      <span class="tag ada">Sudah ada di app — PostDetailScreen (#159), restyle frame 7 (#573)</span>
     </div>
   </article>
 
@@ -1230,7 +1250,7 @@
         Bio <b>maks 160</b> (docs/02 §Content limits) · <b>username sengaja TIDAK di sini</b> —
         entry point ganti username yang terdokumentasi adalah Pengaturan (docs/03 §Premium Username
         Customization: Free → paywall, Premium → layar kustomisasi), lihat frame Pengaturan.</p>
-      <span class="tag usulan">Belum dibangun — pasangan layar Profil</span>
+      <span class="tag usulan">Belum dibangun — pasangan layar Profil; baris Pengaturan “Edit profil” masih “Segera hadir” (belum ada backend tulis profil)</span>
     </div>
   </article>
 
@@ -1623,7 +1643,7 @@
           <span class="ms si">alternate_email</span>
           <div class="smid">
             <div class="st1">Ganti username <span class="ms fill">workspace_premium</span></div>
-            <div class="st2">@arya.ngrh · 1× per 30 hari</div>
+            <div class="st2">1× per 30 hari</div>
           </div>
           <span class="ms chev">chevron_right</span>
         </div>
@@ -1632,7 +1652,7 @@
           <span class="ms si" style="color:var(--premium);">workspace_premium</span>
           <div class="smid">
             <div class="st1">Perjalanan Premium</div>
-            <div class="st2">Tier Emas · 91 hari</div>
+            <div class="st2">Lihat tier &amp; masa keanggotaan kamu</div>
           </div>
           <span class="ms chev">chevron_right</span>
         </div>
@@ -1640,7 +1660,7 @@
           <span class="ms si">credit_card</span>
           <div class="smid">
             <div class="st1">Kelola langganan</div>
-            <div class="st2">Bulanan · via Google Play</div>
+            <div class="st2">Kelola lewat Google Play</div>
           </div>
           <span class="ms chev">chevron_right</span>
         </div>
@@ -1662,6 +1682,11 @@
           <span class="switch off"></span>
         </div>
         <div class="sitem">
+          <span class="ms si">notifications</span>
+          <div class="smid"><div class="st1">Tampilkan preview pesan chat di notifikasi</div></div>
+          <span class="switch off"></span>
+        </div>
+        <div class="sitem">
           <span class="ms si">shield_person</span>
           <div class="smid">
             <div class="st1">Privasi &amp; data</div>
@@ -1675,6 +1700,14 @@
           <span class="ms chev">chevron_right</span>
         </div>
         <div class="set-h">LAINNYA</div>
+        <div class="sitem">
+          <span class="ms si">person_add</span>
+          <div class="smid">
+            <div class="st1">Undang teman</div>
+            <div class="st2">Bagikan kode undanganmu, dapatkan Premium</div>
+          </div>
+          <span class="ms chev">chevron_right</span>
+        </div>
         <div class="sitem">
           <span class="ms si">description</span>
           <div class="smid"><div class="st1">Ketentuan &amp; kebijakan privasi</div></div>
@@ -1693,8 +1726,13 @@
         1×/30 hari; Free di-paywall), Perjalanan Premium (frame 9), Kelola langganan (RevenueCat wrap
         Play Billing), Profil privat ✦ dengan catatan grace 72 jam (docs/01), Sembunyikan jarak ✦
         (angka saja, kota tetap — docs/01), Privasi &amp; data (toggle consent #157), Pengguna diblokir
-        (user-blocking shipped), Keluar.</p>
-      <span class="tag usulan">Belum dibangun — ada di menu critical-path mobile</span>
+        (user-blocking shipped), Keluar. Baris yang shipped setelah frame ini dibuat ikut digambar dengan
+        copy strings.xml: toggle preview chat di notifikasi (lokal perangkat) dan Undang teman (frame 20).
+        Unduh Data Saya (docs/03 § Data Export) dan Hapus akun (docs/03 § Account Deletion) juga shipped di
+        LAINNYA, mengapit Keluar, tapi sengaja tidak digambar (desain D5/D8, lihat <i>SettingsScreen.kt</i>);
+        keduanya membuka dialog konfirmasi. Edit profil, Perjalanan Premium dan Kelola langganan masih
+        “Segera hadir” di app.</p>
+      <span class="tag ada">Sudah ada di app — SettingsScreen (#249)</span>
     </div>
   </article>
 
@@ -1784,7 +1822,8 @@
         hemat 28%) menggantikan label per-hari di kartu diskon agar tidak tumpang tindih — Mingguan
         tetap per-hari sebagai baseline · ladder tenure sebagai pitch retensi (poin opsional board)
         · pembayaran via RevenueCat (Play Billing + StoreKit).</p>
-      <span class="tag usulan">Belum dibangun — paywall Month 1</span>
+      <span class="tag ada">Sudah ada di app — PaywallScreen (#309), harga dari RevenueCat</span>
+      <span class="tag usulan">Usulan — ladder tenure</span>
     </div>
   </article>
 
@@ -1854,12 +1893,51 @@
     </div>
   </article>
 
+  <!-- ============================================================ 20 · UNDANG TEMAN (REFERRAL) -->
+  <article class="device">
+    <div class="frame">
+      <div class="statusbar">
+        <span>09.41</span>
+        <span class="right"><span class="ms">signal_cellular_alt</span><span class="ms">wifi</span><span class="ms">battery_5_bar</span></span>
+      </div>
+      <header class="appbar">
+        <span class="iconbtn lead"><span class="ms">arrow_back</span></span>
+        <span class="title">Undang teman</span>
+      </header>
+      <div class="content ref">
+        <div class="r-body">Bagikan kode undanganmu. Setiap teman yang mendaftar dan aktif mendapat 1 minggu Premium — kamu juga dapat 1 minggu Premium saat referral ke-5 berhasil.</div>
+        <div class="r-label">Kode undanganmu</div>
+        <div class="r-code">k7m2qx9p</div>
+        <span class="btn filled" style="width:100%; margin-top:12px;">Salin kode</span>
+        <div class="r-label" style="margin-top:28px;">Referral berhasil</div>
+        <div class="r-count">5 dari 5</div>
+        <div class="r-reward">Hadiah inviter sudah kamu klaim. Terima kasih sudah mengajak teman!</div>
+      </div>
+      <div class="snackbar">Kode disalin</div>
+      <div class="handle"></div>
+    </div>
+    <div class="cap">
+      <h3>20 · Undang teman (referral)</h3>
+      <p>Sub-layar Pengaturan › LAINNYA › “Undang teman” (baris entrinya kini digambar di frame 16)
+        dengan pola <i>ConsentSettingsScreen</i> / <i>BlockedUsersScreen</i>: <i>SettingsTopBar</i> + kolom
+        scroll padding 24/16. Copy persis strings.xml shipped (<i>referral_title/explainer/code_heading/
+        copy_action/progress_heading/progress/reward_unlocked</i>, snackbar <i>referral_code_copied</i>)
+        · kode undangan di Surface <code>surfaceVariant</code> (shapes.medium, headlineSmall) · M3 Button
+        “Salin kode” → clipboard + Snackbar · progres “X dari 5” (docs/01 § Referral System: 1 minggu
+        Premium untuk teman, hadiah inviter di referral ke-5) · kartu <code>primaryContainer</code> hanya
+        saat <code>inviterRewardClaimed</code>; sebelum itu progres saja (mis. “3 dari 5”). Loading =
+        “Sedang memuat…”, error = pesan generik + “Coba lagi”. Terbuka untuk semua tier — tanpa
+        paywall/upsell (spec <code>mobile-referral</code>). Kode sintetis.</p>
+      <span class="tag ada">Sudah ada di app — mobile-referral (#426)</span>
+    </div>
+  </article>
+
 </div>
 
 <div class="section-title">Dark theme — scheme gelap dari token yang sama</div>
 <div class="grid">
 
-  <!-- ============================================================ 8 · BERANDA DARK -->
+  <!-- ============================================================ 19 · BERANDA DARK -->
   <article class="device">
     <div class="frame dark">
       <div class="statusbar">

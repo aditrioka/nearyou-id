@@ -85,19 +85,19 @@ The 10%-base ratio MUST be configurable via a single constant in `:infra:otel` (
 
 ### Requirement: OTLP exporter target is sourced via `secretKey(env, ...)` slot-name derivation + `SecretResolver.resolve(...)` value lookup, with a clean no-op fallback
 
-The exporter target SHALL be sourced via the existing two-step pattern at [`backend/ktor/.../config/Secrets.kt`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/config/Secrets.kt): (1) the slot NAME is derived via `secretKey(env, "otel-grafana-otlp-endpoint")` and `secretKey(env, "otel-grafana-otlp-token")` (which simply prefixes `staging-` for the staging env); (2) the slot VALUE is fetched via `secretResolver.resolve(slotName)` (which returns `String?` from GCP Secret Manager). This matches every other secret in `:backend:ktor` and respects the `SecretKeyHelperRule` Detekt rule. The `SecretResolver` is passed into `OtelBootstrap.start(env, secretResolver)` by `Application.module()`.
+The exporter target SHALL be sourced via the existing two-step pattern at [`backend/ktor/.../config/Secrets.kt`](../../../../../backend/ktor/src/main/kotlin/id/nearyou/app/config/Secrets.kt): (1) the slot VALUE is fetched via `secretResolver.resolve("otel-grafana-otlp-endpoint")` and `secretResolver.resolve("otel-grafana-otlp-token")` with the BARE slot names (returns `String?`; env vars `OTEL_GRAFANA_OTLP_ENDPOINT` / `OTEL_GRAFANA_OTLP_TOKEN`, which the staging deploy binds from the `staging-otel-grafana-otlp-*` Secret Manager slots via `--set-secrets`); (2) the env-namespaced slot NAME (`OtelBootstrap.slotName(env, name)`, a mirror of `secretKey(env, name)` that prefixes `staging-` for the staging env) is used only for the `slot=` field of the operator-facing disabled log line and is never passed to `resolve()`. This matches every other secret in `:backend:ktor` and the secrets convention in `openspec/project.md` § "Coding Conventions & CI Lint Rules" (review-enforced; no Detekt rule ships for it yet). The `SecretResolver` is passed into `OtelBootstrap.start(env, secretResolver)` by `Application.module()`.
 
 When EITHER `SecretResolver.resolve(...)` returns `null`, `OtelBootstrap` SHALL configure a `LoggingSpanExporter` (DEBUG severity, dropped by default Logback config — effectively no-op for production logging volume) and emit exactly one INFO startup log line: `event="otel_exporter_disabled" reason="<endpoint_missing|token_missing>" sampling_profile="<profile_name>"`. The application start-up SHALL NOT block, fail, or retry. **Deterministic precedence**: the implementation SHALL check the endpoint slot first; if endpoint is null, emit `reason="endpoint_missing"` and return without checking the token. Only if endpoint is present is the token checked.
 
 The OTLP token VALUE SHALL NEVER appear in any log line, span attribute, span name, or HTTP request body produced by `:backend:ktor` outside the OTLP exporter's own outbound HTTPS request to the endpoint.
 
 #### Scenario: Endpoint absent → no-op exporter + single INFO line with `endpoint_missing`
-- **GIVEN** `secretResolver.resolve(secretKey(env, "otel-grafana-otlp-endpoint"))` returns null
+- **GIVEN** `secretResolver.resolve("otel-grafana-otlp-endpoint")` returns null
 - **WHEN** `OtelBootstrap.start(env, secretResolver)` runs
 - **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="endpoint_missing"` AND the `LoggingSpanExporter` is the configured exporter
 
 #### Scenario: Token absent → no-op exporter + single INFO line with `token_missing`
-- **GIVEN** `secretResolver.resolve(secretKey(env, "otel-grafana-otlp-endpoint"))` returns a non-null endpoint AND `secretResolver.resolve(secretKey(env, "otel-grafana-otlp-token"))` returns null
+- **GIVEN** `secretResolver.resolve("otel-grafana-otlp-endpoint")` returns a non-null endpoint AND `secretResolver.resolve("otel-grafana-otlp-token")` returns null
 - **WHEN** `OtelBootstrap.start(env, secretResolver)` runs
 - **THEN** exactly one INFO log line is emitted with `event="otel_exporter_disabled"` AND `reason="token_missing"`
 
@@ -160,7 +160,7 @@ Every Postgres JDBC span SHALL carry:
 Every Redis Lettuce span SHALL carry:
 - `db.system = "redis"` (auto-instrumentation).
 - `db.operation` (e.g., `"EVALSHA"`, `"GET"`).
-- `db.connection_string` MUST be omitted OR sanitized — the Lettuce auto-instrumentation's default `db.connection_string` value carries the Redis URI in the form `redis://user:password@host:port/db`. The Redis password is a secret per the `secretKey(env, ...)` posture; emitting it as a span attribute is forbidden. The implementation MUST configure Lettuce telemetry to either drop the attribute or strip the userinfo portion before export.
+- `db.connection_string` MUST be omitted OR sanitized — the Lettuce auto-instrumentation's default `db.connection_string` value carries the Redis URI in the form `redis://user:password@host:port/db`. The Redis password is a secret per the secrets convention (`openspec/project.md` § "Coding Conventions & CI Lint Rules"); emitting it as a span attribute is forbidden. The implementation MUST configure Lettuce telemetry to either drop the attribute or strip the userinfo portion before export.
 
 Every Realtime publish span (the `chat.realtime.publish` manual-span site) SHALL carry:
 - `supabase.realtime.channel` — the channel name (e.g., `chat:{conversation_id}`). The conversation_id UUID portion is acceptable in span attributes: it is a primary key, not user-PII, and it is the natural correlation key for trace-by-conversation queries in Grafana Tempo. Raw `user_id` UUIDs remain forbidden per the forbidden-attributes contract.

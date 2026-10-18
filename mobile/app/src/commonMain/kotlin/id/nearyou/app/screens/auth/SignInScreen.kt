@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.nearyou.app.appeal.AppealSession
 import id.nearyou.app.auth.AuthFlow
 import id.nearyou.app.screens.routing.PendingReturnDestination
 import id.nearyou.app.screens.routing.PendingSignupIdentity
@@ -77,13 +78,14 @@ fun SignInScreen(
     val authFlow = koinInject<AuthFlow>()
     val pendingSignupIdentity = koinInject<PendingSignupIdentity>()
     val pendingReturnDestination = koinInject<PendingReturnDestination>()
+    val appealSession = koinInject<AppealSession>()
 
     // Entry-scoped state holder (docs/11 §2.2): the sign-in outcome / in-flight flag / the
     // mobile-session-expiry-and-proactive-refresh (D5) involuntary notice now live in the ViewModel, so
     // they survive a configuration change and the Google ceremony (on viewModelScope) is not cancelled by
     // recomposition. The notice is captured ONCE in the VM's initial state (non-clearing read of
     // PendingReturnDestination, cleared on sign-in success by appEntryProvider).
-    val viewModel = viewModel { SignInViewModel(authFlow, pendingSignupIdentity, pendingReturnDestination) }
+    val viewModel = viewModel { SignInViewModel(authFlow, pendingSignupIdentity, pendingReturnDestination, appealSession) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val logo =
@@ -163,7 +165,10 @@ fun SignInScreen(
         // appeal surface (which reads the limited appeal token AuthRepository stashed from the 403 body).
         if (uiState.showAppealEntry) {
             TextButton(
-                onClick = onOpenAppeal,
+                onClick = {
+                    viewModel.onAppealOpened()
+                    onOpenAppeal()
+                },
                 modifier = Modifier.padding(top = 8.dp).testTag(SIGNIN_APPEAL_TAG),
             ) {
                 Text(text = stringResource(Res.string.appeal_title))

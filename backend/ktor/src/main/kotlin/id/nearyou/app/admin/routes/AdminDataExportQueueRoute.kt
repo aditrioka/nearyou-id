@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -22,8 +23,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import java.net.URLEncoder
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -196,7 +195,7 @@ private fun DataExportRow.toViewMap(): Map<String, Any> =
         put("username", username)
         put("usersLink", "/admin/users?q=${URLEncoder.encode(username, Charsets.UTF_8)}")
         put("triggerAction", "/admin/data-exports/$id/trigger")
-        put("requestedAt", TS_FORMAT.format(requestedAt))
+        put("requestedAt", ADMIN_TS_FORMAT.format(requestedAt))
         put("statusLabel", statusLabel(status))
         put("statusClass", statusClass(status))
         // Delivered-via indicator only once `ready`/DELIVERED (design D2).
@@ -254,9 +253,6 @@ private const val Q_MAX = 100
 // Flows into the unbounded `admin_actions_log.reason` TEXT column, so this is hygiene
 // consistency with the q read cap, not an overflow guard.
 private const val REASON_MAX = 200
-
-private val TS_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // User-facing informational messages (admin panel is English-only).
 private const val MSG_INVALID_ID = "Invalid data-export request id."

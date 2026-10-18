@@ -171,7 +171,7 @@ class NotificationsScreenNavTest {
                         NotificationsScreen(
                             onOpenPost = { otherCalls++ },
                             onOpenProfile = { otherCalls++ },
-                            onOpenChatThread = { _, _, _ -> otherCalls++ },
+                            onOpenChatThread = { _, _, _, _ -> otherCalls++ },
                             onOpenAppeal = { appealCalls++ },
                         )
                     }
@@ -203,14 +203,16 @@ class NotificationsScreenNavTest {
                 ),
                 null,
             ),
+            // A Premium partner: the resolved flag reaches the thread header's badge (#286).
+            partnerResolution = PartnerResolution.Resolved("budi", "Budi", isPremium = true),
         )
         runComposeUiTest {
-            var captured: Triple<String, String, String>? = null
+            var captured: List<Any>? = null
             setContent {
                 KoinContext {
                     NearYouTheme {
                         NotificationsScreen(
-                            onOpenChatThread = { c, u, d -> captured = Triple(c, u, d) },
+                            onOpenChatThread = { c, u, d, premium -> captured = listOf(c, u, d, premium) },
                         )
                     }
                 }
@@ -219,7 +221,11 @@ class NotificationsScreenNavTest {
             onNodeWithText(COPY_CHAT).performClick()
             waitForIdle()
 
-            assertEquals(Triple("conv-1", "budi", "Budi"), captured, "onOpenChatThread should carry the conversation + resolved partner")
+            assertEquals(
+                listOf<Any>("conv-1", "budi", "Budi", true),
+                captured,
+                "onOpenChatThread should carry the conversation + resolved partner",
+            )
         }
     }
 
@@ -269,7 +275,7 @@ class NotificationsScreenNavTest {
                         NotificationsScreen(
                             onOpenPost = { anyNav = true },
                             onOpenProfile = { anyNav = true },
-                            onOpenChatThread = { _, _, _ -> anyNav = true },
+                            onOpenChatThread = { _, _, _, _ -> anyNav = true },
                         )
                     }
                 }

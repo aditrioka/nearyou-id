@@ -36,13 +36,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import id.nearyou.app.ui.components.BackNavigationIcon
 import id.nearyou.app.ui.components.LetterAvatar
 import id.nearyou.app.ui.components.localDateLabel
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_share_to_chat_action
-import id.nearyou.resources.generated.resources.cta_back
 import id.nearyou.resources.generated.resources.cta_edit_post
-import id.nearyou.resources.generated.resources.ic_arrow_back
 import id.nearyou.resources.generated.resources.ic_more_vert
 import id.nearyou.resources.generated.resources.ic_post_like
 import id.nearyou.resources.generated.resources.ic_post_like_filled
@@ -90,14 +89,7 @@ internal fun PostDetailTopBar(
 ) {
     TopAppBar(
         title = { Text(text = stringResource(Res.string.post_detail_title)) },
-        navigationIcon = {
-            IconButton(onClick = onBack, modifier = Modifier.testTag(POST_DETAIL_BACK_TAG)) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_arrow_back),
-                    contentDescription = stringResource(Res.string.cta_back),
-                )
-            }
-        },
+        navigationIcon = { BackNavigationIcon(onBack = onBack, modifier = Modifier.testTag(POST_DETAIL_BACK_TAG)) },
         actions = {
             if (editEligible) {
                 TextButton(onClick = onEdit, modifier = Modifier.testTag(POST_DETAIL_EDIT_TAG)) {

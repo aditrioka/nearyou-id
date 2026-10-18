@@ -78,7 +78,7 @@ What the status codes mean:
 | `404` | Route not deployed on the live revision | Redeploy, or wait for the merge to deploy |
 | `504` | Run went past Cloud Run's 60 s `--timeout` | Retried automatically; the worker claims are idempotent |
 
-The data-export worker drains its whole pending set on every call, so a large backlog can hit the `504` case. Capping that drain is tracked in [#549](https://github.com/aditrioka/nearyou-id/issues/549).
+The data-export worker processes at most `DataExportWorker.MAX_EXPORTS_PER_RUN` (5) exports per hourly run, oldest first. The rest stay `pending` for the next run, and the response and the `event=data_export_worker_applied` log report them as `remaining`. The cap bounds the count, not the wall time, so slow R2 or Resend calls can still cause a `504`.
 
 ## Invoker identity and the caller allowlist
 

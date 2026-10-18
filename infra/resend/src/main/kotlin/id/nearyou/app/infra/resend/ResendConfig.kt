@@ -37,5 +37,26 @@ data class ResendConfig(
 
         /** The UNPREFIXED logical name passed to `resolveSecret` (env var `RESEND_API_KEY`). */
         const val SLOT_API_KEY: String = "resend-api-key"
+
+        /** Resend's always-delivered test inbox: every staging `to` is redirected here. */
+        const val STAGING_RECIPIENT_OVERRIDE: String = "delivered@resend.dev"
+
+        /**
+         * Builds the production [ResendConfig]: the API key through [resolveSecret] with the
+         * UNPREFIXED [SLOT_API_KEY] (the deploy binds the env-specific slot, mirrors
+         * `R2Config.fromSecrets`), and the staging recipient guard (docs/10 §3.9) — on
+         * `env == "staging"` ALL mail goes to [STAGING_RECIPIENT_OVERRIDE] so a synthetic/stale
+         * staging user can't email a real address; any other env sends to the real recipient.
+         * An unresolved key becomes blank, so [isComplete] is false and the factory binds the
+         * fail-soft no-op. Production passes `secrets::resolve`; tests pass a fake.
+         */
+        fun fromSecrets(
+            resolveSecret: (String) -> String?,
+            env: String,
+        ): ResendConfig =
+            ResendConfig(
+                apiKey = resolveSecret(SLOT_API_KEY).orEmpty(),
+                recipientOverride = if (env == "staging") STAGING_RECIPIENT_OVERRIDE else null,
+            )
     }
 }
