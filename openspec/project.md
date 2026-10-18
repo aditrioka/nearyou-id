@@ -195,7 +195,7 @@ Enforced by CI (full list: [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.m
 - **Mobile strings**: no hardcoded UI strings; must go through Compose Multiplatform Resources (`stringResource(Res.string.X)` accessor). Enforced by Detekt `MobileHardcodedStringRule` (`Text("…")` / `contentDescription = "…"` literals outside test source sets; escape hatch `@Suppress("MobileHardcodedStringRule")` with a reason).
 - **Partial indexes**: no `NOW()` in `WHERE` (non-immutable; PG rejects).
 - **RLS changes**: mandatory test case "JWT `sub` not in `public.users` → deny" on every policy change.
-- **Secrets**: Ktor MUST read secret values via `SecretResolver.resolve(<bare slot>)` (deploy-bound env var) and name the env-namespaced slot via `secretKey(env, name)`, never `resolve(secretKey(...))` (per Environments section above). Review-enforced: the Detekt rule listed in `docs/08` § Development Tools is not shipped yet.
+- **Secrets**: Ktor MUST read secret values via `SecretResolver.resolve(<bare slot>)` (deploy-bound env var), never `resolve(secretKey(...))` and never a direct `System.getenv` of a secret name; a call site MAY name the env-namespaced slot via `secretKey(env, name)` for operator-facing diagnostics (per Environments section above). Review-enforced: the Detekt rule listed in `docs/08` § Development Tools is not shipped yet.
 - **No vendor SDK import outside `:infra:*`** — domain/data code depends only on interfaces (per Module Structure section above).
 
 Other conventions:

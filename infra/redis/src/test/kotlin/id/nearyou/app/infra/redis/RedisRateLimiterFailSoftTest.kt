@@ -15,7 +15,8 @@ import java.util.UUID
  * Fail-soft regression suite. Pinned to the staging deploy crash on
  * `nearyou-backend-staging-00033-xj6` (2026-04-25): eager `client.connect()` in
  * the constructor crashed Ktor module load when Lettuce's first connect failed,
- * because Koin singletons are materialized synchronously before the HTTP server
+ * because the limiter is built synchronously in `Application.module()` (today via
+ * `redisHandlesFromUrl`, once per process; then a Koin singleton) before the HTTP server
  * binds 8080. The contract verified here:
  *
  *  1. Construction MUST NOT throw, even with an unreachable Redis URL.
@@ -35,7 +36,8 @@ class RedisRateLimiterFailSoftTest : StringSpec(
         val unreachableUrl = "redis://127.0.0.1:1"
 
         "constructor does not throw when Redis is unreachable" {
-            // The whole point: this MUST be safe to call from Koin module load.
+            // The whole point: this MUST be safe to call during `Application.module()`
+            // load, where `redisHandlesFromUrl` builds the limiter.
             val limiter = RedisRateLimiter(RedisClient.create(unreachableUrl))
             limiter.close()
         }

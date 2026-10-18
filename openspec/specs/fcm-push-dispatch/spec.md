@@ -404,17 +404,17 @@ A Kotlin object `PushCopy` SHALL be defined in `:infra:fcm` with at minimum:
 
 ### Requirement: Service-account JSON SHALL be read via `secretKey(env, name)` and validated at boot
 
-Backend startup SHALL call `secretKey(env, "firebase-admin-sa")` to fetch the Firebase service-account JSON, parse it, and call `FirebaseApp.initializeApp(...)` exactly once with a named `FirebaseApp` instance (`"nearyou-default"`). In the staging environment, the helper resolves to the staging-namespaced slot `staging-firebase-admin-sa` per the [`secretKey(env, name)` invariant in CLAUDE.md](../../../CLAUDE.md).
+Backend startup SHALL fetch the Firebase service-account JSON via `secrets.resolve("firebase-admin-sa")` (the bare slot name; env var `FIREBASE_ADMIN_SA`), parse it, and call `FirebaseApp.initializeApp(...)` exactly once with a named `FirebaseApp` instance (`"nearyou-default"`). In the staging environment, the deploy binds `FIREBASE_ADMIN_SA` to the staging-namespaced slot `staging-firebase-admin-sa` (`--set-secrets`); `secretKey(env, "firebase-admin-sa")` only names that slot for the FATAL diagnostic and is never passed to `resolve()`, per the [secrets invariant in CLAUDE.md](../../../CLAUDE.md).
 
 If the secret read fails OR the JSON is malformed OR the Firebase Admin SDK rejects the credential, the application SHALL fail to start with a structured FATAL log naming the exact secret slot. Cloud Run health checks fail; the deploy does not roll forward.
 
 In test profiles, the Firebase Admin SDK initialization SHALL be skipped entirely AND the Koin DI module SHALL bind `NotificationDispatcher` to `InAppOnlyDispatcher` (the existing no-op binding from `in-app-notifications` V10). Tests that exercise FCM dispatch behavior bind a mock `FirebaseMessaging` directly into a test-only `FcmDispatcher` instance.
 
-The Firebase service-account JSON MUST NOT be read via direct `System.getenv("FIREBASE_ADMIN_SA")` or any other environment-variable read that bypasses the `secretKey(env, name)` helper. Direct reads are a Detekt violation per the [`secretKey(env, name)` invariant in CLAUDE.md](../../../CLAUDE.md).
+The Firebase service-account JSON MUST NOT be read via direct `System.getenv("FIREBASE_ADMIN_SA")` or any other environment-variable read that bypasses the `SecretResolver`, and MUST NOT be read via `secrets.resolve(secretKey(env, "firebase-admin-sa"))` (that looks up a `STAGING_FIREBASE_ADMIN_SA` env var the deploy never sets). Both are forbidden (review-enforced; no Detekt rule ships for this yet) per the [secrets invariant in CLAUDE.md](../../../CLAUDE.md).
 
 #### Scenario: Production startup with valid service-account JSON succeeds
 
-- **WHEN** `secretKey(env, "firebase-admin-sa")` returns valid Firebase service-account JSON AND the backend starts in the production profile
+- **WHEN** `secrets.resolve("firebase-admin-sa")` returns valid Firebase service-account JSON AND the backend starts in the production profile
 - **THEN** `FirebaseApp.initializeApp(...)` is called exactly once with name `"nearyou-default"` AND the application reaches the ready-to-serve state
 
 #### Scenario: Missing service-account secret fails the production deploy
@@ -429,8 +429,8 @@ The Firebase service-account JSON MUST NOT be read via direct `System.getenv("FI
 
 #### Scenario: Staging profile reads the staging-namespaced secret
 
-- **WHEN** the backend starts in the staging profile AND `secretKey(env, "firebase-admin-sa")` is invoked
-- **THEN** the helper resolves to the GCP Secret Manager slot named `staging-firebase-admin-sa` (per the namespace convention recorded in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) § Pre-Phase 1 #34)
+- **WHEN** the backend starts in the staging profile
+- **THEN** `secrets.resolve("firebase-admin-sa")` reads env var `FIREBASE_ADMIN_SA`, which the staging deploy binds to the GCP Secret Manager slot named `staging-firebase-admin-sa`, AND `secretKey(env, "firebase-admin-sa")` names that same slot in the FATAL diagnostic (per the namespace convention recorded in [`docs/08-Roadmap-Risk.md`](../../../docs/08-Roadmap-Risk.md) § Pre-Phase 1 #34)
 
 #### Scenario: Test profile skips Firebase Admin SDK initialization
 
@@ -439,8 +439,8 @@ The Firebase service-account JSON MUST NOT be read via direct `System.getenv("FI
 
 #### Scenario: No direct env-var read of the service-account name
 
-- **WHEN** the codebase is grepped for the literal string `"firebase-admin-sa"` outside of `secretKey(env, "firebase-admin-sa")` invocations
-- **THEN** zero matches are found in production source (test fixtures may reference the name; production code reads exclusively via the helper)
+- **WHEN** the codebase is grepped for the literal string `"firebase-admin-sa"` outside of `secrets.resolve("firebase-admin-sa")` and `secretKey(env, "firebase-admin-sa")` invocations
+- **THEN** zero matches are found in production source (test fixtures may reference the name; production code reads the value exclusively via the `SecretResolver` and names the slot only via the helper)
 
 ### Requirement: DI graph SHALL bind a composite dispatcher in production and `InAppOnlyDispatcher` in tests, with catch-and-log composite error handling
 
@@ -531,7 +531,7 @@ This is documented for operators: an emergency credential rotation is a Secret M
 #### Scenario: Restart picks up the rotated secret
 
 - **WHEN** the operator rotates the value in `firebase-admin-sa` AND triggers a Cloud Run revision rollout
-- **THEN** the new instance's startup `secretKey(env, "firebase-admin-sa")` call reads the rotated value AND `FirebaseApp.initializeApp(...)` succeeds with the new credentials AND subsequent emits use the rotated credentials
+- **THEN** the new instance's startup `secrets.resolve("firebase-admin-sa")` call reads the rotated value AND `FirebaseApp.initializeApp(...)` succeeds with the new credentials AND subsequent emits use the rotated credentials
 
 ### Requirement: Dispatcher coroutine scope SHALL drain on JVM shutdown
 

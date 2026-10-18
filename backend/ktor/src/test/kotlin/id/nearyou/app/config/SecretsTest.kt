@@ -99,4 +99,26 @@ class SecretsTest : StringSpec({
             }
         offenders shouldBe emptyList()
     }
+
+    // rate-limit-infrastructure § "Redis URL resolved via SecretResolver": the one
+    // shared Redis client is built from the BARE `redis-url` slot (env var REDIS_URL,
+    // which deploy-staging.yml binds to `staging-redis-url`). A booted-app test would
+    // need live Redis; the wiring is two lines of Application.kt, so pin the source.
+    "Application.kt builds the shared Redis handles from the bare redis-url slot" {
+        val src = java.io.File("src/main/kotlin/id/nearyou/app/Application.kt").readText()
+        Regex("""val\s+redisUrl\s*=\s*secrets\.resolve\(\s*"redis-url"\s*\)""")
+            .findAll(src).count() shouldBe 1
+        Regex("""redisHandlesFromUrl\(""").findAll(src).count() shouldBe 1
+        Regex("""redisUrl\?\.let\s*\{\s*redisHandlesFromUrl\(\s*it\s*\)""")
+            .containsMatchIn(src) shouldBe true
+
+        var seen: String? = null
+        val resolver =
+            EnvVarSecretResolver { name ->
+                seen = name
+                null
+            }
+        resolver.resolve("redis-url")
+        seen shouldBe "REDIS_URL"
+    }
 })

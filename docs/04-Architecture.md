@@ -161,7 +161,7 @@ Authoritative list — regenerate from `find backend/ktor/src/main/kotlin/id/nea
 - **`block`** — V5; `POST/DELETE/GET /api/v1/blocks` + `BlockExclusionJoinRule` lint enforcement
 - **`chat`** — 1:1 messaging, conversation management, broadcast orchestration, block enforcement; V15; 1,828 LOC; the largest single feature area
 - **`common`** — shared utilities
-- **`config`** — Koin wiring, secret resolution (`secretKey(env, name)`)
+- **`config`** — Koin wiring, secret resolution (`SecretResolver.resolve(<bare slot>)`; `secretKey(env, name)` names the env slot for diagnostics)
 - **`dev`** — local-only development helpers
 - **`engagement`** — V7 likes + V8 replies + rate-limit (`like-rate-limit`, `reply-rate-limit` archives)
 - **`follow`** — V6; `POST/DELETE/GET /api/v1/follows`
