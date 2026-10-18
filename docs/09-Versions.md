@@ -1,10 +1,11 @@
 # NearYouID — Version Pinning Decisions Log
 
-Single source of truth for the *why* behind each library version pin in `gradle/libs.versions.toml`.
+Single source of truth for the *why* behind each library version pin in `gradle/libs.versions.toml`, plus the backend container base image (Eclipse Temurin), which is pinned in the `Dockerfile` `FROM` lines.
 
 ## Pinning Policy
 
 - All third-party library and plugin versions are declared in `gradle/libs.versions.toml`; modules reference them via the typesafe `libs.*` accessor. Raw `group:artifact:version` strings are forbidden (CI lint will enforce when added).
+- **One documented exception:** the Eclipse Temurin base image is pinned as literal tags in the two `Dockerfile` `FROM` lines (builder `-jdk-noble` + runtime `-jre-noble`, moved together), not in `libs.versions.toml`, because Docker resolves it outside Gradle. Its rationale row is in the table below like any other pin.
 - Versions are **frozen** at Pre-Phase 1 baseline. Changes happen via deliberate bumps recorded in the table below — not via "latest stable" auto-resolution.
 - Patch bumps (X.Y.**Z**) are meant to follow an auto-update flow (Dependabot, separate change) — **not yet configured** (no `.github/dependabot.yml` as of 2026-10-03); until it lands, patch bumps ship as manual batches. Minor (X.**Y**) and major (**X**.Y) bumps require a table row justifying the change.
 
