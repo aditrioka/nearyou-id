@@ -13,12 +13,16 @@ import java.util.UUID
  * sourced via the shadow-ban-safe `visible_users` view: `username` / `displayName` are
  * NOT NULL since V2; `isPremium` uses the `user-profile-read` formula
  * (`subscription_status = 'premium_active'` only).
+ *
+ * [followedByViewer] is relative to the CALLING viewer, not the profile owner: whether a
+ * `follows (viewer, row user)` edge exists at read time (`mobile-follow-list-inline-follow`).
  */
 data class FollowListRow(
     val userId: UUID,
     val username: String,
     val displayName: String,
     val isPremium: Boolean,
+    val followedByViewer: Boolean,
     val createdAt: Instant,
 )
 
@@ -45,7 +49,8 @@ interface UserFollowsRepository {
      * filtered bidirectionally against [viewerId]'s `user_blocks` (exclude users the
      * viewer has blocked AND users who have blocked the viewer). Ordered
      * `(created_at DESC, follower_id DESC)`. Returns up to [limit] rows; callers
-     * typically pass `pageSize + 1` to detect a next page.
+     * typically pass `pageSize + 1` to detect a next page. Each row's
+     * [FollowListRow.followedByViewer] is [viewerId]'s own follow edge to the row user.
      *
      * Resolves [profileId] through [ensureProfileVisible] first — throws
      * [ProfileUserNotFoundException] when the profile target is unresolvable for the

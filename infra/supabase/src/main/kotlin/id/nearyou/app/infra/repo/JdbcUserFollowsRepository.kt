@@ -64,6 +64,10 @@ class JdbcUserFollowsRepository(
                                vu.username,
                                vu.display_name,
                                (vu.subscription_status = 'premium_active') AS is_premium,
+                               EXISTS (
+                                   SELECT 1 FROM follows vf
+                                    WHERE vf.follower_id = ? AND vf.followee_id = f.follower_id
+                               ) AS followed_by_viewer,
                                f.created_at
                           FROM follows f
                           JOIN visible_users vu ON vu.id = f.follower_id
@@ -99,6 +103,10 @@ class JdbcUserFollowsRepository(
                                vu.username,
                                vu.display_name,
                                (vu.subscription_status = 'premium_active') AS is_premium,
+                               EXISTS (
+                                   SELECT 1 FROM follows vf
+                                    WHERE vf.follower_id = ? AND vf.followee_id = f.followee_id
+                               ) AS followed_by_viewer,
                                f.created_at
                           FROM follows f
                           JOIN visible_users vu ON vu.id = f.followee_id
@@ -220,6 +228,8 @@ class JdbcUserFollowsRepository(
     ): List<FollowListRow> {
         prepareStatement(sql).use { ps ->
             var i = 1
+            // Select-list param first: the viewer's own follow-edge probe (followed_by_viewer).
+            ps.setObject(i++, viewerId)
             ps.setObject(i++, profileId)
             ps.setObject(i++, viewerId)
             ps.setObject(i++, viewerId)
@@ -237,6 +247,7 @@ class JdbcUserFollowsRepository(
                             username = rs.getString("username"),
                             displayName = rs.getString("display_name"),
                             isPremium = rs.getBoolean("is_premium"),
+                            followedByViewer = rs.getBoolean("followed_by_viewer"),
                             createdAt = rs.getTimestamp("created_at").toInstant(),
                         )
                 }
