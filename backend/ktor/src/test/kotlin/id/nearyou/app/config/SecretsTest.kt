@@ -21,45 +21,45 @@ class SecretsTest : StringSpec({
 
     "EnvVarSecretResolver returns the env var when present" {
         val resolver =
-            EnvVarSecretResolver { name ->
+            EnvVarSecretResolver(getenv = { name ->
                 if (name == "KTOR_RSA_PRIVATE_KEY") "the-pem" else null
-            }
+            })
         resolver.resolve("ktor-rsa-private-key") shouldBe "the-pem"
     }
 
     "EnvVarSecretResolver normalizes dashes and case" {
         var seen: String? = null
         val resolver =
-            EnvVarSecretResolver { name ->
+            EnvVarSecretResolver(getenv = { name ->
                 seen = name
                 "value"
-            }
+            })
         resolver.resolve("admin-app-db-connection-string")
         seen shouldBe "ADMIN_APP_DB_CONNECTION_STRING"
     }
 
     "EnvVarSecretResolver returns null when env var missing" {
-        val resolver = EnvVarSecretResolver { null }
+        val resolver = EnvVarSecretResolver(getenv = { null })
         resolver.resolve("anything").shouldBeNull()
     }
 
     "EnvVarSecretResolver treats blank as missing" {
-        val resolver = EnvVarSecretResolver { "   " }
+        val resolver = EnvVarSecretResolver(getenv = { "   " })
         resolver.resolve("anything").shouldBeNull()
     }
 
     "EnvVarSecretResolver trims surrounding whitespace" {
-        val resolver = EnvVarSecretResolver { "  GxT3lL5vR2==\n" }
+        val resolver = EnvVarSecretResolver(getenv = { "  GxT3lL5vR2==\n" })
         resolver.resolve("invite-code-secret") shouldBe "GxT3lL5vR2=="
     }
 
     "invite-code-secret resolves via INVITE_CODE_SECRET env var" {
         var seen: String? = null
         val resolver =
-            EnvVarSecretResolver { name ->
+            EnvVarSecretResolver(getenv = { name ->
                 seen = name
                 "GxT3lL5vR2=="
-            }
+            })
         resolver.resolve("invite-code-secret") shouldBe "GxT3lL5vR2=="
         seen shouldBe "INVITE_CODE_SECRET"
     }
@@ -68,10 +68,10 @@ class SecretsTest : StringSpec({
         var seen: String? = null
         val thirtyTwoByteBase64 = java.util.Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
         val resolver =
-            EnvVarSecretResolver { name ->
+            EnvVarSecretResolver(getenv = { name ->
                 seen = name
                 thirtyTwoByteBase64
-            }
+            })
         val value = resolver.resolve("jitter-secret")
         seen shouldBe "JITTER_SECRET"
         value shouldBe thirtyTwoByteBase64
@@ -112,13 +112,18 @@ class SecretsTest : StringSpec({
         Regex("""redisUrl\?\.let\s*\{\s*redisHandlesFromUrl\(\s*it\s*\)""")
             .containsMatchIn(src) shouldBe true
 
-        var seen: String? = null
+        // Named args: a trailing lambda would bind to the LAST parameter
+        // (getSystemProperty), and CI's real REDIS_URL env var would short-circuit it.
+        val seen = mutableListOf<String>()
         val resolver =
-            EnvVarSecretResolver { name ->
-                seen = name
-                null
-            }
+            EnvVarSecretResolver(
+                getenv = { name ->
+                    seen += name
+                    null
+                },
+                getSystemProperty = { null },
+            )
         resolver.resolve("redis-url")
-        seen shouldBe "REDIS_URL"
+        seen shouldBe listOf("REDIS_URL")
     }
 })
