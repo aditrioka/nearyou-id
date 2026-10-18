@@ -158,8 +158,8 @@ class ModerationListLoaderTest : StringSpec({
         loader.load(ModerationList.ProfanityList)
 
         // The loader passes 'content-moderation-fallback-list' (bare slot name) to the
-        // SecretResolver — env-prefix derivation is the resolver's responsibility (mirrors
-        // Application.kt:388 'secrets.resolve("firebase-admin-sa")' precedent).
+        // SecretResolver — the env-namespaced slot is bound at deploy, never prefixed in-process
+        // (mirrors the Application.kt 'secrets.resolve("firebase-admin-sa")' precedent).
         sm.lastResolvedName shouldBe "content-moderation-fallback-list"
     }
 
