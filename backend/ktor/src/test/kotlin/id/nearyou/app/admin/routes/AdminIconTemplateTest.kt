@@ -133,6 +133,22 @@ private val csamModel: Map<String, Any> =
             ),
     )
 
+// Frame 23 (Appeal Review) draws `lock_open` on Approve — same unban glyph as user-profile.peb (#392).
+private val appealModel: Map<String, Any> =
+    mapOf(
+        "hasRows" to true,
+        "rows" to
+            listOf(
+                mapOf(
+                    "id" to "x",
+                    "actionType" to "suspension",
+                    "userId" to "u",
+                    "createdAt" to "2026-06-11T09:42:00Z",
+                    "appealText" to "t",
+                ),
+            ),
+    )
+
 private fun profileModel(): Map<String, Any> =
     mapOf(
         "csrfToken" to "t",
@@ -186,6 +202,7 @@ private val RENDER_CASES =
         RenderCase("chat-redaction-panel.peb", redactionModel, listOf("flag", "block", "warning")),
         RenderCase("csam-log.peb", csamModel, listOf("gpp_maybe", "bolt", "filter_alt", "info", "gavel", "key")),
         RenderCase("csam-log-table.peb", csamModel, listOf("gavel", "key")),
+        RenderCase("appeals.peb", appealModel, listOf("lock_open")),
         RenderCase(
             "user-profile.peb",
             profileModel(),
