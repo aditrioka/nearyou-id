@@ -8,12 +8,14 @@ The system SHALL throttle `POST /admin/login` through the shared `RateLimiter.tr
 2. **Per submitted email (burst)**: at most 5 attempts per rolling 15 minutes, keyed `{scope:rate_admin_login}:{email:<email-hash>}`, where `<email-hash>` is the SHA-256 base64url hash of the exact submitted `email` field (the same `email_hash` the email-not-found log line carries; no case folding, since the admin lookup is an exact match).
 3. **Per submitted email (sustained lockout)**: at most 20 attempts per rolling 24 hours, keyed `{scope:rate_admin_login_lockout}:{email:<email-hash>}`.
 
-The first tier that is exhausted SHALL answer, and later tiers SHALL NOT be consulted for that attempt, so a throttled attempt consumes no slot in a later tier. Every attempt admitted by all three tiers SHALL count, whatever its credential outcome (success included). None of the keys is a daily-quota key (no `_day` scope suffix): they are rolling windows, not WIB-staggered calendar-day resets.
+The first tier that is exhausted SHALL answer, and later tiers SHALL NOT be consulted for that attempt. So a throttled attempt has used one slot in each earlier tier and none in any later tier. Only failed attempts SHALL count: when the credential checks succeed and a session is created, the attempt SHALL hand back the slot it took in each of the three tiers. That way the operator's own logins and the staging smoke scripts never consume throttle budget, and the counters say nothing about legitimate activity on an address. None of the keys is a daily-quota key (no `_day` scope suffix): they are rolling windows, not WIB-staggered calendar-day resets.
 
-A throttled attempt SHALL:
+Independently of the rate tiers, at most 2 login credential checks SHALL run at once per application instance. A credential check is everything from the throttle tiers through the Argon2id and TOTP verifies. The per-IP tier alone cannot bound concurrent Argon2id work while `call.clientIp` trusts a client-supplied `CF-Connecting-IP` (the host is not yet behind Cloudflare). So this gate is what keeps a spoofed-IP spray from exhausting instance memory (19 MiB per verify against a ~128 MiB heap) or CPU. A POST that cannot obtain a permit within 2 seconds SHALL be shed: it is answered as a throttled attempt with `axis=concurrency` and `Retry-After: 60`, before any limiter call, `admin_users` lookup or hash work. A permit SHALL be returned on every outcome (success, credential failure, throttle, error), so the gate never leaks capacity.
+
+A throttled (or shed) attempt SHALL:
 - respond `429 Too Many Requests` with a `Retry-After` header carrying the exhausted tier's retry-after in whole seconds;
 - re-render the login page with the throttle message `Too many login attempts. Try again in N min.` (N = Retry-After seconds divided by 60, rounded up) in the login page's single error-banner slot;
-- emit one structured WARN line at the application logger carrying `event=admin_login_throttled`, `axis` ∈ {`ip`, `email`, `email_lockout`}, `email_hash`, `ip`, `user_agent` and `retry_after_s`. The line SHALL NOT carry the plaintext email, the submitted password or the submitted TOTP code;
+- emit one structured WARN line at the application logger carrying `event=admin_login_throttled`, `axis` ∈ {`ip`, `email`, `email_lockout`, `concurrency`}, `email_hash`, `ip`, `user_agent` and `retry_after_s`. The client-controlled `ip` and `user_agent` values SHALL be emitted quoted, with `"`, `\`, CR and LF escaped, so a crafted header cannot forge additional fields. The line SHALL NOT carry the plaintext email, the submitted password or the submitted TOTP code;
 - write NO `admin_actions_log` row: no admin actor has been identified, and V16's `admin_id NOT NULL` forbids an unowned row, consistent with design D14's email-not-found path;
 - create no session and set no cookie, even when the submitted credentials are correct.
 
@@ -37,7 +39,7 @@ The throttle SHALL fail open, consistent with `rate-limit-infrastructure`. When 
 
 #### Scenario: Sustained attempts on one email trip the 24-hour lockout tier
 
-- **GIVEN** 20 attempts for one email admitted over the last 24 hours, spaced so that no 15-minute window holds more than 5
+- **GIVEN** 20 failed attempts for one email over the last 24 hours, spaced so that no 15-minute window holds more than 5
 - **WHEN** a 21st attempt for that email arrives in a fresh 15-minute window
 - **THEN** the response status SHALL be 429
 - **AND** the `Retry-After` value SHALL exceed 900 seconds (the lockout tier answered, not the burst tier)
@@ -66,6 +68,32 @@ The throttle SHALL fail open, consistent with `rate-limit-infrastructure`. When 
 - **THEN** a WARN-level line SHALL be captured containing `event=admin_login_throttled`, `axis=email`, `email_hash=`, `ip=`, `user_agent=` and `retry_after_s=`
 - **AND** the line SHALL NOT contain the plaintext submitted email, `P@ssw0rd!Secret` or `123456`
 - **AND** no `admin_actions_log` row SHALL be inserted for the attempt
+
+#### Scenario: Client-controlled log fields cannot forge extra fields
+
+- **GIVEN** a throttled attempt whose `CF-Connecting-IP` header carries `203.0.113.7 axis=email "x`
+- **WHEN** the throttle WARN line is emitted
+- **THEN** the line SHALL carry `ip="203.0.113.7 axis=email \"x"` (quoted, inner quote escaped)
+- **AND** the line SHALL contain exactly one unquoted `axis=` field: the tier that actually answered
+
+#### Scenario: A successful login hands its slots back
+
+- **GIVEN** an active admin
+- **WHEN** the admin logs in successfully 6 times within 15 minutes from one client IP
+- **THEN** none of the 6 attempts SHALL be throttled
+- **AND** afterwards the IP, email-burst and email-lockout buckets for that IP and email SHALL each be empty
+
+#### Scenario: A credential check beyond the concurrency gate is shed before any other work
+
+- **GIVEN** every credential-check permit is held by in-flight checks for longer than the 2-second wait
+- **WHEN** another login POST arrives
+- **THEN** the response SHALL be 429 with `Retry-After: 60` and the throttle message
+- **AND** the limiter SHALL NOT have been called for this attempt, and the emitted WARN line SHALL carry `axis=concurrency`
+
+#### Scenario: The concurrency gate never leaks a permit
+
+- **WHEN** a sequence of login POSTs ends in a success, a wrong password, an unknown email, an oversized field (400) and a throttle (429)
+- **THEN** afterwards every credential-check permit SHALL be available again
 
 #### Scenario: Throttle keys use the hash-tag shape and never the raw IP
 
@@ -96,7 +124,7 @@ The throttle SHALL fail open, consistent with `rate-limit-infrastructure`. When 
 
 ### Requirement: Login form GET renders the unauthenticated login page
 
-The system SHALL serve `GET /admin/login` as an unauthenticated route returning HTTP 200 with an HTML login form. The form SHALL contain three input fields — `email`, `password`, and `totp` (the 6-digit TOTP code) — and a submit button. The form's `action` attribute SHALL be `/admin/login` with `method="POST"`. The page SHALL extend the shared admin base layout (per the `admin-panel-scaffold` capability). The login page MUST NOT render the CSRF meta tag or the HTMX CSRF configRequest JS hook (no session exists yet).
+The system SHALL serve `GET /admin/login` as an unauthenticated route returning HTTP 200 with an HTML login form. The form SHALL contain three input fields — `email`, `password`, and `totp` (the 6-digit TOTP code) — and a submit button. The form's `action` attribute SHALL be `/admin/login` with `method="POST"`. The page SHALL extend the shared admin base layout (per the `admin-panel-scaffold` capability). The login page MUST NOT render the CSRF meta tag (no session exists yet). The page loads the vendored `admin.js` like every admin page, but `admin.js` registers its HTMX CSRF configRequest listener only when that meta tag is present, so the login page registers none.
 
 The page's presentation SHALL follow the admin mockup board frame 1 (`dev/mockups/nearyou-admin-mockup.html` `#f01`, per [`docs/11-Engineering-Standards.md`](../../../../../docs/11-Engineering-Standards.md) § 3.6):
 - a centered card with the brand logo only, and no "Admin login" heading text;
