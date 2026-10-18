@@ -1,11 +1,11 @@
 # object-storage Specification
 
 ## Purpose
-The object-storage capability provides a vendor-neutral `ObjectStore` contract (`:infra:r2`) — store an object, issue a time-limited signed GET URL, and delete — backed by Cloudflare R2 (S3-compatible) via the AWS SDK for Kotlin. The vendor SDK is fenced inside `:infra:r2` (no `aws.sdk.*` / `aws.smithy.*` import outside the module, per the no-vendor-SDK-outside-`:infra` invariant); credentials are resolved via the secret helper; and a fail-soft `NoOpObjectStore` binds when R2 credentials are unset so application boot never fails on un-provisioned storage. It is a reusable substrate — first consumed by `account-data-export` for export archives; future consumers include image upload, the CSAM archive, and backups.
+The object-storage capability provides a vendor-neutral `ObjectStore` contract (`:infra:r2`) — store an object, issue a time-limited signed GET URL, and delete — backed by Cloudflare R2 (S3-compatible) via the AWS SDK for Kotlin. The vendor SDK is fenced inside `:infra:r2` (no `aws.sdk.*` / `aws.smithy.*` import outside the module, per the no-vendor-SDK-outside-`:infra` invariant); credentials are resolved via the `SecretResolver` bare slots; and a fail-soft `NoOpObjectStore` binds when R2 credentials are unset so application boot never fails on un-provisioned storage. It is a reusable substrate — first consumed by `account-data-export` for export archives; future consumers include image upload, the CSAM archive, and backups.
 ## Requirements
 ### Requirement: Vendor-neutral object-storage contract
 
-A new `:infra:r2` module SHALL provide a vendor-neutral `ObjectStore` interface — `put(key, bytes, contentType)`, `presignedGetUrl(key, ttl)`, `delete(key)` — backed by Cloudflare R2 via the AWS SDK for Kotlin S3 client pointed at the R2 S3 endpoint. No R2/AWS SDK type (`aws.sdk.kotlin.*`, `aws.smithy.*`) may be imported outside `:infra:r2` (the no-vendor-SDK-outside-`:infra:*` invariant); `:backend:ktor` depends only on the `ObjectStore` interface. R2 credentials (account id, access key id, secret access key, bucket) MUST be resolved via the `secretKey(env, name)` helper, never direct env reads.
+A new `:infra:r2` module SHALL provide a vendor-neutral `ObjectStore` interface — `put(key, bytes, contentType)`, `presignedGetUrl(key, ttl)`, `delete(key)` — backed by Cloudflare R2 via the AWS SDK for Kotlin S3 client pointed at the R2 S3 endpoint. No R2/AWS SDK type (`aws.sdk.kotlin.*`, `aws.smithy.*`) may be imported outside `:infra:r2` (the no-vendor-SDK-outside-`:infra:*` invariant); `:backend:ktor` depends only on the `ObjectStore` interface. R2 credentials (account id, access key id, secret access key, bucket) MUST be resolved through the existing `SecretResolver` chain with the bare slot names `R2Config.SLOT_*` (`r2-account-id`, `r2-access-key-id`, `r2-secret-access-key`, `r2-export-bucket`; env vars `R2_ACCOUNT_ID` etc.), which the staging deploy binds from the `staging-*` Secret Manager slots via `--set-secrets`; they are NOT composed via `secretKey(env, name)`, which would look up `STAGING_*` env vars the deploy never sets, and never read by a direct `System.getenv`.
 
 #### Scenario: Stored object is retrievable via a signed URL within its TTL
 - **WHEN** an object is `put` and `presignedGetUrl(key, ttl)` is called and the returned URL is fetched before `ttl` elapses
@@ -19,9 +19,9 @@ A new `:infra:r2` module SHALL provide a vendor-neutral `ObjectStore` interface 
 - **WHEN** the codebase is scanned for `aws.sdk.kotlin` / `aws.smithy` imports
 - **THEN** they appear only under `:infra:r2`, and `:backend:ktor` references only the `ObjectStore` interface
 
-#### Scenario: Credentials resolved via the secret helper
-- **WHEN** the `:infra:r2` configuration is constructed
-- **THEN** every R2 credential is read through `secretKey(env, name)` (no direct `System.getenv` of a secret name)
+#### Scenario: Credentials resolved via the SecretResolver bare slots
+- **WHEN** `Application.kt` constructs the `:infra:r2` configuration
+- **THEN** it builds the config with `R2Config.fromSecrets(secrets::resolve)`, which reads every R2 credential as `secrets.resolve(R2Config.SLOT_*)` with the unprefixed slot name the deploy binds; it is NOT composed via `secretKey(env, name)` and there is no direct `System.getenv` of a secret name
 
 ### Requirement: Object storage fails soft when unconfigured
 

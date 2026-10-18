@@ -56,7 +56,7 @@ The 16 cover (summary; for enforcement detail — Detekt rule names, allowlist r
 - Mobile strings via Compose Multiplatform Resources only
 - Partial indexes: no `NOW()` in `WHERE`
 - RLS changes: mandatory "JWT `sub` not in `public.users` → deny" test
-- Secrets via `secretKey(env, name)` helper only
+- Secrets: values via `SecretResolver.resolve(<bare slot>)` (deploy `--set-secrets` binds the env var), or via `application.conf` `${?ENV}` for the boot-critical DB / RSA / Supabase-JWT secrets; `secretKey(env, name)` only names the `staging-*` slot, never fed to `resolve()`
 - No vendor SDK import outside `:infra:*`
 
 **Two CLAUDE.md-only invariants (canonical here, not in project.md)** — they govern how we author *content*, not code, so they live with the AI-session entry-point file:

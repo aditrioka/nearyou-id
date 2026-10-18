@@ -484,8 +484,8 @@ fun Application.module() {
             allowedPrincipals = resolveInternalOidcAllowedPrincipals(environment.config),
             jwkProvider = googleJwkProvider(),
         )
-    val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource)
-    val privacyFlipWorker = PrivacyFlipWorker(dataSource)
+    val suspensionUnbanWorker = SuspensionUnbanWorker(dataSource, dbDispatchers.db)
+    val privacyFlipWorker = PrivacyFlipWorker(dataSource, dbDispatchers.db)
     // account-deletion-tombstone: user-facing request/cancel/status API + the daily
     // hard-delete worker (Cloud Scheduler → /internal/account-hard-delete-worker).
     val accountDeletionRepository = AccountDeletionRepository(dataSource, dbDispatchers.db)
@@ -510,16 +510,7 @@ fun Application.module() {
     // throughout the file below (moderation pipeline, FCM, chat-realtime, image delivery).
     val ktorEnv = environment.config.propertyOrNull("ktor.environment")?.getString() ?: "production"
     val objectStore: ObjectStore = objectStore(R2Config.fromSecrets(secrets::resolve))
-    val emailSender: EmailSender =
-        emailSender(
-            ResendConfig(
-                apiKey = secrets.resolve("resend-api-key").orEmpty(),
-                // Staging recipient guard (docs/10 §3.9): redirect ALL mail to Resend's
-                // always-delivered test inbox so a synthetic/stale staging user can't email a
-                // real address. Null in production → real recipient.
-                recipientOverride = if (ktorEnv == "staging") "delivered@resend.dev" else null,
-            ),
-        )
+    val emailSender: EmailSender = emailSender(ResendConfig.fromSecrets(secrets::resolve, ktorEnv))
     // Graceful-stop: release the R2 S3 client's HTTP engine + the Resend Ktor client's
     // connection pool on SIGTERM/deploy (mirrors the OTel `ApplicationStopped` hook above).
     // NoOp bindings have no `close()`, so the `as?` casts no-op for them.
@@ -878,7 +869,7 @@ fun Application.module() {
             }
         }
     val supabaseProbe: SupabaseRealtimeProbe = KtorSupabaseRealtimeProbe(httpClient, supabaseUrl)
-    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource)
+    val postgresProbe: PostgresProbe = JdbcPostgresProbe(dataSource, dbDispatchers.db)
 
     // Real Remote Config in staging/prod: the `search_enabled` kill switch +
     // `premium_*_cap_override` flags are now LIVE (StubRemoteConfig had stayed

@@ -50,7 +50,7 @@ import java.util.UUID
  * captured class.
  *
  * **Credential resolution.** The constructor takes the Supabase service role key directly;
- * the DI binding resolves it via `secretKey(env, "supabase-service-role-key")` per
+ * the DI binding resolves it via the bare-slot `secrets.resolve("supabase-service-role-key")` per
  * `chat-realtime-broadcast` spec § "Credential resolution via secretKey helper". The key
  * value is held in the `serviceRoleKey` field for the lifetime of this instance and is
  * NEVER logged. The defense-in-depth scenarios in the spec verify this.

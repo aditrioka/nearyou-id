@@ -20,6 +20,7 @@ data class DataExportWorkerResponse(
     val processed: Int,
     val ready: Int,
     val failed: Int,
+    val remaining: Int,
 )
 
 @Serializable
@@ -31,7 +32,8 @@ private data class DataExportWorkerError(val error: String)
  * NOT be installed on the shared `/internal` node, which would also capture the vendor-auth
  * Apple-S2S webhook). Never reachable by a user JWT.
  *
- * Success: `200 OK` `{"processed": N, "ready": N, "failed": N}`. On any thrown exception: `500`
+ * Success: `200 OK` `{"processed": N, "ready": N, "failed": N, "remaining": N}` (`remaining` = exports
+ * left `pending` by the per-run cap, picked up by the next run). On any thrown exception: `500`
  * with a sanitized `{"error": "<classification>"}`; the original exception is logged at WARN,
  * never leaked. (Per-request gather/upload/email failures are handled inside the worker as soft
  * `failed` and do NOT surface as a 500 — only an unexpected worker-level error does.)
@@ -60,10 +62,11 @@ fun Route.dataExportWorkerRoute(
                     return@post
                 }
             logger.info(
-                "event=data_export_worker_applied processed={} ready={} failed={} duration_ms={}",
+                "event=data_export_worker_applied processed={} ready={} failed={} remaining={} duration_ms={}",
                 result.processedCount,
                 result.readyCount,
                 result.failedCount,
+                result.remainingCount,
                 result.durationMs,
             )
             call.respond(
@@ -72,6 +75,7 @@ fun Route.dataExportWorkerRoute(
                     processed = result.processedCount,
                     ready = result.readyCount,
                     failed = result.failedCount,
+                    remaining = result.remainingCount,
                 ),
             )
         }

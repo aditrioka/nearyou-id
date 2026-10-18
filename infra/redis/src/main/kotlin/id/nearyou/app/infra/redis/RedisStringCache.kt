@@ -130,28 +130,3 @@ class NoOpRedisStringCache : RedisStringCache {
         ttl: Duration,
     ) = Unit
 }
-
-/**
- * Convenience factory mirroring [redisRateLimiterFromUrl] / [lettuceRedisProbeFromUrl] —
- * accepts a Redis URL, wires the OTel-instrumented Lettuce client, returns a cache.
- */
-fun lettuceRedisStringCacheFromUrl(
-    url: String,
-    tracingEnabled: Boolean = true,
-    openTelemetry: io.opentelemetry.api.OpenTelemetry? = null,
-): LettuceRedisStringCache {
-    val redisUri = io.lettuce.core.RedisURI.create(url)
-    val client =
-        if (tracingEnabled) {
-            val resources =
-                if (openTelemetry != null) {
-                    id.nearyou.app.infra.otel.OtelInstrumentation.lettuceClientResources(openTelemetry)
-                } else {
-                    id.nearyou.app.infra.otel.OtelInstrumentation.lettuceClientResources()
-                }
-            RedisClient.create(resources, redisUri)
-        } else {
-            RedisClient.create(redisUri)
-        }
-    return LettuceRedisStringCache(client)
-}

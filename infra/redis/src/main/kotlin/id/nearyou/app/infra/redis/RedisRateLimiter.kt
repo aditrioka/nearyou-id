@@ -280,8 +280,8 @@ class RedisRateLimiter(
     /**
      * Closes the underlying Lettuce connection if one was opened. Safe to call
      * multiple times. The underlying [RedisClient] is NOT shutdown here — the caller
-     * owns the client lifecycle (typically registered as a Koin singleton, shutdown
-     * at server stop).
+     * owns the client lifecycle (`Application.kt` builds the shared handles once per
+     * process via [redisHandlesFromUrl]; the client lives until the JVM exits).
      */
     override fun close() {
         synchronized(this) {
