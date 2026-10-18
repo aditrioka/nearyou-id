@@ -235,14 +235,17 @@ data object ConversationListRoute : NavKey
  * `GET /api/v1/chat/{id}/messages` + subscribe to the realtime channel) plus the partner's DISPLAY
  * identity for the thread top bar. It MUST NOT carry the partner's user UUID, message content, or any
  * coordinate — the back stack persists to disk on iOS (the same PII discipline [PostDetailRoute] /
- * [AgeGateRoute] follow). The display fields default to `""` so a back stack serialized before this
- * change still decodes on restore (an empty value renders the `chat_account_deleted` placeholder).
+ * [AgeGateRoute] follow). The display fields default to `""` / `false` so a back stack serialized before
+ * they existed still decodes on restore (an empty name renders the `chat_account_deleted` placeholder; a
+ * missing [partnerIsPremium] renders no header badge). [partnerIsPremium] is the display-only Premium badge
+ * flag every route-builder already holds (the list row, the profile, the push-tap partner lookup).
  */
 @Serializable
 data class ChatThreadRoute(
     val conversationId: String,
     val partnerUsername: String = "",
     val partnerDisplayName: String = "",
+    val partnerIsPremium: Boolean = false,
 ) : NavKey
 
 /**

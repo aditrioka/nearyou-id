@@ -123,12 +123,13 @@ fun appEntryProvider(
                 onOpenAppeal = { backStack.add(AppealRoute) },
                 // Notification chat_message deep-link (mobile-notifications-deep-link-targets): push the
                 // thread directly atop the shell (the VM resolved the partner identity via user-profile-read).
-                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName, partnerIsPremium ->
                     backStack.add(
                         ChatThreadRoute(
                             conversationId = conversationId,
                             partnerUsername = partnerUsername,
                             partnerDisplayName = partnerDisplayName,
+                            partnerIsPremium = partnerIsPremium,
                         ),
                     )
                 },
@@ -281,8 +282,8 @@ fun appEntryProvider(
                 targetUserId = route.userId,
                 onBack = { backStack.removeLastOrNull() },
                 onOpenFollowList = { followUserId, tab -> backStack.add(FollowListRoute(followUserId, tab)) },
-                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName ->
-                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
+                onOpenChatThread = { conversationId, partnerUsername, partnerDisplayName, partnerIsPremium ->
+                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName, partnerIsPremium))
                 },
             )
         }
@@ -308,6 +309,7 @@ fun appEntryProvider(
                             conversationId = row.conversationId,
                             partnerUsername = row.partnerUsername,
                             partnerDisplayName = row.partnerDisplayName,
+                            partnerIsPremium = row.partnerIsPremium,
                         ),
                     )
                 },
@@ -348,9 +350,9 @@ fun appEntryProvider(
             ConversationPickerScreen(
                 postId = route.postId,
                 onBack = { backStack.removeLastOrNull() },
-                onSelectConversation = { conversationId, partnerUsername, partnerDisplayName ->
+                onSelectConversation = { conversationId, partnerUsername, partnerDisplayName, partnerIsPremium ->
                     backStack.removeLastOrNull()
-                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName))
+                    backStack.add(ChatThreadRoute(conversationId, partnerUsername, partnerDisplayName, partnerIsPremium))
                 },
                 // cap-upsell-parity: a share is a chat send — the same 50/day cap dialog → CHAT_CAP.
                 onActivatePremium = { backStack.openPaywall(PaywallEntry.CHAT_CAP) },

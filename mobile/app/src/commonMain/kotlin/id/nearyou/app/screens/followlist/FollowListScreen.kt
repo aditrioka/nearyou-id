@@ -18,7 +18,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -44,6 +43,7 @@ import id.nearyou.app.followlist.FollowListFlow
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.followlist.FollowListUser
 import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.PremiumBadgeIcon
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.cta_close
 import id.nearyou.resources.generated.resources.cta_retry
@@ -53,14 +53,11 @@ import id.nearyou.resources.generated.resources.follow_list_load_more_failed
 import id.nearyou.resources.generated.resources.follow_list_tab_followers
 import id.nearyou.resources.generated.resources.follow_list_tab_following
 import id.nearyou.resources.generated.resources.follow_list_title
-import id.nearyou.resources.generated.resources.ic_premium_star
 import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.profile_not_found
-import id.nearyou.resources.generated.resources.profile_premium_badge_icon_description
 import id.nearyou.resources.generated.resources.signin_error_network
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import androidx.compose.material3.Tab as Material3Tab
@@ -254,14 +251,7 @@ private fun FollowListRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (user.isPremium) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_premium_star),
-                        contentDescription = stringResource(Res.string.profile_premium_badge_icon_description),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                if (user.isPremium) PremiumBadgeIcon()
             }
             Text(
                 text = stringResource(Res.string.post_card_handle, user.username),

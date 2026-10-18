@@ -31,6 +31,7 @@ sealed interface ChatShareResult {
         val conversationId: String,
         val partnerUsername: String,
         val partnerDisplayName: String,
+        val partnerIsPremium: Boolean = false,
     ) : ChatShareResult
 
     data object Blocked : ChatShareResult
@@ -114,6 +115,7 @@ class ConversationPickerViewModel(
                                 conversationId = row.conversationId,
                                 partnerUsername = row.partnerUsername,
                                 partnerDisplayName = row.partnerDisplayName,
+                                partnerIsPremium = row.partnerIsPremium,
                             )
                         SendOutcome.Blocked -> ChatShareResult.Blocked
                         is SendOutcome.RateLimited -> ChatShareResult.RateLimited(outcome.retryAfterSeconds)

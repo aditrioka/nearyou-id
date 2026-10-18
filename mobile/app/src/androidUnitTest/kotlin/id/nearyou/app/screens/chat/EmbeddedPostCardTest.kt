@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.theme.NearYouTheme
+import id.nearyou.app.ui.components.localDateLabel
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
 import org.koin.core.context.startKoin
@@ -87,6 +88,8 @@ class EmbeddedPostCardTest {
             }
             onNodeWithText("Raka Pratama").assertExists()
             onNodeWithText("@raka").assertExists()
+            // The shared post identity meta: "@handle · <post date>" (frame 5 `.meta`).
+            onNodeWithText(localDateLabel(snapshot.createdAt)).assertExists()
             onNodeWithText("halo dunia ini postingan").assertExists()
             onNodeWithText("Jakarta").assertExists()
             // Tapping a live card navigates (onTap fires).

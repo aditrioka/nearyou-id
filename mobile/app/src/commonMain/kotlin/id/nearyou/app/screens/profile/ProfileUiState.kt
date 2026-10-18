@@ -62,6 +62,7 @@ data class ProfileChatTarget(
     val conversationId: String,
     val partnerUsername: String,
     val partnerDisplayName: String,
+    val partnerIsPremium: Boolean = false,
 )
 
 /**

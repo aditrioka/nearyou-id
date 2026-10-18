@@ -85,6 +85,7 @@ sealed interface NotificationNavTarget {
         val conversationId: String,
         val partnerUsername: String,
         val partnerDisplayName: String,
+        val partnerIsPremium: Boolean = false,
     ) : NotificationNavTarget
 
     /** The appeal screen (`AppealRoute`) — no payload. */
@@ -119,18 +120,21 @@ class NotificationNavTargetResolver(
                         Resolution.Target(NotificationNavTarget.Post(res.toPostDetailTarget()))
                     PostTargetResolution.Unavailable -> Resolution.PostUnavailable
                 }
-            is NotificationNavIntent.OpenChat -> {
-                val (username, displayName) =
+            is NotificationNavIntent.OpenChat ->
+                Resolution.Target(
                     when (val partner = flow.resolvePartner(intent.actorUserId)) {
-                        is PartnerResolution.Resolved -> partner.username to partner.displayName
+                        is PartnerResolution.Resolved ->
+                            NotificationNavTarget.ChatThread(
+                                intent.conversationId,
+                                partner.username,
+                                partner.displayName,
+                                partner.isPremium,
+                            )
                         // A failed partner lookup does NOT block the (valid) conversation — open
                         // the thread with blank partner fields (top bar degrades to placeholder).
-                        PartnerResolution.Unavailable -> "" to ""
-                    }
-                Resolution.Target(
-                    NotificationNavTarget.ChatThread(intent.conversationId, username, displayName),
+                        PartnerResolution.Unavailable -> NotificationNavTarget.ChatThread(intent.conversationId, "", "")
+                    },
                 )
-            }
             NotificationNavIntent.None -> Resolution.None
         }
 }

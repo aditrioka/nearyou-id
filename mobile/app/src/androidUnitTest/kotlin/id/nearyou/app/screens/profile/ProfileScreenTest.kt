@@ -275,7 +275,7 @@ class ProfileScreenTest {
     // profile-send-message — the other-user "Kirim pesan" action.
 
     @Composable
-    private fun OtherProfileWithChat(onOpenChatThread: (String, String, String) -> Unit = { _, _, _ -> }) {
+    private fun OtherProfileWithChat(onOpenChatThread: (String, String, String, Boolean) -> Unit = { _, _, _, _ -> }) {
         KoinContext { NearYouTheme { ProfileScreen(targetUserId = "u1", onBack = {}, onOpenChatThread = onOpenChatThread) } }
     }
 
@@ -293,13 +293,16 @@ class ProfileScreenTest {
     fun sendMessage_ready_emitsOnOpenChatThreadWithTheProfileDisplayIdentity_andClearsTheOneShot() =
         runComposeUiTest {
             val chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Ready("c1"))
-            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1")), chat = chat)
-            val opened = mutableListOf<Triple<String, String, String>>()
-            setContent { OtherProfileWithChat(onOpenChatThread = { id, username, name -> opened += Triple(id, username, name) }) }
+            // A Premium partner: the flag rides along so the thread header can show the badge (#286).
+            installKoin(ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile("u1", isPremium = true)), chat = chat)
+            val opened = mutableListOf<List<Any>>()
+            setContent {
+                OtherProfileWithChat(onOpenChatThread = { id, username, name, premium -> opened += listOf(id, username, name, premium) })
+            }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SEND_MESSAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) { opened.isNotEmpty() }
-            assertEquals(listOf(Triple("c1", "raka.jkt", "Raka Pratama")), opened)
+            assertEquals(listOf(listOf<Any>("c1", "raka.jkt", "Raka Pratama", true)), opened)
             // The endpoint returns the SAME conversation id again: a second emission is only possible if the
             // screen cleared the one-shot (onChatOpened) after the first — an uncleared equal value never re-keys.
             waitForIdle()
@@ -316,7 +319,7 @@ class ProfileScreenTest {
                 chat = FakeChatFlow(createOutcome = CreateConversationOutcome.Blocked),
             )
             var opened = 0
-            setContent { OtherProfileWithChat(onOpenChatThread = { _, _, _ -> opened++ }) }
+            setContent { OtherProfileWithChat(onOpenChatThread = { _, _, _, _ -> opened++ }) }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(PROFILE_SEND_MESSAGE_TAG).fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag(PROFILE_SEND_MESSAGE_TAG).performClick()
             waitUntil(timeoutMillis = 5_000) {

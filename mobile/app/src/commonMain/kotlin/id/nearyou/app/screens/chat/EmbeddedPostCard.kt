@@ -1,18 +1,25 @@
 package id.nearyou.app.screens.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
+import id.nearyou.app.ui.components.LetterAvatar
+import id.nearyou.app.ui.components.PostIdentityText
+import id.nearyou.app.ui.components.PostLocationMeta
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.chat_shared_post_deleted
 import id.nearyou.resources.generated.resources.chat_shared_post_edited_banner
@@ -33,6 +40,10 @@ const val EMBEDDED_POST_EDITED_BANNER_TAG: String = "embeddedPostEditedBanner"
  * immutable [snapshot] alone — never a live re-fetch (design D1). It shows the author handle +
  * display name, the post content, and the `cityName` label — NEVER a coordinate (the snapshot
  * carries none; the spatial-fuzzing invariant holds by construction).
+ *
+ * Frame 5 draws it as the compact read-only post card ("reuse kartu post timeline"): the author [LetterAvatar] +
+ * the shared [PostIdentityText] (bold name over `@handle · <post date>`), the content clamped to two lines, then the
+ * shared [PostLocationMeta] pin + city (a tap opens the full post).
  *
  * Two non-default states:
  *  - [isDeleted] (the source post was hard-deleted → `embeddedPostId` is null but the snapshot
@@ -58,7 +69,7 @@ fun EmbeddedPostCard(
             .testTag(EMBEDDED_POST_CARD_TAG)
             .then(if (isDeleted) Modifier else Modifier.clickable(onClick = onTap))
     OutlinedCard(modifier = cardModifier) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Text(
                 text = stringResource(Res.string.chat_shared_post_label),
                 style = MaterialTheme.typography.labelSmall,
@@ -72,30 +83,38 @@ fun EmbeddedPostCard(
                     modifier = Modifier.padding(top = 4.dp).testTag(EMBEDDED_POST_DELETED_TAG),
                 )
             } else {
-                Text(
-                    text = snapshot.authorDisplayName,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
-                    text = "@${snapshot.authorUsername}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    LetterAvatar(
+                        displayName = snapshot.authorDisplayName,
+                        username = snapshot.authorUsername,
+                        modifier = Modifier.size(32.dp),
+                    )
+                    // Frame 5 `.meta`: the shared post identity ("@handle · <post date>", the PostCard meta row).
+                    PostIdentityText(
+                        displayName = snapshot.authorDisplayName,
+                        username = snapshot.authorUsername,
+                        createdAtIso = snapshot.createdAt,
+                    )
+                }
                 Text(
                     text = snapshot.content,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp),
                 )
-                if (snapshot.cityName.isNotBlank()) {
-                    Text(
-                        text = snapshot.cityName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
+                // The snapshot carries no coordinate, so the shared meta row shows the city only.
+                PostLocationMeta(
+                    cityName = snapshot.cityName,
+                    distanceM = null,
+                    modifier = Modifier.padding(top = 6.dp),
+                    pinSize = 14.dp,
+                )
                 if (editedSinceShared) {
                     Text(
                         text = stringResource(Res.string.chat_shared_post_edited_banner),
