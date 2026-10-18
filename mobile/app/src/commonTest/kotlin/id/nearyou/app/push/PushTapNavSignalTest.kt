@@ -1,5 +1,10 @@
 package id.nearyou.app.push
 
+import id.nearyou.app.screens.notifications.NotificationNavTarget
+import id.nearyou.app.screens.routing.AppealRoute
+import id.nearyou.app.screens.routing.ChatThreadRoute
+import id.nearyou.app.screens.routing.ProfileRoute
+import id.nearyou.app.screens.routing.toNavKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -49,6 +54,18 @@ class PushTapNavSignalTest {
         assertEquals(newer, signal.pending.value, "a stale consume must leave the newer tap pending")
         signal.consume(newer)
         assertNull(signal.pending.value)
+    }
+
+    // The route a resolved push-tap target pushes: a chat target keeps the partner's display identity AND the
+    // Premium flag (the thread header badge, #286); the profile and appeal targets map to their shipped routes.
+    @Test
+    fun resolvedTargets_pushTheirRootStackRoutes_andAChatTargetKeepsThePremiumFlag() {
+        assertEquals(
+            ChatThreadRoute("conv-1", "budi", "Budi", partnerIsPremium = true),
+            NotificationNavTarget.ChatThread("conv-1", "budi", "Budi", partnerIsPremium = true).toNavKey(),
+        )
+        assertEquals(ProfileRoute(userId = "u-1"), NotificationNavTarget.Profile("u-1").toNavKey())
+        assertEquals(AppealRoute, NotificationNavTarget.Appeal.toNavKey())
     }
 
     @Test

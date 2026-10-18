@@ -83,6 +83,10 @@ class AdminPostEditsRouteTest : StringSpec({
             body shouldContain "<nav>"
             // viewer → Report Queue back-link (the report→edit-history triage loop).
             body shouldContain "href=\"/admin/reports\""
+            // edited_at in the panel's minute-precision UTC stamp (frame 8), never an ISO instant
+            body shouldContain "2026-06-10 19:58 UTC"
+            body shouldContain "2026-06-10 20:12 UTC"
+            Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}""").containsMatchIn(body) shouldBe false
         }
     }
 

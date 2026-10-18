@@ -27,6 +27,8 @@ data class DataExportRunResult(
     val processedCount: Int,
     val readyCount: Int,
     val failedCount: Int,
+    /** Snapshot rows left `pending` by the per-run cap ([DataExportWorker.MAX_EXPORTS_PER_RUN]); the next run takes them. */
+    val remainingCount: Int,
     val durationMs: Long,
 )
 
@@ -59,7 +61,7 @@ fun interface DataExportSingleProcessor {
  * Worker (Cloud-Scheduler-invoked via `/internal/data-export-worker`) that packages and
  * delivers pending data exports (capability `account-data-export`, Phase 7).
  *
- * For each `pending` request:
+ * For each `pending` request (oldest first, at most [MAX_EXPORTS_PER_RUN] per run):
  *  1. Claim it optimistically (`status='pending' → 'processing'`, affected-rows guard) so
  *     concurrent invocations never double-process.
  *  2. Gather the requester's own data (scope matrix) → serialize to a ZIP.
@@ -91,8 +93,14 @@ class DataExportWorker(
         var processed = 0
         var ready = 0
         var failed = 0
+        var examined = 0
         for (requestId in pending) {
-            // The batch run drains its pending snapshot through the SAME
+            // Per-run cap: the oldest MAX_EXPORTS_PER_RUN exports are processed; the rest stay
+            // `pending` for the next hourly run (inside the 7-day SLA) and are reported as
+            // `remainingCount`, so a growing backlog is visible rather than silently truncated.
+            if (processed >= MAX_EXPORTS_PER_RUN) break
+            examined++
+            // The batch run processes its pending snapshot through the SAME
             // single-request seam the admin trigger uses (one export path).
             when (processSingle(requestId)) {
                 DataExportProcessOutcome.READY -> {
@@ -110,6 +118,7 @@ class DataExportWorker(
             processedCount = processed,
             readyCount = ready,
             failedCount = failed,
+            remainingCount = pending.size - examined,
             durationMs = (System.nanoTime() - startNanos) / 1_000_000L,
         )
     }
@@ -234,6 +243,15 @@ class DataExportWorker(
     )
 
     companion object {
+        /**
+         * Max exports one batch run processes (READY + FAILED; claim-race SKIPs don't count).
+         * Each export is a gather + ZIP + upload + email, run sequentially under Cloud Run's 60s
+         * request timeout; the hourly schedule clears 120/day, far inside the 7-day SLA.
+         * This bounds the COUNT, not wall time: slow or retrying R2/Resend calls can still push
+         * a run past 60s (a `504`); the claims are idempotent, so the next run continues.
+         */
+        const val MAX_EXPORTS_PER_RUN: Int = 5
+
         /** `SHA256(userId + 'data_export_ready' + timestamp_minute)` — the canonical idempotency key (docs/04 §210). */
         fun idempotencyKey(
             userId: UUID,

@@ -77,6 +77,9 @@ class AdminRejectedIdentifiersRouteTest : StringSpec({
             body shouldContain "age_under_18"
             body shouldContain "<header>" // full page extends layout
             body shouldContain "<nav>" // frame-2 shell (no footer — admin-mockup-parity)
+            // rejected_at in the panel's minute-precision UTC stamp, never an ISO instant
+            body shouldContain "2026-05-20 00:00 UTC"
+            Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}""").containsMatchIn(body) shouldBe false
         }
     }
 

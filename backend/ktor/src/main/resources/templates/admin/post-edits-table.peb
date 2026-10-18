@@ -32,7 +32,7 @@
     <table class="tbl">
         <thead>
             <tr>
-                <th style="width:96px;">Versi</th>
+                <th class="col-version">Versi</th>
                 <th>Edited at (UTC)</th>
                 <th>Author</th>
                 <th>Body snapshot</th>

@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -34,7 +35,6 @@ import org.slf4j.LoggerFactory
 import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -278,7 +278,7 @@ private fun CsamArchiveRow.toViewMap(): Map<String, Any> =
         put("imageHashShort", imageHash.take(HASH_DISPLAY_LEN))
         put("source", source)
         put("isCfWorker", source == "cf_worker")
-        put("detectedAt", TS_FORMAT.format(createdAt))
+        put("detectedAt", ADMIN_TS_FORMAT.format(createdAt))
         put("kominfoFiled", kominfoReportedAt != null)
         kominfoReportId?.let { put("kominfoReportId", it) }
         put("hasMetadata", hasMetadata)
@@ -471,9 +471,6 @@ private const val SOURCE_MAX = 32
 // The Cloudflare CSAM review/unblock console base (design D8 — link-out only; CF owns
 // the unblock decision). The cf_match_id is appended as the opaque CF match reference.
 private const val CF_REVIEW_BASE = "https://dash.cloudflare.com/?to=/:account/images/csam-review/"
-
-private val TS_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // User-facing informational messages (admin panel is English-only).
 private const val MSG_INVALID_ID = "Invalid archive-row id."

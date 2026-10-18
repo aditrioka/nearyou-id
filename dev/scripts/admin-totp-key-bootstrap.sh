@@ -9,7 +9,8 @@
 #   - The Admin #3 login flow decrypts admin_users.totp_secret_encrypted via
 #     AES-256-GCM with a key sourced from the env-namespaced slot
 #     `admin-totp-secret-aes-key` (staging: `staging-admin-totp-secret-aes-key`)
-#     through the secretKey(env, name) helper.
+#     resolved as the bare slot by SecretResolver (the deploy binds the
+#     namespaced slot to the env var via --set-secrets).
 #   - Like the admin_app DB role (provision-admin-app-staging.sh), the key
 #     slot is OPERATIONAL — it lives in Secret Manager, not in Flyway or app
 #     config. This script is the idempotent provisioning counterpart.

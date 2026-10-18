@@ -195,7 +195,7 @@ The `RedisProbe` interface enables `:backend:ktor` to consume Redis liveness wit
 
 ### Requirement: `LettuceRedisProbe` implementation in `:infra:redis`
 
-The `:infra:redis` module SHALL provide a `LettuceRedisProbe` class implementing `RedisProbe`. The implementation MUST use the existing Lettuce `RedisClient` Koin singleton (no new connection per probe) and issue `PING` via the sync command surface with the supplied timeout enforced through `withTimeoutOrNull(timeout)` (Kotlin coroutine timeout) wrapping the Lettuce call dispatched on `Dispatchers.IO`.
+The `:infra:redis` module SHALL provide a `LettuceRedisProbe` class implementing `RedisProbe`. The implementation MUST use the shared Lettuce `RedisClient` built by the `:infra:redis` factory (`redisHandlesFromUrl`, the same client behind the rate limiter and string cache; no new connection per probe) and issue `PING` via the sync command surface with the supplied timeout enforced through `withTimeoutOrNull(timeout)` (Kotlin coroutine timeout) wrapping the Lettuce call dispatched on `Dispatchers.IO`.
 
 Error vocabulary mapping:
 - `withTimeoutOrNull` returns null → `ProbeResult(ok = false, latencyMs = elapsedMs, error = "timeout")`.
@@ -204,7 +204,7 @@ Error vocabulary mapping:
 - `SSLHandshakeException` / `SSLException` (e.g., Upstash TLS misconfiguration) → `error = "tls_failure"`.
 - Any other throwable → `error = "unknown"` (the original exception is logged at WARN with full context for operator debugging).
 
-The probe MUST NOT eagerly create a new connection — it reuses the connection lazily established by the existing Koin module (per the lazy-connect fix shipped in PR [#44](https://github.com/aditrioka/nearyou-id/pull/44)).
+The probe MUST NOT eagerly create a new connection — it reuses the connection lazily established on that shared client (per the lazy-connect fix shipped in PR [#44](https://github.com/aditrioka/nearyou-id/pull/44)).
 
 #### Scenario: PING success
 - **WHEN** Redis is reachable and `LettuceRedisProbe.ping(Duration.ofMillis(200))` is invoked
@@ -214,9 +214,9 @@ The probe MUST NOT eagerly create a new connection — it reuses the connection 
 - **WHEN** Redis is unreachable AND `LettuceRedisProbe.ping(Duration.ofMillis(200))` is invoked
 - **THEN** the result is `ProbeResult(ok = false, latencyMs = >= 200, error = "timeout")`
 
-#### Scenario: Reuses connection from Koin singleton
+#### Scenario: Reuses the shared client's connection
 - **WHEN** `LettuceRedisProbe.ping(...)` is invoked twice in succession
-- **THEN** Lettuce does NOT open a new TCP connection for the second invocation (verified by Lettuce client metrics OR by inspecting the singleton lifecycle)
+- **THEN** Lettuce does NOT open a new TCP connection for the second invocation (verified by Lettuce client metrics OR by inspecting the shared `RedisClient` built by `redisHandlesFromUrl`)
 
 ### Requirement: `SupabaseRealtimeProbe` interface and Ktor implementation
 

@@ -75,12 +75,18 @@ open class JwksCache(
     private var lastRefreshAt: Instant = Instant.EPOCH
 
     open suspend fun keyFor(kid: String): RSAPublicKey? {
+        // Snapshot BEFORE reading the cache (#567) so the cooldown gate and forceRefresh()'s
+        // single-flight check judge the refresh this caller's entry came from. A later snapshot
+        // let a peer's fetch land in between: the caller re-fetched upstream, or returned null
+        // for a kid the peer's fresh document holds. Safe because fetchLocked() publishes the
+        // entry before bumping lastRefreshAt.
+        val observedRefreshAt = lastRefreshAt
         val entry = current() ?: refresh()
         entry.keys[kid]?.let { return it }
         // Unknown kid: only force an upstream re-fetch if the cache is older than
         // the cooldown — a bogus-kid flood otherwise amplifies into upstream load.
-        if (Duration.between(lastRefreshAt, clock.instant()) < FORCED_REFRESH_COOLDOWN) return null
-        return forceRefresh().keys[kid]
+        if (Duration.between(observedRefreshAt, clock.instant()) < FORCED_REFRESH_COOLDOWN) return null
+        return forceRefresh(observedRefreshAt).keys[kid]
     }
 
     open suspend fun availableKids(): Set<String> = (current() ?: refresh()).keys.keys
@@ -104,13 +110,12 @@ open class JwksCache(
      * path would hand back the still-valid STALE document without fetching — after a mid-TTL
      * provider key rotation that 401s every new-kid sign-in until `max-age` expiry (Google
      * serves multi-hour max-age). Single-flight collapse is preserved differently here: a
-     * caller that waited on the lock while a peer completed a fetch observes the bumped
-     * [lastRefreshAt] and reuses the peer's fresh document instead of re-fetching. The
-     * [FORCED_REFRESH_COOLDOWN] gate in [keyFor] still bounds a bogus-kid flood to one
-     * upstream fetch per cooldown window.
+     * caller whose [observedRefreshAt] (snapshotted by [keyFor] before it read the cache) no
+     * longer matches [lastRefreshAt] under the lock lost the race to a peer's fetch, and reuses
+     * the peer's fresh document instead of re-fetching. The [FORCED_REFRESH_COOLDOWN] gate in
+     * [keyFor] still bounds a bogus-kid flood to one upstream fetch per cooldown window.
      */
-    private suspend fun forceRefresh(): JwksCacheEntry {
-        val observedRefreshAt = lastRefreshAt
+    private suspend fun forceRefresh(observedRefreshAt: Instant): JwksCacheEntry {
         refreshMutex.withLock {
             if (lastRefreshAt != observedRefreshAt) {
                 cached.get()?.let { return it }

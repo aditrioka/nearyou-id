@@ -32,10 +32,10 @@ import kotlin.test.assertTrue
 class ConversationPickerViewModelTest {
     private val postId = "99999999-9999-9999-9999-999999999999"
 
-    private fun row() =
+    private fun row(isPremium: Boolean = false) =
         ConversationListItemDto(
             conversation = ConversationDto(id = "conv-1", createdAt = "2026-06-01T09:00:00Z", lastMessageAt = null),
-            partner = PartnerProfileDto(id = "ignored", username = "raka", displayName = "Raka", isPremium = false),
+            partner = PartnerProfileDto(id = "ignored", username = "raka", displayName = "Raka", isPremium = isPremium),
         )
 
     // Constructs the VM AND activates its `stateIn(WhileSubscribed)` uiState by collecting it in the
@@ -84,7 +84,7 @@ class ConversationPickerViewModelTest {
     @Test
     fun pickSendsEmbedAndNavigates() =
         test {
-            val convs = FakeConversationsFlow(outcome = ConversationListOutcome.Loaded(listOf(row()), null))
+            val convs = FakeConversationsFlow(outcome = ConversationListOutcome.Loaded(listOf(row(isPremium = true)), null))
             val chat =
                 FakeChatFlow(
                     sendOutcome =
@@ -108,6 +108,7 @@ class ConversationPickerViewModelTest {
             assertTrue(result is ChatShareResult.Navigate)
             assertEquals("conv-1", result.conversationId)
             assertEquals("Raka", result.partnerDisplayName)
+            assertEquals(true, result.partnerIsPremium, "the Premium flag rides to the thread header badge")
             viewModel.tearDown()
         }
 

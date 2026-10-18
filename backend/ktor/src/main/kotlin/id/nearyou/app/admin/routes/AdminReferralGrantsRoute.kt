@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -25,7 +26,6 @@ import io.ktor.server.routing.post
 import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -201,7 +201,7 @@ private fun ReferralGrantUserContext.toViewMap(): Map<String, Any> =
         put("id", id.toString())
         put("username", username)
         put("subscriptionStatus", subscriptionStatus)
-        put("entitlementEnd", entitlementEnd?.let { TS_FORMAT.format(it) } ?: "")
+        put("entitlementEnd", entitlementEnd?.let { ADMIN_TS_FORMAT.format(it) } ?: "")
         put("grantsAsInvitee", referralGrantsAsInvitee)
         put("grantsAsInviter", referralGrantsAsInviter)
         put("deleted", deleted)
@@ -209,7 +209,7 @@ private fun ReferralGrantUserContext.toViewMap(): Map<String, Any> =
 
 private fun GrantRow.toViewMap(): Map<String, Any> =
     buildMap {
-        put("createdAt", TS_FORMAT.format(createdAt))
+        put("createdAt", ADMIN_TS_FORMAT.format(createdAt))
         put("grantee", granteeUsername ?: "(deleted · $granteeId)")
         put("reason", reason ?: "")
         put("adminName", adminName)
@@ -226,9 +226,6 @@ private const val FRAGMENT_TEMPLATE = "referral-grants-content.peb"
 private const val Q_MAX = 100
 private const val REASON_MAX = 200
 private const val DAY_SECONDS = 86_400L
-
-private val TS_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // User-facing informational messages (admin panel is English-only).
 private const val MSG_INVALID_ID = "Invalid user id."

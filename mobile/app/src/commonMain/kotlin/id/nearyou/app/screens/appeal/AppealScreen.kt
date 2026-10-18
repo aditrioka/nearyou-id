@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,9 +74,10 @@ const val APPEAL_RESIGNIN_TAG: String = "appealReSignIn"
  * the signed-in session), loads the caller's own appeal status on entry, and gates the submit.
  * Navigation-free: back invokes [onBack]; an approval read on the banned path offers [onReSignIn] (re-sign-in
  * picks up the lifted ban). The session-redirect state (a `401`, or neither an appeal token nor a stored
- * session) renders a redirect placeholder with no action — an invalidated session is re-routed app-wide by
- * `SessionExpiryEffect`; the banned-path dead-end is tracked in #581. An approval read through the session
- * renders no re-sign-in action — the user is already signed in. All copy via
+ * session) renders a redirect placeholder and routes back to sign-in via [onReSignIn] — except a `401` on
+ * the signed-in session read, where the session is invalidated and `SessionExpiryEffect` re-routes app-wide
+ * (#581). An approval read
+ * through the session renders no re-sign-in action — the user is already signed in. All copy via
  * `stringResource`; renders under `NearYouTheme`.
  */
 @Composable
@@ -87,6 +89,13 @@ fun AppealScreen(
     val session = koinInject<AppealSession>()
     val viewModel = viewModel { AppealViewModel(flow, session) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Navigate from an effect, never during composition. Keyed on the status: re-firing (e.g. after a
+    // rotation) repeats an idempotent replaceAll, so no consume callback is needed.
+    val currentStatus = uiState.status
+    LaunchedEffect(currentStatus) {
+        if (currentStatus is AppealStatus.SessionRedirect && !currentStatus.viaSession) onReSignIn()
+    }
 
     Scaffold(topBar = { AppealTopBar(onBack = onBack) }) { padding ->
         // consumeWindowInsets: the form's imePadding then lifts by the IME minus the nav bar already padded here.
@@ -110,8 +119,14 @@ fun AppealScreen(
                         body = stringResource(Res.string.appeal_pending_body),
                     )
                 is AppealStatus.Decided ->
-                    DecidedSurface(status = status, onReSignIn = onReSignIn)
-                AppealStatus.SessionRedirect ->
+                    DecidedSurface(
+                        status = status,
+                        onReSignIn = {
+                            viewModel.onApprovedReSignIn()
+                            onReSignIn()
+                        },
+                    )
+                is AppealStatus.SessionRedirect ->
                     CenteredMessageWithAction(
                         message = stringResource(Res.string.timeline_session_redirect),
                         actionLabel = null,

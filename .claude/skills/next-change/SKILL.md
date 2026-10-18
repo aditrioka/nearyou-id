@@ -153,13 +153,15 @@ EOF
 
 qodo never auto-fires (Manual mode); no `/review` is posted in the proposal phase, so qodo stays silent through all iteration. Sub-agent-only.
 
-**D.1 — Spawn sub-agent review.** Triage: **trivial** (≤1 `### Requirement:` ADDED, no schema migration, no new algorithm, no security surface) → ONE general-lens sub-agent. **Non-trivial** (anything else, or when uncertain) → FOUR parallel lens sub-agents (one message, multiple Agent calls), each with PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + structured-report-under-600-words grouped by severity:
+**D.1 — Spawn sub-agent review.** Lens count per `openspec/project.md` § Review channels (calibrated 2026-10-12, BARU-18 / #541). **FOUR lenses** only when the proposal adds a Flyway migration OR touches a security invariant: any of the 16 critical invariants, or an auth / RLS / rate-limit / secret / encryption / attestation / moderation path. When unsure, treat it as touched. **ONE general-lens** sub-agent for every other proposal. **Hard cap: at most 2 review sub-agents in flight at once.** A four-lens review runs as two waves of two: general + security-and-invariant, then OpenSpec format-and-correctness + test-coverage. Six parallel agents hit the account session limit twice (PR #505). Each sub-agent gets the PR URL + change name + "read CLAUDE.md § Reviewing a PR before reviewing" + a structured report under 600 words, grouped by severity:
 - **general** — overall design coherence, scope creep, missing docs, dependency-order sanity, **standards conformance: undeclared deviations from `docs/11-Engineering-Standards.md` (Pattern Registry) are blocking findings**, **and cross-layer cohesion ([`docs/12-Integration-Contracts.md`](../../../docs/12-Integration-Contracts.md)): an undeclared single-layer slice of a user-facing capability — a backend with no client/admin surface, or a wire field not threaded to every read-path — is a blocking finding unless the deferred layer is declared as a docs/12 §3 requirement**.
 - **security-and-invariant** — CLAUDE.md critical-invariants list, allowlist gaps, RLS, rate-limit math, secret reads, block/shadow-ban joins.
 - **OpenSpec format-and-correctness** — `### Requirement:` headers, ADDED/MODIFIED/REMOVED deltas, `#### Scenario:` WHEN/THEN coverage, `tasks.md` checkbox format, `--strict` surface.
 - **test-coverage** — missing scenarios, untested edge cases, integration-test surface.
 
 Each lens catches what others miss (PR [#37](https://github.com/aditrioka/nearyou-id/pull/37) round 1: security caught 5 hardening items the general lens didn't; test-coverage caught 3 missing-scenario bugs the security lens didn't).
+
+Once the round settles, record `Review findings applied: <applied>/<total> (blocking <a>/<b>) — lenses: <list>` in the PR body (§ Review channels), and refresh it at each later phase boundary.
 
 **Round 2 regression scan (optional, after round-1 fixes pushed)** — ONE sub-agent: "did the round-1 fixes introduce orphan refs or break previously-correct scenarios?" (PR #37 round 2 surfaced 6 stale refs the round-1 sweep missed.)
 

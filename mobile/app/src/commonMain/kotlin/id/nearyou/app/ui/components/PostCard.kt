@@ -30,22 +30,17 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import id.nearyou.distance.DistanceRenderer
 import id.nearyou.resources.generated.resources.Res
 import id.nearyou.resources.generated.resources.ic_more_vert
 import id.nearyou.resources.generated.resources.ic_post_like
 import id.nearyou.resources.generated.resources.ic_post_like_filled
-import id.nearyou.resources.generated.resources.ic_post_location
 import id.nearyou.resources.generated.resources.ic_post_reply
 import id.nearyou.resources.generated.resources.post_card_action_like
 import id.nearyou.resources.generated.resources.post_card_action_reply
-import id.nearyou.resources.generated.resources.post_card_handle
 import id.nearyou.resources.generated.resources.post_card_like_state_liked
 import id.nearyou.resources.generated.resources.post_card_like_state_not_liked
-import id.nearyou.resources.generated.resources.post_card_meta_separator
 import id.nearyou.resources.generated.resources.post_image_alt
 import id.nearyou.resources.generated.resources.profile_actions_menu_description
 import id.nearyou.resources.generated.resources.profile_block_action
@@ -187,7 +182,12 @@ fun PostCard(
                         username = model.authorUsername,
                         modifier = Modifier.testTag(POST_CARD_AVATAR_TAG),
                     )
-                    IdentityText(model)
+                    PostIdentityText(
+                        displayName = model.authorDisplayName,
+                        username = model.authorUsername,
+                        createdAtIso = model.createdAt,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 // Rendered ONLY when the host supplies at least one kebab action (non-authored feed
                 // posts) — a kebab with zero eligible items would be a dead control (no icon node, no
@@ -220,41 +220,11 @@ fun PostCard(
                             .testTag(POST_CARD_IMAGE_TAG),
                 )
             }
-            if (model.cityName.isNotEmpty() || model.distanceM != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_post_location),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.locationPin,
-                        modifier = Modifier.size(16.dp).testTag(POST_CARD_PIN_TAG),
-                    )
-                    if (model.cityName.isNotEmpty()) {
-                        Text(
-                            text = model.cityName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (model.cityName.isNotEmpty() && model.distanceM != null) {
-                        Text(
-                            text = stringResource(Res.string.post_card_meta_separator),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (model.distanceM != null) {
-                        Text(
-                            text = DistanceRenderer.render(model.distanceM),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            PostLocationMeta(
+                cityName = model.cityName,
+                distanceM = model.distanceM,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
             // The action row per mockup frame 1 (mobile-inline-post-actions): reply affordance FIRST
             // (icon + count, ONE tappable unit), then the like affordance. The mockup's middle `send`
             // action is deliberately ABSENT (chat isn't built — the deferred requirement is the chat
@@ -344,51 +314,6 @@ fun PostCard(
                     )
                 }
             }
-        }
-    }
-}
-
-/** The identity header's text block: bold display name over the @handle · date meta line. */
-@Composable
-private fun IdentityText(model: PostCardModel) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = model.authorDisplayName,
-            // Mockup frames 1/19: the display name is BOLD (700) — titleSmall's M3
-            // default weight (500) reads too light next to the handle line.
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(Res.string.post_card_handle, model.authorUsername),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                // fill = false: a long handle ellipsizes instead of pushing the
-                // separator + time label out of the header (maximal-length scenario).
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Text(
-                text = stringResource(Res.string.post_card_meta_separator),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                // The post date (ISO date portion); relative formatting is the
-                // deferred mobile-timeline-relative-timestamp change.
-                text = localDateLabel(model.createdAt),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
         }
     }
 }

@@ -53,7 +53,8 @@ interface ModerationListLoader {
  * supersedes any earlier WARNs in the cascade.
  *
  * The `secretResolver.resolve("content-moderation-fallback-list")` call is the bare
- * slot name (the resolver handles env-prefix derivation); a `secretKey(env, "content-moderation-fallback-list")`
+ * slot name (the deploy binds the env-namespaced slot to the env var; the resolver does no prefixing);
+ * a `secretKey(env, "content-moderation-fallback-list")`
  * computation is preserved for the diagnostic log emitted on Tier 4 failure (mirrors the
  * `Application.kt:386` precedent for `firebase-admin-sa`).
  */
@@ -267,8 +268,9 @@ class CachingModerationListLoader(
     private enum class SmOutcomeKind { Success, MissingOrParseError }
 
     private fun readSecretManager(list: ModerationList): SmOutcome {
-        // Bare slot name; the SecretResolver handles env-prefix internally per the
-        // Application.kt:388 precedent ('secrets.resolve("firebase-admin-sa")').
+        // Bare slot name; the deploy binds the env-namespaced slot to the env var (no
+        // in-process prefixing), per the Application.kt precedent
+        // ('secrets.resolve("firebase-admin-sa")').
         val raw = secretResolver.resolve(SECRET_SLOT_NAME)
         if (raw.isNullOrBlank()) {
             return SmOutcome.failure("missing")

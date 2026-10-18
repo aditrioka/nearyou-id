@@ -3,6 +3,7 @@
 {% block title %}Post edit history — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>Post detail — edit history <span class="st neut">READ-ONLY</span></h2>
 
 {% if found %}
@@ -16,9 +17,9 @@
    snapshots, newest-first ("Versi terbaru" on top, "Versi ke-N" descending).
    Content-moderation actions stay in the Report Queue — there is no action
    control of any kind on this surface (design Non-Goals). #}
-<div class="banner info">
-    Read-only — versi disusun dari live post + snapshot <code>post_edits</code> (terbaru di atas).
-    Aksi moderasi konten tetap lewat <a href="/admin/reports">Report Queue</a>.
+<div class="banner info">{{ icon("info") }}
+    <span>Read-only — versi disusun dari live post + snapshot <code>post_edits</code> (terbaru di atas).
+    Aksi moderasi konten tetap lewat <a href="/admin/reports">Report Queue</a>.</span>
 </div>
 {% else %}
 <p class="pg-sub">Tautan balik ke <a href="/admin/reports">Report Queue</a>.</p>

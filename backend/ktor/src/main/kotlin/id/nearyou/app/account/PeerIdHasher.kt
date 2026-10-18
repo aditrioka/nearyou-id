@@ -14,8 +14,8 @@ import javax.crypto.spec.SecretKeySpec
  * colluding users confirm a shared counterparty; the keyed HMAC makes peer
  * references non-reversible and non-correlatable across exports.
  *
- * The secret is resolved via the `secretKey(env, "export-peer-hash-secret")`
- * convention (the invite-code-HMAC precedent — see [InviteCodePrefixDeriver]).
+ * The secret is resolved via the bare-slot `secrets.resolve("export-peer-hash-secret")`
+ * (the invite-code-HMAC precedent — see [InviteCodePrefixDeriver]).
  * A dev/test default ([DEV_DEFAULT_SECRET]) keeps offline unit gather working when
  * the slot is un-provisioned; staging/prod resolve a real secret.
  */
