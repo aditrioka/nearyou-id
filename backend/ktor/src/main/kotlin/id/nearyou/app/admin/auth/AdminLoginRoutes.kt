@@ -1,6 +1,8 @@
 package id.nearyou.app.admin.auth
 
 import id.nearyou.app.common.clientIp
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.infra.otel.IpHasher
 import io.ktor.http.Cookie
 import io.ktor.http.CookieEncoding
 import io.ktor.http.HttpHeaders
@@ -14,6 +16,8 @@ import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.security.SecureRandom
 import java.time.Duration
@@ -41,6 +45,13 @@ import java.util.Base64
  *    (against the sentinel secret if password mismatched / secret
  *    missing). This keeps wall-time roughly equal across failure modes.
  *
+ * Throttle (#532): at most [CREDENTIAL_CHECK_PERMITS] credential checks run at once
+ * (excess shed), and before any lookup the POST passes three sliding-window tiers on
+ * the shared [RateLimiter] — per client IP 10/15 min, per submitted email 5/15 min,
+ * per email 20/24 h, counting failed attempts only. A throttled or shed attempt is a
+ * 429 + `Retry-After` re-render that is identical for existing and phantom emails,
+ * logged via [AdminAuditLogger.logLoginThrottled] (no audit row: no actor yet).
+ *
  * Per design.md D14: `email_not_found` does NOT write to
  * `admin_actions_log` (the V16 schema's `admin_id NOT NULL` invariant
  * forbids it). Instead it emits a structured INFO log line via
@@ -52,6 +63,10 @@ class AdminLoginRoutes(
     private val auditLogger: AdminAuditLogger,
     private val aesKeyProvider: () -> ByteArray,
     private val csrfHmacKeyProvider: () -> ByteArray,
+    private val rateLimiter: RateLimiter,
+    // Process-wide: one AdminLoginRoutes per application. Injectable so a test can
+    // hold every permit and observe the shed path.
+    private val credentialGate: Semaphore = Semaphore(CREDENTIAL_CHECK_PERMITS),
     private val sessionLifetime: Duration = DEFAULT_SESSION_LIFETIME,
     private val clockSource: () -> Instant = Instant::now,
     private val tokenGenerator: () -> String = ::generateOpaqueToken,
@@ -90,6 +105,40 @@ class AdminLoginRoutes(
             call.respond(HttpStatusCode.BadRequest)
             return
         }
+
+        // Credential-check concurrency gate (#532, design D11): at most
+        // CREDENTIAL_CHECK_PERMITS Argon2id verifies in flight per instance; a request
+        // that cannot get a permit within CREDENTIAL_GATE_WAIT_MS is shed with a 429
+        // before it costs any Redis, DB or hash work. The IP tier is spoofable until
+        // the host sits behind Cloudflare (#530), so this — not the rate tiers — is
+        // what keeps a spoofed-IP spray from exhausting the ~128 MiB heap (19 MiB per
+        // verify) or both vCPUs. Semaphore.acquire releases a permit it was handed if
+        // the timeout cancels it at that instant, so a shed request never leaks one.
+        val admitted = withTimeoutOrNull(CREDENTIAL_GATE_WAIT_MS) { credentialGate.acquire() } != null
+        if (!admitted) {
+            return respondThrottled(Throttle(AXIS_CONCURRENCY, SHED_RETRY_AFTER_SECONDS), email, ip, userAgent)
+        }
+        try {
+            checkCredentials(email, password, totp, ip, userAgent)
+        } finally {
+            credentialGate.release()
+        }
+    }
+
+    private suspend fun io.ktor.server.routing.RoutingContext.checkCredentials(
+        email: String,
+        password: String,
+        totp: String,
+        ip: String,
+        userAgent: String?,
+    ) {
+        // Throttle (#532) BEFORE any admin_users lookup or Argon2id/TOTP work, so a
+        // spray costs neither CPU nor DB, and a 429 depends only on counters keyed by
+        // the client IP + the submitted string — never on whether it is an admin
+        // (no-enumeration). Fail-open rides the limiter's own fail-soft contract.
+        val tiers = throttleTiers(ip, email)
+        val throttle = firstExhausted(tiers)
+        if (throttle != null) return respondThrottled(throttle, email, ip, userAgent)
 
         val admin = adminUserRepository.findActiveByEmail(email)
 
@@ -225,6 +274,12 @@ class AdminLoginRoutes(
             userAgent = userAgent,
         )
 
+        // Only FAILED attempts count (design D5): a successful login hands back the
+        // slot it took in every tier, so the operator's own logins and the staging
+        // smoke scripts never burn throttle budget, and the counters reveal nothing
+        // about legitimate activity on an address.
+        tiers.forEach { rateLimiter.releaseMostRecent(admin.id, it.key) }
+
         // Dual-mode navigation on success:
         //  - HTMX-driven submit (HX-Request: true) → 200 + HX-Redirect, the
         //    canonical HTMX redirect (HTMX reads the header + full-reloads).
@@ -254,6 +309,58 @@ class AdminLoginRoutes(
         )
     }
 
+    /**
+     * The three throttle tiers in evaluation order (IP → email burst → email lockout).
+     * All keys are rolling windows (no `_day` scope), so no computeTTLToNextReset; the
+     * IP value is the [IpHasher] hash, the email value the same `email_hash` the D14
+     * log line carries.
+     */
+    private fun throttleTiers(
+        ip: String,
+        email: String,
+    ): List<Tier> {
+        val hashedIp = IpHasher.hash(ip)
+        val emailHash = AdminAuditLogger.sha256Base64Url(email)
+        return listOf(
+            Tier(AXIS_IP, "{scope:rate_admin_login}:{ip:$hashedIp}", IP_CAP, BURST_WINDOW),
+            Tier(AXIS_EMAIL, "{scope:rate_admin_login}:{email:$emailHash}", EMAIL_CAP, BURST_WINDOW),
+            Tier(AXIS_EMAIL_LOCKOUT, "{scope:rate_admin_login_lockout}:{email:$emailHash}", LOCKOUT_CAP, LOCKOUT_WINDOW),
+        )
+    }
+
+    /**
+     * The first exhausted tier, or null when all admit. Later tiers are not consulted
+     * once one rejects, so an IP-throttled flood spends none of the target email's
+     * slots (design D5); a throttled attempt has used one slot in each EARLIER tier.
+     */
+    private fun firstExhausted(tiers: List<Tier>): Throttle? {
+        for (tier in tiers) {
+            val outcome = rateLimiter.tryAcquireByKey(tier.key, tier.capacity, tier.window)
+            if (outcome is RateLimiter.Outcome.RateLimited) return Throttle(tier.axis, outcome.retryAfterSeconds)
+        }
+        return null
+    }
+
+    /** 429 + `Retry-After` + the login page with the throttle banner; WARN-logged, no audit row. */
+    private suspend fun io.ktor.server.routing.RoutingContext.respondThrottled(
+        throttle: Throttle,
+        email: String,
+        ip: String,
+        userAgent: String?,
+    ) {
+        auditLogger.logLoginThrottled(throttle.axis, email, ip, userAgent, throttle.retryAfterSeconds)
+        call.response.header(HttpHeaders.RetryAfter, throttle.retryAfterSeconds.toString())
+        val minutes = (throttle.retryAfterSeconds + SECONDS_PER_MINUTE - 1) / SECONDS_PER_MINUTE
+        call.respond(
+            HttpStatusCode.TooManyRequests,
+            PebbleContent("login.peb", model = mapOf<String, Any>("errorMessage" to throttledMessage(minutes))),
+        )
+    }
+
+    private class Tier(val axis: String, val key: String, val capacity: Int, val window: Duration)
+
+    private class Throttle(val axis: String, val retryAfterSeconds: Long)
+
     private fun hasValidSession(cookieValue: String?): Boolean {
         if (cookieValue.isNullOrBlank()) return false
         return try {
@@ -276,6 +383,29 @@ class AdminLoginRoutes(
         /** Max accepted length for a login form field (generous vs RFC 5321's
          *  320-char email cap); oversized fields are 400-rejected pre-DB. */
         const val MAX_FIELD_LENGTH = 1024
+
+        // Login throttle tiers (#532, design D6): per IP, per submitted email (burst),
+        // and the sustained per-email lockout ("progressive lockout": a burst recovers
+        // in 15 min, a sustained attack on one account stays locked up to a day).
+        const val IP_CAP = 10
+        const val EMAIL_CAP = 5
+        const val LOCKOUT_CAP = 20
+        val BURST_WINDOW: Duration = Duration.ofMinutes(15)
+        val LOCKOUT_WINDOW: Duration = Duration.ofHours(24)
+        const val AXIS_IP = "ip"
+        const val AXIS_EMAIL = "email"
+        const val AXIS_EMAIL_LOCKOUT = "email_lockout"
+
+        // Credential-check concurrency gate (design D11): 2 permits = the 2 vCPUs and
+        // 2 × 19 MiB of Argon2 memory, well inside the ~128 MiB heap. A request waits
+        // at most CREDENTIAL_GATE_WAIT_MS (a few verifies' worth) before it is shed.
+        const val CREDENTIAL_CHECK_PERMITS = 2
+        const val CREDENTIAL_GATE_WAIT_MS = 2_000L
+        const val SHED_RETRY_AFTER_SECONDS = 60L
+        const val AXIS_CONCURRENCY = "concurrency"
+        private const val SECONDS_PER_MINUTE = 60L
+
+        fun throttledMessage(minutes: Long): String = "Too many login attempts. Try again in $minutes min."
 
         val DEFAULT_SESSION_LIFETIME: Duration = Duration.ofHours(8)
 

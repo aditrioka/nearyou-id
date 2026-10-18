@@ -1428,6 +1428,9 @@ fun Application.module() {
             Base64.getDecoder().decode(base64)
         },
         environmentName = ktorEnv,
+        // The SAME env-aware shared limiter (Redis in staging/prod) backs the
+        // POST /admin/login throttle (#532); fail-soft on a Redis outage.
+        loginRateLimiter = rateLimiter,
         remoteConfigPublisher = remoteConfigPublisher,
         // Pass the SAME override-store instance the username-change gate uses, so
         // the admin "accept" approvals and the live consult/consume share one repo

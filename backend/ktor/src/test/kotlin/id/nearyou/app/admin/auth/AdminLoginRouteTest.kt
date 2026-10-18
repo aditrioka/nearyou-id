@@ -86,12 +86,17 @@ class AdminLoginRouteTest : StringSpec({
             body shouldContain "data-icon=\"mail\""
             body shouldContain "data-icon=\"key\""
             body shouldContain "data-icon=\"timer\""
-            // Password visibility toggle: button + both eye glyphs + wiring script.
+            // Password visibility toggle: button + both eye glyphs; the wiring lives in
+            // the vendored admin.js (CSP script-src 'self'), never inline.
             body shouldContain "id=\"pw-toggle\""
             body shouldContain "type=\"button\""
             body shouldContain "data-icon=\"visibility\""
             body shouldContain "data-icon=\"visibility_off\""
-            body shouldContain "input.type === 'password'"
+            body shouldContain AdminAuthTestSupport.ADMIN_JS_TAG
+            AdminAuthTestSupport.INLINE_SCRIPT_TAG.containsMatchIn(body) shouldBe false
+            val js = client.get("/admin/static/admin.js").bodyAsText()
+            js shouldContain "getElementById('pw-toggle')"
+            js shouldContain "input.type === 'password'"
         }
     }
 
@@ -508,7 +513,7 @@ class AdminLoginRouteTest : StringSpec({
         }
     }
 
-    "authenticated index includes the htmx:configRequest JS hook setting X-CSRF-Token" {
+    "authenticated index loads the vendored htmx:configRequest hook setting X-CSRF-Token" {
         val admin = track(AdminAuthTestSupport.seedAdmin(dataSource))
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
@@ -516,8 +521,14 @@ class AdminLoginRouteTest : StringSpec({
                 client.get("/admin/") {
                     header(HttpHeaders.Cookie, "${AdminAuthProvider.COOKIE_NAME}=$token")
                 }.bodyAsText()
-            body shouldContain "htmx:configRequest"
-            body shouldContain "X-CSRF-Token"
+            // The hook lives in admin.js (CSP script-src 'self'), not an inline block.
+            body shouldContain AdminAuthTestSupport.ADMIN_JS_TAG
+            AdminAuthTestSupport.INLINE_SCRIPT_TAG.containsMatchIn(body) shouldBe false
+            val js = client.get("/admin/static/admin.js").bodyAsText()
+            js shouldContain "htmx:configRequest"
+            js shouldContain "evt.detail.headers['X-CSRF-Token']"
+            // Registration is guarded by the meta tag (absent on the login page).
+            js shouldContain "if (document.querySelector('meta[name=\"csrf-token\"]'))"
         }
     }
 

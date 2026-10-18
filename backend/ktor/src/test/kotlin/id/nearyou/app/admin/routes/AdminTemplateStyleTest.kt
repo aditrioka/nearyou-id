@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.auth.AdminAuthTestSupport
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
@@ -10,7 +11,9 @@ import java.io.File
  * (`quota-chip`, `ff-*`, `wl-*`) with no rule in `admin.css`, plus ad-hoc
  * inline `style=` attributes, so those surfaces rendered with browser
  * defaults instead of the board look (docs/11 § 3.6: vendored CSS, no inline
- * styles in production templates). Source scan only — no DB, runs in PR CI.
+ * styles in production templates). #531 adds the script half: no inline
+ * `<script>` / `on*=` handler, so the panel runs under CSP 'self'. Source scan
+ * only — no DB, runs in PR CI.
  */
 class AdminTemplateStyleTest : StringSpec({
 
@@ -25,6 +28,18 @@ class AdminTemplateStyleTest : StringSpec({
         templates
             .filter { STYLE_ATTR.containsMatchIn(it.readText()) }
             .map { it.name }
+            .shouldBeEmpty()
+    }
+
+    "no admin template carries an inline script, inline event handler or eval-dependent htmx feature" {
+        // #531: the panel runs under CSP script-src 'self' (no 'unsafe-inline' /
+        // 'unsafe-eval') with htmx allowEval:false — any of these would fail silently
+        // in the browser (a console event only). Panel JS lives in admin.js.
+        templates
+            .filter { f ->
+                val src = f.readText()
+                AdminAuthTestSupport.INLINE_SCRIPT_TAG.containsMatchIn(src) || CSP_BLOCKED.containsMatchIn(src)
+            }.map { it.name }
             .shouldBeEmpty()
     }
 
@@ -55,6 +70,10 @@ class AdminTemplateStyleTest : StringSpec({
 })
 
 private val STYLE_ATTR = Regex("""\sstyle\s*=""")
+
+// on*= handler attributes, hx-on / hx-vars, js:/javascript: values, hx-trigger [filters].
+private val CSP_BLOCKED =
+    Regex("""\son[a-z]+\s*=|hx-on|hx-vars|\bjs:|javascript:|hx-trigger="[^"]*\[""", RegexOption.IGNORE_CASE)
 private val CLASS_ATTR = Regex("""class="([^"]*)"""")
 private val PEBBLE_TAG = Regex("""\{%.*?%}|\{\{.*?}}""")
 private val CSS_COMMENT = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
