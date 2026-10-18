@@ -3,6 +3,7 @@
 {% block title %}Appeals — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>Appeal Queue</h2>
 <p class="pg-sub">appeals · status = pending · oldest-first (appeals_pending_created_idx)</p>
 
@@ -30,7 +31,7 @@
             {# Approve — lifts the moderation action (is_banned = FALSE, suspended_until = NULL). #}
             <form class="approve-appeal" action="/admin/appeals/{{ row.id }}/approve" method="POST">
                 <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
-                <button type="submit" class="btn tonal sm">Approve — lift the ban</button>
+                <button type="submit" class="btn tonal sm">{{ icon("lock_open") }}Approve — lift the ban</button>
             </form>
             <div class="vdiv"></div>
             {# Reject — keeps the moderation action intact; optional decision reason. #}
