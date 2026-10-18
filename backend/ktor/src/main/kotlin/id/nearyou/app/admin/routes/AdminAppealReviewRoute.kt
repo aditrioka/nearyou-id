@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.actionslog.ActionLogCursor
 import id.nearyou.app.admin.appealreview.AppealQueueRow
 import id.nearyou.app.admin.appealreview.AppealReviewRepository
@@ -125,7 +126,7 @@ private fun AppealQueueRow.toViewMap(): Map<String, Any> =
         "userId" to userId.toString(),
         "actionType" to actionType,
         "appealText" to appealText,
-        "createdAt" to createdAt.toString(),
+        "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
     )
 
 /** Parse the `{id}` path segment as a UUID; null when malformed (→ 400, no write). */

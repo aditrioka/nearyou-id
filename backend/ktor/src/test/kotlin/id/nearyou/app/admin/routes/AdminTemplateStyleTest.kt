@@ -35,6 +35,14 @@ class AdminTemplateStyleTest : StringSpec({
             .shouldBeEmpty()
     }
 
+    "every admin banner opens with its board glyph" {
+        // board frames 2/4/8-21: each .banner leads with an icon; a bare-text
+        // banner reads as an unstyled block next to its glyphed siblings
+        templates
+            .flatMap { f -> BANNER_WITHOUT_GLYPH.findAll(f.readText()).map { "${f.name}: ${it.value}" }.toList() }
+            .shouldBeEmpty()
+    }
+
     "every frame-family class used by an admin template has an admin.css rule" {
         templates
             .flatMap { f ->
@@ -52,11 +60,13 @@ private val PEBBLE_TAG = Regex("""\{%.*?%}|\{\{.*?}}""")
 private val CSS_COMMENT = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
 private val CSS_CLASS = Regex("""\.([a-zA-Z][\w-]*)""")
 
+private val BANNER_WITHOUT_GLYPH = Regex("""<div class="banner[^"]*">(?!\s*\{\{\s*icon\()""")
+
 // The surface-specific families #525 named: feature flags, wordlist editor, and
 // the queue-fragment quota pill. Plus the pager links: appeals.peb pages with
 // `pagination-newer` and csam-log-table.peb with `pagination-next`, which once
-// had no rule beside `pagination-older`.
-private val FRAME_FAMILY = Regex("""(ff|wl)-[\w-]+|quota[\w-]*|pagination-[\w-]+""")
+// had no rule beside `pagination-older`; and the table column hooks (`col-*`).
+private val FRAME_FAMILY = Regex("""(ff|wl)-[\w-]+|quota[\w-]*|pagination-[\w-]+|col-[\w-]+""")
 
 private fun classTokens(template: String): List<String> =
     CLASS_ATTR.findAll(template)

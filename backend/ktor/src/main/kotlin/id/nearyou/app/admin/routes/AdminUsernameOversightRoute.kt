@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -26,8 +27,6 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import java.net.URLEncoder
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -236,7 +235,7 @@ private fun FlagRow.toViewMap(): Map<String, Any> {
     val m =
         mutableMapOf<String, Any>(
             "queueId" to queueId.toString(),
-            "createdAt" to TS_FORMAT.format(createdAt),
+            "createdAt" to ADMIN_TS_FORMAT.format(createdAt),
             "candidate" to (candidate ?: ""),
             "hasCandidate" to (candidate?.isNotBlank() ?: false),
             "resolveAction" to "/admin/username-oversight/flags/$queueId/resolve",
@@ -254,7 +253,7 @@ private fun FlagRow.toViewMap(): Map<String, Any> {
 private fun HistoryRow.toViewMap(): Map<String, Any> {
     val m =
         mutableMapOf<String, Any>(
-            "changedAt" to TS_FORMAT.format(changedAt),
+            "changedAt" to ADMIN_TS_FORMAT.format(changedAt),
             "oldUsername" to oldUsername,
             "newUsername" to newUsername,
         )
@@ -271,7 +270,7 @@ private fun HoldRow.toViewMap(): Map<String, Any> {
     val m =
         mutableMapOf<String, Any>(
             "oldUsername" to oldUsername,
-            "releasedAt" to TS_FORMAT.format(releasedAt),
+            "releasedAt" to ADMIN_TS_FORMAT.format(releasedAt),
             "releaseAction" to "/admin/username-oversight/holds/$id/release",
         )
     if (username != null) {
@@ -286,11 +285,6 @@ private fun HoldRow.toViewMap(): Map<String, Any> {
 private const val HX_REQUEST = "HX-Request"
 private const val FIELD_RESOLUTION = "resolution"
 private const val SEARCH_MAX = 30
-
-// Same display shape as the sibling queue routes (deletion / export / grace):
-// a minute-precision UTC stamp, so the table columns don't overflow their card.
-private val TS_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // English-only informational messages (matching the existing admin templates).
 private const val MSG_INVALID_ID = "Invalid id."

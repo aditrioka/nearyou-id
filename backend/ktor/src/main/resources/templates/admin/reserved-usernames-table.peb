@@ -17,15 +17,15 @@
     <p class="outcome-message">{{ message }}</p>
 {% endif %}
 {% if report is not null %}
-    <div class="banner info">
-        Bulk result: <b>{{ report.addedCount }}</b> added,
+    <div class="banner info">{{ icon("info") }}
+        <div>Bulk result: <b>{{ report.addedCount }}</b> added,
         <b>{{ report.skippedDuplicateCount }}</b> skipped (duplicate),
         <b>{{ report.skippedInvalidCount }}</b> skipped (invalid).
         {% if report.skippedInvalidCount > 0 %}
         <ul class="bulk-invalid">
         {% for inv in report.skippedInvalid %}<li>line {{ inv.line }}: {{ inv.problem }}</li>{% endfor %}
         </ul>
-        {% endif %}
+        {% endif %}</div>
     </div>
 {% endif %}
 <p class="quota">{{ icon("speed") }}Reserved-username actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>

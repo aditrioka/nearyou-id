@@ -109,7 +109,7 @@ class AdminBlockRegistryRouteTest : StringSpec({
         }
     }
 
-    "7.2a — created_at renders in UTC (ISO-instant Z), not host-local" {
+    "7.2a — created_at renders in UTC (the panel's minute-precision stamp), not host-local" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         val blocker = user()
@@ -121,7 +121,8 @@ class AdminBlockRegistryRouteTest : StringSpec({
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             val body =
                 client.get("/admin/blocks") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
-            body shouldContain "2026-05-25T23:30:00Z"
+            body shouldContain "2026-05-25 23:30 UTC"
+            body shouldNotContain "2026-05-25T23:30"
         }
     }
 

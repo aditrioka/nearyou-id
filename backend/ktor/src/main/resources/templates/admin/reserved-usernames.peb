@@ -3,14 +3,15 @@
 {% block title %}Reserved Usernames — NearYouID{% endblock %}
 
 {% block content %}
+{% import "icons.peb" %}
 <h2>Reserved Usernames Editor</h2>
 <p class="pg-sub">Manage reserved/blocked handles in reserved_usernames — seed entries are protected</p>
 
 {# Adds create `admin_added` entries. System-seed rows are read-only (cannot be
    edited/removed) — protected at the app layer AND the V3 DB trigger. #}
-<div class="banner info">
-    Adds create <code>admin_added</code> entries. System-seed entries are read-only
-    (cannot be edited or removed; protected at the app layer and the DB trigger).
+<div class="banner info">{{ icon("info") }}
+    <span>Adds create <code>admin_added</code> entries. System-seed entries are read-only
+    (cannot be edited or removed; protected at the app layer and the DB trigger).</span>
 </div>
 
 {# Add-single + bulk forms live OUTSIDE the swapped #reserved-usernames-table so

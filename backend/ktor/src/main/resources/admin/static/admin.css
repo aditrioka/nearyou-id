@@ -387,10 +387,18 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
 }
 .two-col .cardlet { margin-top: 0; }
 /* a half-width card can't afford one-line headers: let them wrap when the
-   columns are tight (username-oversight hold table clipped "Release now"),
-   and keep a handle chip whole instead of splitting it mid-word */
+   columns are tight (username-oversight hold table clipped "Release now") */
 .two-col table.tbl thead th { white-space: normal; }
-.two-col table.tbl .code { overflow-wrap: normal; }
+/* handle columns: a long handle (auto-generated ones run 20-30 chars, the
+   column allows 60) wraps instead of pushing the table past its card, but the
+   column never narrows below a ~10-char handle, so a short handle stays whole
+   instead of splitting mid-word (110 px also leaves the date column room for
+   its date on one line at 1280 px) */
+.two-col table.tbl th.col-handle { min-width: 110px; }
+/* …and a stamp column keeps its date on one line (it would split at the
+   hyphens: "2026-" / "10-28"), wrapping only before the time */
+.two-col table.tbl th.col-ts { min-width: 100px; }
+.two-col table.tbl td a { overflow-wrap: anywhere; }
 
 .kv {
   display: grid;
@@ -444,7 +452,11 @@ a.cardlet p { font-size: 12px; color: var(--on-surface-variant); margin-top: 4px
    <code>/<b> children into separate columns. The icon floats; the text span
    is its own block formatting context beside it. */
 .banner > .ic { float: left; margin: 1px 10px 0 0; }
-.banner > .ic ~ span { display: flow-root; }
+.banner > .ic ~ span,
+.banner > .ic ~ div { display: flow-root; }
+/* a list inside a banner (reserved-usernames bulk result) keeps its bullets
+   inside the tint instead of at the banner edge (the * reset zeroes padding) */
+.banner ul { margin-top: 4px; padding-left: 16px; }
 .banner.info {
   margin-top: 16px;
   background: var(--primary-container);
@@ -847,6 +859,18 @@ body.bare > main {
 .chat-bubble .meta { display: block; margin-top: 4px; font-size: 10.5px; color: inherit; opacity: .8; }
 .chat-bubble .embed-tag { font-style: italic; opacity: .85; }
 .chat-bubble.redacted { font-style: italic; color: var(--on-surface-variant); }
+/* frame-9 redaction card: h4 → 10 px → full-width reason field → 12 px →
+   button (the warn banner after the form keeps its own 12 px) */
+.cardlet > form.resolve-queue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
+}
+.cardlet > form.resolve-queue .field { align-self: stretch; }
+/* …and the already-redacted branch's line (the frame-13 note style) */
+.cardlet > p.note { margin-top: 10px; font-size: 11px; color: var(--on-surface-variant); }
 
 /* warn banner — warning tint, as every board `.banner.warn` (frames 9, 15,
    19, 20); `.banner.err` below is the error tint. */
@@ -872,6 +896,17 @@ details.bulk-add > form {
   max-width: 560px;
 }
 details.bulk-add .field { align-self: stretch; }
+/* in-row action forms with a reason input: the controls share one wrapping
+   line 6 px apart (frames 15/18/21 row actions), inputs at the .btn.sm height
+   beside them; without this the grace monitor's two inputs stacked touching.
+   An admin_added row's edit + remove forms sit side by side. */
+form.expedite,
+form.edit-reason,
+form.remove-reserved { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; vertical-align: middle; }
+form.expedite input,
+form.edit-reason input { height: 28px; }
+form.edit-reason input { width: 170px; min-width: 0; }
+form.remove-reserved { margin-left: 6px; }
 
 /* ---- feature flags (frame 20) ------------------------------------------- */
 .ff-flags { padding: 6px 18px; }

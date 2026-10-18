@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.privacyflips.ALLOWED_PRIVACY_FLIP_STATUSES
 import id.nearyou.app.admin.privacyflips.AdminPrivacyFlipsRepository
 import id.nearyou.app.admin.privacyflips.PrivacyFlipRow
@@ -15,7 +16,6 @@ import io.ktor.server.routing.get
 import java.net.URLEncoder
 import java.time.Duration
 import java.time.Instant
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -142,8 +142,6 @@ private const val STATUS_MAX = 16 // longest allowed value ("in_window") fits we
 // left intact and still matches exactly. Never truncate at/below 60.
 private const val Q_MAX = 100
 
-private val SCHEDULED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
-
 /**
  * Pre-format a row into display strings for the template. Pebble autoescaping
  * escapes every value on output — including the user-controlled `username` /
@@ -163,7 +161,7 @@ private fun PrivacyFlipRow.toViewMap(evalInstant: Instant): Map<String, Any> =
         "usersLink" to "/admin/users?q=${URLEncoder.encode(username, Charsets.UTF_8)}",
         "displayName" to displayName,
         "isPrivate" to privateProfileOptIn,
-        "scheduledAt" to SCHEDULED_AT_FORMAT.format(scheduledAt),
+        "scheduledAt" to ADMIN_TS_FORMAT.format(scheduledAt),
         "deleted" to deleted,
         "status" to status,
         "relativeTime" to relativeTime(evalInstant),

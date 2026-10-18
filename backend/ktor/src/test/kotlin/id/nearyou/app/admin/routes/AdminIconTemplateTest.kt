@@ -149,7 +149,7 @@ private fun profileModel(): Map<String, Any> =
                 "isBanned" to true,
                 "isPermanentlyBanned" to false,
                 "isShadowBanned" to false,
-                "statusLabel" to "Suspended until 2026-06-18T09:42:00Z",
+                "statusLabel" to "Suspended until 2026-06-18 09:42 UTC",
             ),
         "history" to
             listOf(
@@ -157,14 +157,14 @@ private fun profileModel(): Map<String, Any> =
                 historyAction("user_warned"),
                 historyAction("user_unbanned"),
                 historyAction("some_future_action"),
-                mapOf("kind" to "username", "at" to "2026-04-02T10:11:00Z", "oldUsername" to "kopibudi", "newUsername" to "budi_kopi"),
+                mapOf("kind" to "username", "at" to "2026-04-02 10:11 UTC", "oldUsername" to "kopibudi", "newUsername" to "budi_kopi"),
             ),
     )
 
 private fun historyAction(type: String): Map<String, Any> =
     mapOf(
         "kind" to "action",
-        "at" to "2026-06-11T09:42:00Z",
+        "at" to "2026-06-11 09:42 UTC",
         "adminDisplayName" to "oka",
         "actionType" to type,
         "reason" to "—",

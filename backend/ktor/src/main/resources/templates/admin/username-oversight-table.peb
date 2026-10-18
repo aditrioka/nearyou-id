@@ -118,7 +118,7 @@
 {% if hasHistory %}
     <div class="tbl-wrap">
     <table class="tbl">
-        <thead><tr><th>Changed (UTC)</th><th>Old &rarr; New</th><th>User</th></tr></thead>
+        <thead><tr><th class="col-ts">Changed (UTC)</th><th class="col-handle">Old &rarr; New</th><th class="col-handle">User</th></tr></thead>
         <tbody>
         {% for row in history %}
             <tr>
@@ -157,7 +157,7 @@
 {% if hasHolds %}
     <div class="tbl-wrap">
     <table class="tbl">
-        <thead><tr><th>Held handle</th><th>User</th><th>Auto-release (UTC)</th>{% if canWrite %}<th></th>{% endif %}</tr></thead>
+        <thead><tr><th class="col-handle">Held handle</th><th class="col-handle">User</th><th class="col-ts">Auto-release (UTC)</th>{% if canWrite %}<th></th>{% endif %}</tr></thead>
         <tbody>
         {% for row in holds %}
             <tr>

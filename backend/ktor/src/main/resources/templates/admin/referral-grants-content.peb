@@ -47,7 +47,7 @@
             <button type="submit" class="btn filled">Grant 7 days Premium</button>
         </form>
         {% endif %}
-        <div class="banner info">
+        <div class="banner warn">{{ icon("warning") }}
             <span>Dispatches a 1-week promotional Premium entitlement via RevenueCat and records one immutable audit-log row. It does NOT write <code>granted_entitlements</code> — the inviter 5-referral track and lifetime reward stay untouched. Premium activates on the RevenueCat GRANT webhook echo (audit-only when RevenueCat is unconfigured). Rate-limited + audit-logged.</span>
         </div>
     </div>

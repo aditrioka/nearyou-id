@@ -1,5 +1,6 @@
 package id.nearyou.app.admin.routes
 
+import id.nearyou.app.admin.ADMIN_TS_FORMAT
 import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminCsrfGate
 import id.nearyou.app.admin.auth.AdminPrincipal
@@ -19,8 +20,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -197,16 +196,13 @@ private fun ChatRedactionContextMessage.toViewMap(): Map<String, Any> =
         put("hasEmbed", hasEmbed)
         put("content", content ?: "")
         put("hasContent", content != null)
-        put("createdAt", CREATED_AT_FORMAT.format(createdAt))
+        put("createdAt", ADMIN_TS_FORMAT.format(createdAt))
     }
 
 private const val HX_REQUEST = "HX-Request"
 private const val REASON_FIELD = "reason"
 private const val PAGE_TEMPLATE = "chat-redaction.peb"
 private const val FRAGMENT_TEMPLATE = "chat-redaction-panel.peb"
-
-private val CREATED_AT_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'").withZone(ZoneOffset.UTC)
 
 // User-facing informational messages (admin panel is English-only).
 private const val MSG_INVALID_ID = "Invalid id."
