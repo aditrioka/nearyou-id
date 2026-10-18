@@ -15,12 +15,14 @@
 # before serving requests (staging-simplified bootstrap). Prod will split this into
 # a dedicated Cloud Run Job per docs/04-Architecture.md.
 
-ARG JDK_IMAGE=eclipse-temurin:21.0.5_11-jdk-noble
-ARG JRE_IMAGE=eclipse-temurin:21.0.5_11-jre-noble
+# Base-image pin: the two literal `FROM` tags below (builder JDK + runtime JRE)
+# MUST move together; tracked in docs/09-Versions.md. Kept as literal tags rather
+# than `ARG` defaults because Dependabot's docker updater only reads literal
+# `FROM` lines and never resolves `${ARG}` references.
 
 # ---- builder ---------------------------------------------------------------
 
-FROM ${JDK_IMAGE} AS builder
+FROM eclipse-temurin:21.0.12.1_1-jdk-noble AS builder
 
 WORKDIR /workspace
 
@@ -93,7 +95,7 @@ RUN --mount=type=cache,target=/root/.gradle \
 
 # ---- runtime ---------------------------------------------------------------
 
-FROM ${JRE_IMAGE} AS runtime
+FROM eclipse-temurin:21.0.12.1_1-jre-noble AS runtime
 
 # Non-root user — Cloud Run doesn't enforce this, but it's a no-cost hardening
 # baseline and matches the "least privilege" principle in docs/06-Security-Privacy.md.

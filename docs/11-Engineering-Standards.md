@@ -32,7 +32,7 @@ Pins that were current at the 2026-06-10 stamp: CMP `1.11.1`, Navigation 3 (JetB
 **Planned upgrades (deliberate, NOT yet)** — each is a real change with its own migration pass, not a casual bump: Kotlin `2.4.0` (stable context parameters, rich-errors preview; let CMP/Koin/kotest soak first), AGP `8.13.x` then the AGP 9 migration (new DSL; legacy DSL removed in AGP 10, H2 2026), kotest `6.x` (breaking: InstancePerRoot, table-testing artifact split — 118 backend test files affected), Flyway `13.x` (upstream skipped straight past 12 by 2026-10), HikariCP `7.x`, Lettuce `7.x`, DataStore `1.2.1` KMP (only when a multiplatform prefs need appears; tokens stay Keychain on iOS — DataStore is plaintext).
 
 Rules:
-1. Version changes only via `gradle/libs.versions.toml`; authoritative update cadence + per-pin rationale log: [`docs/09-Versions.md`](09-Versions.md) § Pinning Policy.
+1. Version changes only via `gradle/libs.versions.toml` (one documented exception: the Eclipse Temurin base image, pinned in the `Dockerfile` `FROM` lines); authoritative update cadence + per-pin rationale log: [`docs/09-Versions.md`](09-Versions.md) § Pinning Policy.
 2. Keep alignment sets in lockstep: {CMP, JetBrains material3, JetBrains lifecycle, JetBrains nav3} on the same release cycle; {OTel SDK BOM, instrumentation BOM}; {kotlinx coroutines/serialization/datetime}.
 3. The dated-WebSearch re-check rules in `openspec/project.md` (pre-implementation + apply-phase) apply to every new substrate AND to every "planned upgrades" entry before executing it.
 
