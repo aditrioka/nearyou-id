@@ -20,7 +20,7 @@
 
 ## 4. Verification & lifecycle
 
-- [ ] 4.1 Gates: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + `:mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:infra:supabase-realtime` tests + `:mobile:app:iosSimulatorArm64Test`
-- [ ] 4.2 Manual verify (verify-loop): Android emulator AND iOS simulator screenshots of a thread showing a shared post edited after the share (banner) next to an unchanged one (no banner); evidence in the PR body
-- [ ] 4.3 Sub-agent review (one general lens — no migration, no security-invariant path); apply findings; PR body carries the `Review findings applied` line
-- [ ] 4.4 Archive: sync both delta specs; update `mobile-chat-embedded-posts` Purpose (the banner is no longer dormant); `Closes #440`
+- [x] 4.1 Gates: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test` + `:mobile:app:ktlintCheck :mobile:app:testDevDebugUnitTest :mobile:app:testDevReleaseUnitTest` + `:infra:supabase-realtime` tests + `:mobile:app:iosSimulatorArm64Test` — local 2026-10-19 on `5c75dcc7`: ktlint + detekt clean, `:lint:detekt-rules:test` green, dev debug 1904 / dev release 1384 / iOS sim 1364 tests, 0 failures, `:infra:supabase-realtime:allTests` green. `:backend:ktor:test` ran in CI (`test` lane green on `5c75dcc7`); the only backend-side edit is KDoc in `:infra:supabase`
+- [x] 4.2 Manual verify (verify-loop): Android emulator AND iOS simulator screenshots of a thread showing a shared post edited after the share (banner) next to an unchanged one (no banner); evidence in the PR body — temp commonMain Koin harness (real VM + gate + card; faked `ChatFlow` / `PostEditFlow` / realtime), Android `verify36` read-only + iOS 26.3 sim, light + dark; evidence branch `evidence/chat-embed-live-edit-banner`
+- [x] 4.3 Sub-agent review (one general lens — no migration, no security-invariant path); apply findings; PR body carries the `Review findings applied` line — 7 of 9 applied (0 blocking); 1 informational (harness never committed — complied), 1 (StateFlow consolidation) declined: `mobile-chat` spec mandates the separate signals
+- [x] 4.4 Archive: sync both delta specs; update `mobile-chat-embedded-posts` Purpose (the banner is no longer dormant); `Closes #440`
