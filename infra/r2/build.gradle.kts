@@ -9,7 +9,6 @@ dependencies {
     // officially documents the coroutine-native AWS SDK for Kotlin path (design D1).
     // Fenced here (no `aws.sdk.*` / `aws.smithy.*` symbol outside :infra:*).
     implementation(libs.aws.s3)
-    implementation(libs.koin.core)
     implementation(libs.slf4j.api)
 
     testImplementation(libs.kotest.runnerJunit5)

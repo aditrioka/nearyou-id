@@ -173,7 +173,7 @@ Three tiers, identical code, different secrets/config (Pre-Phase 1 bootstraps st
 - `staging` — Cloud Run + Supabase Free + Upstash Free + RevenueCat sandbox. Subdomains `api-staging|admin-staging|img-staging.nearyou.id`. Synthetic data only, nuke-safe.
 - `production` — full-spec. Subdomains `api|admin|img.nearyou.id`.
 
-Secrets namespaced by env prefix in GCP Secret Manager (`staging-*` vs unprefixed prod). Ktor reads `KTOR_ENV` and resolves secrets via the `secretKey(env, name)` helper — direct secret-name reads are a lint violation. Mobile uses Android flavors / iOS xcconfig schemes (`staging` vs `production`). Deploy flow: merge → `main` auto-deploys staging; git tag `v*` → prod after manual approval. Details: [`docs/04-Architecture.md`](../docs/04-Architecture.md) § Deployment.
+Secrets namespaced by env prefix in GCP Secret Manager (`staging-*` vs unprefixed prod). Ktor reads `KTOR_ENV`; every secret VALUE comes from `SecretResolver.resolve(<bare slot>)` (`EnvVarSecretResolver` in `config/Secrets.kt`: `redis-url` → env var `REDIS_URL`, then the same-named JVM system property), and the deploy binds that env var to the namespaced slot (`deploy-staging.yml --set-secrets="REDIS_URL=staging-redis-url:latest"`). The `secretKey(env, name)` helper only composes the namespaced slot NAME (`staging-<name>` on staging, bare otherwise) for operator-facing diagnostics; it is never fed to `resolve()`, which would look up a `STAGING_*` env var the deploy never sets. Mobile uses Android flavors / iOS xcconfig schemes (`staging` vs `production`). Deploy flow: merge → `main` auto-deploys staging; git tag `v*` → prod after manual approval. Details: [`docs/04-Architecture.md`](../docs/04-Architecture.md) § Deployment.
 
 ---
 
@@ -195,7 +195,7 @@ Enforced by CI (full list: [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.m
 - **Mobile strings**: no hardcoded UI strings; must go through Compose Multiplatform Resources (`stringResource(Res.string.X)` accessor). Enforced by Detekt `MobileHardcodedStringRule` (`Text("…")` / `contentDescription = "…"` literals outside test source sets; escape hatch `@Suppress("MobileHardcodedStringRule")` with a reason).
 - **Partial indexes**: no `NOW()` in `WHERE` (non-immutable; PG rejects).
 - **RLS changes**: mandatory test case "JWT `sub` not in `public.users` → deny" on every policy change.
-- **Secrets**: Ktor MUST read via the `secretKey(env, name)` helper (per Environments section above). Direct secret-name reads are a lint violation.
+- **Secrets**: Ktor MUST read secret values via `SecretResolver.resolve(<bare slot>)` (deploy-bound env var) and name the env-namespaced slot via `secretKey(env, name)`, never `resolve(secretKey(...))` (per Environments section above). Review-enforced: the Detekt rule listed in `docs/08` § Development Tools is not shipped yet.
 - **No vendor SDK import outside `:infra:*`** — domain/data code depends only on interfaces (per Module Structure section above).
 
 Other conventions:

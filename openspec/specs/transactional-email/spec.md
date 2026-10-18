@@ -17,7 +17,7 @@ A new `:infra:resend` module SHALL provide a vendor-neutral `EmailSender` interf
 
 #### Scenario: API key resolved via the SecretResolver bare slot
 - **WHEN** `Application.kt` constructs the `:infra:resend` sender
-- **THEN** the API key passed to it is the value of `secrets.resolve(ResendConfig.SLOT_API_KEY)` (env var `RESEND_API_KEY`), the unprefixed slot the deploy binds; it is NOT composed via `secretKey(env, name)` and there is no direct secret-name env read
+- **THEN** it builds the config with `ResendConfig.fromSecrets(secrets::resolve, ktorEnv)`, whose API key is the value of `secrets.resolve(ResendConfig.SLOT_API_KEY)` (env var `RESEND_API_KEY`), the unprefixed slot the deploy binds; it is NOT composed via `secretKey(env, name)` and there is no direct secret-name env read
 
 ### Requirement: Idempotent send prevents duplicate delivery
 

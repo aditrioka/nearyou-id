@@ -11,6 +11,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.ints.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldEndWith
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -241,6 +242,28 @@ class ResendEmailSenderTest : StringSpec({
         // The env-specific Secret Manager slot (`staging-resend-api-key`) is mapped onto that env
         // var by the deploy `--set-secrets`, NOT composed in code.
         ResendConfig.SLOT_API_KEY shouldBe "resend-api-key"
+    }
+
+    "fromSecrets resolves the key through the bare slot and redirects staging mail to the test inbox" {
+        // Application.kt builds the sender from exactly this factory, so this pins its wiring:
+        // the resolver is asked for `resend-api-key` (never `staging-resend-api-key`, whose env
+        // var STAGING_RESEND_API_KEY the deploy never sets) on every env.
+        val seen = mutableListOf<String>()
+        val resolver: (String) -> String? = { slot ->
+            seen += slot
+            if (slot == "resend-api-key") "re_key" else null
+        }
+
+        val staging = ResendConfig.fromSecrets(resolver, env = "staging")
+        val production = ResendConfig.fromSecrets(resolver, env = "production")
+
+        seen shouldBe listOf("resend-api-key", "resend-api-key")
+        staging.apiKey shouldBe "re_key"
+        staging.recipientOverride shouldBe ResendConfig.STAGING_RECIPIENT_OVERRIDE
+        ResendConfig.STAGING_RECIPIENT_OVERRIDE shouldEndWith "@resend.dev"
+        production.apiKey shouldBe "re_key"
+        production.recipientOverride shouldBe null
+        ResendConfig.fromSecrets({ null }, env = "staging").isComplete().shouldBeFalse()
     }
 })
 
