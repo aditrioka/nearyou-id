@@ -114,7 +114,8 @@ class AdminSecurityHeadersTest : StringSpec({
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             // The router collapses `//` and decodes `%61` → `a`, so these reach the admin
             // handlers; a raw-path `/admin` prefix check would have missed them.
-            val doubled = client.get("//admin/users")
+            // Absolute URL: a bare "//admin/users" parses as protocol-relative (host "admin").
+            val doubled = client.get("http://localhost//admin/users")
             doubled.status shouldBe HttpStatusCode.Found
             doubled.shouldCarryAdminHeaders()
             val encoded = client.get("/%61dmin/login")
