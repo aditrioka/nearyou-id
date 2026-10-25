@@ -112,9 +112,15 @@ class AdminLoginRoutes(
         // before it costs any Redis, DB or hash work. The IP tier is spoofable until
         // the host sits behind Cloudflare (#530), so this — not the rate tiers — is
         // what keeps a spoofed-IP spray from exhausting the ~128 MiB heap (19 MiB per
-        // verify) or both vCPUs. Semaphore.acquire releases a permit it was handed if
-        // the timeout cancels it at that instant, so a shed request never leaks one.
-        val admitted = withTimeoutOrNull(CREDENTIAL_GATE_WAIT_MS) { credentialGate.acquire() } != null
+        // verify) or both vCPUs. `admitted` is set right after acquire() returns (no
+        // suspension point between them), NOT derived from withTimeoutOrNull's result:
+        // a timeout that fires after acquire() returned still makes withTimeoutOrNull
+        // return null, and reading that as "no permit" would leak the permit for good.
+        var admitted = false
+        withTimeoutOrNull(CREDENTIAL_GATE_WAIT_MS) {
+            credentialGate.acquire()
+            admitted = true
+        }
         if (!admitted) {
             return respondThrottled(Throttle(AXIS_CONCURRENCY, SHED_RETRY_AFTER_SECONDS), email, ip, userAgent)
         }

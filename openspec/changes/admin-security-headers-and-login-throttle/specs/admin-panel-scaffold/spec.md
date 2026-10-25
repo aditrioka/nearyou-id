@@ -81,7 +81,7 @@ The previous layout's page footer SHALL NOT be rendered — mockup frame 2 has n
 
 The `/admin/` index page and the `/admin/login` page SHALL both extend this layout rather than inlining the layout markup.
 
-On every page, the layout SHALL load the vendored panel script `/admin/static/admin.js` (after the vendored HTMX script) and a `<meta name="htmx-config">` tag carrying four settings:
+On every page, the layout SHALL load the vendored panel script `/admin/static/admin.js` (after the vendored HTMX script) and a `<meta name="htmx-config">` tag carrying these settings:
 - it turns off htmx's injected indicator `<style>` element (`includeIndicatorStyles: false`);
 - it turns off htmx's eval-dependent features (`allowEval: false`);
 - it stops htmx re-executing scripts found in swapped content (`allowScriptTags: false`);

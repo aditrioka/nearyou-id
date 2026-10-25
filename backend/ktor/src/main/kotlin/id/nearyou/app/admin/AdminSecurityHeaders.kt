@@ -5,7 +5,7 @@ import io.ktor.server.application.hooks.CallSetup
 
 /**
  * Security response headers on EVERY response the host serves (#531,
- * `admin-panel-scaffold` "Admin responses carry security response headers").
+ * `admin-panel-scaffold` "Every response carries the admin security response headers").
  *
  * Host-wide, not keyed on an `/admin` path prefix: Ktor's router decodes and
  * collapses path segments, so `//admin/users` and `/%61dmin/login` reach the admin

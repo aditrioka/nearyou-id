@@ -24,7 +24,7 @@ import java.util.HexFormat
 import java.util.UUID
 
 /**
- * `admin-panel-scaffold` "Admin responses carry security response headers" (#531 —
+ * `admin-panel-scaffold` "Every response carries the admin security response headers" (#531 —
  * host-wide, so router-normalised admin paths are covered)
  * + the MODIFIED base-layout scenario "Every admin page loads the vendored panel
  * script and the htmx CSP config". DB-backed (the admin wiring needs a pool).

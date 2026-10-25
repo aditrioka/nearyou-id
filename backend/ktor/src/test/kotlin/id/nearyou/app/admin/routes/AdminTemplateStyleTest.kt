@@ -73,7 +73,7 @@ private val STYLE_ATTR = Regex("""\sstyle\s*=""")
 
 // on*= handler attributes, hx-on / hx-vars, js:/javascript: values, hx-trigger [filters].
 private val CSP_BLOCKED =
-    Regex("""\son[a-z]+\s*=|hx-on|hx-vars|\bjs:|javascript:|hx-trigger="[^"]*\[""", RegexOption.IGNORE_CASE)
+    Regex("""\son[a-z]+\s*=|hx-on|hx-vars|\bjs:|javascript:|hx-trigger\s*=\s*["'][^"']*\[""", RegexOption.IGNORE_CASE)
 private val CLASS_ATTR = Regex("""class="([^"]*)"""")
 private val PEBBLE_TAG = Regex("""\{%.*?%}|\{\{.*?}}""")
 private val CSS_COMMENT = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)

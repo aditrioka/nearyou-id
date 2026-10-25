@@ -108,13 +108,13 @@ Direct SQL console access is never exposed to admin users — every administrati
   - per-email 5/15 min;
   - per-email lockout 20/24 h.
 
-  Keys are listed in `05-Implementation.md` § Rate Limiting Layer 1. Only failures count (a successful login hands its slots back), so the `smoke-admin-*.sh` scripts' successful logins are free. The login smoke's one wrong-password and one phantom POST per run still count, so run it at most ~5× per 15 min from one IP.
+  Keys are listed in `05-Implementation.md` § Rate Limiting Layer 1. Only failures count (a successful login hands its slots back), so the `smoke-admin-*.sh` scripts' successful logins are free. The login smoke's one wrong-password POST per run still counts against the test email, and its phantom POST against the IP. So run it at most 5× per 15 min and **20× per 24 h** per test email. The 21st run in a day is 429'd on every step, including its successful login, until the oldest failure ages out or you use the break-glass below.
 
   A throttle returns 429 + `Retry-After` plus a banner, and a WARN `event=admin_login_throttled axis=<ip|email|email_lockout|concurrency>` in Cloud Logging. It fails open if Redis is down; the gate stays in force. The IP tier is spoofable until #530's origin check, so the email tiers and the gate are the real bounds.
 
   **Break-glass when the operator's own address is locked out** (anyone who knows it can do this until IAP):
   1. Compute `h=$(printf %s "$EMAIL" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')`.
-  2. `DEL` `{scope:rate_admin_login}:{email:$h}` and `{scope:rate_admin_login_lockout}:{email:$h}`, plus `{scope:rate_admin_login}:{ip:<IpHasher hash>}` if the IP tier tripped, in the Upstash console.
+  2. `DEL` `{scope:rate_admin_login}:{email:$h}` and `{scope:rate_admin_login_lockout}:{email:$h}`, plus `{scope:rate_admin_login}:{ip:$ih}` if the IP tier tripped, in the Upstash console. Compute that hash with `ih=$(printf %s "$IP" | openssl dgst -sha256 -r | cut -c1-16)`; this equals `IpHasher`, the first 8 digest bytes as hex.
   3. If the attacker keeps re-filling the bucket, rotate the admin's `admin_users.email`. This is a human-gated DB write, and it orphans their keys.
 - **Security response headers — SHIPPED** (#531). Every response carries the same set, attached host-wide at `CallSetup` because a path-prefix check is bypassable through router normalisation:
   - CSP `default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`;
