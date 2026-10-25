@@ -87,7 +87,13 @@
 
 ## 6. Verification & lifecycle
 
-- [ ] 6.1 Run `/opsx:preflight` and record the result in the PR body.
+- [x] 6.1 Run `/opsx:preflight` and record the result in the PR body.
+  - **2026-10-25:** this was a late run, after implementation; the proposal-phase reviews had already covered its ground. Results:
+    - Human-required: the operator's go-ahead for the shared-staging branch deploy (6.4), plus the AxonFlow loopback override, which was granted and then revoked.
+    - The vertical slice is complete (admin + backend), with no wire contract change.
+    - The doc reconciliation (docs/05, docs/07, docs/11, the review report) was settled across two review rounds.
+    - 35/35 scenarios are mapped.
+    - Self-improving: check 1 gained the "shared environment + local network approvals" category.
 - [x] 6.2 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test --rerun :lint:detekt-rules:test --rerun` on a throwaway Postgres + Redis, and record the counts.
   - **2026-10-25:** throwaway `postgis/postgis:16-3.4` (Flyway V40) + `redis:7-alpine`, `--rerun --no-daemon`. Backend 2728 tests, of which 1 failed: the `//admin/users` probe was sent as a protocol-relative URL, a test bug fixed by setting `encodedPath`. Lint rules 357 / 0; ktlint + detekt clean.
   - After the fix and the test-coverage hardening, `AdminLoginThrottleTest` (17) and `AdminSecurityHeadersTest` (8) were re-run on the same DB: 0 failures. Root ktlint + detekt clean again.
