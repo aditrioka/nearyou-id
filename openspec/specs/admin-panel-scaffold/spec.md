@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The `admin-panel-scaffold` capability owns the in-process Ktor route subtree (`/admin/*`) that every admin-panel feature builds on. It wires the server-side templating engine (Pebble), HTMX as the client interaction layer (vendored under `/admin/static/`), the shared base layout (the mockup frame-2 app shell: a grouped sidebar of the shipped pages, a top bar with the environment chip, and the sidebar identity box), the `/admin/` landing page, and classpath-served static assets — all encapsulated behind an `Application.admin()` extension function so the eventual extraction to a separate Cloud Run service for `admin.nearyou.id` (per [`docs/07-Operations.md`](../../../docs/07-Operations.md) § Stack) is mechanical.
+The `admin-panel-scaffold` capability owns the in-process Ktor route subtree (`/admin/*`) that every admin-panel feature builds on. It wires the server-side templating engine (Pebble), HTMX as the client interaction layer (vendored under `/admin/static/`), the shared base layout (the mockup frame-2 app shell: a grouped sidebar of the shipped pages, a top bar with the environment chip, and the sidebar identity box), the `/admin/` landing page, classpath-served static assets (incl. the one vendored panel script `admin.js`), and the security response headers that let the panel run under a strict `'self'` CSP (no inline script/style, no eval) — all encapsulated behind an `Application.admin()` extension function so the eventual extraction to a separate Cloud Run service for `admin.nearyou.id` (per [`docs/07-Operations.md`](../../../docs/07-Operations.md) § Stack) is mechanical.
 
 Authentication, sessions, and CSRF are owned by `admin-login`. Its `admin-login-argon2-totp` change replaced the original scaffold's `KTOR_ENV != "production"` mount guard and per-request WARN log with the session + CSRF gate. Each admin feature (report queue, user management, audit log, feature flags, …) extends this subtree as its own capability, rather than introducing a parallel route tree, and adds its nav item to the base layout's sidebar.
 
@@ -57,7 +57,19 @@ The system SHALL provide a base layout template under `src/main/resources/templa
 
 The previous layout's page footer SHALL NOT be rendered — mockup frame 2 has none (deliberate removal, recorded in the proposal).
 
-The `/admin/` index page and the `/admin/login` page SHALL both extend this layout rather than inlining the layout markup. The layout SHALL conditionally render a `<meta name="csrf-token" content="${csrfToken}">` tag in the `<head>` plus an inline `<script>` block implementing the `htmx:configRequest` CSRF header injection (per the `admin-login` capability) — these conditional sections SHALL render ONLY when the rendering context provides a CSRF token (i.e., authenticated pages); unauthenticated pages (including `/admin/login`) SHALL NOT render either. Session-derived sections (sidebar nav, identity box) SHALL likewise render only on authenticated pages; the login page renders the shell-less centered layout per mockup frame 1.
+The `/admin/` index page and the `/admin/login` page SHALL both extend this layout rather than inlining the layout markup.
+
+On every page, the layout SHALL load the vendored panel script `/admin/static/admin.js` (after the vendored HTMX script) and a `<meta name="htmx-config">` tag carrying these settings:
+- it turns off htmx's injected indicator `<style>` element (`includeIndicatorStyles: false`);
+- it turns off htmx's eval-dependent features (`allowEval: false`);
+- it stops htmx re-executing scripts found in swapped content (`allowScriptTags: false`);
+- it stops htmx keeping page snapshots in `localStorage`, where admin data would outlive logout (`historyCacheSize: 0`, with `refreshOnHistoryMiss: true`, so back/forward navigation performs a full page load).
+
+The layout SHALL contain no inline `<script>` block, since the panel runs under CSP `script-src 'self'` (see "Every response carries the admin security response headers").
+
+The layout SHALL conditionally render a `<meta name="csrf-token" content="${csrfToken}">` tag in the `<head>`. The `htmx:configRequest` CSRF header injection that reads it lives in `admin.js`, per the `admin-login` capability. This conditional section SHALL render ONLY when the rendering context provides a CSRF token (i.e., authenticated pages); unauthenticated pages (including `/admin/login`) SHALL NOT render it.
+
+Session-derived sections (sidebar nav, identity box) SHALL likewise render only on authenticated pages; the login page renders the shell-less centered layout per mockup frame 1.
 
 #### Scenario: Authenticated page extends the base layout and renders all structural sections
 
@@ -90,6 +102,13 @@ The `/admin/` index page and the `/admin/login` page SHALL both extend this layo
 - **THEN** the rendered HTML SHALL contain the login-form-specific content block in the centered shell-less layout (no sidebar, no identity box, no top bar environment chip)
 - **AND** the rendered HTML SHALL NOT contain the `<meta name="csrf-token" ...>` tag (no session context)
 - **AND** the rendered HTML SHALL NOT contain the `htmx:configRequest` JS hook (no session context)
+
+#### Scenario: Every admin page loads the vendored panel script and the htmx CSP config
+
+- **WHEN** `GET /admin/login` (unauthenticated) and `GET /admin/` (authenticated) are served
+- **THEN** each rendered page SHALL contain a `<script src="/admin/static/admin.js" ...>` tag after the `/admin/static/htmx.min.js` script tag
+- **AND** each SHALL contain `<meta name="htmx-config" ...>` whose JSON content sets `includeIndicatorStyles`, `allowEval` and `allowScriptTags` to `false`, `historyCacheSize` to `0` and `refreshOnHistoryMiss` to `true`
+- **AND** neither SHALL contain an inline `<script>` block (a `<script` tag without `src=`)
 
 ### Requirement: HTMX is available as the client interaction layer
 
@@ -154,4 +173,71 @@ The `/admin/` index page SHALL render the Operational Dashboard (admin mockup bo
 - **GIVEN** an authenticated session
 - **WHEN** `GET /admin/` is served
 - **THEN** the rendered HTML SHALL NOT contain a "User moderation" quick-link card (the Users page remains reachable from the sidebar)
+
+### Requirement: Every response carries the admin security response headers
+
+The system SHALL add the following headers to every HTTP response the `:backend:ktor` deployable serves:
+
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: same-origin`
+- `Strict-Transport-Security: max-age=31536000`
+
+The set exists for the admin panel. It is applied host-wide rather than keyed on an `/admin` path prefix, because the router decodes and collapses path segments: `//admin/users` and `/%61dmin/login` reach the admin handlers while a raw-path prefix check would miss them. The headers are inert on the JSON API, which the backend serves without any other HTML surface, and `nosniff` + HSTS also benefit it.
+
+The headers SHALL be attached before any other plugin can reject the call, so every response carries them. That includes:
+- full pages, HTMX fragments and the vendored static assets under `/admin/static/`;
+- redirects, including the unauthenticated 302 to `/admin/login`;
+- error, throttle and routing-layer 404/405 responses;
+- early transport rejections such as the request-body-limit 413.
+
+The panel SHALL work under this policy with no `'unsafe-inline'`, nonce, hash or `'unsafe-eval'` source:
+- no admin template contains an inline `<script>` block (a `<script>` without a `src` attribute) or an inline style attribute (the existing #525/#585 guard);
+- no admin template contains an inline event-handler attribute (`on<event>=`) or an eval-dependent htmx feature: `hx-on`, `hx-vars`, a `js:` / `javascript:` value, or an `hx-trigger` event filter (`[...]`);
+- all panel behaviour lives in the vendored same-origin static files;
+- `admin.js` is pinned in `admin/static/htmx.min.js.SHA256SUMS` beside the other vendored assets.
+
+#### Scenario: Login page carries the security header set
+
+- **WHEN** an unauthenticated client sends `GET /admin/login`
+- **THEN** the response SHALL carry each of the five headers with exactly the values listed above
+
+#### Scenario: Authenticated page and HTMX fragment carry the header set
+
+- **GIVEN** an authenticated session
+- **WHEN** the client sends `GET /admin/` and an HTMX fragment request (`HX-Request: true`) to an admin list route
+- **THEN** both responses SHALL carry the five headers with the values listed above
+
+#### Scenario: Redirects, static assets and unmapped admin paths carry the header set
+
+- **WHEN** a client without a session sends `GET /admin/users` (answered `302` to `/admin/login`), `GET /admin` (answered `302` to `/admin/`), `GET /admin/static/admin.js` (answered `200`) and `GET /admin/nonexistent-page` (answered `404`)
+- **THEN** each response SHALL carry the five headers with the values listed above
+
+#### Scenario: Router-normalised admin paths carry the header set
+
+- **WHEN** a client sends `GET //admin/users` (answered `302` to `/admin/login`) and `GET /%61dmin/login` (answered `200` with the login form)
+- **THEN** both responses SHALL carry the five headers with the values listed above
+
+#### Scenario: An early transport rejection carries the header set
+
+- **WHEN** a client POSTs a body over the request-body limit to an admin path (answered `413` by the request-body limit before routing)
+- **THEN** the `413` response SHALL carry the five headers with the values listed above
+
+#### Scenario: Non-admin paths carry the same header set
+
+- **WHEN** a client sends a request outside the `/admin` prefix (e.g. `GET /administrator` or an `/api/v1/*` path)
+- **THEN** the response SHALL carry the same five headers (the set is host-wide)
+
+#### Scenario: No admin template carries an inline script, inline handler or eval-dependent htmx feature
+
+- **WHEN** the test suite scans every `templates/admin/*.peb` source file
+- **THEN** no file SHALL contain a `<script` tag without a `src=` attribute
+- **AND** no file SHALL contain an inline event-handler attribute (whitespace followed by `on<letters>=`), `hx-on`, `hx-vars`, a `js:` or `javascript:` value, or an `hx-trigger` value containing `[`
+
+#### Scenario: The vendored panel script is served and pinned
+
+- **WHEN** a client sends `GET /admin/static/admin.js`
+- **THEN** the response status SHALL be 200 with `Content-Type` `application/javascript` or `text/javascript`
+- **AND** `admin/static/htmx.min.js.SHA256SUMS` SHALL list `admin.js`, with the SHA-256 of the served bytes
 

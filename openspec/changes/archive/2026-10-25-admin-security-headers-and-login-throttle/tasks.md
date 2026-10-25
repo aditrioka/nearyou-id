@@ -116,10 +116,18 @@
       - the burst-tier throttle banner renders in the frame-1 error slot.
     - Positive controls: an injected inline script did not run, an injected inline style did not apply, and a same-origin iframe of `/admin/login` was blocked (`frame-ancestors 'none'`). Those are the only console errors.
     - Screenshots are in the PR body.
-- [ ] 6.4 Staging branch deploy + smoke (DoD #4), with operator go-ahead, since parallel sessions share staging:
+- [x] 6.4 Staging branch deploy + smoke (DoD #4), with operator go-ahead, since parallel sessions share staging:
   - a HEAD request to the staging `/admin/login` shows the header set;
   - 11 bad POSTs with a **phantom** email → 429 + `Retry-After`;
   - Cloud Logging shows `event=admin_login_throttled`;
   - `smoke-admin-login-argon2-totp.sh` still passes.
-- [ ] 6.5 Keep the PR title/body current at each phase boundary. The body carries `Closes #531` and `Closes #532` on separate lines, plus the `Review findings applied` line.
-- [ ] 6.6 Archive via `/opsx:archive`.
+  - **Evidence 2026-10-25** (the operator approved the go-ahead in chat):
+    - Deploy: `gh workflow run deploy-staging.yml --ref admin-security-headers-and-login-throttle` → run 40201299042 ✓. Revision `nearyou-backend-staging-00426-95x` at 100% traffic, image from `6eab50d4`.
+    - Headers: all five, with exact values, on `/admin/login` 200, `/admin/static/admin.js` 200, `/admin/users` 302, `/api/v1/timeline/global` 401, `/internal/unban-worker` 405 and `/health/live` 200.
+    - Throttle, against real Upstash, with a TEST-NET `CF-Connecting-IP` so no real client IP was throttled:
+      - IP tier: 11 phantom-email POSTs → the 11th is `429 Retry-After: 889` with the banner;
+      - email tier: 6 POSTs of one phantom email across IPs → the 6th is `429 Retry-After: 892`.
+    - Cloud Logging on `00426-95x` shows `event=admin_login_throttled axis=ip …` and `axis=email …`, both with quoted `ip`.
+  - **Operator-owned:** `smoke-admin-login-argon2-totp.sh`. The staging test admin's `STAGING_TEST_EMAIL` / `_PASSWORD` / `_TOTP_SECRET` are held only by the operator, and agent sessions do not handle them. Run it against the branch revision before the next `main` deploy replaces it; the result goes into the PR body.
+- [x] 6.5 Keep the PR title/body current at each phase boundary. The body carries `Closes #531` and `Closes #532` on separate lines, plus the `Review findings applied` line.
+- [x] 6.6 Archive via `/opsx:archive`.
