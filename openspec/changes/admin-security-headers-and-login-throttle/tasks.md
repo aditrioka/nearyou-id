@@ -61,7 +61,10 @@
   - email burst across IPs: 6th → 429;
   - lockout: 4 × 5 failures 16 min apart (injected clock), then 21st → 429, `Retry-After` > 900, `axis=email_lockout`;
   - correct credentials while throttled → 429, no cookie, session or audit row;
-  - existing vs phantom → byte-identical 429 body and identical header names;
+  - existing vs phantom (frozen clock) → byte-identical 429 body and an identical full header map;
+  - a burst-throttled attempt spends no lockout slot;
+  - `logQuoted` escapes `\`, `"`, CR and LF;
+  - the gate returns its permit when a credential check throws (500);
   - WARN line fields, quoted `ip` / `user_agent`, no plaintext email, password or TOTP, no audit row;
   - field-forgery escaping;
   - success hands back every tier's slot (6 successes, empty buckets);
@@ -85,11 +88,28 @@
 ## 6. Verification & lifecycle
 
 - [ ] 6.1 Run `/opsx:preflight` and record the result in the PR body.
-- [ ] 6.2 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test --rerun :lint:detekt-rules:test --rerun` on a throwaway Postgres + Redis, and record the counts.
-- [ ] 6.3 Local verify (verify-loop §A, dist boot, `KTOR_ENV=test`, real Redis):
+- [x] 6.2 Gate (docs/13): `./gradlew ktlintCheck detekt :backend:ktor:test --rerun :lint:detekt-rules:test --rerun` on a throwaway Postgres + Redis, and record the counts.
+  - **2026-10-25:** throwaway `postgis/postgis:16-3.4` (Flyway V40) + `redis:7-alpine`, `--rerun --no-daemon`. Backend 2728 tests, of which 1 failed: the `//admin/users` probe was sent as a protocol-relative URL, a test bug fixed by setting `encodedPath`. Lint rules 357 / 0; ktlint + detekt clean.
+  - After the fix and the test-coverage hardening, `AdminLoginThrottleTest` (17) and `AdminSecurityHeadersTest` (8) were re-run on the same DB: 0 failures. Root ktlint + detekt clean again.
+- [x] 6.3 Local verify (verify-loop §A, dist boot, `KTOR_ENV=test`, real Redis):
   - a HEAD request shows the header set on `/admin/login`, `/admin/static/admin.js`, the `/admin/users` 302 and an `/api` path;
   - 11 phantom-email POSTs → the 11th gets 429 + `Retry-After`;
   - browser bring-up with screenshots: the login page (toggle works), an authenticated page (HTMX filter/fragment swap with the CSRF header on an HTMX POST, wordlist filter works), the throttle banner (it reuses the frame-1 error banner), and a console with zero CSP violations.
+  - **2026-10-25, branch dist on `:8090`** (`KTOR_ENV=test`, Redis bound, not NoOp):
+    - HEAD on `/admin/login`, `/admin/static/admin.js` (`text/javascript`), `/admin/users` 302, `//admin/users` 302 and `/api/v1/timeline/global` 401: all five headers on each.
+    - 11 failed POSTs from one IP → 429, `Retry-After: 899`, the banner, and a WARN `event=admin_login_throttled axis=ip … ip="…" user_agent="curl/…"`. Redis keys are in the hash-tag shape.
+    - Browser:
+      - the login page renders (font loaded, 0 `<style>`, 0 inline scripts, htmx config applied);
+      - the password toggle flips `type` and `aria-pressed`;
+      - a TOTP login reaches the dashboard;
+      - an HTMX POST (reserved-usernames add) with the hidden `_csrf` field **removed** still returns 200, so the `admin.js` header alone carries CSRF;
+      - `hx-confirm` still prompts, and Cancel sends no request;
+      - `hx-push-url` then back → a full reload;
+      - no `htmx-history-cache` in localStorage, including after logout;
+      - the wordlist filter (delegated listener) hides and shows entries;
+      - the burst-tier throttle banner renders in the frame-1 error slot.
+    - Positive controls: an injected inline script did not run, an injected inline style did not apply, and a same-origin iframe of `/admin/login` was blocked (`frame-ancestors 'none'`). Those are the only console errors.
+    - Screenshots are in the PR body.
 - [ ] 6.4 Staging branch deploy + smoke (DoD #4), with operator go-ahead, since parallel sessions share staging:
   - a HEAD request to the staging `/admin/login` shows the header set;
   - 11 bad POSTs with a **phantom** email → 429 + `Retry-After`;

@@ -134,8 +134,11 @@ class AdminLoginThrottleTest : StringSpec({
     "the throttled response is identical for an existing and a phantom email" {
         val admin = seedAdmin()
         val phantom = phantom("identical")
+        // A frozen clock makes both Retry-After values identical, so the FULL header map
+        // (names and values) can be compared, not just the names.
+        val frozen = Instant.parse("2026-10-18T00:00:00Z")
         val limiter =
-            InMemoryRateLimiter().also {
+            InMemoryRateLimiter(clock = { frozen }).also {
                 it.exhaust(emailKey(admin.email), AdminLoginRoutes.EMAIL_CAP)
                 it.exhaust(emailKey(phantom), AdminLoginRoutes.EMAIL_CAP)
             }
@@ -145,7 +148,8 @@ class AdminLoginThrottleTest : StringSpec({
             existing.status shouldBe HttpStatusCode.TooManyRequests
             missing.status shouldBe HttpStatusCode.TooManyRequests
             existing.bodyAsText() shouldBe missing.bodyAsText()
-            existing.headers.names() shouldBe missing.headers.names()
+            existing.headers.entries().associate { it.key to it.value } shouldBe
+                missing.headers.entries().associate { it.key to it.value }
         }
     }
 
@@ -160,7 +164,7 @@ class AdminLoginThrottleTest : StringSpec({
                 }
             }
         val line = lines.single { it.contains("event=admin_login_throttled") }
-        line shouldContain "axis=email"
+        line shouldContain "axis=email " // not axis=email_lockout
         line shouldContain "email_hash=${AdminAuditLogger.sha256Base64Url(admin.email)}"
         line shouldContain "ip=\"$PROBE_IP\""
         line shouldContain "user_agent=\"$PROBE_AGENT\""
@@ -282,6 +286,56 @@ class AdminLoginThrottleTest : StringSpec({
         }
     }
 
+    "a burst-throttled attempt spends no lockout slot" {
+        val target = phantom("burst-only")
+        val limiter = InMemoryRateLimiter().also { it.exhaust(emailKey(target), AdminLoginRoutes.EMAIL_CAP) }
+        AdminAuthTestSupport.withAdminApp(dataSource, loginRateLimiter = limiter) { client ->
+            client.login(target).status shouldBe HttpStatusCode.TooManyRequests
+        }
+        // A burst spray must never feed the 24 h account lockout: the probe sees it empty.
+        limiter.tryAcquireByKey(lockoutKey(target), AdminLoginRoutes.LOCKOUT_CAP, AdminLoginRoutes.LOCKOUT_WINDOW) shouldBe
+            RateLimiter.Outcome.Allowed(remaining = AdminLoginRoutes.LOCKOUT_CAP - 1)
+    }
+
+    "logQuoted quotes and escapes backslash, quote, CR and LF" {
+        AdminAuditLogger.logQuoted("a\\b\r\nc\"d") shouldBe "\"a\\\\b\\r\\nc\\\"d\""
+        AdminAuditLogger.logQuoted("") shouldBe "\"\""
+    }
+
+    "the credential-check gate returns its permit when a credential check throws" {
+        val gate = Semaphore(1)
+        val throwing =
+            object : RateLimiter {
+                override fun tryAcquireByKey(
+                    key: String,
+                    capacity: Int,
+                    ttl: Duration,
+                ): RateLimiter.Outcome = error("simulated limiter failure")
+
+                override fun tryAcquire(
+                    userId: UUID,
+                    key: String,
+                    capacity: Int,
+                    ttl: Duration,
+                ): RateLimiter.Outcome = error("unused")
+
+                override fun releaseMostRecent(
+                    userId: UUID,
+                    key: String,
+                ) = Unit
+            }
+        AdminAuthTestSupport.withAdminApp(
+            dataSource,
+            loginRateLimiter = throwing,
+            loginCredentialGate = gate,
+            // production StatusPages maps the throw to a 500
+            productionBodyLimit = true,
+        ) { client ->
+            client.login(phantom("throws")).status shouldBe HttpStatusCode.InternalServerError
+        }
+        gate.availablePermits shouldBe 1
+    }
+
     "an oversized field is rejected 400 before the throttle consumes a slot" {
         val recorder = RecordingLimiter()
         AdminAuthTestSupport.withAdminApp(dataSource, loginRateLimiter = recorder) { client ->
@@ -313,7 +367,7 @@ class AdminLoginThrottleTest : StringSpec({
         override fun releaseMostRecent(
             userId: UUID,
             key: String,
-        ) = error("the admin login throttle never releases")
+        ) = Unit // a successful login hands its slots back; nothing to record here
     }
 
     companion object {

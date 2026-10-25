@@ -19,6 +19,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.http.encodedPath
 import java.security.MessageDigest
 import java.util.HexFormat
 import java.util.UUID
@@ -114,8 +115,9 @@ class AdminSecurityHeadersTest : StringSpec({
         AdminAuthTestSupport.withAdminApp(dataSource) { client ->
             // The router collapses `//` and decodes `%61` → `a`, so these reach the admin
             // handlers; a raw-path `/admin` prefix check would have missed them.
-            // Absolute URL: a bare "//admin/users" parses as protocol-relative (host "admin").
-            val doubled = client.get("http://localhost//admin/users")
+            // Set the encoded path directly: a bare "//admin/users" string parses as a
+            // protocol-relative URL (host "admin"), which never reaches the app.
+            val doubled = client.get { url { encodedPath = "//admin/users" } }
             doubled.status shouldBe HttpStatusCode.Found
             doubled.shouldCarryAdminHeaders()
             val encoded = client.get("/%61dmin/login")
