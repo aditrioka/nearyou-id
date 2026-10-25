@@ -102,10 +102,36 @@ class AdminAuditLogger(
         // Structured key=value pairs — matches the project's existing
         // logging convention (see AdminModule.kt for the WARN-line shape).
         log.info(
-            "event=admin_login_attempt_email_not_found email_hash={} ip={} user_agent=\"{}\"",
+            "event=admin_login_attempt_email_not_found email_hash={} ip={} user_agent={}",
             emailHash,
-            ip,
-            userAgent ?: "",
+            logQuoted(ip),
+            logQuoted(userAgent.orEmpty()),
+        )
+    }
+
+    /**
+     * `event=admin_login_throttled` (#532): a login attempt rejected by the throttle
+     * BEFORE any admin lookup, so — like [logEmailNotFoundAttempt] (design D14) — no
+     * admin actor exists and V16's `admin_id NOT NULL` forbids an `admin_actions_log`
+     * row. WARN, not INFO: a throttle is an abuse signal. Same `email_hash` as the
+     * email-not-found line so the two correlate; never the plaintext email, password
+     * or TOTP. One line per throttled request (ponytail: ~300 B each; sample or
+     * first-per-window suppress if a flood ever makes the log volume matter).
+     */
+    fun logLoginThrottled(
+        axis: String,
+        submittedEmail: String,
+        ip: String,
+        userAgent: String?,
+        retryAfterSeconds: Long,
+    ) {
+        log.warn(
+            "event=admin_login_throttled axis={} email_hash={} ip={} user_agent={} retry_after_s={}",
+            axis,
+            sha256Base64Url(submittedEmail),
+            logQuoted(ip),
+            logQuoted(userAgent.orEmpty()),
+            retryAfterSeconds,
         )
     }
 
@@ -1156,6 +1182,26 @@ class AdminAuditLogger(
     companion object {
         private val log = LoggerFactory.getLogger("id.nearyou.app.admin.auth.AdminAuditLogger")
         private val json = Json { encodeDefaults = false }
+
+        /**
+         * A client-controlled value as one quoted, escaped log field. `ip` is the
+         * unvalidated `CF-Connecting-IP` until the host sits behind Cloudflare (#530),
+         * so a raw value carrying ` axis=email` or an embedded `"` would forge fields in
+         * Cloud Logging queries.
+         */
+        fun logQuoted(value: String): String =
+            buildString {
+                append('"')
+                for (c in value) {
+                    when (c) {
+                        '\\', '"' -> append('\\').append(c)
+                        '\n' -> append("\\n")
+                        '\r' -> append("\\r")
+                        else -> append(c)
+                    }
+                }
+                append('"')
+            }
 
         /**
          * SHA-256 of [input] (UTF-8 encoded) → base64url-encoded (no padding).

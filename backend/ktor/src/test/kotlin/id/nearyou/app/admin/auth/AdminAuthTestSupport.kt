@@ -8,6 +8,8 @@ import id.nearyou.app.admin.admin
 import id.nearyou.app.common.AppJson
 import id.nearyou.app.common.installAppStatusPages
 import id.nearyou.app.common.installRequestBodyLimit
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
+import id.nearyou.app.infra.redis.NoOpRateLimiter
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import io.ktor.client.HttpClient
@@ -16,6 +18,7 @@ import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.sync.Semaphore
 import org.apache.commons.codec.binary.Base32
 import java.security.SecureRandom
 import java.sql.Timestamp
@@ -51,6 +54,14 @@ object AdminAuthTestSupport {
 
     /** Deployment-env name wired into admin() under test — rendered uppercased as the env chip. */
     const val TEST_ENVIRONMENT_NAME = "test"
+
+    /** A `<script>` tag WITHOUT a `src=` attribute — i.e. an inline script, which the
+     *  panel's CSP `script-src 'self'` would block (#531). Matches in rendered HTML
+     *  and in template sources alike. */
+    val INLINE_SCRIPT_TAG = Regex("""<script(?![^>]*\ssrc=)[^>]*>""")
+
+    /** The vendored panel script tag every admin page loads. */
+    const val ADMIN_JS_TAG = "<script src=\"/admin/static/admin.js\" defer></script>"
 
     private val secureRandom = SecureRandom()
     private val base32 = Base32()
@@ -305,6 +316,12 @@ object AdminAuthTestSupport {
         // admin routes, so a transport-cap test hits the real route wiring. Off by default:
         // StatusPages would change how the other suites see exceptions.
         productionBodyLimit: Boolean = false,
+        // The POST /admin/login throttle's limiter (#532). NoOp (always admits — the
+        // fail-soft binding) so suites that log in many times stay unthrottled; the
+        // throttle tests inject an InMemoryRateLimiter.
+        loginRateLimiter: RateLimiter = NoOpRateLimiter(),
+        // The login credential-check gate (#532 D11); null → the module's default.
+        loginCredentialGate: Semaphore? = null,
         block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit,
     ) {
         testApplication {
@@ -344,6 +361,8 @@ object AdminAuthTestSupport {
                         aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
                         csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
                         environmentName = TEST_ENVIRONMENT_NAME,
+                        loginRateLimiter = loginRateLimiter,
+                        loginCredentialGate = loginCredentialGate ?: Semaphore(AdminLoginRoutes.CREDENTIAL_CHECK_PERMITS),
                         remoteConfigPublisher = remoteConfigPublisher,
                         privacyFlipsClock = clock,
                         referralEntitlementGranter = referralEntitlementGranter,
@@ -355,6 +374,8 @@ object AdminAuthTestSupport {
                         aesKeyProvider = aesKeyOverride ?: { FIXED_AES_KEY },
                         csrfHmacKeyProvider = { FIXED_CSRF_HMAC_KEY },
                         environmentName = TEST_ENVIRONMENT_NAME,
+                        loginRateLimiter = loginRateLimiter,
+                        loginCredentialGate = loginCredentialGate ?: Semaphore(AdminLoginRoutes.CREDENTIAL_CHECK_PERMITS),
                         remoteConfigPublisher = remoteConfigPublisher,
                         privacyFlipsClock = clock,
                         referralEntitlementGranter = referralEntitlementGranter,
