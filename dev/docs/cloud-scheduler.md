@@ -10,15 +10,15 @@ each spec sets, is in [`docs/07-Operations.md` § Internal worker schedules](/do
 
 | Job (`<env>` = `staging` / `prod`) | Endpoint | Schedule | Staging (WIB) |
 |---|---|---|---|
-| `nearyou-unban-worker-<env>` | `POST /internal/unban-worker` | `0 21 * * *` UTC (04:00 WIB) | `4 3 * * *` |
-| `nearyou-privacy-flip-worker-<env>` | `POST /internal/privacy-flip-worker` | `0 * * * *` WIB | `7 3 * * *` |
-| `nearyou-login-anomaly-check-<env>` | `POST /internal/login-anomaly-check` | `0 * * * *` WIB | `8 3 * * *` |
-| `nearyou-data-export-worker-<env>` | `POST /internal/data-export-worker` | `45 * * * *` WIB | `9 3 * * *` |
-| `nearyou-csam-archive-purge-<env>` | `POST /internal/csam-archive-purge` | `0 2 * * *` WIB | `0 3 * * *` |
-| `nearyou-cleanup-orphan-images-<env>` | `POST /internal/cleanup-orphan-images` | `30 2 * * *` WIB | `1 3 * * *` |
-| `nearyou-retention-cleanup-<env>` | `POST /internal/cleanup` | `0 3 * * *` WIB | `2 3 * * *` |
-| `nearyou-account-hard-delete-worker-<env>` | `POST /internal/account-hard-delete-worker` | `30 3 * * *` WIB | `3 3 * * *` |
-| `nearyou-referral-activity-check-<env>` | `POST /internal/referral-activity-check` | `30 4 * * *` WIB | `6 3 * * *` |
+| `nearyou-unban-worker-<env>` | `POST /internal/unban-worker` | `0 21 * * *` UTC (04:00 WIB) | same (spec) |
+| `nearyou-privacy-flip-worker-<env>` | `POST /internal/privacy-flip-worker` | `0 * * * *` WIB | `1 4 * * *` |
+| `nearyou-login-anomaly-check-<env>` | `POST /internal/login-anomaly-check` | `0 * * * *` WIB | `2 4 * * *` |
+| `nearyou-data-export-worker-<env>` | `POST /internal/data-export-worker` | `45 * * * *` WIB | `3 4 * * *` |
+| `nearyou-csam-archive-purge-<env>` | `POST /internal/csam-archive-purge` | `0 2 * * *` WIB | `55 3 * * *` |
+| `nearyou-cleanup-orphan-images-<env>` | `POST /internal/cleanup-orphan-images` | `30 2 * * *` WIB | `56 3 * * *` |
+| `nearyou-retention-cleanup-<env>` | `POST /internal/cleanup` | `0 3 * * *` WIB | `57 3 * * *` |
+| `nearyou-account-hard-delete-worker-<env>` | `POST /internal/account-hard-delete-worker` | `30 3 * * *` WIB | `58 3 * * *` |
+| `nearyou-referral-activity-check-<env>` | `POST /internal/referral-activity-check` | `30 4 * * *` WIB | `9 4 * * *` |
 
 Every job uses the same settings:
 
@@ -29,7 +29,7 @@ Every job uses the same settings:
 
 In production the daily jobs are spread out between 02:00 and 05:00 WIB. The referral check runs after the 04:00 unban, so a suspension that ended overnight doesn't void an inviter's tickets on a stale `is_banned` flag.
 
-Staging (`ENV_NAME=staging`) uses the last column instead: all nine jobs once a day, one minute apart from 03:00 WIB, in the same order, so the set costs one Cloud Run wake a day. The reason and the trade-offs are in [`docs/07-Operations.md` § Internal worker schedules](/docs/07-Operations.md#internal-worker-schedules-cloud-scheduler). Force-run a job to test a worker between windows.
+Staging (`ENV_NAME=staging`) uses the last column instead: all nine jobs once a day in 03:55–04:09 WIB, in the same order, so the set costs one Cloud Run wake a day. The unban keeps its spec'd `0 21 * * *` UTC (`suspension-unban-worker` names the staging job), and the referral check runs 9 minutes after it, past the unban's worst-case retry chain. The reason and the trade-offs are in [`docs/07-Operations.md` § Internal worker schedules](/docs/07-Operations.md#internal-worker-schedules-cloud-scheduler). Force-run a job to test a worker between windows.
 
 `/internal/csam-webhook`, `/internal/apple/s2s-notifications` and
 `/internal/revenuecat-webhook` are push endpoints that vendors call. They have no schedule.
@@ -66,7 +66,7 @@ Each worker should show a `200` from `Google-Cloud-Scheduler`:
 
 ```bash
 gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="nearyou-backend-staging" AND httpRequest.requestUrl:"/internal/" AND httpRequest.userAgent:"Google-Cloud-Scheduler"' \
-    --project=nearyou-staging --freshness=1h --format='table(timestamp,httpRequest.status,httpRequest.requestUrl)'
+    --project=nearyou-staging --freshness=1d --format='table(timestamp,httpRequest.status,httpRequest.requestUrl)'
 gcloud scheduler jobs list --project=nearyou-staging --location=asia-southeast1 \
     --format='table(name.basename(),schedule,state,lastAttemptTime,status.code)'
 ```
@@ -80,7 +80,7 @@ What the status codes mean:
 | `404` | Route not deployed on the live revision | Redeploy, or wait for the merge to deploy |
 | `504` | Run went past Cloud Run's 60 s `--timeout` | Retried automatically; the worker claims are idempotent |
 
-The data-export worker processes at most `DataExportWorker.MAX_EXPORTS_PER_RUN` (5) exports per hourly run, oldest first. The rest stay `pending` for the next run, and the response and the `event=data_export_worker_applied` log report them as `remaining`. The cap bounds the count, not the wall time, so slow R2 or Resend calls can still cause a `504`.
+The data-export worker processes at most `DataExportWorker.MAX_EXPORTS_PER_RUN` (5) exports per run (hourly in production, daily on staging), oldest first. The rest stay `pending` for the next run, and the response and the `event=data_export_worker_applied` log report them as `remaining`. The cap bounds the count, not the wall time, so slow R2 or Resend calls can still cause a `504`.
 
 ## Invoker identity and the caller allowlist
 
@@ -126,7 +126,8 @@ The bigger cost is the Cloud Run time the jobs keep awake. The service deploys
 with `--no-cpu-throttling`, so a wake bills the instance for about 15 minutes of
 idle after the last request, not just the request itself. With the hourly
 cadence, staging was awake about 13 hours a day (about Rp1 jt a month,
-October 2026). The single 03:00 WIB window costs one wake a day, which stays
-inside the Cloud Run free tier. Check the awake time with the
+October 2026). The single 03:55–04:09 WIB window costs one wake a day, about 25 minutes. The
+jobs' share fits in the Cloud Run free tier, which the weekday keep-warm ping,
+deploys and manual testing share. Check the awake time with the
 `run.googleapis.com/container/billable_instance_time` metric (Cloud Monitoring →
 Metrics explorer, aligned per day).
