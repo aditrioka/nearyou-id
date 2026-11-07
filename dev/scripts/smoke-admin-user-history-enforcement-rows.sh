@@ -12,8 +12,9 @@
 #   [d] GET /admin/users/$SMOKE_USER_ID → 200 + the History card. This runs the
 #       widened history query (`target_type='user'` arm OR `after_state ->> 'user_id'`
 #       arm) on the real database. With EXPECT_ACTION set, the page must also show
-#       that action type — pick a user who has a row keyed to another object that
-#       names them in after_state.user_id (e.g. an `appeal_approved`).
+#       that action type: a `user_*` row proves the original arm still renders; an
+#       `appeal_approved` / `moderation_queue_resolved` row (keyed to another object,
+#       naming the user in after_state.user_id) proves the new arm.
 #   [e] logout (cleanup)
 #
 # Usage (creds from the operator's Keychain — never print them):
@@ -71,7 +72,7 @@ grep -q "No matching user." "$tmp/profile.html" && fail "SMOKE_USER_ID resolves 
 pass "profile rendered with its History card"
 if [ -n "${EXPECT_ACTION:-}" ]; then
     grep -q ">$EXPECT_ACTION</span>" "$tmp/profile.html" || fail "History is missing the expected $EXPECT_ACTION row"
-    pass "History shows the $EXPECT_ACTION row (after_state.user_id arm)"
+    pass "History shows the expected $EXPECT_ACTION row"
 fi
 
 echo "[e] logout (cleanup)"
