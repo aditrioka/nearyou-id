@@ -126,8 +126,10 @@ The bigger cost is the Cloud Run time the jobs keep awake. The service deploys
 with `--no-cpu-throttling`, so a wake bills the instance for about 15 minutes of
 idle after the last request, not just the request itself. With the hourly
 cadence, staging was awake about 13 hours a day (about Rp1 jt a month,
-October 2026). The single 03:55–04:09 WIB window costs one wake a day, about 25 minutes. The
-jobs' share fits in the Cloud Run free tier, which the weekday keep-warm ping,
-deploys and manual testing share. Check the awake time with the
+October 2026). The single 03:55–04:09 WIB window costs one wake a day, about 30 minutes.
+From 30 October to 6 November 2026 staging was awake about 1.4 hours a day in all:
+the window, the weekday keep-warm ping, and internet scanners probing
+`api-staging.nearyou.id`. Since 2026-11-07 the service runs 1 vCPU, so the free
+tier covers about 66 awake hours a month (33 at 2 vCPU). Check the awake time with the
 `run.googleapis.com/container/billable_instance_time` metric (Cloud Monitoring →
 Metrics explorer, aligned per day).
