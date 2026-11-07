@@ -413,9 +413,12 @@ class AdminAuditLogger(
      * notification) in ONE transaction (design D4). `targetType =
      * 'moderation_queue'`, `targetId` = the queue id; the [afterState] JSONB
      * records BOTH the `resolution` value AND the enforcement effect (e.g.
-     * `{"resolution":"ban_author","is_banned":true,"suspended_until":null}`) so
-     * the audit trail is self-describing (design D9). `adminId` is the acting
-     * human admin, never the `system` sentinel.
+     * `{"resolution":"ban_author","is_banned":true,"suspended_until":null,"user_id":"<author>"}`) so
+     * the audit trail is self-describing (design D9). An author resolution's
+     * [afterState] also names the enforced author as `user_id` — the
+     * `after_state.user_id` convention (a row keyed to another object names the
+     * account it affected), which the admin profile history reads. `adminId` is
+     * the acting human admin, never the `system` sentinel.
      */
     fun logModerationQueueResolved(
         conn: Connection,
@@ -1053,8 +1056,10 @@ class AdminAuditLogger(
      * `pending → rejected`, leaving the moderation action INTACT (no `users`
      * write). Joins the caller's [conn] for atomicity with the `appeals` UPDATE.
      * The optional free-text [reason] (the decision rationale) is stored here
-     * (audit-only). `targetType = 'appeal'`, `targetId` = the appeal id. `adminId`
-     * is the acting human admin, never the `system` sentinel.
+     * (audit-only). `targetType = 'appeal'`, `targetId` = the appeal id;
+     * [afterState] names the appellant as `user_id` (the `after_state.user_id`
+     * convention, as on approve). `adminId` is the acting human admin, never the
+     * `system` sentinel.
      */
     fun logAppealRejected(
         conn: Connection,

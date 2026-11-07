@@ -192,6 +192,8 @@ class AppealReviewRepository(
      * `appeal_rejected` audit row, and insert one `appeal_decided` notification in
      * ONE transaction. The moderation action is LEFT INTACT (no `users` write) —
      * the appellant stays banned/suspended (they see the row once access returns).
+     * Like approve, the audit `after_state` names the appellant as `user_id` so the
+     * decision surfaces in their admin profile history.
      */
     fun reject(
         appealId: UUID,
@@ -228,7 +230,11 @@ class AppealReviewRepository(
                     appealId = appealId,
                     reason = decisionReason,
                     beforeState = buildJsonObject { put("status", JsonPrimitive(STATUS_PENDING)) },
-                    afterState = buildJsonObject { put("status", JsonPrimitive("rejected")) },
+                    afterState =
+                        buildJsonObject {
+                            put("status", JsonPrimitive("rejected"))
+                            put("user_id", JsonPrimitive(locked.userId.toString()))
+                        },
                     ip = ip,
                     userAgent = userAgent,
                 )

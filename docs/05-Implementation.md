@@ -1395,9 +1395,25 @@ CREATE TABLE admin_actions_log (
 CREATE INDEX admin_actions_admin_idx ON admin_actions_log(admin_id, created_at DESC);
 CREATE INDEX admin_actions_target_idx ON admin_actions_log(target_type, target_id);
 CREATE INDEX admin_actions_type_idx ON admin_actions_log(action_type, created_at DESC);
+-- V17 (admin-actions-log-viewer): newest-first keyset scan.
+CREATE INDEX admin_actions_created_idx ON admin_actions_log(created_at DESC, id DESC);
+-- V41 (admin-user-history-enforcement-rows): the profile history's after_state.user_id arm.
+CREATE INDEX admin_actions_after_user_idx ON admin_actions_log((after_state ->> 'user_id'))
+    WHERE (after_state ->> 'user_id') IS NOT NULL;
 ```
 
 Immutable: UPDATE/DELETE revoked at the role level for `admin_app`. Retention 1 year minimum.
+
+**`after_state.user_id` convention.** A row keyed to an object other than the user names the account it affected in `after_state.user_id` (a lowercase UUID string). Today's writers are:
+- the report-queue author resolutions (`moderation_queue_resolved` with `suspend_author_7d` / `ban_author` / `shadow_ban_author`; content `keep` / `hide` name no user);
+- the appeal decisions (`appeal_approved`, `appeal_rejected`);
+- the hard-delete expedite (`deletion_request_expedited`).
+
+The admin per-user profile history reads rows with `(target_type = 'user' AND target_id = {id}) OR (after_state ->> 'user_id') = {id}`. Report-queue author-resolution and `appeal_rejected` rows logged before V41 carry no key and are not backfilled (the log is immutable). Pre-V41 `appeal_approved` and `deletion_request_expedited` rows already carry it.
+
+A **user-facing** consumer of this arm (e.g. the data export) MUST exclude `after_state ->> 'resolution' = 'shadow_ban_author'`, because a shadow ban is invisible to the affected user. The admin profile is operator-only and shows shadow-ban state anyway.
+
+A writer whose state carries role-restricted content MUST NOT adopt the key without a role review, because the profile history renders `before_state` / `after_state` to every admin role. Example: `admin_chat_redaction`, whose `before_state.content` is private chat text.
 
 ---
 

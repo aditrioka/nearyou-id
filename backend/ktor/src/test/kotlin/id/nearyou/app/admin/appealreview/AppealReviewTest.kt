@@ -5,6 +5,7 @@ import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthProvider
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
 import id.nearyou.app.admin.auth.withFailingConstraint
+import id.nearyou.app.admin.moderation.UserModerationTestSupport
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
@@ -154,6 +155,18 @@ class AppealReviewTest : StringSpec({
             }
         }
 
+    /** The decision's audit row is keyed to the appeal and names the appellant in after_state.user_id. */
+    fun auditNamesAppellant(
+        appealId: UUID,
+        actionType: String,
+        appellant: UUID,
+    ) {
+        val audit = UserModerationTestSupport.auditRowsForTarget(dataSource, appealId, actionType).single()
+        audit.targetType shouldBe "appeal"
+        audit.targetId shouldBe appealId.toString()
+        Json.parseToJsonElement(audit.afterStateJson!!).jsonObject["user_id"] shouldBe JsonPrimitive(appellant.toString())
+    }
+
     data class NotificationRow(
         val type: String,
         val actorUserId: UUID?,
@@ -246,7 +259,7 @@ class AppealReviewTest : StringSpec({
         }
     }
 
-    "approve lifts a suspension, marks approved, and writes exactly one appeal_approved audit row" {
+    "approve lifts a suspension, marks approved, and writes exactly one appeal_approved audit row naming the appellant" {
         val admin = AdminAuthTestSupport.seedAdmin(dataSource)
         val uid = seedUser(banned = true, suspendedUntil = Instant.now().plus(7, ChronoUnit.DAYS))
         val appealId = seedAppeal(uid, "suspension")
@@ -260,6 +273,7 @@ class AppealReviewTest : StringSpec({
             appeal.status shouldBe "approved"
             appeal.reviewedBy shouldBe admin.id
             countAudit(admin.id, "appeal_approved", appealId) shouldBe 1
+            auditNamesAppellant(appealId, "appeal_approved", uid)
         } finally {
             cleanupUser(uid)
             AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)
@@ -308,7 +322,7 @@ class AppealReviewTest : StringSpec({
         }
     }
 
-    "reject keeps the ban intact, marks rejected with the reason, and writes one appeal_rejected audit row" {
+    "reject keeps the ban intact, marks rejected with the reason, and writes one appeal_rejected audit row naming the appellant" {
         val admin = AdminAuthTestSupport.seedAdmin(dataSource)
         val uid = seedUser(banned = true, suspendedUntil = null)
         val appealId = seedAppeal(uid, "permanent_ban")
@@ -320,6 +334,7 @@ class AppealReviewTest : StringSpec({
             appeal.status shouldBe "rejected"
             appeal.decisionReason shouldBe "Insufficient grounds."
             countAudit(admin.id, "appeal_rejected", appealId) shouldBe 1
+            auditNamesAppellant(appealId, "appeal_rejected", uid)
         } finally {
             cleanupUser(uid)
             AdminAuthTestSupport.cleanupAdmin(dataSource, admin.id)

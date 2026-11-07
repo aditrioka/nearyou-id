@@ -25,7 +25,9 @@ import javax.sql.DataSource
  * status write + audit (+ notification) commit-or-rollback together), D5
  * (idempotency via the `WHERE status = 'pending'` precondition, which also
  * serializes the two-admins race), D9 (the `moderation_queue_resolved`
- * `after_state` records the resolution + the enforcement effect).
+ * `after_state` records the resolution + the enforcement effect; an author
+ * resolution also names the enforced author as `user_id`, which surfaces it
+ * in that user's admin profile history — `admin-user-history-enforcement-rows`).
  *
  *  - All queries are parameterized JDBC `PreparedStatement`s — never string-
  *    interpolated.
@@ -118,7 +120,8 @@ class ReportResolutionRepository(
      * `resolved_by`/`resolved_at`), PERFORM the enforcement the [resolution]
      * names, and write exactly one `moderation_queue_resolved` audit row
      * (whose `after_state` records the resolution + the enforcement effect,
-     * design D9) — all in ONE transaction (design D4). Any failure rolls back
+     * design D9, + the enforced author's `user_id` for an author resolution;
+     * content `keep`/`hide` name no user) — all in ONE transaction (design D4). Any failure rolls back
      * everything: no enforcement without its audit row, no queue marked
      * `resolved` without the enforcement.
      *
@@ -245,6 +248,10 @@ class ReportResolutionRepository(
                                 // three author resolutions.
                                 QueueResolution.KEEP, QueueResolution.HIDE ->
                                     error("content resolution in author branch")
+                            }.let { enforced ->
+                                // The enforced author rides in after_state.user_id so the
+                                // action surfaces in their admin profile history (#496).
+                                JsonObject(enforced + ("user_id" to JsonPrimitive(authorId.toString())))
                             }
                         }
                     }

@@ -9,7 +9,7 @@ import javax.sql.DataSource
  * (`admin-user-management` capability — board frame 6, `GET /admin/users/{id}`).
  *
  * Single responsibility: the identity + current moderation state read, plus the
- * two history reads (`admin_actions_log` targeting the user + `username_history`)
+ * two history reads (`admin_actions_log` affecting the user + `username_history`)
  * — distinct from [id.nearyou.app.admin.moderation.UserModerationRepository],
  * which owns the state-MUTATING transactions (design D7).
  *
@@ -56,26 +56,19 @@ class UserProfileRepository(
         }
 
     /**
-     * The target user's admin-action history: `admin_actions_log` rows with
-     * `target_type = 'user' AND target_id = {id}`, newest-first, with the acting
+     * The target user's admin-action history, newest-first, with the acting
      * admin resolved to a human-readable identity (JOIN `admin_users`) — the same
-     * read shape the audit-log viewer renders.
+     * read shape the audit-log viewer renders. Two arms: rows targeting the user
+     * directly (`target_type = 'user' AND target_id = {id}`), and rows keyed to
+     * another object (a queue item, an appeal, a deletion request) whose
+     * `after_state.user_id` names the user as the affected account. The second
+     * arm is served by the V41 partial index `admin_actions_after_user_idx`.
      */
     fun loadAdminActionHistory(userId: UUID): List<ProfileActionRow> =
         dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                SELECT l.created_at, u.display_name AS admin_display_name,
-                       l.action_type, l.reason,
-                       l.before_state::text AS before_state,
-                       l.after_state::text AS after_state
-                  FROM admin_actions_log l
-                  JOIN admin_users u ON u.id = l.admin_id
-                 WHERE l.target_type = 'user' AND l.target_id = ?
-                 ORDER BY l.created_at DESC, l.id DESC
-                """.trimIndent(),
-            ).use { ps ->
-                ps.setObject(1, userId.toString())
+            conn.prepareStatement(ACTION_HISTORY_SQL).use { ps ->
+                ps.setString(1, userId.toString())
+                ps.setString(2, userId.toString())
                 ps.executeQuery().use { rs ->
                     buildList {
                         while (rs.next()) {
@@ -122,6 +115,25 @@ class UserProfileRepository(
                 }
             }
         }
+
+    companion object {
+        /** The two history arms (both bound to the user id). Exposed so the index-served
+         *  test plans exactly this predicate against `admin_actions_log`. */
+        internal const val ACTION_HISTORY_PREDICATE =
+            "(l.target_type = 'user' AND l.target_id = ?) OR (l.after_state ->> 'user_id') = ?"
+
+        private val ACTION_HISTORY_SQL =
+            """
+            SELECT l.created_at, u.display_name AS admin_display_name,
+                   l.action_type, l.reason,
+                   l.before_state::text AS before_state,
+                   l.after_state::text AS after_state
+              FROM admin_actions_log l
+              JOIN admin_users u ON u.id = l.admin_id
+             WHERE $ACTION_HISTORY_PREDICATE
+             ORDER BY l.created_at DESC, l.id DESC
+            """.trimIndent()
+    }
 }
 
 /** Identity + current moderation state for the profile block. */
