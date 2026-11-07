@@ -11,6 +11,8 @@ import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.data.report.ReportTargetType
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.post.PostRefreshOutcome
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +43,9 @@ import kotlin.uuid.Uuid
  *
  * Shadow-ban is server-authoritative (design D6): the client carries NO ban signal; an own-message echo
  * collapses via the id-dedupe, not a client-side filter.
+ *
+ * Each live shared-post card's edit state is read once per thread visit via [postEditFlow] (`single-post-read`
+ * `editedAt`, `chat-embed-live-edit-banner` D2) and projected onto [ChatMessageRow.editedSinceShared].
  */
 @OptIn(ExperimentalUuidApi::class)
 class ChatThreadViewModel(
@@ -49,6 +54,7 @@ class ChatThreadViewModel(
     private val chatRealtimeSubscriber: ChatRealtimeSubscriber,
     private val viewerIdProvider: ViewerIdProvider,
     private val reportSubmitter: ReportSubmitter,
+    private val postEditFlow: PostEditFlow,
     private val nowIso: () -> String = { Clock.System.now().toString() },
     private val resubscribeDelayMillis: Long = RESUBSCRIBE_DELAY_MILLIS,
     private val diagnosticLog: (String) -> Unit = {},
@@ -57,6 +63,10 @@ class ChatThreadViewModel(
     private val rest = LinkedHashMap<String, ChatMessage>()
     private val optimistic = LinkedHashMap<String, ChatMessage>()
     private val realtime = LinkedHashMap<String, ChatMessage>()
+
+    // Shared post id → its live `editedAt`; a present-but-null entry is a claimed read whose result is unknown
+    // (in flight / Unavailable / never edited) → no banner.
+    private val liveEditedAt = HashMap<String, String?>()
 
     // The viewer's own id (JWT sub) for own-vs-other alignment; "" until resolved (optimistic sends still
     // mark own because they use this same value). Never rendered.
@@ -305,14 +315,30 @@ class ChatThreadViewModel(
                 // chat-embedded-posts: carry the embed so a realtime-delivered share renders the card.
                 embeddedPostId = inbound.embeddedPostId?.toString(),
                 embeddedPostSnapshot = inbound.embeddedPostSnapshot,
-                embeddedPostEditId = inbound.embeddedPostEditId?.toString(),
             )
         recompute()
     }
 
     private fun recompute() {
         val merged = mergeChatMessages(rest.values.toList(), optimistic.values.toList(), realtime.values.toList())
-        _rows.value = markDayStarts(chatMessageRows(merged, viewerId), hasOlder = olderCursor != null)
+        val rows = chatMessageRows(merged, viewerId, liveEditedAt)
+        _rows.value = markDayStarts(rows, hasOlder = olderCursor != null)
+        // Only a live card is read: a redacted row has no card, and a deleted-source row carries a null post id.
+        rows.forEach { row -> if (row.hasEmbeddedPost) row.embeddedPostId?.let(::readLiveEditState) }
+    }
+
+    // ponytail: one read per shared post per thread visit — an edit made while the thread stays open shows on the
+    // next visit. A read, so it stays cancellable (docs/11 §2.2 reserves NonCancellable for writes).
+    private fun readLiveEditState(postId: String) {
+        if (postId in liveEditedAt) return
+        liveEditedAt[postId] = null
+        viewModelScope.launch {
+            val outcome = postEditFlow.refreshPost(postId)
+            if (outcome is PostRefreshOutcome.Loaded && outcome.editedAt != null) {
+                liveEditedAt[postId] = outcome.editedAt
+                recompute()
+            }
+        }
     }
 
     private fun parseConversationId(): Uuid = Uuid.parse(conversationId)

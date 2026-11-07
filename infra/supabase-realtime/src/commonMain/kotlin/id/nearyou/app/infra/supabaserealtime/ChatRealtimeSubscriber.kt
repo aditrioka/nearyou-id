@@ -47,8 +47,8 @@ interface ChatRealtimeSubscriber {
  * still renders in a "deleted" state); [embeddedPostSnapshot] is the self-contained coordinate-free
  * snapshot (a plain Kotlin model decoded from the snapshot JSON at the
  * [SupabaseChatRealtimeSubscriber] boundary — never a vendor type); [embeddedPostEditId] is the
- * version-at-share-time anchor the thread compares against the live post for the edited-since-shared
- * banner. All three are null for a plain text / redacted message.
+ * version-at-share-time edit-row anchor (the edited-since-shared banner compares the snapshot's
+ * `editedAt` instead). All three are null for a plain text / redacted message.
  */
 @OptIn(ExperimentalUuidApi::class)
 data class ChatMessageInbound(
@@ -70,8 +70,8 @@ data class ChatMessageInbound(
  * `cityName` label, and the `createdAt` / `editedAt` ISO-8601 timestamps. It carries NO coordinate
  * (`latitude` / `longitude` / `display_location`) and no author UUID (spatial-fuzzing invariant; the
  * key set mirrors the server's allowlist exactly). [editedAt] is null when the post was unedited at
- * share time (it drives the card's own "Diedit" label, NOT the edited-since-shared banner — that
- * uses [ChatMessageInbound.embeddedPostEditId]).
+ * share time; the thread compares it with the live post's `editedAt` for the edited-since-shared banner
+ * ([ChatMessageInbound.embeddedPostEditId] is the share-time edit-row anchor, not read for the banner).
  */
 @Serializable
 data class EmbeddedPostSnapshot(

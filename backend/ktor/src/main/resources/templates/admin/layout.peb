@@ -15,20 +15,15 @@
     {# Vendored panel stylesheet — design language per docs/11 § 3.6
        (canonical board: dev/mockups/nearyou-admin-mockup.html). #}
     <link rel="stylesheet" href="/admin/static/admin.css">
+    {# The panel runs under CSP 'self' (AdminSecurityHeaders): htmx must not
+       inject its indicator <style>, eval anything or re-run scripts found in
+       swapped content, and every panel script (incl. the CSRF configRequest
+       hook) lives in the vendored admin.js. historyCacheSize 0 keeps admin page
+       snapshots (user PII, reports, CSAM metadata) out of localStorage, where
+       they would outlive logout; a back/forward miss then does a full reload. #}
+    <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0,"refreshOnHistoryMiss":true}'>
     <script src="/admin/static/htmx.min.js" defer></script>
-    {% if csrfToken is not null %}
-    <script>
-        {# HTMX configRequest listener — auto-adds X-CSRF-Token on every
-           HTMX request. Reads the meta tag at request time so a per-login
-           rotation propagates without page reload. #}
-        document.addEventListener('htmx:configRequest', function (evt) {
-            var meta = document.querySelector('meta[name="csrf-token"]');
-            if (meta) {
-                evt.detail.headers['X-CSRF-Token'] = meta.content;
-            }
-        });
-    </script>
-    {% endif %}
+    <script src="/admin/static/admin.js" defer></script>
 </head>
 <body class="{% if csrfToken is not null %}shell{% else %}bare{% endif %}">
     {% if csrfToken is not null %}

@@ -81,34 +81,43 @@ INTERNAL_OIDC_AUDIENCE="${INTERNAL_OIDC_AUDIENCE:-https://$API_HOST}"
 SA_NAME="${SA_NAME:-scheduler-invoker-$ENV_NAME}"
 SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 
-# One row per worker: job-id | path | cron | time zone.
+# One row per worker: job-id | path | cron | time zone | staging cron (WIB).
 # The job name is nearyou-<job-id>-<env>, which matches the three jobs created by
 # hand before this script, so they are updated in place rather than duplicated.
 # The daily sweeps sit on distinct half-hours of the 02:00–05:00 WIB low-traffic
 # window so they never overlap each other; the light hourly pair at :00 may
 # coincide with one of them, which is harmless (one warm instance serves both).
+#
+# Staging uses the last column instead: every job once a day in 03:55–04:09 WIB,
+# around the unban (which keeps its spec'd `0 21 * * *` UTC; empty last column), so
+# the whole set costs one Cloud Run wake. Staging deploys with --no-cpu-throttling
+# (instance-based billing), so each wake bills ~15 min of idle instance; the hourly
+# cadence kept it awake ~13 h/day (~Rp1 jt/month, 2026-10). The order matches
+# production's, and the referral check runs 9 min after the unban, past the
+# unban's worst-case retry chain (~7.5 min). Force-run a job
+# (`gcloud scheduler jobs run`) to test a worker between windows.
 JOBS=(
     # suspension-unban-worker § "Schedule is daily at 04:00 WIB": the spec gives the cron in UTC.
-    "unban-worker|/internal/unban-worker|0 21 * * *|UTC"
+    "unban-worker|/internal/unban-worker|0 21 * * *|UTC|"
     # privacy-flip-worker: hourly.
-    "privacy-flip-worker|/internal/privacy-flip-worker|0 * * * *|Asia/Jakarta"
+    "privacy-flip-worker|/internal/privacy-flip-worker|0 * * * *|Asia/Jakarta|1 4 * * *"
     # auth-login-anomaly-detection: trailing one-hour window, so hourly.
-    "login-anomaly-check|/internal/login-anomaly-check|0 * * * *|Asia/Jakarta"
+    "login-anomaly-check|/internal/login-anomaly-check|0 * * * *|Asia/Jakarta|2 4 * * *"
     # account-data-export: the spec sets no cadence, only a 7-day SLA. Hourly keeps
     # delivery well inside it; :45 is a minute no other job uses, so the heaviest
     # worker never shares an invocation window.
-    "data-export-worker|/internal/data-export-worker|45 * * * *|Asia/Jakarta"
+    "data-export-worker|/internal/data-export-worker|45 * * * *|Asia/Jakarta|3 4 * * *"
     # csam-detection: daily archive purge.
-    "csam-archive-purge|/internal/csam-archive-purge|0 2 * * *|Asia/Jakarta"
+    "csam-archive-purge|/internal/csam-archive-purge|0 2 * * *|Asia/Jakarta|55 3 * * *"
     # orphan-image-cleanup: daily, same SA as /internal/cleanup (spec requirement).
-    "cleanup-orphan-images|/internal/cleanup-orphan-images|30 2 * * *|Asia/Jakarta"
+    "cleanup-orphan-images|/internal/cleanup-orphan-images|30 2 * * *|Asia/Jakarta|56 3 * * *"
     # scheduled-retention-cleanup: one daily job for every sweep (design D2).
-    "retention-cleanup|/internal/cleanup|0 3 * * *|Asia/Jakarta"
+    "retention-cleanup|/internal/cleanup|0 3 * * *|Asia/Jakarta|57 3 * * *"
     # account-hard-delete-worker: daily.
-    "account-hard-delete-worker|/internal/account-hard-delete-worker|30 3 * * *|Asia/Jakarta"
+    "account-hard-delete-worker|/internal/account-hard-delete-worker|30 3 * * *|Asia/Jakarta|58 3 * * *"
     # referral-grant-worker: daily. It runs after the 04:00 unban so an inviter whose
     # suspension lapsed overnight is not voided on a stale is_banned flag.
-    "referral-activity-check|/internal/referral-activity-check|30 4 * * *|Asia/Jakarta"
+    "referral-activity-check|/internal/referral-activity-check|30 4 * * *|Asia/Jakarta|9 4 * * *"
 )
 
 # Every worker is idempotent, so retries are safe. Retry policy from the
@@ -154,7 +163,8 @@ run gcloud run services add-iam-policy-binding "$SERVICE" \
 echo "==> 4/4 Scheduler jobs"
 runnable=()
 for row in "${JOBS[@]}"; do
-    IFS='|' read -r id path cron tz <<<"$row"
+    IFS='|' read -r id path cron tz staging_cron <<<"$row"
+    [[ "$ENV_NAME" == staging && -n "$staging_cron" ]] && { cron="$staging_cron"; tz=Asia/Jakarta; }
     job="nearyou-$id-$ENV_NAME"
     state="$(gcloud scheduler jobs describe "$job" --project="$PROJECT_ID" --location="$REGION" \
         --format='value(state)' 2>/dev/null || true)"

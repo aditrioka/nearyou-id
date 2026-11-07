@@ -87,20 +87,6 @@
 
 <p class="wl-back"><a href="/admin/feature-flags">← Back to Feature Flags</a></p>
 
-<script>
-    {# Client-side entry filter (graceful: the list renders fully without JS).
-       Re-binds after each HTMX swap because the fragment carries its own script. #}
-    (function () {
-        var root = document.getElementById('wl-content');
-        if (!root) return;
-        var filter = root.querySelector('.wl-filter');
-        if (!filter) return;
-        filter.addEventListener('input', function () {
-            var q = filter.value.toLowerCase();
-            root.querySelectorAll('.wl-entry').forEach(function (li) {
-                li.style.display = li.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
-            });
-        });
-    })();
-</script>
+{# The .wl-filter entry filter is a delegated listener in the vendored
+   admin.js (CSP 'self'), so it survives HTMX swaps of this fragment. #}
 </div>

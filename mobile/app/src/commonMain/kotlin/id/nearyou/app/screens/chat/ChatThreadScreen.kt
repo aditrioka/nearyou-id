@@ -34,6 +34,7 @@ import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
+import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.ui.components.DailyCapUpsellDialog
 import id.nearyou.app.ui.components.ListCenteredMessageState
@@ -141,12 +142,13 @@ fun ChatThreadScreen(
     val subscriber = koinInject<ChatRealtimeSubscriber>()
     val viewerIdProvider = koinInject<ViewerIdProvider>()
     val reportSubmitter = koinInject<ReportSubmitter>()
+    val postEditFlow = koinInject<PostEditFlow>()
     val notificationController = koinInject<NotificationPermissionController>()
     val notificationOneShot = koinInject<NotificationPromptOneShot>()
 
     val viewModel =
         viewModel {
-            ChatThreadViewModel(route.conversationId, flow, subscriber, viewerIdProvider, reportSubmitter)
+            ChatThreadViewModel(route.conversationId, flow, subscriber, viewerIdProvider, reportSubmitter, postEditFlow)
         }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()

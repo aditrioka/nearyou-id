@@ -33,24 +33,5 @@
         <button type="submit" class="btn filled block">Login</button>
     </form>
 </div>
-<script>
-    {# Password visibility toggle (design.md D3): minimal vanilla JS, no HTMX.
-       Without JS the button is inert and the input stays masked (safe default).
-       The toggled state swaps which eye glyph is visible. #}
-    (function () {
-        var btn = document.getElementById('pw-toggle');
-        var input = document.getElementById('password');
-        if (!btn || !input) { return; }
-        var eyeOn = btn.querySelector('[data-icon="visibility"]');
-        var eyeOff = btn.querySelector('[data-icon="visibility_off"]');
-        btn.addEventListener('click', function () {
-            var show = input.type === 'password';
-            input.type = show ? 'text' : 'password';
-            eyeOn.style.display = show ? 'none' : '';
-            eyeOff.parentElement.hidden = !show;
-            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
-            btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-        });
-    })();
-</script>
+{# The #pw-toggle wiring lives in the vendored admin.js (CSP 'self'). #}
 {% endblock %}

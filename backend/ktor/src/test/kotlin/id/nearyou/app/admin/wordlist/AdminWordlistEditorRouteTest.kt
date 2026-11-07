@@ -97,6 +97,8 @@ class AdminWordlistEditorRouteTest : StringSpec({
             body shouldContain "alpha"
             body shouldContain "gamma"
             body shouldContain "wl-filter"
+            // The filter is a delegated listener in admin.js — no inline script (CSP 'self').
+            AdminAuthTestSupport.INLINE_SCRIPT_TAG.containsMatchIn(body) shouldBe false
             body shouldContain "3 entries"
             // GET is read-only — no audit row
             AdminAuthTestSupport.countAuditRows(dataSource, admin.id) shouldBe 0

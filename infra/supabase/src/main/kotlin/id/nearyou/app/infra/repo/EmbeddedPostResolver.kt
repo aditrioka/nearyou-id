@@ -17,10 +17,10 @@ import java.util.UUID
  *
  * [latestEditId] is the post's most-recent `post_edits.id` at resolution time (NULL when the post
  * has never been edited) — the "version-at-share-time" anchor persisted to
- * `chat_messages.embedded_post_edit_id`. It is the FK-integral version handle the mobile thread
- * compares against the live post to decide whether to show the "diedit sejak dibagikan" banner.
- * [editedAt] is the matching `post_edits.edited_at` timestamp (the snapshot's own "Diedit" signal);
- * the two are distinct (design D2): the anchor is the edit-row id, `editedAt` is the timestamp.
+ * `chat_messages.embedded_post_edit_id`. It is the FK-integral version handle for the edit-history
+ * navigation. [editedAt] is the matching `post_edits.edited_at` timestamp, serialized into the snapshot;
+ * the mobile "diedit sejak dibagikan" banner compares it with `single-post-read`'s live `editedAt`
+ * (`chat-embed-live-edit-banner` D1 — equivalent because `(post_id, edited_at)` is unique).
  */
 data class ResolvedEmbeddedPost(
     val postId: UUID,

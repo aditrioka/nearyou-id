@@ -1322,6 +1322,21 @@ Hash tag `{scope:<value>}` ensures same-scope keys land on the same Redis slot (
 >
 > **Refresh is per-MINUTE, not per-hour** (the issue's starting number was 60/hour): refresh fires automatically for every active user on each ~15-min token TTL, so a per-hour cap accumulates across CGNAT/public-WiFi peers and would log innocent users out — a per-minute flood cap is the CGNAT-safe shape (see the change's design.md). **Key shape note:** these conforming two-segment `{scope:…}:{ip:…}` keys supersede the illustrative pre-`RedisHashTagRule` `rate:guest_issue:{ip:…}` forms in the Layer-1 table above (those predate the hash-tag standard and would not pass `RedisHashTagRule` today). **Client mapping** ships in the same change: a `429` maps to a dedicated rate-limited UI state on sign-in / age-gate, and a `429` on refresh is treated as transient (the session is NOT invalidated — a rate-limited refresh must never log the user out).
 
+> **Admin login throttle — SHIPPED** via change `admin-security-headers-and-login-throttle` (`admin-login` capability; #532). `POST /admin/login` runs these checks before any `admin_users` lookup or Argon2id verify:
+>
+> 1. **Concurrency gate.** At most 2 credential checks run per instance; anything waiting more than 2 s is shed as a 429. This bounds the 19 MiB-per-verify memory on the ~128 MiB heap.
+> 2. **Three sliding tiers** on the shared `RateLimiter.tryAcquireByKey`, evaluated in order. The first exhausted tier answers with `429` + `Retry-After` and logs `event=admin_login_throttled`; no audit row is written, since there is no actor pre-lookup.
+>
+> **Only failed attempts count.** A successful login hands its slot back in every tier.
+>
+> | Tier | Key | Limit | Window |
+> |------|-----|-------|--------|
+> | Per client IP | `{scope:rate_admin_login}:{ip:<hashed-ip>}` | 10 | 15 min (sliding) |
+> | Per submitted email | `{scope:rate_admin_login}:{email:<sha256-base64url>}` | 5 | 15 min (sliding) |
+> | Sustained per-email lockout | `{scope:rate_admin_login_lockout}:{email:<sha256-base64url>}` | 20 | 24 h (rolling, not a `_day` quota) |
+>
+> **The IP tier is spoofable until the origin check lands (#530).** `ClientIpExtractor` trusts a client-sent `CF-Connecting-IP` while the host is not behind Cloudflare; this is true of every IP-axis row in this section. The email tiers and the gate are the bounds that hold. Ops break-glass: `docs/07-Operations.md` § Security.
+
 ### Layer 2: Per User (with WIB Stagger)
 
 | Action | Limit |

@@ -102,6 +102,28 @@ Direct SQL console access is never exposed to admin users — every administrati
   - `webauthn4j` library + WebAuthn JS API (~5 days: backend 1.5d, frontend 1d, enrollment UI 0.5d, recovery path 1d, cross-browser testing 1d)
 - IP allowlist (VPN static IP for travel)
 - Session timeout 30 minutes idle (enforced via `admin_sessions.last_active_at`)
+- **Login throttle — SHIPPED** (#532, `admin-security-headers-and-login-throttle`). Before any lookup or Argon2id verify, `POST /admin/login` passes:
+  - a per-instance concurrency gate: 2 credential checks at once; anything waiting more than 2 s is shed;
+  - per-IP 10/15 min;
+  - per-email 5/15 min;
+  - per-email lockout 20/24 h.
+
+  Keys are listed in `05-Implementation.md` § Rate Limiting Layer 1. Only failures count (a successful login hands its slots back), so the `smoke-admin-*.sh` scripts' successful logins are free. The login smoke's one wrong-password POST per run still counts against the test email, and its phantom POST against the IP. So run it at most 5× per 15 min and **20× per 24 h** per test email. The 21st run in a day is 429'd on every step, including its successful login, until the oldest failure ages out or you use the break-glass below.
+
+  A throttle returns 429 + `Retry-After` plus a banner, and a WARN `event=admin_login_throttled axis=<ip|email|email_lockout|concurrency>` in Cloud Logging. It fails open if Redis is down; the gate stays in force. The IP tier is spoofable until #530's origin check, so the email tiers and the gate are the real bounds.
+
+  **Break-glass when the operator's own address is locked out** (anyone who knows it can do this until IAP):
+  1. Compute `h=$(printf %s "$EMAIL" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')`.
+  2. `DEL` `{scope:rate_admin_login}:{email:$h}` and `{scope:rate_admin_login_lockout}:{email:$h}`, plus `{scope:rate_admin_login}:{ip:$ih}` if the IP tier tripped, in the Upstash console. Compute that hash with `ih=$(printf %s "$IP" | openssl dgst -sha256 -r | cut -c1-16)`; this equals `IpHasher`, the first 8 digest bytes as hex.
+  3. If the attacker keeps re-filling the bucket, rotate the admin's `admin_users.email`. This is a human-gated DB write, and it orphans their keys.
+- **Security response headers — SHIPPED** (#531). Every response carries the same set, attached host-wide at `CallSetup` because a path-prefix check is bypassable through router normalisation:
+  - CSP `default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`;
+  - `X-Frame-Options: DENY`;
+  - `nosniff`;
+  - `Referrer-Policy: same-origin`;
+  - HSTS 1 y.
+
+  Panel JS lives in the vendored `admin/static/admin.js`, and htmx is configured not to inject styles, eval, re-run swapped scripts or cache page snapshots in `localStorage`.
 - Rate limit destructive actions: 20/hour per admin
 - Rate limit feature flag toggle: 5/hour per admin (high-impact action)
 - All actions auditable to `admin_actions_log` (schema canonical in `05-Implementation.md`)
@@ -140,7 +162,7 @@ Precedent: `health-check-endpoints` (PR #54) § 11.5 negative-smoke hit this on 
 
 Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it** — the route mounts at deploy time but nothing calls it on a cadence until the operator provisions the schedule. Each job authenticates with a **Google OIDC identity token** minted for the invoker service account `scheduler-invoker-<env>`, whose `audience` matches the internal-endpoint OIDC audience (`INTERNAL_OIDC_AUDIENCE`, the service URL); the same SA email MUST be listed in the `/internal/*` caller allowlist `INTERNAL_OIDC_ALLOWED_PRINCIPALS` (§ Caller allowlist below, [#544](https://github.com/aditrioka/nearyou-id/issues/544)), otherwise every job gets `403`. No secret slots are involved.
 
-**Provisioning is one idempotent script** — [`dev/scripts/provision-schedulers.sh`](/dev/scripts/provision-schedulers.sh) creates or updates all nine jobs (SA, `run.invoker`, schedule, OIDC audience, retry policy), parameterised by `ENV_NAME` / `PROJECT` / `HOST` so the same script provisions production later. Runbook (run, verify, pause/rollback, add a worker, legacy-SA retirement, cost): [`dev/docs/cloud-scheduler.md`](/dev/docs/cloud-scheduler.md). A new `/internal/*` worker ships with a row in the script's `JOBS` table **and** in the table below.
+**Provisioning is one idempotent script** — [`dev/scripts/provision-schedulers.sh`](/dev/scripts/provision-schedulers.sh) creates or updates all nine jobs (SA, `run.invoker`, schedule, OIDC audience, retry policy), parameterised by `ENV_NAME` / `PROJECT_ID` / `API_HOST` so the same script provisions production later. Runbook (run, verify, pause/rollback, add a worker, legacy-SA retirement, cost): [`dev/docs/cloud-scheduler.md`](/dev/docs/cloud-scheduler.md). A new `/internal/*` worker ships with a row in the script's `JOBS` table **and** in the table below.
 
 | Worker | Endpoint | Cadence (per spec) | Schedule (job `nearyou-<id>-<env>`) |
 |--------|----------|---------|---------|
@@ -154,7 +176,9 @@ Every `/internal/*` job worker is **inert until a Cloud Scheduler job invokes it
 | Account hard delete (`account-hard-delete-worker`) | `POST /internal/account-hard-delete-worker` | daily | `account-hard-delete-worker` · `30 3 * * *` WIB |
 | Referral activity check (`referral-grant-worker`) | `POST /internal/referral-activity-check` | daily | `referral-activity-check` · `30 4 * * *` WIB (after the unban, so a lapsed suspension isn't read as a banned inviter) |
 
-**Provisioning status 2026-10-04:** staging has **all 9** jobs, provisioned by the script ([#535](https://github.com/aditrioka/nearyou-id/issues/535)) on `scheduler-invoker-staging`; a forced run that day returned `200` from every worker and each logged its own `event=` line. Before that, only `unban-worker`, `privacy-flip-worker` and `login-anomaly-check` existed, created by hand on the legacy SA `unban-scheduler-staging`. No job uses the legacy SA any more. It keeps `run.invoker` until it's retired per the runbook. Production: none (no production project yet — Open Decision #36).
+**Staging runs every job once a day, 03:55–04:09 WIB.** The table above is the production cadence. On staging the script schedules all nine jobs in one window around the unban instead, in the same order. The unban keeps its spec'd `0 21 * * *` UTC, and the referral check runs 9 minutes after it, past the unban's worst-case retry chain. Staging deploys with `--no-cpu-throttling`, so Cloud Run bills each wake for about 15 minutes of idle instance. The hourly jobs woke it twice an hour, about 13 hours a day for roughly 80 requests, which came to about Rp1 jt a month in October 2026. One wake a day (about 25 minutes) leaves most of the Cloud Run free tier for the weekday keep-warm ping, deploys and manual testing. What staging gives up: a data export requested during the day is processed at 04:03 the next morning, privacy flips land once a day, and the login-anomaly check only sees the hour before 04:02. To test a worker between windows, force-run its job: `gcloud scheduler jobs run nearyou-<id>-staging --location=asia-southeast1 --project=nearyou-staging`.
+
+**Provisioning status 2026-10-04:** staging has **all 9** jobs, provisioned by the script ([#535](https://github.com/aditrioka/nearyou-id/issues/535)) on `scheduler-invoker-staging`; a forced run that day returned `200` from every worker and each logged its own `event=` line. Before that, only `unban-worker`, `privacy-flip-worker` and `login-anomaly-check` existed, created by hand on the legacy SA `unban-scheduler-staging`. No job uses the legacy SA any more. It keeps `run.invoker` until it's retired per the runbook. Production: none (no production project yet — Open Decision #36). **2026-10-29:** a re-run moved staging to the one daily window ([#608](https://github.com/aditrioka/nearyou-id/pull/608)).
 
 The **retention cleanup** job runs every retention sweep on **one** daily schedule (design D2 — a single Scheduler job, not a daily+weekly split).
 
@@ -186,6 +210,20 @@ Staging runs on free tiers that go idle: Supabase Free pauses a project after 7 
 - **Production:** not needed. Production is planned on `--min-instances=1` and paid tiers that do not idle (Open Decision #36).
 
 ---
+
+### Artifact Registry cleanup policy
+
+Every staging deploy pushes a new `nearyou-backend-staging` image to the `nearyou-backend` repository. With no cleanup policy the repository had grown to 19 GB by October 2026 (977 versions since April), well past the 0.5 GB free tier. [`dev/scripts/artifact-registry-cleanup-policy.json`](/dev/scripts/artifact-registry-cleanup-policy.json) keeps the 30 most recent versions and deletes anything older than a day outside them. Thirty versions is about ten deploys, because each push stores an image index plus two child manifests. Artifact Registry never deletes a child manifest while its index is kept, so a kept image stays pullable, and the last ten deploys stay available for rollback. Cleanup runs in the background about once a day.
+
+Apply it, or re-apply after editing the file:
+
+```bash
+gcloud artifacts repositories set-cleanup-policies nearyou-backend \
+    --project=nearyou-staging --location=asia-southeast1 \
+    --policy=dev/scripts/artifact-registry-cleanup-policy.json --no-dry-run
+```
+
+Production runs the same command with its own project once it exists.
 
 ## Secret Management Runbook
 
