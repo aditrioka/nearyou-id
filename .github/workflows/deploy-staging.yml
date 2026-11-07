@@ -136,6 +136,13 @@ jobs:
       #                                  cold-starts, but that meant an always-on 2-vCPU
       #                                  instance billed 24/7 even at zero traffic.
       #                                  Prod should keep --min-instances=1.
+      #                                  Caveat: with --no-cpu-throttling every wake
+      #                                  bills ~15 min of idle instance, so anything
+      #                                  that wakes staging often (e.g. an hourly
+      #                                  Scheduler job) keeps it billed most of the
+      #                                  day. Staging's jobs run in one daily window
+      #                                  for this reason (docs/07 § Internal worker
+      #                                  schedules).
       #   --max-instances=1            — Flyway lock safety (existing constraint)
       #   --concurrency=80             — production-shaped (reverted from PR #89 in PR #90)
       #
