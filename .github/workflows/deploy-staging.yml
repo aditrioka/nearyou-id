@@ -127,10 +127,13 @@ jobs:
       #   --cpu=1 + --cpu-boost        — PR #90 raised this to 2 while testing a CPU-starvation
       #                                  theory for #88; that did not fix it (CPU throttling
       #                                  was the cause, see above). Back to 1 on 2026-11-07
-      #                                  for cost: billed vCPU-seconds halve, so the free
-      #                                  tier covers ~66 h awake a month instead of ~33.
-      #                                  Layer 3 smoke on 1 vCPU: 1.7 s on the first dispatch,
-      #                                  0.3 s warm (3 s budget); boot 6.3 s with the boost.
+      #                                  for cost: billed vCPU-seconds halve, so the Tier 2
+      #                                  free tier (200k vCPU-s a month) covers ~55 h awake
+      #                                  instead of ~28. Layer 3's OpenAI call on 1 vCPU:
+      #                                  0.6–1.6 s on the first dispatch after a boot, 0.3 s
+      #                                  warm (the 3 s budget covers only that call). A cold
+      #                                  start answers its first request in ~16.4 s (2 vCPU:
+      #                                  ~15.7 s), mostly the startup-probe schedule.
       #   --min-instances=0            — scale-to-zero when idle so staging costs
       #                                  ~nothing while nobody is exercising it;
       #                                  first request after idle pays a JVM

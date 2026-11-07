@@ -129,7 +129,10 @@ cadence, staging was awake about 13 hours a day (about Rp1 jt a month,
 October 2026). The single 03:55–04:09 WIB window costs one wake a day, about 30 minutes.
 From 30 October to 6 November 2026 staging was awake about 1.4 hours a day in all:
 the window, the weekday keep-warm ping, and internet scanners probing
-`api-staging.nearyou.id`. Since 2026-11-07 the service runs 1 vCPU, so the free
-tier covers about 66 awake hours a month (33 at 2 vCPU). Check the awake time with the
+`api-staging.nearyou.id`. Deploys, branch deploys and QA sessions draw on the same
+free tier, so busy weeks run higher. asia-southeast1 is a Tier 2 region, where the
+instance-based free tier is 200k vCPU-seconds a month. Since 2026-11-07 the service
+runs 1 vCPU, so that covers about 55 awake hours a month (28 at 2 vCPU). Check
+the awake time with the
 `run.googleapis.com/container/billable_instance_time` metric (Cloud Monitoring →
 Metrics explorer, aligned per day).
