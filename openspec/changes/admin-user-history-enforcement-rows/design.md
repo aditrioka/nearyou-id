@@ -9,7 +9,7 @@ Later capabilities added account enforcement that isn't keyed to the user:
 | `ReportResolutionRepository.resolveQueueItem` (`admin-report-queue`) | `moderation_queue_resolved` | `moderation_queue` / queue id | `{resolution, <effect>}`, author **absent** |
 | `AppealReviewRepository.approve` (`admin-appeal-review`) | `appeal_approved` | `appeal` / appeal id | `{status, lifted_ban, user_id}` |
 | `AppealReviewRepository.reject` | `appeal_rejected` | `appeal` / appeal id | `{status}`, appellant **absent** |
-| `DeletionQueueRepository.expedite` (`admin-hard-delete-queue`) | `deletion_request_expedited` | `deletion_request` / request id | `{scheduled_hard_delete_at, user_id}` |
+| `DeletionQueueRepository.expedite` (`admin-hard-delete-queue`) | `deletion_request_expedited` | `deletion_request` / request id | `{user_id, scheduled_hard_delete_at, expedited}` |
 
 The other account-enforcement and account-state writers (`user_*`, `system_unban_applied`, `system_privacy_flip_applied`, the username-flag resolution, CSAM, subscription-grace) already target `('user', <id>)`.
 
@@ -107,6 +107,8 @@ No layout or spacing changes. The row reuses the existing columns: time, chip, a
 
 ### D7 — Found-while
 `docs/05` § Admin Actions Log Schema lists only the V16 indexes, but V17 `admin_actions_created_idx` shipped too. The schema block gains V17 + V41 and a one-line note on the `after_state.user_id` convention. This is a docs-only fix in the same file cluster.
+
+The local bring-up also found that `user-profile.peb`'s state box ran `before:` and `after:` together on one line. Pebble's default newline trimming eats the newline after the `{{ h.beforeState }}` print tag, even inside the `white-space: pre-wrap` box. It is pre-existing since #251, and board frame 7 draws two lines. Fix: an explicit `<br>`, in the template this change already touches, with a regression assertion in `UserProfileHistoryTest`. No other admin template has the pattern.
 
 ## Risks / Trade-offs
 

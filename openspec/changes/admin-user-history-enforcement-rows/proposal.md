@@ -38,11 +38,11 @@ _None._
 ## Impact
 
 - **Schema**: `V41__admin_actions_log_after_user_idx.sql`: one `CREATE INDEX IF NOT EXISTS`, no data rewrite. CI runs the Supabase-parity Flyway migrate.
-- **Backend code**: `admin/usermanagement/UserProfileRepository.kt` (predicate), `admin/reportqueue/ReportResolutionRepository.kt` (author `user_id`), `admin/appealreview/AppealReviewRepository.kt` (reject `user_id`). KDoc only in `admin/auth/AdminAuditLogger.kt`, `admin/routes/AdminUserModerationRoute.kt`, and `templates/admin/user-profile.peb`. No route, DTO, `AdminModule.kt`, or `Application.kt` change.
+- **Backend code**: `admin/usermanagement/UserProfileRepository.kt` (predicate), `admin/reportqueue/ReportResolutionRepository.kt` (author `user_id`), `admin/appealreview/AppealReviewRepository.kt` (reject `user_id`). KDoc only in `admin/auth/AdminAuditLogger.kt` and `admin/routes/AdminUserModerationRoute.kt`. `templates/admin/user-profile.peb` gets the chip tones plus a found-while state-box line-break fix (design D7). No route, DTO, `AdminModule.kt`, or `Application.kt` change.
 - **Wire / mobile**: none. This is an admin-only read surface (docs/12: the mobile and public-API layers are not applicable; see design D6).
 - **Destructive-action rate limit**: unaffected. Its ledger filters on `action_type` + `after_state ->> 'resolution'`, and the extra `user_id` key changes neither.
 - **Tests**:
   - `MigrationV41SmokeTest` (DB).
   - `ReportResolutionRepositoryTest` + `AppealReviewTest`: `after_state.user_id` present or absent per resolution.
-  - `AdminUserModerationRouteTest`: profile history via the real queue and appeal write paths, the hand-off row, the negative guards, and an EXPLAIN index-served assertion.
+  - New `UserProfileHistoryTest`: profile history via the real queue and appeal write paths, the hand-off row, the negative guards, and an EXPLAIN index-served assertion.
 - Closes #496.

@@ -53,7 +53,7 @@ class UserProfileHistoryTest : StringSpec({
     val seededIds = mutableListOf<UUID>()
     val seededAdmins = mutableListOf<UUID>()
     afterEach {
-        deleteAppeals(dataSource, seededIds)
+        // appeals + notifications cascade with the users.
         ReportQueueTestSupport.cleanup(dataSource, seededIds)
         seededIds.clear()
         // Sweeps every audit row these admins wrote (queue / appeal / hand-inserted).
@@ -97,8 +97,9 @@ class UserProfileHistoryTest : StringSpec({
         resolveOnPostOf(author, QueueResolution.BAN_AUTHOR, admin)
 
         val body = profileBody(admin, author)
-        body shouldContain "moderation_queue_resolved"
-        body shouldContain "ban_author"
+        body shouldContain """class="st err">moderation_queue_resolved"""
+        // The escaped JSON pair, so "shadow_ban_author" can't satisfy it.
+        body shouldContain "&quot;resolution&quot;: &quot;ban_author&quot;"
         // before/after render on separate lines (Pebble trims a newline after a print tag).
         body shouldContain "<br>after:"
     }
@@ -155,34 +156,36 @@ class UserProfileHistoryTest : StringSpec({
         body shouldNotContain "moderation_queue_resolved"
         body shouldNotContain "appeal_approved"
         body shouldContain "No admin actions or username changes"
+        // Positive control: the same rows DO render on B's own profile.
+        val bBody = profileBody(admin, b)
+        bBody shouldContain "moderation_queue_resolved"
+        bBody shouldContain """class="st ok">appeal_approved"""
     }
 
     "the widened history read is index-served: both OR arms use an index, no seq scan" {
-        val admin = seedAdmin()
-        val user = seedUser()
-        resolveOnPostOf(user, QueueResolution.SHADOW_BAN_AUTHOR, admin)
+        val user = UUID.randomUUID().toString()
         // Seq scans AND plain index scans off leaves only bitmap paths, which need an
         // index qual on EACH OR arm — a full-index walk of admin_actions_created_idx
         // (satisfies ORDER BY, filters everything) can't masquerade as index-served.
         // If the after_state arm had no usable index, the planner would be forced
-        // back to a (penalised) Seq Scan on admin_actions_log.
+        // back to a (penalised) Seq Scan on admin_actions_log. SET LOCAL + rollback
+        // keeps the settings off the pooled connection (MigrationV13SmokeTest pattern).
         val plan =
             dataSource.connection.use { conn ->
-                conn.createStatement().use {
-                    it.execute("SET enable_seqscan = off")
-                    it.execute("SET enable_indexscan = off")
-                }
+                conn.autoCommit = false
                 try {
+                    conn.createStatement().use {
+                        it.execute("SET LOCAL enable_seqscan = off")
+                        it.execute("SET LOCAL enable_indexscan = off")
+                    }
                     conn.prepareStatement("EXPLAIN ${UserProfileRepository.ACTION_HISTORY_SQL}").use { ps ->
-                        ps.setString(1, user.toString())
-                        ps.setString(2, user.toString())
+                        ps.setString(1, user)
+                        ps.setString(2, user)
                         ps.executeQuery().use { rs -> buildString { while (rs.next()) appendLine(rs.getString(1)) } }
                     }
                 } finally {
-                    conn.createStatement().use {
-                        it.execute("RESET enable_seqscan")
-                        it.execute("RESET enable_indexscan")
-                    }
+                    conn.rollback()
+                    conn.autoCommit = true
                 }
             }
         plan shouldNotContain "Seq Scan on admin_actions_log"
@@ -235,20 +238,6 @@ private fun insertAudit(
             ps.setString(4, targetId)
             ps.setString(5, reason)
             ps.setString(6, affectedUser.toString())
-            ps.executeUpdate()
-        }
-    }
-}
-
-/** Appeals reference `users`; drop them before the user cleanup. */
-private fun deleteAppeals(
-    dataSource: DataSource,
-    userIds: Collection<UUID>,
-) {
-    if (userIds.isEmpty()) return
-    dataSource.connection.use { conn ->
-        conn.prepareStatement("DELETE FROM appeals WHERE user_id = ANY(?)").use { ps ->
-            ps.setArray(1, conn.createArrayOf("uuid", userIds.toTypedArray()))
             ps.executeUpdate()
         }
     }
