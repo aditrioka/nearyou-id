@@ -77,5 +77,5 @@ The `after_state` arm SHALL be served by an index: the partial expression index 
 #### Scenario: The widened history read is index-served
 
 - **GIVEN** the index `admin_actions_after_user_idx`
-- **WHEN** the history query is planned with sequential and plain index scans disabled (`SET enable_seqscan = off`, `SET enable_indexscan = off`), which leaves only bitmap paths, and those need an index condition on each `OR` arm
-- **THEN** the plan SHALL use `admin_actions_after_user_idx` (the `after_state` arm) AND `admin_actions_target_idx` (the `target_type`/`target_id` arm) AND SHALL NOT contain a sequential scan of `admin_actions_log`
+- **WHEN** the history read's `admin_actions_log` predicate (both arms) is planned against `admin_actions_log` with sequential and plain index scans disabled (`SET enable_seqscan = off`, `SET enable_indexscan = off`), which leaves only bitmap paths, and those need an index condition on each `OR` arm
+- **THEN** the plan SHALL be a BitmapOr using `admin_actions_after_user_idx` (the `after_state` arm) AND `admin_actions_target_idx` (the `target_type`/`target_id` arm) AND SHALL NOT contain a sequential scan of `admin_actions_log`

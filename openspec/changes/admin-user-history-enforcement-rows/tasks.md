@@ -37,7 +37,7 @@
   - a hand-inserted `deletion_request_expedited` row with `after_state.user_id` appears exactly once, and so does a row matching both arms;
   - queue `hide` on the user's post → no `moderation_queue_resolved`;
   - user B's queue ban + appeal approval → absent from A's profile.
-- [ ] 5.5 Index-served (DB, in `UserProfileHistoryTest`): with `enable_seqscan` + `enable_indexscan` off (bitmap paths only, so each OR arm needs an index qual), EXPLAIN the production `ACTION_HISTORY_SQL` bound to a seeded user. Expect both `admin_actions_after_user_idx` and `admin_actions_target_idx` in the plan and no `Seq Scan on admin_actions_log`; RESET both in `finally` (pooled connection).
+- [ ] 5.5 Index-served (DB, in `UserProfileHistoryTest`): with `enable_seqscan` + `enable_indexscan` off (`SET LOCAL` + rollback; bitmap paths only, so each OR arm needs an index qual), EXPLAIN `SELECT 1 FROM admin_actions_log l WHERE <ACTION_HISTORY_PREDICATE>` (the shared production predicate, no join; see design D3 for why). Expect `BitmapOr` + `admin_actions_after_user_idx` + `admin_actions_target_idx` and no `Seq Scan on admin_actions_log`; the plan text goes in the failure message.
 - [ ] 5.6 Existing exact-shape assertions on `moderation_queue_resolved` / `appeal_rejected` `after_state` (if any) updated for the new key.
 
 ## 6. Docs (design D7)

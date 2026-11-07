@@ -13,6 +13,7 @@ import id.nearyou.app.admin.reportqueue.QueueResolutionOutcome
 import id.nearyou.app.admin.reportqueue.ReportQueueTestSupport
 import id.nearyou.app.admin.reportqueue.ReportResolutionRepository
 import id.nearyou.app.admin.reportqueue.ReportResolutionTestSupport
+import io.kotest.assertions.withClue
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
@@ -162,14 +163,17 @@ class UserProfileHistoryTest : StringSpec({
         bBody shouldContain """class="st ok">appeal_approved"""
     }
 
-    "the widened history read is index-served: both OR arms use an index, no seq scan" {
+    "the widened history predicate is index-served: both OR arms use an index, no seq scan" {
         val user = UUID.randomUUID().toString()
-        // Seq scans AND plain index scans off leaves only bitmap paths, which need an
-        // index qual on EACH OR arm — a full-index walk of admin_actions_created_idx
-        // (satisfies ORDER BY, filters everything) can't masquerade as index-served.
-        // If the after_state arm had no usable index, the planner would be forced
-        // back to a (penalised) Seq Scan on admin_actions_log. SET LOCAL + rollback
-        // keeps the settings off the pooled connection (MigrationV13SmokeTest pattern).
+        // Plans the production predicate against admin_actions_log ALONE. Seq scans and
+        // plain index scans off leave only bitmap paths, which need an index qual on EACH
+        // OR arm: a full walk of admin_actions_created_idx can't pass as index-served, and
+        // without a usable after_state index the planner is forced back to a (penalised)
+        // Seq Scan. The admin_users join is left out on purpose: with those toggles the
+        // join partner's access is penalised too, and on a near-empty, analyzed admin_users
+        // the planner then drives from admin_users and probes admin_actions_log by admin_id,
+        // which hides the OR plan (observed in CI). SET LOCAL + rollback keeps the settings
+        // off the pooled connection (MigrationV13SmokeTest pattern).
         val plan =
             dataSource.connection.use { conn ->
                 conn.autoCommit = false
@@ -178,7 +182,9 @@ class UserProfileHistoryTest : StringSpec({
                         it.execute("SET LOCAL enable_seqscan = off")
                         it.execute("SET LOCAL enable_indexscan = off")
                     }
-                    conn.prepareStatement("EXPLAIN ${UserProfileRepository.ACTION_HISTORY_SQL}").use { ps ->
+                    conn.prepareStatement(
+                        "EXPLAIN SELECT 1 FROM admin_actions_log l WHERE ${UserProfileRepository.ACTION_HISTORY_PREDICATE}",
+                    ).use { ps ->
                         ps.setString(1, user)
                         ps.setString(2, user)
                         ps.executeQuery().use { rs -> buildString { while (rs.next()) appendLine(rs.getString(1)) } }
@@ -188,9 +194,12 @@ class UserProfileHistoryTest : StringSpec({
                     conn.autoCommit = true
                 }
             }
-        plan shouldNotContain "Seq Scan on admin_actions_log"
-        plan shouldContain "admin_actions_after_user_idx"
-        plan shouldContain "admin_actions_target_idx"
+        withClue("EXPLAIN:\n$plan") {
+            plan shouldNotContain "Seq Scan on admin_actions_log"
+            plan shouldContain "BitmapOr"
+            plan shouldContain "admin_actions_after_user_idx"
+            plan shouldContain "admin_actions_target_idx"
+        }
     }
 })
 

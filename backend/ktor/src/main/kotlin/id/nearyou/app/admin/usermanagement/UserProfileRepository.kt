@@ -117,8 +117,12 @@ class UserProfileRepository(
         }
 
     companion object {
-        /** Exposed so the index-served test EXPLAINs the exact production text. */
-        internal val ACTION_HISTORY_SQL =
+        /** The two history arms (both bound to the user id). Exposed so the index-served
+         *  test plans exactly this predicate against `admin_actions_log`. */
+        internal const val ACTION_HISTORY_PREDICATE =
+            "(l.target_type = 'user' AND l.target_id = ?) OR (l.after_state ->> 'user_id') = ?"
+
+        private val ACTION_HISTORY_SQL =
             """
             SELECT l.created_at, u.display_name AS admin_display_name,
                    l.action_type, l.reason,
@@ -126,8 +130,7 @@ class UserProfileRepository(
                    l.after_state::text AS after_state
               FROM admin_actions_log l
               JOIN admin_users u ON u.id = l.admin_id
-             WHERE (l.target_type = 'user' AND l.target_id = ?)
-                OR (l.after_state ->> 'user_id') = ?
+             WHERE $ACTION_HISTORY_PREDICATE
              ORDER BY l.created_at DESC, l.id DESC
             """.trimIndent()
     }
