@@ -166,8 +166,8 @@
                     <td><span class="st {% if ['user_suspended', 'user_banned', 'user_shadow_banned', 'moderation_queue_resolved'] contains h.actionType %}err{% elseif h.actionType == 'user_warned' %}pend{% elseif ['user_unbanned', 'user_shadow_unbanned', 'appeal_approved'] contains h.actionType %}ok{% else %}info{% endif %}">{{ h.actionType }}</span></td>
                     <td>reason: {{ h.reason }}
                         <details class="state"><summary>state</summary>
-                        <div class="statebox">before: {{ h.beforeState }}
-after:  {{ h.afterState }}</div></details></td>
+                        {# <br>, not a newline: Pebble's newline trimming eats the newline after a print tag. #}
+                        <div class="statebox">before: {{ h.beforeState }}<br>after:  {{ h.afterState }}</div></details></td>
                     <td>{{ h.adminDisplayName }}</td>
                 </tr>
                 {% else %}

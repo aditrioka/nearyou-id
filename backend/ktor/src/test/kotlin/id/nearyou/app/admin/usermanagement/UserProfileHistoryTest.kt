@@ -99,6 +99,8 @@ class UserProfileHistoryTest : StringSpec({
         val body = profileBody(admin, author)
         body shouldContain "moderation_queue_resolved"
         body shouldContain "ban_author"
+        // before/after render on separate lines (Pebble trims a newline after a print tag).
+        body shouldContain "<br>after:"
     }
 
     "an appeal approval (the unban) appears in the appellant's history" {

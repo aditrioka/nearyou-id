@@ -1409,9 +1409,11 @@ Immutable: UPDATE/DELETE revoked at the role level for `admin_app`. Retention 1 
 - the appeal decisions (`appeal_approved`, `appeal_rejected`);
 - the hard-delete expedite (`deletion_request_expedited`).
 
-The admin per-user profile history reads rows with `(target_type = 'user' AND target_id = {id}) OR (after_state ->> 'user_id') = {id}`. Rows logged before V41 carry no key and are not backfilled (the log is immutable).
+The admin per-user profile history reads rows with `(target_type = 'user' AND target_id = {id}) OR (after_state ->> 'user_id') = {id}`. Report-queue author-resolution and `appeal_rejected` rows logged before V41 carry no key and are not backfilled (the log is immutable). Pre-V41 `appeal_approved` and `deletion_request_expedited` rows already carry it.
 
 A **user-facing** consumer of this arm (e.g. the data export) MUST exclude `after_state ->> 'resolution' = 'shadow_ban_author'`, because a shadow ban is invisible to the affected user. The admin profile is operator-only and shows shadow-ban state anyway.
+
+A writer whose state carries role-restricted content MUST NOT adopt the key without a role review, because the profile history renders `before_state` / `after_state` to every admin role. Example: `admin_chat_redaction`, whose `before_state.content` is private chat text.
 
 ---
 

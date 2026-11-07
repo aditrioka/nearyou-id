@@ -413,7 +413,7 @@ class AdminAuditLogger(
      * notification) in ONE transaction (design D4). `targetType =
      * 'moderation_queue'`, `targetId` = the queue id; the [afterState] JSONB
      * records BOTH the `resolution` value AND the enforcement effect (e.g.
-     * `{"resolution":"ban_author","is_banned":true,"suspended_until":null}`) so
+     * `{"resolution":"ban_author","is_banned":true,"suspended_until":null,"user_id":"<author>"}`) so
      * the audit trail is self-describing (design D9). An author resolution's
      * [afterState] also names the enforced author as `user_id` — the
      * `after_state.user_id` convention (a row keyed to another object names the
