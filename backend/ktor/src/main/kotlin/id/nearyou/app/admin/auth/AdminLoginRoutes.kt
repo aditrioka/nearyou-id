@@ -112,7 +112,7 @@ class AdminLoginRoutes(
         // before it costs any Redis, DB or hash work. The IP tier is spoofable until
         // the host sits behind Cloudflare (#530), so this — not the rate tiers — is
         // what keeps a spoofed-IP spray from exhausting the ~128 MiB heap (19 MiB per
-        // verify) or both vCPUs. `admitted` is set right after acquire() returns (no
+        // verify) or the vCPUs. `admitted` is set right after acquire() returns (no
         // suspension point between them), NOT derived from withTimeoutOrNull's result:
         // a timeout that fires after acquire() returned still makes withTimeoutOrNull
         // return null, and reading that as "no permit" would leak the permit for good.
@@ -402,9 +402,10 @@ class AdminLoginRoutes(
         const val AXIS_EMAIL = "email"
         const val AXIS_EMAIL_LOCKOUT = "email_lockout"
 
-        // Credential-check concurrency gate (design D11): 2 permits = the 2 vCPUs and
-        // 2 × 19 MiB of Argon2 memory, well inside the ~128 MiB heap. A request waits
-        // at most CREDENTIAL_GATE_WAIT_MS (a few verifies' worth) before it is shed.
+        // Credential-check concurrency gate (design D11): 2 permits = production's 2 vCPUs
+        // (staging runs 1) and 2 × 19 MiB of Argon2 memory, well inside the ~128 MiB heap.
+        // A request waits at most CREDENTIAL_GATE_WAIT_MS (a few verifies' worth) before
+        // it is shed.
         const val CREDENTIAL_CHECK_PERMITS = 2
         const val CREDENTIAL_GATE_WAIT_MS = 2_000L
         const val SHED_RETRY_AFTER_SECONDS = 60L

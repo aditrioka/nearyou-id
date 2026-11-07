@@ -124,7 +124,16 @@ jobs:
       # production too — any service using Layer 3 needs this flag.
       #
       # Other flags preserved from prior iterations:
-      #   --cpu=2 (PR #90)             — JVM headroom for moderation dispatch
+      #   --cpu=1 + --cpu-boost        — PR #90 raised this to 2 while testing a CPU-starvation
+      #                                  theory for #88; that did not fix it (CPU throttling
+      #                                  was the cause, see above). Back to 1 on 2026-11-07
+      #                                  for cost: billed vCPU-seconds halve, so the Tier 2
+      #                                  free tier (200k vCPU-s a month) covers ~55 h awake
+      #                                  instead of ~28. Layer 3's OpenAI call on 1 vCPU:
+      #                                  0.6–1.6 s on the first dispatch after a boot, 0.3 s
+      #                                  warm (the 3 s budget covers only that call). A cold
+      #                                  start answers its first request in ~16.4 s (2 vCPU:
+      #                                  ~15.7 s), mostly the startup-probe schedule.
       #   --min-instances=0            — scale-to-zero when idle so staging costs
       #                                  ~nothing while nobody is exercising it;
       #                                  first request after idle pays a JVM
@@ -165,7 +174,8 @@ jobs:
             --min-instances=0 \
             --max-instances=1 \
             --memory=512Mi \
-            --cpu=2 \
+            --cpu=1 \
+            --cpu-boost \
             --no-cpu-throttling \
             --concurrency=80 \
             --timeout=60 \
