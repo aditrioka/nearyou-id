@@ -11,9 +11,9 @@ The second arm is the `after_state.user_id` convention: an audit row keyed to an
 - appeal decisions (`appeal_approved`, `appeal_rejected`);
 - hard-delete expedites (`deletion_request_expedited`).
 
-A row matching both arms SHALL appear once. Rows whose `after_state` names a different user, or names no user, SHALL NOT appear. That includes content-only queue resolutions (`keep` / `hide`), which carry no `user_id`.
+A row matching both arms SHALL appear once. A row that does not target `('user', {id})` SHALL NOT appear when its `after_state` names a different user or names no user. That includes content-only queue resolutions (`keep` / `hide`), which carry no `user_id`.
 
-The `after_state` arm SHALL be served by an index: the V41 partial expression index `admin_actions_after_user_idx` on `(after_state ->> 'user_id')`. It SHALL NOT require a sequential scan of `admin_actions_log`.
+The `after_state` arm SHALL be served by an index: the partial expression index `admin_actions_after_user_idx` on `admin_actions_log ((after_state ->> 'user_id')) WHERE (after_state ->> 'user_id') IS NOT NULL`. The read SHALL NOT require a sequential scan of `admin_actions_log`.
 
 #### Scenario: Prior admin actions against the user appear in the history
 
@@ -51,11 +51,11 @@ The `after_state` arm SHALL be served by an index: the V41 partial expression in
 - **WHEN** an owner/admin rejects the appeal AND the client then sends `GET /admin/users/<A>`
 - **THEN** the history view SHALL include an `appeal_rejected` row
 
-#### Scenario: Any audit row naming the user in after_state.user_id appears
+#### Scenario: Any audit row naming the user in after_state.user_id appears, once
 
-- **GIVEN** an authenticated session AND user `A` AND one `admin_actions_log` row with `action_type = 'deletion_request_expedited'`, `target_type = 'deletion_request'`, `target_id = <some request id>`, and `after_state.user_id = <A>`
+- **GIVEN** an authenticated session AND user `A` AND one `admin_actions_log` row with `action_type = 'deletion_request_expedited'`, `target_type = 'deletion_request'`, `target_id = <some request id>`, and `after_state.user_id = <A>` AND one row with `target_type = 'user'`, `target_id = <A>`, and `after_state.user_id = <A>` (matching both arms)
 - **WHEN** the client sends `GET /admin/users/<A>`
-- **THEN** the history view SHALL include that `deletion_request_expedited` row exactly once
+- **THEN** the history view SHALL include each of the two rows exactly once
 
 #### Scenario: A content-only queue resolution does not appear in the author's history
 
@@ -69,8 +69,13 @@ The `after_state` arm SHALL be served by an index: the V41 partial expression in
 - **WHEN** the client sends `GET /admin/users/<A>`
 - **THEN** the history view SHALL include neither the `moderation_queue_resolved` row nor the `appeal_approved` row (both name `B`)
 
+#### Scenario: The after_state.user_id index exists with the expected shape
+
+- **WHEN** the migration set has been applied
+- **THEN** `pg_indexes` SHALL contain `admin_actions_after_user_idx` on `admin_actions_log`, indexing `(after_state ->> 'user_id')` with the partial predicate `(after_state ->> 'user_id') IS NOT NULL`
+
 #### Scenario: The widened history read is index-served
 
-- **GIVEN** the V41 index `admin_actions_after_user_idx` on `admin_actions_log ((after_state ->> 'user_id')) WHERE (after_state ->> 'user_id') IS NOT NULL`
-- **WHEN** the history query is planned with sequential scans disabled (`SET enable_seqscan = off`)
-- **THEN** the plan SHALL NOT contain a sequential scan of `admin_actions_log`
+- **GIVEN** the index `admin_actions_after_user_idx`
+- **WHEN** the history query is planned with sequential and plain index scans disabled (`SET enable_seqscan = off`, `SET enable_indexscan = off`), which leaves only bitmap paths, and those need an index condition on each `OR` arm
+- **THEN** the plan SHALL use `admin_actions_after_user_idx` (the `after_state` arm) AND `admin_actions_target_idx` (the `target_type`/`target_id` arm) AND SHALL NOT contain a sequential scan of `admin_actions_log`
