@@ -1,12 +1,14 @@
 package id.nearyou.app.screens.settings
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runComposeUiTest
 import id.nearyou.app.auth.InMemoryTokenStore
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.TokenPair
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.billing.PremiumEntitlementSession
@@ -21,7 +23,12 @@ import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.hidedistance.HideDistanceState
 import id.nearyou.app.privateprofile.PrivateProfileRepository
 import id.nearyou.app.privateprofile.PrivateProfileState
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.ProfileFlow
+import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.push.NotificationContentPreference
+import id.nearyou.app.screens.username.FakeSelfUserIdProvider
+import id.nearyou.app.screens.username.selfProfile
 import id.nearyou.app.theme.NearYouTheme
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -37,6 +44,8 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
 
 private const val TITLE = "Pengaturan"
 private const val PRIVACY_DATA = "Privasi & data"
@@ -54,6 +63,9 @@ private const val COMING_SOON = "Segera hadir"
 private const val INVITE_FRIENDS = "Undang teman"
 private const val PAYWALL_CTA = "Aktifkan Premium" // cta_activate_premium — must NOT appear (no paywall divert)
 private const val CHAT_PREVIEW = "Tampilkan preview pesan chat di notifikasi"
+private const val USERNAME_SUB = "1× per 30 hari" // settings_row_change_username_sub
+private const val USERNAME_COOLDOWN_14 = "Ganti username berikutnya tersedia dalam 14 hari." // username_cooldown_countdown(14)
+private const val USERNAME_RETAINED = "Username @dewi.kuliner tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium."
 
 /**
  * A configurable [HideDistanceRepository] fake: seeds the toggle state, records write calls, and
@@ -141,6 +153,7 @@ private const val DATA_EXPORT_EXPIRED = "Tautan kedaluwarsa. Minta ulang."
 class SettingsScreenTest {
     private lateinit var tokenStore: InMemoryTokenStore
     private lateinit var dataExportFlow: FakeDataExportFlow
+    private var selfProfileFlow: FakeProfileFlow? = null
 
     private fun installKoin(
         hideDistance: HideDistanceRepository = FakeHideDistanceRepository(),
@@ -149,10 +162,13 @@ class SettingsScreenTest {
         chatPreview: NotificationContentPreference = FakeNotificationContentPreference(),
         // #517: bind a session whose purchase is confirmed (the webhook-lag window).
         confirmedPurchase: Boolean = false,
+        // #333/#335: the username entry's self read; null leaves the seam unbound (the fail-safe Open row).
+        selfRead: ProfileOutcome? = null,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
         dataExportFlow = dataExport
+        selfProfileFlow = selfRead?.let { FakeProfileFlow(profileOutcome = it) }
         startKoin {
             modules(
                 module {
@@ -168,6 +184,10 @@ class SettingsScreenTest {
                     // mobile-notification-preview-toggle: the device-local chat-preview preference.
                     single<NotificationContentPreference> { chatPreview }
                     if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
+                    selfProfileFlow?.let { fake ->
+                        single<ProfileFlow> { fake }
+                        single<SelfUserIdProvider> { FakeSelfUserIdProvider() }
+                    }
                 },
             )
         }
@@ -242,29 +262,125 @@ class SettingsScreenTest {
         }
     }
 
-    @Test
-    fun gantiUsernameRow_pushesUsernameRoute_unconditionally() {
-        installKoin()
+    /** Composes Settings with a counting "Ganti username" callback; returns the counter's reader. */
+    private fun androidx.compose.ui.test.ComposeUiTest.settingsCountingUsernameOpens(): () -> Int {
         var opened = 0
-        runComposeUiTest {
-            setContent {
-                KoinContext {
-                    NearYouTheme {
-                        SettingsScreen(
-                            onBack = {},
-                            onOpenUsernameCustomization = { opened++ },
-                            onOpenBlocked = {},
-                            onOpenConsent = {},
-                            onLoggedOut = {},
-                        )
-                    }
+        setContent {
+            KoinContext {
+                NearYouTheme {
+                    SettingsScreen(
+                        onBack = {},
+                        onOpenUsernameCustomization = { opened++ },
+                        onOpenBlocked = {},
+                        onOpenConsent = {},
+                        onLoggedOut = {},
+                    )
                 }
             }
-            // The "Ganti username" row is BACKED (mobile-premium-username): it pushes the route
-            // unconditionally and shows no "Segera hadir" (the screen owns the Free/Premium gate).
-            onNodeWithText(GANTI_USERNAME).performScrollTo().performClick()
-            assertEquals(1, opened, "the Ganti username row pushes UsernameCustomizationRoute unconditionally")
+        }
+        return { opened }
+    }
+
+    /** Negative assertions only mean something once the entry VM's self read has landed. */
+    private fun androidx.compose.ui.test.ComposeUiTest.awaitSelfRead() {
+        waitUntil { (selfProfileFlow?.loadCalls ?: 0) > 0 }
+        waitForIdle()
+    }
+
+    @Test
+    fun gantiUsernameRow_pushesUsernameRoute_outsideTheCooldown() {
+        // No self-profile seam bound → the fail-safe Open entry: today's row, pushing the route (the screen
+        // owns the Free/Premium gate) and showing no "Segera hadir".
+        installKoin()
+        runComposeUiTest {
+            val opened = settingsCountingUsernameOpens()
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
+            assertEquals(1, opened(), "the Ganti username row pushes UsernameCustomizationRoute")
             onNodeWithText(COMING_SOON).assertDoesNotExist()
+            onNodeWithText(USERNAME_SUB, substring = true).assertExists()
+        }
+    }
+
+    @Test
+    fun gantiUsernameRow_isDisabledWithTheCountdown_insideTheCooldown() {
+        // #333: Premium, changed 16 days ago → 14 days left; the row is disabled and pushes nothing.
+        installKoin(selfRead = selfProfile(isPremium = true, usernameLastChangedAt = Clock.System.now() - 16.days))
+        runComposeUiTest {
+            val opened = settingsCountingUsernameOpens()
+            waitUntil { onAllNodesWithText(USERNAME_COOLDOWN_14, substring = true).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().assertIsNotEnabled().performClick()
+            assertEquals(0, opened(), "a disabled row pushes nothing")
+            onNodeWithText(USERNAME_SUB, substring = true).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun retainedBanner_showsForACustomizedFreeUser_andTheRowStillPushes() {
+        // #335: a Free user who customized sees the docs/03 banner; the row still opens the route (its gate).
+        installKoin(
+            selfRead = selfProfile(username = "dewi.kuliner", isPremium = false, usernameLastChangedAt = Clock.System.now() - 90.days),
+        )
+        runComposeUiTest {
+            val opened = settingsCountingUsernameOpens()
+            waitUntil { onAllNodesWithText(USERNAME_RETAINED).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
+            assertEquals(1, opened())
+        }
+    }
+
+    @Test
+    fun noRetainedBanner_forAFreeUserWhoNeverCustomized() {
+        installKoin(selfRead = selfProfile(isPremium = false))
+        runComposeUiTest {
+            val opened = settingsCountingUsernameOpens()
+            awaitSelfRead()
+            onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
+            onNodeWithText(USERNAME_SUB, substring = true).assertExists()
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
+            assertEquals(1, opened(), "the open row still pushes the route")
+        }
+    }
+
+    @Test
+    fun retainedBanner_hidesDuringTheWebhookLagWindow() {
+        installKoin(
+            confirmedPurchase = true,
+            selfRead = selfProfile(username = "dewi.kuliner", isPremium = false, usernameLastChangedAt = Clock.System.now() - 90.days),
+        )
+        runComposeUiTest {
+            settingsCountingUsernameOpens()
+            awaitSelfRead()
+            onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
+        }
+    }
+
+    @Test
+    fun billingRetryUser_getsTheCooldownRow_andNoRetainedBanner() {
+        // The self read's isPremium is premium_active only; the hide-distance read's premium also counts
+        // premium_billing_retry, which can still change usernames — so no "aktifkan Premium" banner.
+        installKoin(
+            hideDistance = FakeHideDistanceRepository(initial = HideDistanceState(hideDistance = false, premium = true)),
+            selfRead = selfProfile(username = "dewi.kuliner", isPremium = false, usernameLastChangedAt = Clock.System.now() - 16.days),
+        )
+        runComposeUiTest {
+            val opened = settingsCountingUsernameOpens()
+            waitUntil { onAllNodesWithText(USERNAME_COOLDOWN_14, substring = true).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
+            assertEquals(0, opened())
+        }
+    }
+
+    @Test
+    fun aFailedSelfRead_leavesTheDefaultRow() {
+        installKoin(selfRead = ProfileOutcome.NetworkError)
+        runComposeUiTest {
+            val opened = settingsCountingUsernameOpens()
+            awaitSelfRead()
+            onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
+            assertEquals(1, opened())
+            onNodeWithText(USERNAME_SUB, substring = true).assertExists()
         }
     }
 

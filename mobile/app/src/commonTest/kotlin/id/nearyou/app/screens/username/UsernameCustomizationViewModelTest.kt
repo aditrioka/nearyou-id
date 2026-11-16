@@ -22,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 /**
  * Unit coverage of [UsernameCustomizationViewModel]: the on-entry self-Premium resolution (Premium →
@@ -159,6 +160,21 @@ class UsernameCustomizationViewModelTest {
             backgroundScope.launch { viewModel.uiState.collect {} }
             advanceUntilIdle()
             assertEquals(UsernameStatus.PremiumGate, viewModel.uiState.value.status)
+        }
+
+    @Test
+    fun onEntry_recordsWhetherTheCallerCustomizedBefore() =
+        runTest(dispatcher) {
+            // #335: a non-null usernameLastChangedAt marks a caller who customized — the gate's retained copy.
+            val customized =
+                vm(profileOutcome = selfProfile(isPremium = false, usernameLastChangedAt = Instant.parse("2026-09-01T00:00:00Z")))
+            val never = vm(profileOutcome = selfProfile(isPremium = false))
+            val failed = vm(profileOutcome = ProfileOutcome.NetworkError)
+            listOf(customized, never, failed).forEach { v -> backgroundScope.launch { v.uiState.collect {} } }
+            advanceUntilIdle()
+            assertTrue(customized.uiState.value.usernameCustomized)
+            assertFalse(never.uiState.value.usernameCustomized)
+            assertFalse(failed.uiState.value.usernameCustomized, "a failed self read keeps the generic gate copy")
         }
 
     @Test

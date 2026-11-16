@@ -6,6 +6,7 @@ import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.data.report.ReportTargetType
+import kotlin.time.Instant
 
 /**
  * Orchestrates the profile read + the follow / block / report actions: delegates to [profileApiClient]
@@ -111,4 +112,7 @@ private fun UserProfileResponse.toDomain(): UserProfile =
         followedByViewer = followedByViewer,
         isPremium = isPremium,
         isPrivate = isPrivate,
+        // Fail-soft: the field only drives advisory UI (the PATCH cooldown is authoritative), so a malformed
+        // value reads as "never changed" instead of failing the whole profile read.
+        usernameLastChangedAt = usernameLastChangedAt?.let { runCatching { Instant.parse(it) }.getOrNull() },
     )

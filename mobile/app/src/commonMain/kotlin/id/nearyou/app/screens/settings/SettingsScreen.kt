@@ -25,9 +25,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.nearyou.app.auth.AuthFlow
+import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.auth.TokenStore
 import id.nearyou.app.billing.PremiumEntitlementSession
 import id.nearyou.app.data.accountdeletion.AccountDeletionFlow
@@ -35,6 +38,7 @@ import id.nearyou.app.data.dataexport.DataExportFlow
 import id.nearyou.app.hidedistance.HideDistanceRepository
 import id.nearyou.app.infra.sentry.CrashReporter
 import id.nearyou.app.privateprofile.PrivateProfileRepository
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.push.FcmTokenProvider
 import id.nearyou.app.push.NotificationContentPreference
 import id.nearyou.app.ui.billing.rememberPremiumActivating
@@ -106,6 +110,8 @@ import id.nearyou.resources.generated.resources.settings_section_other
 import id.nearyou.resources.generated.resources.settings_section_premium
 import id.nearyou.resources.generated.resources.settings_section_privacy
 import id.nearyou.resources.generated.resources.settings_title
+import id.nearyou.resources.generated.resources.username_cooldown_countdown
+import id.nearyou.resources.generated.resources.username_retained_banner
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.getKoin
@@ -131,8 +137,10 @@ private const val LEGAL_URL: String = "https://nearyou.id/kebijakan-privasi"
  * sanctioned `user_settings` privacy-flag write; the interactive write goes through that endpoint ONLY).
  * Both are Premium-gated (Free callers see the upsell + issue no write) and revert on a failed PATCH.
  * "Tampilkan preview pesan chat di notifikasi" is a third, DEVICE-LOCAL switch (all tiers, no backend —
- * mobile-notification-preview-toggle) writing through `NotificationContentPreference` only. All
- * copy via `:shared:resources`, under `NearYouTheme`.
+ * mobile-notification-preview-toggle) writing through `NotificationContentPreference` only. The
+ * "Ganti username" row reflects [SettingsUsernameEntryViewModel]'s self read: disabled with the day
+ * countdown during the 30-day cooldown (#333), and a previously-customized Free user also sees the
+ * retained-username banner (#335). All copy via `:shared:resources`, under `NearYouTheme`.
  */
 @Composable
 fun SettingsScreen(
@@ -157,6 +165,10 @@ fun SettingsScreen(
     // premium-entitlement-lifecycle: same fail-safe resolution for the RevenueCat identity unbind on logout.
     val premiumEntitlement = remember(koin) { koin.getOrNull<PremiumEntitlementSession>() }
     val crashReporter = remember(koin) { koin.getOrNull<CrashReporter>() }
+    // mobile-premium-username (#333/#335): the username entry state's self read — same fail-safe resolution,
+    // so a graph without the profile seam keeps today's open row.
+    val profileFlow = remember(koin) { koin.getOrNull<ProfileFlow>() }
+    val selfUserIdProvider = remember(koin) { koin.getOrNull<SelfUserIdProvider>() }
     val viewModel =
         viewModel {
             SettingsViewModel(
@@ -176,6 +188,12 @@ fun SettingsScreen(
     val privateProfileChecked by viewModel.privateProfileChecked.collectAsStateWithLifecycle()
     val privateProfileEvent by viewModel.privateProfileEvent.collectAsStateWithLifecycle()
     val chatPreviewChecked by viewModel.chatPreviewChecked.collectAsStateWithLifecycle()
+    // The hide-distance read's `premium` also counts billing-retry, which the self read's isPremium does not.
+    val hideDistancePremium = viewModel.hideDistancePremium
+    val usernameEntryVm = viewModel { SettingsUsernameEntryViewModel(profileFlow, selfUserIdProvider, hideDistancePremium) }
+    val usernameEntry by usernameEntryVm.uiState.collectAsStateWithLifecycle()
+    // Re-read on every resume — a return from a username change or a purchase (docs/11 § 2.3).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { usernameEntryVm.refresh() }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -315,20 +333,32 @@ fun SettingsScreen(
                 )
             }
 
+            // #335 — a Free user who customized keeps their handle; hidden while a purchase is still landing.
+            (usernameEntry as? UsernameEntryState.Retained)?.takeUnless { premiumActivating }?.let { retained ->
+                UsernameRetainedBanner(username = retained.username)
+            }
+
             // AKUN — "Edit profil" deferred (no profile-write backend); "Ganti username" is BACKED
-            // (mobile-premium-username): the row pushes UsernameCustomizationRoute UNCONDITIONALLY — the
-            // route-scoped screen owns the Free/Premium gate, so Settings reads no isPremium signal here.
+            // (mobile-premium-username): the row pushes UsernameCustomizationRoute — the route-scoped screen
+            // owns the Free/Premium gate — except during the 30-day cooldown, when it is disabled (#333).
             SettingsSectionHeader(stringResource(Res.string.settings_section_account))
             SettingsRow(
                 icon = Res.drawable.ic_nav_profile,
                 title = stringResource(Res.string.settings_row_edit_profile),
                 onClick = onComingSoon,
             )
+            val cooldown = usernameEntry as? UsernameEntryState.Cooldown
             SettingsRow(
                 icon = Res.drawable.ic_alternate_email,
                 title = stringResource(Res.string.settings_row_change_username),
-                subtitle = stringResource(Res.string.settings_row_change_username_sub),
+                subtitle =
+                    if (cooldown != null) {
+                        stringResource(Res.string.username_cooldown_countdown, cooldown.days)
+                    } else {
+                        stringResource(Res.string.settings_row_change_username_sub)
+                    },
                 onClick = onOpenUsernameCustomization,
+                enabled = cooldown == null,
             )
 
             // PREMIUM — deferred (Phase 4 tenure + billing).
@@ -553,6 +583,30 @@ private fun DataExportReadyBanner(
                 Text(stringResource(Res.string.data_export_ready_open))
             }
         }
+    }
+}
+
+/**
+ * Non-blocking banner for a downgraded Free user who customized their handle (docs/03 "Username on
+ * downgrade", #335): the handle is kept, and changing it again needs Premium. Informational, so the
+ * secondary-container tone; no button — the "Ganti username" row below leads to the gate's CTA.
+ */
+@Composable
+private fun UsernameRetainedBanner(username: String) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Text(
+            text = stringResource(Res.string.username_retained_banner, username),
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(16.dp),
+        )
     }
 }
 

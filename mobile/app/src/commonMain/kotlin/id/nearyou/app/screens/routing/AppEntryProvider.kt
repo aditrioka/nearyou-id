@@ -229,8 +229,8 @@ fun appEntryProvider(
         entry<SettingsRoute> {
             SettingsScreen(
                 onBack = { backStack.removeLastOrNull() },
-                // The "Ganti username" row pushes the Ganti Username surface unconditionally (the
-                // route-scoped screen owns the Free/Premium gate — mobile-premium-username).
+                // The "Ganti username" row pushes the Ganti Username surface (the route-scoped screen owns
+                // the Free/Premium gate — mobile-premium-username); Settings disables it during the cooldown.
                 onOpenUsernameCustomization = { backStack.add(UsernameCustomizationRoute) },
                 onOpenBlocked = { backStack.add(BlockedUsersRoute) },
                 onOpenConsent = { backStack.add(ConsentSettingsRoute) },
@@ -388,8 +388,8 @@ fun appEntryProvider(
             // UsernameCustomizationRoute is only ever appended ATOP HomeRoute (the Settings "Ganti
             // username" row), so popping it leaves the settings/home surface. The route-scoped screen
             // owns the Free/Premium gate (an on-entry self-isPremium read + the reactive 403 backstop),
-            // so Settings pushes this unconditionally. onChanged pops back to Settings on a successful
-            // change; the stateless ProfileFlow re-fetches the new handle on the next read.
+            // so Settings never diverts to the paywall itself. onChanged pops back to Settings on a
+            // successful change; Settings re-reads the self profile on resume (now in the cooldown).
             UsernameCustomizationScreen(
                 onBack = { backStack.removeLastOrNull() },
                 onChanged = { backStack.removeLastOrNull() },

@@ -19,6 +19,8 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.time.Instant
 
 private val JSON = headersOf("Content-Type", "application/json")
 
@@ -65,6 +67,22 @@ class ProfileRepositoryTest {
             assertEquals(3, loaded.profile.followerCount)
             assertEquals(true, loaded.profile.isPremium)
             assertEquals(true, loaded.profile.followedByViewer)
+        }
+
+    @Test
+    fun `loadProfile maps the self-only usernameLastChangedAt to an Instant and absent or malformed to null`() =
+        runTest {
+            fun body(extra: String) =
+                """{"userId":"u1","username":"raka.jkt","displayName":"Raka","followerCount":0,"followingCount":0,
+                   "isSelf":true,"followedByViewer":false,"isPremium":true$extra}"""
+
+            suspend fun lastChanged(extra: String) =
+                assertIs<ProfileOutcome.Loaded>(
+                    repo { respond(body(extra), HttpStatusCode.OK, JSON) }.loadProfile("u1"),
+                ).profile.usernameLastChangedAt
+            assertEquals(Instant.parse("2026-10-01T08:00:00Z"), lastChanged(""","usernameLastChangedAt":"2026-10-01T08:00:00Z""""))
+            assertNull(lastChanged(""))
+            assertNull(lastChanged(""","usernameLastChangedAt":"not-a-date""""))
         }
 
     @Test

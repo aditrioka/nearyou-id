@@ -13,7 +13,8 @@ import javax.sql.DataSource
  * Two read paths (design D5):
  *  - **Self** (`targetId == viewerId`): reads raw `users` on the own-content path so a
  *    shadow-banned viewer still sees their own profile (`visible_users` would filter the row and
- *    404 the viewer's own profile). Projects the self-only effective-private `is_private`.
+ *    404 the viewer's own profile). Projects the self-only effective-private `is_private` and
+ *    `username_last_changed_at`.
  *    `followed_by_viewer` is forced `false` (you cannot follow yourself), and no `user_blocks`
  *    predicate is applied (you cannot block yourself).
  *  - **Other** (`targetId != viewerId`): reads `visible_users` (shadow-ban + soft-delete safe) and
@@ -81,9 +82,9 @@ class JdbcUserProfileReader(
     }
 
     /**
-     * Map the current result-set row to a [UserProfileRow]. On the self read the self-only column
-     * `is_private` is present and projected; on the other read it is absent and forced to `null`,
-     * and `followed_by_viewer` is read from the EXISTS projection.
+     * Map the current result-set row to a [UserProfileRow]. On the self read the self-only columns
+     * `is_private` / `username_last_changed_at` are present and projected; on the other read they are
+     * absent and forced to `null`, and `followed_by_viewer` is read from the EXISTS projection.
      */
     private fun ResultSet.toRow(isSelf: Boolean): UserProfileRow =
         UserProfileRow(
@@ -96,6 +97,7 @@ class JdbcUserProfileReader(
             followedByViewer = if (isSelf) false else getBoolean("followed_by_viewer"),
             isPremium = getBoolean("is_premium"),
             isPrivate = if (isSelf) getBoolean("is_private") else null,
+            usernameLastChangedAt = if (isSelf) getTimestamp("username_last_changed_at")?.toInstant() else null,
         )
 
     private companion object {
@@ -105,7 +107,9 @@ class JdbcUserProfileReader(
          * § Effective private): the `private_profile_opt_in` term is gated on the premium-status
          * conjunct (a Free user with a stale opt-in is NOT effectively private), OR the 72h
          * privacy-flip grace short-circuit (`privacy_flip_scheduled_at` in the future —
-         * forward-looking plumbing; the populating worker is DESIGN-status).
+         * forward-looking plumbing; the populating worker is DESIGN-status). Also projects the raw
+         * `username_last_changed_at` (self-only; the client's proactive username cooldown + "previously
+         * customized" signal — read only, the username write allowlist is untouched).
          *
          * Allowlisted from `BlockExclusionJoinRule`: `users` is in the rule's `PROTECTED_TABLE_PATTERN`,
          * but a self read needs no `user_blocks` predicate (you cannot block yourself) and MUST NOT be
@@ -128,7 +132,8 @@ class JdbcUserProfileReader(
                    (
                        (u.private_profile_opt_in AND u.subscription_status IN ('premium_active', 'premium_billing_retry'))
                        OR (u.privacy_flip_scheduled_at IS NOT NULL AND u.privacy_flip_scheduled_at > now())
-                   ) AS is_private
+                   ) AS is_private,
+                   u.username_last_changed_at
               FROM users u
              WHERE u.id = ?
             """.trimIndent()

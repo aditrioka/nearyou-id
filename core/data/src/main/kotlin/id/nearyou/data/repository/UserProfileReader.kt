@@ -1,14 +1,16 @@
 package id.nearyou.data.repository
 
+import java.time.Instant
 import java.util.UUID
 
 /**
  * Raw profile row backing `GET /api/v1/users/{user_id}` (the `user-profile-read` capability).
  *
- * The self-only field [isPrivate] is populated ONLY on the own-content (self) read and MUST be
- * `null` for any other-user read — a target's effective private-profile flag is private account
- * state (design D2). [followedByViewer] is always `false` on the self read (you do not follow
- * yourself; design D6).
+ * The self-only fields [isPrivate] and [usernameLastChangedAt] are populated ONLY on the own-content
+ * (self) read and MUST be `null` for any other-user read — a target's effective private-profile flag
+ * and when they last renamed are private account state (design D2). [usernameLastChangedAt] is also
+ * `null` for a user who never changed their username (only the customization `PATCH` writes it).
+ * [followedByViewer] is always `false` on the self read (you do not follow yourself; design D6).
  *
  * NOTE: there is deliberately NO `suspendedUntil` here. Suspension is a session-terminating state
  * (`docs/02-Product.md` § Suspension sets `is_banned = TRUE` + bumps `token_version`), so a
@@ -30,6 +32,7 @@ data class UserProfileRow(
     val followedByViewer: Boolean,
     val isPremium: Boolean,
     val isPrivate: Boolean?,
+    val usernameLastChangedAt: Instant?,
 )
 
 /**

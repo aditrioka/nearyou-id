@@ -28,6 +28,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Instant
 
 // Canonical Bahasa Indonesia copy (byte-identical to shared/resources strings.xml).
 private const val GATE_BODY = "Ganti username adalah fitur Premium."
@@ -40,6 +41,7 @@ private const val MODERATED = "Username ini akan ditinjau tim moderasi. Silakan 
 private const val COOLDOWN_14 = "Ganti username berikutnya tersedia dalam 14 hari."
 private const val SESSION_REDIRECT = "Mengalihkan ke halaman masuk…"
 private const val DISABLED = "Fitur ganti username sedang tidak tersedia. Coba lagi nanti."
+private const val RETAINED = "Username @dewi.kuliner tetap milikmu. Untuk mengubahnya lagi, aktifkan Premium." // username_retained_banner
 
 /**
  * Render + behavior coverage of `UsernameCustomizationScreen` via the Robolectric CMP UI runner. Drives
@@ -63,6 +65,8 @@ class UsernameCustomizationScreenTest {
         currentUsername: String = "oldname",
         // #517: bind a session whose purchase is confirmed (the webhook-lag window).
         confirmedPurchase: Boolean = false,
+        // #335: a non-null value marks a caller who customized before.
+        usernameLastChangedAt: Instant? = null,
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         usernameFlow = FakeUsernameFlow(changeOutcome = changeOutcome)
@@ -70,7 +74,7 @@ class UsernameCustomizationScreenTest {
             modules(
                 module {
                     single<UsernameFlow> { usernameFlow }
-                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfProfile(currentUsername, isPremium)) }
+                    single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfProfile(currentUsername, isPremium, usernameLastChangedAt)) }
                     single<SelfUserIdProvider> { FakeSelfUserIdProvider() }
                     if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
                 },
@@ -95,6 +99,44 @@ class UsernameCustomizationScreenTest {
             onNodeWithTag(USERNAME_GATE_CTA_TAG).performClick()
             waitForIdle()
             assertEquals(1, activated, "the gate CTA invokes the hoisted onActivatePremium")
+        }
+    }
+
+    @Test
+    fun onEntryFree_customizedBefore_showsTheRetainedCopy_andCtaStillFires() {
+        // #335: a downgraded user who customized is told the handle is kept, not "fitur Premium".
+        installKoin(isPremium = false, currentUsername = "dewi.kuliner", usernameLastChangedAt = Instant.parse("2026-08-01T00:00:00Z"))
+        runComposeUiTest {
+            var activated = 0
+            setContent { KoinContext { NearYouTheme { UsernameCustomizationScreen(onBack = {}, onActivatePremium = { activated++ }) } } }
+            waitUntil { onAllNodesWithText(RETAINED).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(GATE_BODY).assertDoesNotExist()
+            onNodeWithTag(USERNAME_GATE_CTA_TAG).performClick()
+            waitForIdle()
+            assertEquals(1, activated, "the retained gate keeps the Aktifkan Premium CTA")
+        }
+    }
+
+    @Test
+    fun customizedBuyerInTheLagWindow_seesTheActivatingNotice_notTheRetainedCopy() {
+        installKoin(
+            changeOutcome = UsernameChangeOutcome.PremiumGate,
+            isPremium = false,
+            currentUsername = "dewi.kuliner",
+            confirmedPurchase = true,
+            usernameLastChangedAt = Instant.parse("2026-08-01T00:00:00Z"),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { UsernameCustomizationScreen(onBack = {}) } } }
+            waitForIdle()
+            onNodeWithTag(USERNAME_FIELD_TAG).performTextInput("newhandle")
+            waitForIdle()
+            onNodeWithTag(USERNAME_SUBMIT_TAG).performClick()
+            waitForIdle()
+            onNodeWithTag(USERNAME_CONFIRM_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(ACTIVATING).fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText(RETAINED).assertDoesNotExist()
+            onNodeWithText(GATE_BODY).assertDoesNotExist()
         }
     }
 

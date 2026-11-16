@@ -32,6 +32,7 @@ import java.sql.Date
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientCN
 
@@ -77,6 +78,7 @@ class UserProfileRoutesTest : StringSpec({
         deleted: Boolean = false,
         privateOptIn: Boolean = false,
         privacyFlipAt: Instant? = null,
+        usernameLastChangedAt: Instant? = null,
     ): Seeded {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
@@ -88,8 +90,8 @@ class UserProfileRoutesTest : StringSpec({
                 INSERT INTO users (
                     id, username, display_name, date_of_birth, invite_code_prefix,
                     bio, subscription_status, is_shadow_banned, deleted_at,
-                    private_profile_opt_in, privacy_flip_scheduled_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    private_profile_opt_in, privacy_flip_scheduled_at, username_last_changed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -103,6 +105,7 @@ class UserProfileRoutesTest : StringSpec({
                 ps.setTimestamp(9, if (deleted) Timestamp.from(Instant.now()) else null)
                 ps.setBoolean(10, privateOptIn)
                 ps.setTimestamp(11, privacyFlipAt?.let(Timestamp::from))
+                ps.setTimestamp(12, usernameLastChangedAt?.let(Timestamp::from))
                 ps.executeUpdate()
             }
         }
@@ -211,6 +214,7 @@ class UserProfileRoutesTest : StringSpec({
                 // explicitNulls=false → self-only isPrivate is OMITTED on an other-user read.
                 o.isAbsentOrNull("isPrivate") shouldBe true
                 o.hasKey("isPrivate") shouldBe false
+                o.hasKey("usernameLastChangedAt") shouldBe false
                 // Spec "Profile response has no suspension field" — no suspendedUntil key, ever.
                 o.hasKey("suspendedUntil") shouldBe false
             }
@@ -381,6 +385,37 @@ class UserProfileRoutesTest : StringSpec({
                 // explicitNulls=false → the self-only isPrivate key is omitted on an other-user read.
                 o.isAbsentOrNull("isPrivate") shouldBe true
                 o.hasKey("isPrivate") shouldBe false
+            }
+        } finally {
+            cleanup(viewer.id, target.id)
+        }
+    }
+
+    "username-cooldown 1.4 — self read: never-changed omits usernameLastChangedAt; changed carries the ISO instant" {
+        val never = seedUser(subscriptionStatus = "premium_active")
+        // Postgres keeps microseconds — truncate the seed so the round-trip compares exactly on CI.
+        val changedAt = Instant.now().minus(16, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MICROS)
+        val changed = seedUser(subscriptionStatus = "premium_active", usernameLastChangedAt = changedAt)
+        try {
+            withApp {
+                val n = getProfile("/api/v1/users/${never.id}", never.token).second.obj()
+                n.hasKey("usernameLastChangedAt") shouldBe false
+                val c = getProfile("/api/v1/users/${changed.id}", changed.token).second.obj()
+                Instant.parse(c.str("usernameLastChangedAt")) shouldBe changedAt
+            }
+        } finally {
+            cleanup(never.id, changed.id)
+        }
+    }
+
+    "username-cooldown 1.4 — other-user read never discloses the target's usernameLastChangedAt" {
+        val viewer = seedUser()
+        val target = seedUser(usernameLastChangedAt = Instant.now().minus(3, ChronoUnit.DAYS))
+        try {
+            withApp {
+                val (status, body) = getProfile("/api/v1/users/${target.id}", viewer.token)
+                status shouldBe HttpStatusCode.OK
+                body.obj().hasKey("usernameLastChangedAt") shouldBe false
             }
         } finally {
             cleanup(viewer.id, target.id)

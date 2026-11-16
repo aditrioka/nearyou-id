@@ -74,8 +74,10 @@ fun SettingsSectionHeader(text: String) {
 /**
  * One settings list row: a leading Material vector [icon], a [title] + optional [subtitle], and a
  * trailing affordance — a chevron (navigational rows), an M3 [Switch] (toggle rows), or nothing. The
- * whole row is [onClick]-tappable (the chevron/title hit area). [iconTint]/[enabled] let a deferred
- * row read as muted. No string literal is rendered — all copy arrives as already-resolved `String`s.
+ * whole row is [onClick]-tappable (the chevron/title hit area). A disabled row ([enabled] = false — the
+ * username proactive cooldown) is not clickable and mutes its title/icon/chevron to the M3 disabled alpha,
+ * but keeps [subtitle] at full contrast because there it carries the message (the countdown). No string
+ * literal is rendered — all copy arrives as already-resolved `String`s.
  */
 @Composable
 fun SettingsRow(
@@ -87,12 +89,14 @@ fun SettingsRow(
     trailing: SettingsRowTrailing = SettingsRowTrailing.Chevron,
     switchChecked: Boolean = false,
     onSwitchChange: ((Boolean) -> Unit)? = null,
+    enabled: Boolean = true,
 ) {
+    val alpha = if (enabled) 1f else DISABLED_CONTENT_ALPHA
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -101,14 +105,14 @@ fun SettingsRow(
         Icon(
             painter = painterResource(icon),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
             modifier = Modifier.size(24.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
             )
             if (subtitle != null) {
                 Text(
@@ -124,7 +128,7 @@ fun SettingsRow(
                 Icon(
                     painter = painterResource(Res.drawable.ic_chevron_right),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
                     modifier = Modifier.size(24.dp),
                 )
             SettingsRowTrailing.SwitchControl ->
@@ -136,6 +140,9 @@ fun SettingsRow(
         }
     }
 }
+
+/** The M3 disabled-content alpha. */
+private const val DISABLED_CONTENT_ALPHA = 0.38f
 
 /** Which trailing affordance a [SettingsRow] renders. */
 enum class SettingsRowTrailing {

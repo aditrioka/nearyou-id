@@ -17,7 +17,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * timeline-DTO wire convention), generated from the wire, NOT a stale spec JSON example. [bio] and
  * [isPrivate] are nullable-with-default because the app-wide `Json { explicitNulls = false }` OMITS them
  * from the JSON when null — an absent key MUST decode to null, not throw (so they MUST be `= null`).
- * [isPrivate] is self-only (absent on every other-user read). [userId] is the profile's own id (a UUID);
+ * [isPrivate] and [usernameLastChangedAt] (the ISO-8601 instant of the caller's last username change, absent
+ * when never changed) are self-only (absent on every other-user read). [userId] is the profile's own id (a UUID);
  * it is the route resource key, never rendered as a UI string.
  */
 @Serializable
@@ -32,6 +33,7 @@ data class UserProfileResponse(
     val followedByViewer: Boolean,
     val isPremium: Boolean,
     val isPrivate: Boolean? = null,
+    val usernameLastChangedAt: String? = null,
 )
 
 /** The `{ "error": { "code" } }` envelope (profile-local mirror of the per-package error bodies). */

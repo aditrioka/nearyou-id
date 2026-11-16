@@ -3,6 +3,7 @@ package id.nearyou.app.screens.username
 import id.nearyou.app.auth.SelfUserIdProvider
 import id.nearyou.app.profile.ProfileOutcome
 import id.nearyou.app.profile.UserProfile
+import kotlin.time.Instant
 
 /**
  * Shared `commonTest` fixtures for the Ganti Username VM + screen + iOS-flow tests (commonTest is visible
@@ -13,10 +14,12 @@ class FakeSelfUserIdProvider(private val id: String? = "self-id") : SelfUserIdPr
     override suspend fun selfUserId(): String? = id
 }
 
-/** A self-profile read fixture driving the on-entry Premium resolution (Premium → editor; Free → gate). */
+/** A self-profile read fixture driving the on-entry Premium resolution (Premium → editor; Free → gate) and,
+ *  via [usernameLastChangedAt], the cooldown / "customized before" signal (#333/#335). */
 fun selfProfile(
     username: String = "oldname",
     isPremium: Boolean = true,
+    usernameLastChangedAt: Instant? = null,
 ): ProfileOutcome =
     ProfileOutcome.Loaded(
         UserProfile(
@@ -30,5 +33,6 @@ fun selfProfile(
             followedByViewer = false,
             isPremium = isPremium,
             isPrivate = false,
+            usernameLastChangedAt = usernameLastChangedAt,
         ),
     )
