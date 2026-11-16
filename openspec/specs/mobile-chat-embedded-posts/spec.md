@@ -1,7 +1,7 @@
 # mobile-chat-embedded-posts Specification
 
 ## Purpose
-The mobile share-a-post-to-chat surface. A "Bagikan ke chat" affordance on post-detail opens a conversation picker (the shipped single-`stateIn` `uiState` state-holder convention) that lists the user's existing conversations and, on a pick, sends a message carrying `embedded_post_id` to the picked conversation — a `403` maps to a distinct blocked result, a successful send navigates to the thread. The chat thread renders an embed message as a self-contained **context card** built from `embedded_post_snapshot` (author handle / display name, content, `cityName` — never a coordinate); tapping a live card navigates to post-detail under the tapping viewer's own live rules; a hard-deleted source post (snapshot present, `embedded_post_id` null) renders a "post telah dihapus" state with no navigation; an admin redaction takes display precedence over the card. An edited-since-shared banner GATE ships (its per-card live-edit source explicitly deferred to a follow-up, so the banner stays dormant until wired). The `:infra:supabase-realtime` inbound model surfaces the embed fields as vendor-SDK-free data; all card / picker strings come from Compose Multiplatform Resources.
+The mobile share-a-post-to-chat surface. A "Bagikan ke chat" affordance on post-detail opens a conversation picker (the shipped single-`stateIn` `uiState` state-holder convention) that lists the user's existing conversations and, on a pick, sends a message carrying `embedded_post_id` to the picked conversation — a `403` maps to a distinct blocked result, a successful send navigates to the thread. The chat thread renders an embed message as a self-contained **context card** built from `embedded_post_snapshot` (author handle / display name, content, `cityName` — never a coordinate); tapping a live card navigates to post-detail under the tapping viewer's own live rules; a hard-deleted source post (snapshot present, `embedded_post_id` null) renders a "post telah dihapus" state with no navigation; an admin redaction takes display precedence over the card. A "diedit sejak dibagikan" banner shows when the live post was edited after the share: the thread reads each shared post's `editedAt` once per visit through `single-post-read` and compares it with the snapshot's share-time `editedAt` (unknown live state shows no banner). The `:infra:supabase-realtime` inbound model surfaces the embed fields as vendor-SDK-free data; all card / picker strings come from Compose Multiplatform Resources.
 ## Requirements
 ### Requirement: Post-detail offers a "Bagikan ke chat" affordance
 
@@ -66,27 +66,6 @@ Tapping a context card whose `embedded_post_id` is non-null SHALL navigate to th
 - **WHEN** the user taps it
 - **THEN** the app navigates to post-detail for P (which resolves under the viewer's own live rules)
 
-### Requirement: The card shows an edited-since-shared banner when the post moved past the anchor (gate live; live-edit source deferred)
-
-The context card SHALL gate a "diedit sejak dibagikan" banner on a pure comparison of the message's `embedded_post_edit_id` anchor against a live latest-edit signal: when they differ the banner SHALL show; an unedited-then-still-unedited post (both signals absent) SHALL show no banner; and an absent (unknown) live signal SHALL show no banner (never a false positive from missing data). This change SHALL ship and unit-test that gate.
-
-The **per-card live-edit fetch that feeds the gate is explicitly DEFERRED** (a follow-up, [#440](https://github.com/aditrioka/nearyou-id/issues/440)): the card renders from the immutable snapshot (no live re-fetch — see the context-card requirement) and the thread fetches no live post-edit state, and the shipped `GET /api/v1/posts/{id}/edits` exposes `editedAt` timestamps + version indices, not `post_edits.id`, so a faithful anchor-vs-live-edit-id comparison is not yet wireable client-side. Until the follow-up wires a live-edit source, the runtime SHALL pass the message's own anchor as the live signal, so the banner stays dormant (never a false positive). A future change MODIFIES this requirement to wire the live source rather than rediscovering the gap (the project's "capture deferred behaviors as explicit spec requirements" rule — the same treatment the `chat-embedded-posts` author-tombstone deferral received, later fulfilled by `embedded-snapshot-author-erasure`).
-
-#### Scenario: Edited-since-shared gate shows the banner when anchor differs from the live signal
-- **GIVEN** a context card whose `embedded_post_edit_id` anchor differs from a supplied live latest-edit signal
-- **WHEN** the gate is evaluated
-- **THEN** the "diedit sejak dibagikan" banner is shown
-
-#### Scenario: Unchanged post (or unknown live signal) shows no banner
-- **GIVEN** a context card whose anchor matches the live latest-edit signal (or both are absent, or the live signal is unknown/absent)
-- **WHEN** the gate is evaluated
-- **THEN** no edited-since-shared banner is shown
-
-#### Scenario: The live-edit source is not wired in this change (deferred negative-guard)
-- **GIVEN** the shipped thread renders an embed message whose source post was edited after share time
-- **WHEN** the card is shown in the running app (no per-card live-edit fetch is performed)
-- **THEN** the runtime passes the message's own anchor as the live signal so the banner stays dormant (no false-positive banner); the live-edit fetch is tracked by follow-up [#440](https://github.com/aditrioka/nearyou-id/issues/440)
-
 ### Requirement: A redacted message suppresses the embedded card
 
 When a message has `redacted_at` set, the thread SHALL render the neutral redaction placeholder (the shipped `mobile-chat` "Redacted messages render a neutral placeholder" behavior) and SHALL NOT render the embedded context card, even when an `embedded_post_snapshot` is present. The redaction render SHALL take precedence over the embed render so an admin redaction visually suppresses the shared post, not just accompanying text. (The stored snapshot is not separately scrubbed by this change — display suppression is the moderation contract here; deeper at-rest scrub, if ever needed, is out of scope.)
@@ -117,4 +96,50 @@ Every user-facing string introduced by this capability — the "Bagikan ke chat"
 #### Scenario: Embedded-post strings resolve from resources
 - **WHEN** the embedded-post UI renders any of its labels
 - **THEN** each label resolves from a `Res.string.*` key (no hardcoded literal in the composable)
+
+### Requirement: The card shows an edited-since-shared banner when the live post was edited after the share
+
+The context card SHALL show a "diedit sejak dibagikan" banner when the live post's latest-edit timestamp (`editedAt` from `single-post-read`, `GET /api/v1/posts/{post_id}`) is known and differs, compared as an instant, from the snapshot's share-time `editedAt`. Both values are `MAX(post_edits.edited_at)` for the post, and `(post_id, edited_at)` is unique, so they differ exactly when an edit landed after the share. This comparison replaces the share-time `embedded_post_edit_id` anchor, which no read path exposes. In every other case the card SHALL show no banner:
+
+- unedited at share time and still unedited (both absent);
+- no edit since the share (equal instants);
+- the live state is unknown (the read is in flight, failed, or returned `404` because the viewer can no longer see the post).
+
+The gate SHALL never produce a false positive from missing or unparseable data.
+
+The thread's route-scoped `ChatThreadViewModel` SHALL source the live `editedAt` through the `PostEditFlow.refreshPost` repository seam. It SHALL issue at most one read per distinct shared post id per thread visit, for every live card in the merged list: a non-redacted message whose `embedded_post_id` is non-null, whether it arrived via REST history, an older page, or realtime. A redacted message and a deleted-source card (`embedded_post_id` null) SHALL trigger no read and show no banner.
+
+The gate result SHALL be projected onto the display row inside the ViewModel's single `uiState`, not computed in the composable. The card's displayed content SHALL still come from the immutable snapshot. The live read feeds only the banner.
+
+#### Scenario: A post edited after the share shows the banner
+- **GIVEN** an embed message whose snapshot `editedAt` is `2026-06-01T11:00:00Z`
+- **AND** the live read of that post returns `editedAt = 2026-06-02T09:00:00Z`
+- **WHEN** the thread renders the card
+- **THEN** the "diedit sejak dibagikan" banner is shown
+
+#### Scenario: A post unedited at share time but edited since shows the banner
+- **GIVEN** an embed message whose snapshot `editedAt` is absent
+- **AND** the live read returns a non-null `editedAt`
+- **WHEN** the thread renders the card
+- **THEN** the banner is shown
+
+#### Scenario: An unchanged post shows no banner
+- **GIVEN** an embed message whose snapshot `editedAt` equals the live `editedAt` as an instant, or is absent while the live `editedAt` is also absent
+- **WHEN** the thread renders the card
+- **THEN** no edited-since-shared banner is shown
+
+#### Scenario: Unknown live state shows no banner
+- **GIVEN** an embed message whose live read is still in flight, or returned `Unavailable` (a failure, or a `404` because the viewer can no longer see the post)
+- **WHEN** the thread renders the card
+- **THEN** no edited-since-shared banner is shown
+
+#### Scenario: Each shared post is read once per thread visit
+- **GIVEN** a thread whose merged list holds two live embed messages of the same post P and one of post Q
+- **WHEN** the history loads and later rows arrive (an older page or a realtime message embedding P)
+- **THEN** exactly one live read is issued for P and one for Q
+
+#### Scenario: Deleted-source and redacted embeds are never read
+- **GIVEN** a thread holding a deleted-source card (snapshot present, `embedded_post_id` null) and a redacted embed message
+- **WHEN** the thread renders
+- **THEN** no live read is issued for either, and neither shows the banner
 

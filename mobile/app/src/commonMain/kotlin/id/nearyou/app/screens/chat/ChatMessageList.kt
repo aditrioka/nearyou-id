@@ -198,10 +198,7 @@ private fun MessageBubble(
                         EmbeddedPostCard(
                             snapshot = snapshot,
                             isDeleted = row.embeddedPostId == null,
-                            // DEFERRED live source: pass the anchor as the live id (no banner) until a
-                            // per-card live-edit fetch is wired (the editedSinceShared gate is the spec'd
-                            // comparison; only the live signal is deferred — see the deferred requirement).
-                            editedSinceShared = editedSinceShared(row.embeddedPostEditId, row.embeddedPostEditId),
+                            editedSinceShared = row.editedSinceShared,
                             onTap = { row.embeddedPostId?.let { id -> onOpenSharedPost(id, snapshot) } },
                         )
                     }

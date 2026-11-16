@@ -7,6 +7,7 @@ import id.nearyou.app.chat.ViewerIdProvider
 import id.nearyou.app.data.report.ReportSubmitter
 import id.nearyou.app.location.FakeLocationPermissionController
 import id.nearyou.app.location.LocationPermissionController
+import id.nearyou.app.post.PostEditFlow
 import id.nearyou.app.timeline.LocationProvider
 import id.nearyou.app.timeline.StubLocationProvider
 import org.koin.core.context.startKoin
@@ -63,5 +64,7 @@ class ChatReportKoinResolutionTest {
         // the realtime subscriber is intentionally not force-resolved — its transport config is platform).
         assertNotNull(koin.get<ChatFlow>())
         assertNotNull(koin.get<ViewerIdProvider>())
+        // chat-embed-live-edit-banner: the thread's per-card live edit read.
+        assertNotNull(koin.get<PostEditFlow>())
     }
 }

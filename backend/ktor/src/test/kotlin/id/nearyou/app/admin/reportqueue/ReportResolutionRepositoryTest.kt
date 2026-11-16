@@ -136,7 +136,7 @@ class ReportResolutionRepositoryTest : StringSpec({
 
     // ===================== 4.2 queue resolution recorded =======================
 
-    "4.2 pending queue item → resolved + resolution + resolved_by/resolved_at + one audit whose after_state records the resolution" {
+    "4.2 pending queue item → resolved + resolution + resolved_by/resolved_at + one audit recording the resolution (no user_id)" {
         val admin = seedAdmin()
         val author = seedUser()
         val post = seedPost(author)
@@ -151,6 +151,8 @@ class ReportResolutionRepositoryTest : StringSpec({
         state.resolvedAt.shouldNotBeNull()
         val audit = queueAudit(queue).single()
         afterStateField(audit.afterStateJson, "resolution") shouldBe "hide"
+        // A content resolution acts on the post, not the account: no user_id.
+        afterStateField(audit.afterStateJson, "user_id").shouldBeNull()
     }
 
     // ===================== 4.3 content enforcement =============================
@@ -165,6 +167,7 @@ class ReportResolutionRepositoryTest : StringSpec({
         resolveQueue(queue, QueueResolution.KEEP, admin) shouldBe QueueResolutionOutcome.Applied
 
         ReportResolutionTestSupport.loadAutoHidden(dataSource, "post", post) shouldBe false
+        afterStateField(queueAudit(queue).single().afterStateJson, "user_id").shouldBeNull()
     }
 
     "4.3b hide hides a reply target (post_replies.is_auto_hidden=TRUE)" {
@@ -192,7 +195,7 @@ class ReportResolutionRepositoryTest : StringSpec({
 
     // ===================== 4.4 author enforcement ==============================
 
-    "4.4a suspend_author_7d suspends the post's author (is_banned + suspended_until) + account_action_applied" {
+    "4.4a suspend_author_7d suspends the post's author (is_banned + suspended_until) + account_action_applied + audit user_id" {
         val admin = seedAdmin()
         val author = seedUser()
         val post = seedPost(author)
@@ -206,7 +209,12 @@ class ReportResolutionRepositoryTest : StringSpec({
         isRoughlySevenDaysOut(state.suspendedUntil) shouldBe true
         UserModerationTestSupport.notificationsForUser(dataSource, author).single().type shouldBe "account_action_applied"
         ReportResolutionTestSupport.loadQueue(dataSource, queue).resolution shouldBe "suspend_author_7d"
-        queueAudit(queue) shouldHaveSize 1
+        val audit = queueAudit(queue).single()
+        afterStateField(audit.afterStateJson, "resolution") shouldBe "suspend_author_7d"
+        afterStateField(audit.afterStateJson, "user_id") shouldBe author.toString()
+        // user_id rides ALONGSIDE the enforcement effect, not instead of it.
+        afterStateField(audit.afterStateJson, "is_banned") shouldBe "true"
+        afterStateField(audit.afterStateJson, "suspended_until").shouldNotBeNull()
     }
 
     "4.4b ban_author (as admin) permanently bans the author (is_banned=TRUE, suspended_until=NULL) + notification" {
@@ -221,6 +229,10 @@ class ReportResolutionRepositoryTest : StringSpec({
         state.isBanned shouldBe true
         state.suspendedUntil.shouldBeNull()
         UserModerationTestSupport.notificationsForUser(dataSource, author).single().type shouldBe "account_action_applied"
+        val audit = queueAudit(queue).single()
+        afterStateField(audit.afterStateJson, "user_id") shouldBe author.toString()
+        afterStateField(audit.afterStateJson, "is_banned") shouldBe "true"
+        afterStateField(audit.afterStateJson, "suspended_until") shouldBe "null"
     }
 
     "4.4c shadow_ban_author sets is_shadow_banned=TRUE" {
@@ -232,6 +244,9 @@ class ReportResolutionRepositoryTest : StringSpec({
         resolveQueue(queue, QueueResolution.SHADOW_BAN_AUTHOR, admin) shouldBe QueueResolutionOutcome.Applied
 
         ReportResolutionTestSupport.loadUserModeration(dataSource, author).isShadowBanned shouldBe true
+        val audit = queueAudit(queue).single()
+        afterStateField(audit.afterStateJson, "user_id") shouldBe author.toString()
+        afterStateField(audit.afterStateJson, "is_shadow_banned") shouldBe "true"
     }
 
     "4.4d an author action on a user target resolves to that user itself (self-resolution)" {
@@ -242,6 +257,8 @@ class ReportResolutionRepositoryTest : StringSpec({
         resolveQueue(queue, QueueResolution.SHADOW_BAN_AUTHOR, admin) shouldBe QueueResolutionOutcome.Applied
 
         ReportResolutionTestSupport.loadUserModeration(dataSource, user).isShadowBanned shouldBe true
+        // The author of a `user` target is the user itself → after_state.user_id = <U>.
+        afterStateField(queueAudit(queue).single().afterStateJson, "user_id") shouldBe user.toString()
     }
 
     "4.4e a hard-deleted target whose author cannot be resolved → RejectedAuthorUnresolvable, no write" {
@@ -286,6 +303,8 @@ class ReportResolutionRepositoryTest : StringSpec({
         // The reply's author is suspended; the post's author is untouched.
         ReportResolutionTestSupport.loadUserModeration(dataSource, replyAuthor).isBanned shouldBe true
         ReportResolutionTestSupport.loadUserModeration(dataSource, postAuthor).isBanned shouldBe false
+        // ...and the audit row names the REPLY's author, so the history lands on the right profile.
+        afterStateField(queueAudit(queue).single().afterStateJson, "user_id") shouldBe replyAuthor.toString()
     }
 
     "4.4h an author action on a chat_message target resolves to the message sender" {
@@ -297,6 +316,7 @@ class ReportResolutionRepositoryTest : StringSpec({
         resolveQueue(queue, QueueResolution.SHADOW_BAN_AUTHOR, admin) shouldBe QueueResolutionOutcome.Applied
 
         ReportResolutionTestSupport.loadUserModeration(dataSource, sender).isShadowBanned shouldBe true
+        afterStateField(queueAudit(queue).single().afterStateJson, "user_id") shouldBe sender.toString()
     }
 
     // ===================== 4.5 ban tier ========================================
