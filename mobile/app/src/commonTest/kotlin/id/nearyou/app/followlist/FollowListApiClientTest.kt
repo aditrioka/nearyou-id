@@ -16,6 +16,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -46,9 +47,9 @@ class FollowListApiClientTest {
                             """
                             {"users":[
                               {"userId":"u1","username":"raka.jkt","displayName":"Raka Pratama","isPremium":false,
-                               "createdAt":"2026-06-01T00:00:00Z"},
+                               "followedByViewer":true,"isSelf":false,"createdAt":"2026-06-01T00:00:00Z"},
                               {"userId":"u2","username":"sari.bdg","displayName":"Sari Lestari","isPremium":true,
-                               "createdAt":"2026-05-31T00:00:00Z"}
+                               "followedByViewer":false,"isSelf":true,"createdAt":"2026-05-31T00:00:00Z"}
                             ],"nextCursor":"eyJjIjoiYSJ9"}
                             """.trimIndent(),
                             HttpStatusCode.OK,
@@ -63,6 +64,10 @@ class FollowListApiClientTest {
             assertEquals("raka.jkt", result.body.users[0].username)
             assertEquals("Raka Pratama", result.body.users[0].displayName)
             assertTrue(result.body.users[1].isPremium)
+            assertTrue(result.body.users[0].followedByViewer)
+            assertFalse(result.body.users[0].isSelf)
+            assertFalse(result.body.users[1].followedByViewer)
+            assertTrue(result.body.users[1].isSelf)
             assertEquals("eyJjIjoiYSJ9", result.body.nextCursor)
         }
 
@@ -105,7 +110,7 @@ class FollowListApiClientTest {
                     client {
                         respond(
                             """{"users":[{"userId":"u1","username":"r","displayName":"R","isPremium":false,
-                               "createdAt":"2026-06-01T00:00:00Z"}]}""",
+                               "followedByViewer":false,"isSelf":false,"createdAt":"2026-06-01T00:00:00Z"}]}""",
                             HttpStatusCode.OK,
                             JSON_HEADERS,
                         )
@@ -113,6 +118,24 @@ class FollowListApiClientTest {
                 )
             val result = assertIs<FollowListApiResult.Success>(api.fetch("p1", FollowListTab.Followers, null))
             assertNull(result.body.nextCursor, "absent nextCursor must decode to null (explicitNulls = false)")
+        }
+
+    @Test
+    fun `a row missing followedByViewer and isSelf fails to parse - never a silent not-followed`() =
+        runTest {
+            val api =
+                FollowListApiClient(
+                    client {
+                        // A pre-change backend wire: the viewer-relative fields are REQUIRED (no default).
+                        respond(
+                            """{"users":[{"userId":"u1","username":"r","displayName":"R","isPremium":false,
+                               "createdAt":"2026-06-01T00:00:00Z"}]}""",
+                            HttpStatusCode.OK,
+                            JSON_HEADERS,
+                        )
+                    },
+                )
+            assertIs<FollowListApiResult.NetworkError>(api.fetch("p1", FollowListTab.Followers, null))
         }
 
     @Test

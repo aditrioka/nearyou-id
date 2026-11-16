@@ -47,7 +47,7 @@ class FollowListRepositoryTest {
                         """
                         {"users":[
                           {"userId":"u1","username":"raka.jkt","displayName":"Raka Pratama","isPremium":true,
-                           "createdAt":"2026-06-01T00:00:00Z"}
+                           "followedByViewer":true,"isSelf":false,"createdAt":"2026-06-01T00:00:00Z"}
                         ],"nextCursor":"NEXT"}
                         """.trimIndent(),
                         HttpStatusCode.OK,
@@ -59,7 +59,24 @@ class FollowListRepositoryTest {
             assertEquals("raka.jkt", outcome.page.users[0].username)
             assertEquals("Raka Pratama", outcome.page.users[0].displayName)
             assertEquals(true, outcome.page.users[0].isPremium)
+            assertEquals(true, outcome.page.users[0].followedByViewer)
+            assertEquals(false, outcome.page.users[0].isSelf)
             assertEquals("NEXT", outcome.page.nextCursor)
+        }
+
+    @Test
+    fun `a row missing the viewer-relative fields maps to NetworkError - a contract failure`() =
+        runTest {
+            val repo =
+                repository {
+                    respond(
+                        """{"users":[{"userId":"u1","username":"r","displayName":"R","isPremium":false,
+                           "createdAt":"2026-06-01T00:00:00Z"}]}""",
+                        HttpStatusCode.OK,
+                        JSON_HEADERS,
+                    )
+                }
+            assertEquals(FollowListOutcome.NetworkError, repo.load("p1", FollowListTab.Followers, null))
         }
 
     @Test

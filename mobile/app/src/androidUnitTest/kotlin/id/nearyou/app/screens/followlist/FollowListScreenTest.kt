@@ -1,8 +1,11 @@
 package id.nearyou.app.screens.followlist
 
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -12,6 +15,9 @@ import id.nearyou.app.followlist.FollowListOutcome
 import id.nearyou.app.followlist.FollowListPage
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.followlist.FollowListUser
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.FollowToggleOutcome
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.theme.NearYouTheme
 import org.junit.runner.RunWith
 import org.koin.compose.KoinContext
@@ -40,11 +46,38 @@ private const val ROW_UUID = "11111111-1111-1111-1111-111111111111"
 @Config(sdk = [33])
 @OptIn(ExperimentalTestApi::class)
 class FollowListScreenTest {
-    private fun installKoin(fake: FakeFollowListFlow): FakeFollowListFlow {
+    private fun installKoin(
+        fake: FakeFollowListFlow,
+        profile: FakeProfileFlow = FakeProfileFlow(),
+    ): FakeFollowListFlow {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
-        startKoin { modules(module { single<FollowListFlow> { fake } }) }
+        startKoin {
+            modules(
+                module {
+                    single<FollowListFlow> { fake }
+                    single<ProfileFlow> { profile }
+                },
+            )
+        }
         return fake
     }
+
+    private fun ComposeUiTest.showList(onOpenProfile: (String) -> Unit = {}) {
+        setContent {
+            KoinContext {
+                NearYouTheme {
+                    FollowListScreen(
+                        userId = "p1",
+                        initialTab = FollowListTab.Followers,
+                        onBack = {},
+                        onOpenProfile = onOpenProfile,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun page(vararg users: FollowListUser): FollowListOutcome = FollowListOutcome.Loaded(FollowListPage(users.toList(), null))
 
     @AfterTest
     fun tearDown() {
@@ -221,5 +254,90 @@ class FollowListScreenTest {
             onNodeWithText("Mengikuti").performClick()
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Sari Following").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("Sari Following").assertExists()
+        }
+
+    // ---- inline follow toggle (mobile-follow-list-inline-follow) ----
+
+    @Test
+    fun toggleLabels_followTheViewerFollowState() =
+        runComposeUiTest {
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = { _, _ ->
+                        page(
+                            FollowListUser("u-a", "raka.jkt", "Raka Pratama", isPremium = false, followedByViewer = false),
+                            FollowListUser("u-b", "sari.bdg", "Sari Lestari", isPremium = false, followedByViewer = true),
+                        )
+                    }
+                },
+            )
+            showList()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Raka Pratama").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithText("Ikuti").assertExists()
+            // "Mengikuti" is also the tab label — the followed row adds a second node.
+            assertEquals(2, onAllNodesWithText("Mengikuti").fetchSemanticsNodes().size)
+            assertEquals(2, onAllNodesWithTag(FOLLOW_LIST_TOGGLE_TAG).fetchSemanticsNodes().size)
+        }
+
+    @Test
+    fun toggleTap_flipsTheLabel_withoutNavigating() =
+        runComposeUiTest {
+            var opened: String? = null
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed)
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = {
+                            _,
+                            _,
+                        ->
+                        page(FollowListUser(ROW_UUID, "raka.jkt", "Raka Pratama", isPremium = false))
+                    }
+                },
+                profile,
+            )
+            showList(onOpenProfile = { opened = it })
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Ikuti").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(FOLLOW_LIST_TOGGLE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Mengikuti").fetchSemanticsNodes().size == 2 }
+            assertEquals(ROW_UUID, profile.followedUserId)
+            assertEquals(null, opened, "the toggle consumes its own click — no profile navigation")
+        }
+
+    @Test
+    fun selfRow_rendersNoToggle() =
+        runComposeUiTest {
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = { _, _ -> page(FollowListUser("me", "aku.saja", "Aku Sendiri", isPremium = false, isSelf = true)) }
+                },
+            )
+            showList()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Aku Sendiri").fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(0, onAllNodesWithTag(FOLLOW_LIST_TOGGLE_TAG).fetchSemanticsNodes().size)
+            assertEquals(0, onAllNodesWithText("Ikuti").fetchSemanticsNodes().size)
+        }
+
+    @Test
+    fun rateLimitedToggle_showsTheFollowChurnSnackbar() =
+        runComposeUiTest {
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = {
+                            _,
+                            _,
+                        ->
+                        page(FollowListUser("u-a", "raka.jkt", "Raka Pratama", isPremium = false))
+                    }
+                },
+                FakeProfileFlow(followOutcome = FollowToggleOutcome.RateLimited(retryAfterSeconds = 60)),
+            )
+            showList()
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Ikuti").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(FOLLOW_LIST_TOGGLE_TAG).performClick()
+            waitUntil(timeoutMillis = 5_000) {
+                onAllNodesWithText("Terlalu banyak aksi ikuti. Coba lagi nanti.").fetchSemanticsNodes().isNotEmpty()
+            }
+            // Reverted: the row is back to "Ikuti".
+            onNodeWithText("Ikuti").assertExists()
         }
 }

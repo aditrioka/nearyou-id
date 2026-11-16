@@ -2,6 +2,7 @@ package id.nearyou.app.screens.followlist
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -11,6 +12,9 @@ import id.nearyou.app.followlist.FollowListOutcome
 import id.nearyou.app.followlist.FollowListPage
 import id.nearyou.app.followlist.FollowListTab
 import id.nearyou.app.followlist.FollowListUser
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.FollowToggleOutcome
+import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.screens.startFlowTestKoin
 import id.nearyou.app.screens.stopFlowTestKoin
 import id.nearyou.app.theme.NearYouTheme
@@ -29,8 +33,16 @@ import kotlin.test.assertEquals
 @Suppress("DEPRECATION")
 @OptIn(ExperimentalTestApi::class)
 class FollowListFlowIosTest {
-    private fun installKoin(fake: FakeFollowListFlow) {
-        startFlowTestKoin(module { single<FollowListFlow> { fake } })
+    private fun installKoin(
+        fake: FakeFollowListFlow,
+        profile: FakeProfileFlow = FakeProfileFlow(),
+    ) {
+        startFlowTestKoin(
+            module {
+                single<FollowListFlow> { fake }
+                single<ProfileFlow> { profile }
+            },
+        )
     }
 
     @AfterTest
@@ -106,5 +118,40 @@ class FollowListFlowIosTest {
             }
             waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Belum ada pengikut").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithText("Belum ada pengikut").assertExists()
+        }
+
+    @Test
+    fun inlineToggleFlipsIkutiToMengikutiWithoutNavigating() =
+        runComposeUiTest {
+            var opened: String? = null
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed)
+            installKoin(
+                FakeFollowListFlow().apply {
+                    responder = { _, _ ->
+                        FollowListOutcome.Loaded(
+                            FollowListPage(listOf(FollowListUser("u-9", "raka.jkt", "Raka Pratama", isPremium = false)), null),
+                        )
+                    }
+                },
+                profile,
+            )
+            setContent {
+                KoinContext {
+                    NearYouTheme {
+                        FollowListScreen(
+                            userId = "p1",
+                            initialTab = FollowListTab.Followers,
+                            onBack = {},
+                            onOpenProfile = { opened = it },
+                        )
+                    }
+                }
+            }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Ikuti").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag(FOLLOW_LIST_TOGGLE_TAG).performClick()
+            // The followed row adds a second "Mengikuti" node next to the tab label.
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText("Mengikuti").fetchSemanticsNodes().size == 2 }
+            assertEquals("u-9", profile.followedUserId)
+            assertEquals(null, opened)
         }
 }

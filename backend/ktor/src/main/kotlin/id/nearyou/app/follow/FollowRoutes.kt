@@ -110,6 +110,11 @@ fun Application.followRoutes(service: FollowService) {
  * `UserProfileResponse` and the timeline `author*` identity-field precedent. `isPremium`
  * uses the `user-profile-read` formula (`subscription_status = 'premium_active'` only);
  * `createdAt` is the follow-edge timestamp (cursor axis), not a profile field.
+ *
+ * [followedByViewer] / [isSelf] are relative to the CALLING viewer (never the profile
+ * owner) and reuse the `UserProfileResponse` vocabulary — they drive the inline row
+ * follow toggle (`mobile-follow-list-inline-follow`). A self row is never followed (the
+ * V6 CHECK forbids a self-edge).
  */
 @Serializable
 data class FollowListItem(
@@ -117,6 +122,8 @@ data class FollowListItem(
     val username: String,
     val displayName: String,
     val isPremium: Boolean,
+    val followedByViewer: Boolean,
+    val isSelf: Boolean,
     val createdAt: String,
 )
 
@@ -166,7 +173,7 @@ fun Application.userSocialRoutes(service: FollowService) {
                         call.respondUserNotFound()
                         return@get
                     }
-                call.respond(page.toResponse())
+                call.respond(page.toResponse(principal.userId))
             }
 
             get("/api/v1/users/{user_id}/following") {
@@ -194,13 +201,13 @@ fun Application.userSocialRoutes(service: FollowService) {
                         call.respondUserNotFound()
                         return@get
                     }
-                call.respond(page.toResponse())
+                call.respond(page.toResponse(principal.userId))
             }
         }
     }
 }
 
-private fun FollowPage.toResponse(): FollowListResponse =
+private fun FollowPage.toResponse(viewerId: UUID): FollowListResponse =
     FollowListResponse(
         users =
             rows.map {
@@ -209,6 +216,8 @@ private fun FollowPage.toResponse(): FollowListResponse =
                     username = it.username,
                     displayName = it.displayName,
                     isPremium = it.isPremium,
+                    followedByViewer = it.followedByViewer,
+                    isSelf = it.userId == viewerId,
                     createdAt = it.createdAt.toString(),
                 )
             },

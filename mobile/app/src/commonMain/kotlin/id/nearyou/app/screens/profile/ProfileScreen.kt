@@ -506,7 +506,7 @@ private fun ErrorRetry(onRetry: () -> Unit) {
     }
 }
 
-private fun ProfileMessage.resource(): StringResource =
+internal fun ProfileMessage.resource(): StringResource =
     when (this) {
         ProfileMessage.FOLLOW_RATE_LIMITED -> Res.string.profile_follow_rate_limited
         ProfileMessage.TARGET_UNAVAILABLE -> Res.string.profile_action_user_unavailable

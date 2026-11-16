@@ -573,8 +573,17 @@ class FollowEndpointsTest : StringSpec({
                 rows.forEach { row ->
                     val keys = (row as JsonObject).keys
                     // Exact camelCase wire — raw JSON keys, not DTO round-trips.
-                    keys.containsAll(listOf("userId", "username", "displayName", "isPremium", "createdAt")) shouldBe true
-                    listOf("user_id", "display_name", "is_premium", "created_at").any { it in keys } shouldBe false
+                    keys.containsAll(
+                        listOf("userId", "username", "displayName", "isPremium", "followedByViewer", "isSelf", "createdAt"),
+                    ) shouldBe true
+                    listOf(
+                        "user_id",
+                        "display_name",
+                        "is_premium",
+                        "followed_by_viewer",
+                        "is_self",
+                        "created_at",
+                    ).any { it in keys } shouldBe false
                 }
                 val byId = rows.associateBy { (it as JsonObject)["userId"]!!.jsonPrimitive.content }
                 val premiumRow = byId[premium.id.toString()]!!.jsonObject
@@ -638,10 +647,128 @@ class FollowEndpointsTest : StringSpec({
                 row["userId"]!!.jsonPrimitive.content shouldBe visible.id.toString()
                 row["username"]!!.jsonPrimitive.content shouldBe visible.username
                 row["displayName"]!!.jsonPrimitive.content shouldBe "Follow Endpoint Tester"
-                ("user_id" in row.keys) shouldBe false
+                row["followedByViewer"]!!.jsonPrimitive.boolean shouldBe false
+                row["isSelf"]!!.jsonPrimitive.boolean shouldBe false
+                listOf("user_id", "followed_by_viewer", "is_self").any { it in row.keys } shouldBe false
             }
         } finally {
             cleanup(p, viewer, visible.id, sb, dl)
+        }
+    }
+
+    // mobile-follow-list-inline-follow — viewer-relative row state (follow-system items 24–26).
+
+    "GET /users/{P}/followers — followedByViewer is the CALLER's edge, not the profile owner's; isSelf false" {
+        val (p, _) = seedUser()
+        val (viewer, tv) = seedUser()
+        val (x, _) = seedUser()
+        val (y, _) = seedUser()
+        try {
+            insertFollow(x, p)
+            insertFollow(y, p)
+            insertFollow(viewer, x) // viewer follows X
+            insertFollow(p, y) // only the profile owner follows Y
+            withFollows {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/users/$p/followers") {
+                            header(HttpHeaders.Authorization, "Bearer $tv")
+                        }
+                resp.status shouldBe HttpStatusCode.OK
+                val byId =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["users"]!!.jsonArray
+                        .associateBy { (it as JsonObject)["userId"]!!.jsonPrimitive.content }
+                byId.keys shouldBe setOf(x.toString(), y.toString())
+                byId[x.toString()]!!.jsonObject["followedByViewer"]!!.jsonPrimitive.boolean shouldBe true
+                byId[y.toString()]!!.jsonObject["followedByViewer"]!!.jsonPrimitive.boolean shouldBe false
+                byId.values.forEach { it.jsonObject["isSelf"]!!.jsonPrimitive.boolean shouldBe false }
+            }
+        } finally {
+            cleanup(p, viewer, x, y)
+        }
+    }
+
+    "GET /users/{P}/followers — the viewer's own row is isSelf=true, followedByViewer=false" {
+        val (p, _) = seedUser()
+        val (viewer, tv) = seedUser()
+        val (x, _) = seedUser()
+        try {
+            insertFollow(viewer, p)
+            insertFollow(x, p)
+            insertFollow(viewer, x)
+            withFollows {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/users/$p/followers") {
+                            header(HttpHeaders.Authorization, "Bearer $tv")
+                        }
+                val byId =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["users"]!!.jsonArray
+                        .associateBy { (it as JsonObject)["userId"]!!.jsonPrimitive.content }
+                val self = byId[viewer.toString()]!!.jsonObject
+                self["isSelf"]!!.jsonPrimitive.boolean shouldBe true
+                self["followedByViewer"]!!.jsonPrimitive.boolean shouldBe false
+                byId[x.toString()]!!.jsonObject["isSelf"]!!.jsonPrimitive.boolean shouldBe false
+                byId[x.toString()]!!.jsonObject["followedByViewer"]!!.jsonPrimitive.boolean shouldBe true
+            }
+        } finally {
+            cleanup(p, viewer, x)
+        }
+    }
+
+    "GET /users/{V}/following — the viewer's own following rows are all followedByViewer, none isSelf" {
+        val (viewer, tv) = seedUser()
+        val (x, _) = seedUser()
+        val (y, _) = seedUser()
+        try {
+            insertFollow(viewer, x)
+            insertFollow(viewer, y)
+            withFollows {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/users/$viewer/following") {
+                            header(HttpHeaders.Authorization, "Bearer $tv")
+                        }
+                val rows = Json.parseToJsonElement(resp.bodyAsText()).jsonObject["users"]!!.jsonArray
+                rows shouldHaveSize 2
+                rows.forEach { row ->
+                    row.jsonObject["followedByViewer"]!!.jsonPrimitive.boolean shouldBe true
+                    row.jsonObject["isSelf"]!!.jsonPrimitive.boolean shouldBe false
+                }
+            }
+        } finally {
+            cleanup(viewer, x, y)
+        }
+    }
+
+    "GET /users/{P}/following — third-party list carries the viewer's per-row state and flags the viewer's own row" {
+        val (p, _) = seedUser()
+        val (viewer, tv) = seedUser()
+        val (x, _) = seedUser()
+        val (y, _) = seedUser()
+        try {
+            insertFollow(p, x)
+            insertFollow(p, y)
+            insertFollow(p, viewer)
+            insertFollow(viewer, y)
+            withFollows {
+                val resp =
+                    createClient { install(ClientCN) { json() } }
+                        .get("/api/v1/users/$p/following") {
+                            header(HttpHeaders.Authorization, "Bearer $tv")
+                        }
+                val byId =
+                    Json.parseToJsonElement(resp.bodyAsText()).jsonObject["users"]!!.jsonArray
+                        .associateBy { (it as JsonObject)["userId"]!!.jsonPrimitive.content }
+                byId.keys shouldBe setOf(x.toString(), y.toString(), viewer.toString())
+                byId[y.toString()]!!.jsonObject["followedByViewer"]!!.jsonPrimitive.boolean shouldBe true
+                byId[x.toString()]!!.jsonObject["followedByViewer"]!!.jsonPrimitive.boolean shouldBe false
+                val self = byId[viewer.toString()]!!.jsonObject
+                self["isSelf"]!!.jsonPrimitive.boolean shouldBe true
+                self["followedByViewer"]!!.jsonPrimitive.boolean shouldBe false
+            }
+        } finally {
+            cleanup(p, viewer, x, y)
         }
     }
 

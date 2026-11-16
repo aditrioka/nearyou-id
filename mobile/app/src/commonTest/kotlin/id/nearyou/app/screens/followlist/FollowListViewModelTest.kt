@@ -1,9 +1,15 @@
 package id.nearyou.app.screens.followlist
 
+import androidx.lifecycle.ViewModelStore
 import id.nearyou.app.followlist.FakeFollowListFlow
 import id.nearyou.app.followlist.FollowListOutcome
 import id.nearyou.app.followlist.FollowListPage
 import id.nearyou.app.followlist.FollowListTab
+import id.nearyou.app.followlist.FollowListUser
+import id.nearyou.app.profile.FakeProfileFlow
+import id.nearyou.app.profile.FollowToggleOutcome
+import id.nearyou.app.profile.ProfileOutcome
+import id.nearyou.app.screens.profile.ProfileMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FollowListViewModelTest {
@@ -36,8 +43,9 @@ class FollowListViewModelTest {
     private fun TestScope.vm(
         flow: FakeFollowListFlow,
         initial: FollowListTab = FollowListTab.Followers,
+        profileFlow: FakeProfileFlow = FakeProfileFlow(),
     ): FollowListViewModel {
-        val viewModel = FollowListViewModel(flow, userId = "p1", initialTab = initial)
+        val viewModel = FollowListViewModel(flow, profileFlow, userId = "p1", initialTab = initial)
         backgroundScope.launch { viewModel.uiState.collect {} }
         return viewModel
     }
@@ -272,5 +280,284 @@ class FollowListViewModelTest {
             gate.complete(Unit)
             advanceUntilIdle()
             assertIs<FollowListTabUiState.Content>(viewModel.uiState.value.followers)
+        }
+
+    // ---- inline follow toggle + return re-read (mobile-follow-list-inline-follow) ----
+
+    private fun rows(vararg users: FollowListUser): FollowListOutcome = FollowListOutcome.Loaded(FollowListPage(users.toList(), null))
+
+    private fun FollowListViewModel.rowsOf(tab: FollowListTab): List<FollowListUser> =
+        when (val t = uiState.value.tab(tab)) {
+            is FollowListTabUiState.Content -> t.users
+            else -> emptyList()
+        }
+
+    private fun FollowListViewModel.followed(
+        tab: FollowListTab,
+        id: String,
+    ): Boolean = rowsOf(tab).first { it.userId == id }.followedByViewer
+
+    /** The Nav3 pop path: clearing the store the VM lives in runs onCleared → cancels viewModelScope. */
+    private fun FollowListViewModel.popEntry() {
+        ViewModelStore().apply {
+            put("followList", this@popEntry)
+            clear()
+        }
+    }
+
+    @Test
+    fun `toggle follows optimistically then settles on success`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed).apply { actionGate = CompletableDeferred() }
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"), "optimistic flip lands before the write resolves")
+            assertEquals(setOf("a"), viewModel.uiState.value.followInFlight)
+            profile.actionGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"))
+            assertEquals(emptySet(), viewModel.uiState.value.followInFlight)
+            assertEquals("a", profile.followedUserId)
+            assertNull(viewModel.uiState.value.message)
+        }
+
+    @Test
+    fun `unfollow from the own following list keeps the row and flips it to not-followed`() =
+        runTest {
+            val profile = FakeProfileFlow(unfollowOutcome = FollowToggleOutcome.Unfollowed)
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a", followed = true)) } }
+            val viewModel = vm(flow, initial = FollowListTab.Following, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            advanceUntilIdle()
+            assertEquals(listOf("a"), viewModel.rowsOf(FollowListTab.Following).map { it.userId }, "the row stays")
+            assertFalse(viewModel.followed(FollowListTab.Following, "a"))
+            assertEquals(1, profile.unfollowCalls)
+        }
+
+    @Test
+    fun `network error reverts silently`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.NetworkError)
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            advanceUntilIdle()
+            assertFalse(viewModel.followed(FollowListTab.Followers, "a"))
+            assertNull(viewModel.uiState.value.message)
+            assertEquals(emptySet(), viewModel.uiState.value.followInFlight)
+        }
+
+    @Test
+    fun `rate limit reverts with the follow-churn message and onMessageShown clears it`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.RateLimited(retryAfterSeconds = 60))
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            advanceUntilIdle()
+            assertFalse(viewModel.followed(FollowListTab.Followers, "a"))
+            assertEquals(ProfileMessage.FOLLOW_RATE_LIMITED, viewModel.uiState.value.message)
+            viewModel.onMessageShown()
+            assertNull(viewModel.uiState.value.message)
+        }
+
+    @Test
+    fun `constant 404 reverts with the user-unavailable message`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.TargetGone)
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            advanceUntilIdle()
+            assertFalse(viewModel.followed(FollowListTab.Followers, "a"))
+            assertEquals(ProfileMessage.TARGET_UNAVAILABLE, viewModel.uiState.value.message)
+        }
+
+    @Test
+    fun `a user present in both tabs flips in both`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed).apply { actionGate = CompletableDeferred() }
+            val flow =
+                FakeFollowListFlow().apply {
+                    responder = { _, _ -> rows(FakeFollowListFlow.user("a"), FakeFollowListFlow.user("b")) }
+                }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onTabRevealed(FollowListTab.Following)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"))
+            assertTrue(viewModel.followed(FollowListTab.Following, "a"))
+            assertFalse(viewModel.followed(FollowListTab.Following, "b"), "other rows untouched")
+            profile.actionGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"))
+            assertTrue(viewModel.followed(FollowListTab.Following, "a"))
+        }
+
+    @Test
+    fun `a second tap while the write is in flight is a no-op`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed).apply { actionGate = CompletableDeferred() }
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            viewModel.onToggleFollow("a")
+            assertEquals(1, profile.followCalls)
+            assertEquals(0, profile.unfollowCalls)
+            profile.actionGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"))
+        }
+
+    @Test
+    fun `a page load landing mid-toggle keeps the optimistic value`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed).apply { actionGate = CompletableDeferred() }
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            // A refresh resolves with the pre-toggle server value while the follow is still in flight.
+            viewModel.onRefresh(FollowListTab.Followers)
+            advanceUntilIdle()
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"), "no flicker back to the stale server value")
+            profile.actionGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"))
+        }
+
+    @Test
+    fun `a self row exposes no toggle - onToggleFollow is a no-op`() =
+        runTest {
+            val profile = FakeProfileFlow()
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("me", self = true)) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("me")
+            advanceUntilIdle()
+            assertEquals(0, profile.followCalls)
+            assertEquals(0, profile.unfollowCalls)
+            assertFalse(viewModel.followed(FollowListTab.Followers, "me"))
+        }
+
+    @Test
+    fun `the toggle write completes when the entry is popped mid-flight`() =
+        runTest {
+            val profile = FakeProfileFlow(followOutcome = FollowToggleOutcome.Followed).apply { actionGate = CompletableDeferred() }
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onToggleFollow("a")
+            assertEquals(1, profile.followCalls)
+            viewModel.popEntry()
+            profile.actionGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, profile.followsCompleted, "the write ran to completion under NonCancellable")
+        }
+
+    @Test
+    fun `resume after a row tap re-reads that user once and patches it in both tabs`() =
+        runTest {
+            val profile =
+                FakeProfileFlow(
+                    profileOutcome = ProfileOutcome.Loaded(FakeProfileFlow.sampleProfile(userId = "a", followedByViewer = true)),
+                )
+            val flow =
+                FakeFollowListFlow().apply {
+                    responder = {
+                            _,
+                            _,
+                        ->
+                        rows(FakeFollowListFlow.user("a"), FakeFollowListFlow.user("b"))
+                    }
+                }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onTabRevealed(FollowListTab.Following)
+            advanceUntilIdle()
+            viewModel.onRowOpened("a")
+            viewModel.onResumed()
+            advanceUntilIdle()
+            assertEquals(1, profile.loadCalls)
+            assertEquals("a", profile.loadedUserId)
+            assertTrue(viewModel.followed(FollowListTab.Followers, "a"))
+            assertTrue(viewModel.followed(FollowListTab.Following, "a"))
+            assertFalse(viewModel.followed(FollowListTab.Followers, "b"))
+            // The marker is consumed — a second resume issues no read.
+            viewModel.onResumed()
+            advanceUntilIdle()
+            assertEquals(1, profile.loadCalls)
+        }
+
+    @Test
+    fun `resume after a row tap removes a now-unresolvable user from both tabs`() =
+        runTest {
+            val profile = FakeProfileFlow(profileOutcome = ProfileOutcome.NotFound)
+            val flow =
+                FakeFollowListFlow().apply {
+                    responder = {
+                            _,
+                            _,
+                        ->
+                        rows(FakeFollowListFlow.user("a"), FakeFollowListFlow.user("b"))
+                    }
+                }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onTabRevealed(FollowListTab.Following)
+            advanceUntilIdle()
+            viewModel.onRowOpened("a")
+            viewModel.onResumed()
+            advanceUntilIdle()
+            assertEquals(listOf("b"), viewModel.rowsOf(FollowListTab.Followers).map { it.userId })
+            assertEquals(listOf("b"), viewModel.rowsOf(FollowListTab.Following).map { it.userId })
+        }
+
+    @Test
+    fun `removing the only row leaves the tab in its empty state`() =
+        runTest {
+            val profile = FakeProfileFlow(profileOutcome = ProfileOutcome.NotFound)
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onRowOpened("a")
+            viewModel.onResumed()
+            advanceUntilIdle()
+            assertEquals(FollowListTabUiState.Empty, viewModel.uiState.value.followers)
+        }
+
+    @Test
+    fun `resume re-read failure changes nothing`() =
+        runTest {
+            val profile = FakeProfileFlow(profileOutcome = ProfileOutcome.NetworkError)
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a", followed = true)) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            val before = viewModel.uiState.value
+            viewModel.onRowOpened("a")
+            viewModel.onResumed()
+            advanceUntilIdle()
+            assertEquals(1, profile.loadCalls)
+            assertEquals(before, viewModel.uiState.value)
+        }
+
+    @Test
+    fun `resume without an opened row issues no read`() =
+        runTest {
+            val profile = FakeProfileFlow()
+            val flow = FakeFollowListFlow().apply { responder = { _, _ -> rows(FakeFollowListFlow.user("a")) } }
+            val viewModel = vm(flow, profileFlow = profile)
+            advanceUntilIdle()
+            viewModel.onResumed()
+            advanceUntilIdle()
+            assertEquals(0, profile.loadCalls)
         }
 }

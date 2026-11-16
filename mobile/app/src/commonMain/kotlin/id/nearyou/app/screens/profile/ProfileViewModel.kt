@@ -8,7 +8,6 @@ import id.nearyou.app.chat.CreateConversationOutcome
 import id.nearyou.app.data.block.BlockOutcome
 import id.nearyou.app.data.report.ReportOutcome
 import id.nearyou.app.data.report.ReportReasonCategory
-import id.nearyou.app.profile.FollowToggleOutcome
 import id.nearyou.app.profile.ProfileFlow
 import id.nearyou.app.profile.ProfileOutcome
 import kotlinx.coroutines.Job
@@ -119,26 +118,15 @@ class ProfileViewModel(
         state.update { it.copy(optimisticFollowed = wantFollow, isFollowInFlight = true) }
         viewModelScope.launch {
             val outcome = if (wantFollow) flow.follow(id) else flow.unfollow(id)
+            // The shared settlement (also used by the follow-list row toggle) — success settles, 429 /
+            // constant-404 revert with their message, a network error reverts silently.
+            val settled = outcome.settle(previouslyFollowed = currentlyFollowed)
             state.update { s ->
-                when (outcome) {
-                    FollowToggleOutcome.Followed -> s.copy(optimisticFollowed = true, isFollowInFlight = false)
-                    FollowToggleOutcome.Unfollowed -> s.copy(optimisticFollowed = false, isFollowInFlight = false)
-                    is FollowToggleOutcome.RateLimited ->
-                        s.copy(
-                            optimisticFollowed = currentlyFollowed,
-                            isFollowInFlight = false,
-                            message = ProfileMessage.FOLLOW_RATE_LIMITED,
-                        )
-                    FollowToggleOutcome.TargetGone ->
-                        s.copy(
-                            optimisticFollowed = currentlyFollowed,
-                            isFollowInFlight = false,
-                            message = ProfileMessage.TARGET_UNAVAILABLE,
-                        )
-                    // Silent revert — the toggle snapping back IS the feedback (no extra banner).
-                    FollowToggleOutcome.NetworkError ->
-                        s.copy(optimisticFollowed = currentlyFollowed, isFollowInFlight = false)
-                }
+                s.copy(
+                    optimisticFollowed = settled.followed,
+                    isFollowInFlight = false,
+                    message = settled.message ?: s.message,
+                )
             }
         }
     }

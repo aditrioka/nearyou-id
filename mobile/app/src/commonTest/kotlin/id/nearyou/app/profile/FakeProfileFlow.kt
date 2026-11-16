@@ -41,13 +41,22 @@ class FakeProfileFlow(
         return profileOutcome
     }
 
+    /** Calls entered / calls that ran to completion (past [actionGate]) — the duplicate-tap and the
+     *  cancel-safety (write survives a pop) assertions. */
+    var followCalls = 0
+    var followsCompleted = 0
+    var unfollowCalls = 0
+
     override suspend fun follow(userId: String): FollowToggleOutcome {
+        followCalls++
         followedUserId = userId
         actionGate?.await()
+        followsCompleted++
         return followOutcome
     }
 
     override suspend fun unfollow(userId: String): FollowToggleOutcome {
+        unfollowCalls++
         unfollowedUserId = userId
         return unfollowOutcome
     }

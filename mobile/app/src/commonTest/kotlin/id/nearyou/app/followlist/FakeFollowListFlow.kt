@@ -28,7 +28,17 @@ class FakeFollowListFlow : FollowListFlow {
         fun user(
             id: String,
             premium: Boolean = false,
-        ): FollowListUser = FollowListUser(userId = id, username = "user_$id", displayName = "User $id", isPremium = premium)
+            followed: Boolean = false,
+            self: Boolean = false,
+        ): FollowListUser =
+            FollowListUser(
+                userId = id,
+                username = "user_$id",
+                displayName = "User $id",
+                isPremium = premium,
+                followedByViewer = followed,
+                isSelf = self,
+            )
 
         fun page(
             ids: List<String>,
