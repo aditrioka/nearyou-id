@@ -75,6 +75,7 @@ class ProfileRepositoryTest {
             fun body(extra: String) =
                 """{"userId":"u1","username":"raka.jkt","displayName":"Raka","followerCount":0,"followingCount":0,
                    "isSelf":true,"followedByViewer":false,"isPremium":true$extra}"""
+
             suspend fun lastChanged(extra: String) =
                 assertIs<ProfileOutcome.Loaded>(
                     repo { respond(body(extra), HttpStatusCode.OK, JSON) }.loadProfile("u1"),

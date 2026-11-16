@@ -137,7 +137,7 @@ class UsernameUiStateTest {
         assertEquals(1, usernameCooldownDaysRemaining(now - 30.days + 1.seconds, now))
         assertNull(usernameCooldownDaysRemaining(now - 30.days, now), "unlocks exactly at 30 days, like the backend")
         assertNull(usernameCooldownDaysRemaining(now - 45.days, now))
-        // A change 'in the future' (a device clock behind the server) counts the skew too: 30 d 12 h → 31.
-        assertEquals(31, usernameCooldownDaysRemaining(now + 12.hours, now))
+        // A change 'in the future' (a device clock behind the server) caps at the 30-day cooldown length.
+        assertEquals(30, usernameCooldownDaysRemaining(now + 12.hours, now))
     }
 }

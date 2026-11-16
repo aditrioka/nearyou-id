@@ -153,6 +153,7 @@ private const val DATA_EXPORT_EXPIRED = "Tautan kedaluwarsa. Minta ulang."
 class SettingsScreenTest {
     private lateinit var tokenStore: InMemoryTokenStore
     private lateinit var dataExportFlow: FakeDataExportFlow
+    private var selfProfileFlow: FakeProfileFlow? = null
 
     private fun installKoin(
         hideDistance: HideDistanceRepository = FakeHideDistanceRepository(),
@@ -167,6 +168,7 @@ class SettingsScreenTest {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         tokenStore = InMemoryTokenStore()
         dataExportFlow = dataExport
+        selfProfileFlow = selfRead?.let { FakeProfileFlow(profileOutcome = it) }
         startKoin {
             modules(
                 module {
@@ -182,8 +184,8 @@ class SettingsScreenTest {
                     // mobile-notification-preview-toggle: the device-local chat-preview preference.
                     single<NotificationContentPreference> { chatPreview }
                     if (confirmedPurchase) single<PremiumEntitlementSession> { confirmedPremiumSession() }
-                    if (selfRead != null) {
-                        single<ProfileFlow> { FakeProfileFlow(profileOutcome = selfRead) }
+                    selfProfileFlow?.let { fake ->
+                        single<ProfileFlow> { fake }
                         single<SelfUserIdProvider> { FakeSelfUserIdProvider() }
                     }
                 },
@@ -279,6 +281,12 @@ class SettingsScreenTest {
         return { opened }
     }
 
+    /** Negative assertions only mean something once the entry VM's self read has landed. */
+    private fun androidx.compose.ui.test.ComposeUiTest.awaitSelfRead() {
+        waitUntil { (selfProfileFlow?.loadCalls ?: 0) > 0 }
+        waitForIdle()
+    }
+
     @Test
     fun gantiUsernameRow_pushesUsernameRoute_outsideTheCooldown() {
         // No self-profile seam bound → the fail-safe Open entry: today's row, pushing the route (the screen
@@ -309,7 +317,9 @@ class SettingsScreenTest {
     @Test
     fun retainedBanner_showsForACustomizedFreeUser_andTheRowStillPushes() {
         // #335: a Free user who customized sees the docs/03 banner; the row still opens the route (its gate).
-        installKoin(selfRead = selfProfile(username = "dewi.kuliner", isPremium = false, usernameLastChangedAt = Clock.System.now() - 90.days))
+        installKoin(
+            selfRead = selfProfile(username = "dewi.kuliner", isPremium = false, usernameLastChangedAt = Clock.System.now() - 90.days),
+        )
         runComposeUiTest {
             val opened = settingsCountingUsernameOpens()
             waitUntil { onAllNodesWithText(USERNAME_RETAINED).fetchSemanticsNodes().isNotEmpty() }
@@ -322,10 +332,12 @@ class SettingsScreenTest {
     fun noRetainedBanner_forAFreeUserWhoNeverCustomized() {
         installKoin(selfRead = selfProfile(isPremium = false))
         runComposeUiTest {
-            settingsCountingUsernameOpens()
-            waitForIdle()
+            val opened = settingsCountingUsernameOpens()
+            awaitSelfRead()
             onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
             onNodeWithText(USERNAME_SUB, substring = true).assertExists()
+            onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
+            assertEquals(1, opened(), "the open row still pushes the route")
         }
     }
 
@@ -337,7 +349,7 @@ class SettingsScreenTest {
         )
         runComposeUiTest {
             settingsCountingUsernameOpens()
-            waitForIdle()
+            awaitSelfRead()
             onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
         }
     }
@@ -364,7 +376,7 @@ class SettingsScreenTest {
         installKoin(selfRead = ProfileOutcome.NetworkError)
         runComposeUiTest {
             val opened = settingsCountingUsernameOpens()
-            waitForIdle()
+            awaitSelfRead()
             onAllNodesWithText("tetap milikmu", substring = true).fetchSemanticsNodes().let { assertEquals(0, it.size) }
             onNodeWithText(GANTI_USERNAME, substring = true).performScrollTo().performClick()
             assertEquals(1, opened())

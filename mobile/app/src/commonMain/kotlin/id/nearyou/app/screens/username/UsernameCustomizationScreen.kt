@@ -60,8 +60,8 @@ import id.nearyou.resources.generated.resources.username_error_moderated
 import id.nearyou.resources.generated.resources.username_field_hint
 import id.nearyou.resources.generated.resources.username_premium_gate_body
 import id.nearyou.resources.generated.resources.username_probe_deferred
-import id.nearyou.resources.generated.resources.username_retained_banner
 import id.nearyou.resources.generated.resources.username_rate_limited
+import id.nearyou.resources.generated.resources.username_retained_banner
 import id.nearyou.resources.generated.resources.username_submit
 import id.nearyou.resources.generated.resources.username_success_toast
 import id.nearyou.resources.generated.resources.username_title
@@ -83,10 +83,10 @@ const val USERNAME_STATUS_TAG: String = "usernameStatus"
 /**
  * The Premium **Ganti Username** surface (`mobile-premium-username`) — reached from the Settings AKUN
  * "Ganti username" row (pushed onto the ROOT back stack, overlaying the section bar, the `SearchScreen`
- * precedent; the row is disabled only during the proactive 30-day cooldown). Injects [UsernameFlow] + [ProfileFlow] + [SelfUserIdProvider] and observes a
- * route-scoped [UsernameCustomizationViewModel] that resolves the caller's Premium status on entry (the
- * screen owns the gate, design D2), runs the live local format validation + budget-aware probe, and gates
- * the change behind a confirmation modal.
+ * precedent; the row is disabled only during the proactive 30-day cooldown). Injects [UsernameFlow] +
+ * [ProfileFlow] + [SelfUserIdProvider] and observes a route-scoped [UsernameCustomizationViewModel] that
+ * resolves the caller's Premium status on entry (the screen owns the gate, design D2), runs the live local
+ * format validation + budget-aware probe, and gates the change behind a confirmation modal.
  *
  * Navigation-free: back invokes the hoisted [onBack], a successful change invokes [onChanged] (the
  * `appEntryProvider` pops the route), and the Free-tier gate CTA invokes [onActivatePremium] (the call

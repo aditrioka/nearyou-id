@@ -28,7 +28,14 @@ private val NOW = Instant.parse("2026-10-19T12:00:00Z")
 private fun profile(
     isPremium: Boolean,
     lastChangedAt: Instant?,
-): UserProfile = (selfProfile(username = "dewi.kuliner", isPremium = isPremium, usernameLastChangedAt = lastChangedAt) as ProfileOutcome.Loaded).profile
+): UserProfile =
+    (
+        selfProfile(
+            username = "dewi.kuliner",
+            isPremium = isPremium,
+            usernameLastChangedAt = lastChangedAt,
+        ) as ProfileOutcome.Loaded
+    ).profile
 
 /**
  * Coverage of the Settings "Ganti username" entry state (`mobile-premium-username` § "The Settings entry shows
@@ -108,7 +115,8 @@ class SettingsUsernameEntryViewModelTest {
     @Test
     fun vm_failedRead_missingSelfId_andUnboundSeam_allStayOpen() =
         runTest(dispatcher) {
-            val failed = SettingsUsernameEntryViewModel(FakeProfileFlow(ProfileOutcome.NetworkError), FakeSelfUserIdProvider(), now = { NOW })
+            val failed =
+                SettingsUsernameEntryViewModel(FakeProfileFlow(ProfileOutcome.NetworkError), FakeSelfUserIdProvider(), now = { NOW })
             val noId = FakeProfileFlow()
             val missingId = SettingsUsernameEntryViewModel(noId, FakeSelfUserIdProvider(null), now = { NOW })
             val unbound = SettingsUsernameEntryViewModel(profileFlow = null, selfUserIdProvider = null, now = { NOW })

@@ -44,7 +44,7 @@ Losing the Google/Apple account means losing the NearYouID account — by design
 
 ### Premium Username Customization (Premium Only) — DESIGN
 
-> **Status: SHIPPED** (`premium-username-customization`, 2026-06-14). `PATCH /api/v1/user/username` + `GET /api/v1/username/check` are live in `backend/ktor/` (backend capability; the mobile Settings UI + admin oversight are separate follow-on changes). Migration-free — `users.username_last_changed_at` + `username_history` pre-existed since V2/V3.
+> **Status: SHIPPED** (`premium-username-customization`, 2026-06-14). `PATCH /api/v1/user/username` + `GET /api/v1/username/check` are live in `backend/ktor/` (backend capability; the mobile Settings UI shipped as `mobile-premium-username`, with the proactive cooldown + downgrade banner reading the self-only `usernameLastChangedAt`, and admin oversight as `admin-premium-username-oversight`). Migration-free — `users.username_last_changed_at` + `username_history` pre-existed since V2/V3.
 
 Premium users may replace the auto-generated username with a custom handle via Settings.
 

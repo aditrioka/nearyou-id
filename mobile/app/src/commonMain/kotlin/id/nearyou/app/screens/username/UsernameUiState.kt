@@ -101,6 +101,7 @@ val USERNAME_CHANGE_COOLDOWN = 30.days
  * The proactive cooldown (#333): whole days left until [lastChangedAt] + [USERNAME_CHANGE_COOLDOWN], rounded up
  * like the reactive `Retry-After` path ([cooldownDays]) so both countdowns agree — or null when never changed or
  * the cooldown has elapsed (`now` at or past the unlock instant, the backend's `!now.isBefore(unlockAt)`).
+ * Capped at 30 days: a device clock behind the server would otherwise count past the cooldown length.
  */
 fun usernameCooldownDaysRemaining(
     lastChangedAt: Instant?,
@@ -109,7 +110,7 @@ fun usernameCooldownDaysRemaining(
     if (lastChangedAt == null) return null
     val remaining = lastChangedAt + USERNAME_CHANGE_COOLDOWN - now
     if (!remaining.isPositive()) return null
-    return cooldownDays(remaining.inWholeSeconds.coerceAtLeast(1))
+    return cooldownDays(remaining.inWholeSeconds.coerceAtLeast(1)).coerceAtMost(USERNAME_CHANGE_COOLDOWN.inWholeDays.toInt())
 }
 
 /**

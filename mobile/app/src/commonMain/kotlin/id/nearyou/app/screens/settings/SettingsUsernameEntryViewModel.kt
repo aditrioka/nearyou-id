@@ -52,7 +52,9 @@ fun usernameEntryState(
  * the screen forwards from each `ON_RESUME` (docs/11 § 2.3), so a return from a username change or a
  * purchase shows fresh state. A read already in flight makes [refresh] a no-op; a failed read keeps the last
  * state, and an unbound seam (nulls — tests / a DI gap) stays [UsernameEntryState.Open], today's row.
- * [effectivePremium] is the screen's existing hide-distance `premium` flow (no extra request).
+ * [effectivePremium] is the screen's existing hide-distance `premium` flow (no extra request). It is seeded once
+ * per Settings entry, so a tier drop while Settings sits under another screen shows on the next Settings entry
+ * (the reactive 403/429 still govern any attempt meanwhile).
  */
 class SettingsUsernameEntryViewModel(
     private val profileFlow: ProfileFlow?,

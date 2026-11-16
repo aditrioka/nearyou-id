@@ -69,7 +69,7 @@ The webhook-lag activating notice (#517) takes precedence on both surfaces: the 
 
 ## Risks / Trade-offs
 
-- **Client clock skew** can show a day count off by one or more, or enable the row early. The reactive `429` governs, as described in D1.
+- **Client clock skew.** A clock running ahead can enable the row early; the reactive `429` then governs (D1). A clock running behind can keep the row disabled for up to the skew after the server unlocks, with no reactive escape because the row is not tappable. Auto time makes that rare, and the proactive count is capped at 30 days so it never shows more than the cooldown length.
 - **One extra self-profile `GET` per Settings open and resume.** It is cheap and bounded (one row plus two `COUNT`s). It is the same read the profile tab already does on every resume.
 - **SettingsScreen grows past the ~400 LOC soft cap** (already 588). The banner sits with its two sibling banners in the same file. Splitting the Settings file is a separate refactor, not this change's.
 

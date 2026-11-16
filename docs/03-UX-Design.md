@@ -129,7 +129,7 @@ Feature rules: `02-Product.md` § Premium Username Customization.
 ### Cooldown Messaging
 
 - **Proactive (entry point):** the self-profile read exposes `usernameLastChangedAt` (self-only). For a Premium user inside the 30 days, the Settings "Ganti username" row is **disabled**, and its subtitle reads "Ganti username berikutnya tersedia dalam {countdown} hari." (whole days left, rounded up) ([#333](https://github.com/aditrioka/nearyou-id/issues/333)).
-- **Reactive (authoritative):** the same copy renders when a change attempt returns `429 cooldown_active` (whole days rounded up from `Retry-After`). This covers a skewed device clock and a tap before the Settings read lands.
+- **Reactive (authoritative):** the same copy renders when a change attempt returns `429 cooldown_active` (whole days rounded up from `Retry-After`). This covers a device clock running ahead of the server and a tap before the Settings read lands. A clock running *behind* can keep the row disabled for up to the skew after the server unlocks; the proactive count is capped at 30 days.
 
 ### Submit Confirmation
 
