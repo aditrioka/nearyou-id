@@ -19,8 +19,8 @@ data class PrivacyFlipResult(
 )
 
 /**
- * Hourly worker that applies elapsed Premium→Free privacy flips: for every user
- * whose 72h grace window has passed it sets `private_profile_opt_in = FALSE` and
+ * Hourly worker that applies elapsed Premium→Free privacy flips: for every
+ * no-longer-premium user whose 72h grace window has passed it sets `private_profile_opt_in = FALSE` and
  * clears `privacy_flip_scheduled_at`, writing one immutable `admin_actions_log`
  * audit row per flip, atomically, in a single data-modifying CTE (mirrors
  * [SuspensionUnbanWorker] design D4). The audit write is attributed to the
@@ -82,9 +82,14 @@ class PrivacyFlipWorker(
         // snapshot the elapsed-grace rows FOR UPDATE -> flip them (private off +
         // clear the deadline) -> INSERT one admin_actions_log row per flip (atomic
         // with the UPDATE) -> RETURNING the affected user ids. Eligibility filters
-        // ONLY on the deadline + deleted_at (NOT on private_profile_opt_in), so a
-        // soft-deleted row is left for the admin monitor as a stuck-row anomaly and
-        // a stale-scheduled already-public row still has its deadline cleaned up.
+        // on the deadline + deleted_at + `subscription_status = 'free'` (fail-closed:
+        // a status added later is never flipped by default; NOT on
+        // private_profile_opt_in), so a soft-deleted row is left for the admin
+        // monitor as a stuck-row anomaly, a stale-scheduled already-public row
+        // still has its deadline cleaned up, and a user who is premium again (an
+        // out-of-order webhook left the schedule uncleared) is never flipped public
+        // — that row stays OVERDUE for the admin resolve action
+        // (admin-privacy-flip-resolve design D5).
         // before_state captures the ACTUAL prior private flag (true for real flips,
         // since only the EXPIRATION webhook sets the deadline and only for private
         // users). The admin_id literal matches SYSTEM_ACTOR_ID (drift caught by the
@@ -100,6 +105,7 @@ class PrivacyFlipWorker(
                  WHERE privacy_flip_scheduled_at IS NOT NULL
                    AND privacy_flip_scheduled_at <= NOW()
                    AND deleted_at IS NULL
+                   AND subscription_status = 'free'
                  FOR UPDATE
             ),
             flipped AS (

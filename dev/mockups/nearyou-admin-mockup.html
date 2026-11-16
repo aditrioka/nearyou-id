@@ -1381,20 +1381,21 @@ after:  { is_banned: true,
       <div class="spacer"></div><span class="envchip">STAGING</span>
       <div class="admchip"><span class="av">O</span>oka<span class="rolechip owner">OWNER</span></div></div>
     <div class="main">
-      <div class="pg">Privacy Flip Monitor <span class="st neut" style="vertical-align:2px;">READ-ONLY</span></div>
+      <div class="pg">Privacy Flip Monitor</div>
       <p class="pg-sub">Users currently inside the 72 h private→public downgrade window (privacy_flip_scheduled_at)</p>
       <table class="tbl">
-        <thead><tr><th>User</th><th>Scheduled flip (UTC)</th><th>Remaining</th><th>Cause</th></tr></thead>
+        <thead><tr><th>User</th><th>Scheduled flip (UTC)</th><th>Remaining</th><th>Cause</th><th></th></tr></thead>
         <tbody>
           <tr><td><a>langit.biru</a></td><td>2026-06-13 08:00</td><td>47 h</td>
-            <td>premium expired (billing retry exhausted)</td></tr>
+            <td>premium expired (billing retry exhausted)</td><td></td></tr>
           <tr><td><a>budi_kopi</a></td><td>2026-06-12 11:30</td><td>26 h</td>
-            <td>subscription cancelled</td></tr>
+            <td>subscription cancelled</td><td></td></tr>
           <tr style="background:var(--error-container);">
             <td><a style="color:var(--on-error-container);">akun.macet</a></td>
             <td style="color:var(--on-error-container);">2026-06-10 09:15</td>
             <td style="color:var(--on-error-container);"><b>OVERDUE 25 h</b></td>
-            <td style="color:var(--on-error-container);">⚠ stuck row — worker/webhook bug?</td></tr>
+            <td style="color:var(--on-error-container);">⚠ stuck row — worker/webhook bug?</td>
+            <td><div class="btn tonal sm"><span class="ms">bolt</span>Resolve</div></td></tr>
         </tbody>
       </table>
       <div class="banner info"><span class="ms">info</span>
@@ -1403,12 +1404,13 @@ after:  { is_banned: true,
     </div>
   </div>
   <div class="cap">
-    <h3>17 · Privacy Flip Monitor <span class="path">— GET /admin/privacy-flips</span></h3>
-    <p>docs/07 § Privacy Flip Monitor: daftar read-only user dalam window downgrade 72 jam
+    <h3>17 · Privacy Flip Monitor <span class="path">— GET /admin/privacy-flips · POST …/{user_id}/resolve</span></h3>
+    <p>docs/07 § Privacy Flip Monitor: daftar user dalam window downgrade 72 jam
     (<code>privacy_flip_scheduled_at IS NOT NULL AND NOW() &lt; scheduled</code>), plus deteksi baris
     macet melewati deadline (baris OVERDUE sengaja DI LUAR predicate window — kueri monitor
-    menambahkan cabang stuck-row sesuai prose docs/07). Tanpa aksi tulis — anomali dieskalasi ke
-    perbaikan worker.</p>
+    menambahkan cabang stuck-row sesuai prose docs/07). Baris OVERDUE bisa di-resolve oleh
+    owner/admin (reason wajib + hx-confirm + audit, 10/jam): user <code>free</code> → flip worker
+    diterapkan; status yang masih terbaca premium → hanya jadwal basi yang dihapus (privasi tetap).</p>
     <span class="tag ada">Sudah ada</span>
   </div>
 </div>

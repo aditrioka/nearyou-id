@@ -32,6 +32,7 @@ object PrivacyFlipsTestSupport {
         scheduledAt: Instant?,
         isPrivate: Boolean = true,
         deletedAt: Instant? = null,
+        subscriptionStatus: String = "free",
     ): UUID {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
@@ -40,8 +41,8 @@ object PrivacyFlipsTestSupport {
                 """
                 INSERT INTO users (
                     id, username, display_name, date_of_birth, invite_code_prefix,
-                    private_profile_opt_in, privacy_flip_scheduled_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    private_profile_opt_in, privacy_flip_scheduled_at, deleted_at, subscription_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -52,6 +53,7 @@ object PrivacyFlipsTestSupport {
                 ps.setBoolean(6, isPrivate)
                 ps.setObject(7, scheduledAt?.let { Timestamp.from(it) })
                 ps.setObject(8, deletedAt?.let { Timestamp.from(it) })
+                ps.setString(9, subscriptionStatus)
                 ps.executeUpdate()
             }
         }
@@ -100,4 +102,62 @@ object PrivacyFlipsTestSupport {
                 }
             }
         }
+
+    /** The privacy-flag pair of a user (resolve assertions). */
+    data class FlipState(
+        val isPrivate: Boolean,
+        val scheduledAt: Instant?,
+    )
+
+    fun flipState(
+        dataSource: DataSource,
+        id: UUID,
+    ): FlipState =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT private_profile_opt_in, privacy_flip_scheduled_at FROM users WHERE id = ?",
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    check(rs.next()) { "no user $id" }
+                    FlipState(rs.getBoolean(1), rs.getTimestamp(2)?.toInstant())
+                }
+            }
+        }
+
+    /** Count `privacy_flip_resolved` audit rows targeting [userId]. */
+    fun countResolvesFor(
+        dataSource: DataSource,
+        userId: UUID,
+    ): Int =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT count(*) FROM admin_actions_log WHERE action_type = 'privacy_flip_resolved' AND target_id = ?",
+            ).use { ps ->
+                ps.setString(1, userId.toString())
+                ps.executeQuery().use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        }
+
+    /** Seed a bare audit row for [adminId] (rate-limit ledger fixtures). */
+    fun seedAuditRow(
+        dataSource: DataSource,
+        adminId: UUID,
+        actionType: String,
+        createdAt: Instant = Instant.now(),
+    ) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "INSERT INTO admin_actions_log (admin_id, action_type, created_at) VALUES (?, ?, ?)",
+            ).use { ps ->
+                ps.setObject(1, adminId)
+                ps.setString(2, actionType)
+                ps.setObject(3, Timestamp.from(createdAt))
+                ps.executeUpdate()
+            }
+        }
+    }
 }

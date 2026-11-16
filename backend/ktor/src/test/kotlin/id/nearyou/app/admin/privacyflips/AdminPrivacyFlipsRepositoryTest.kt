@@ -1,13 +1,18 @@
 package id.nearyou.app.admin.privacyflips
 
 import com.zaxxer.hikari.HikariDataSource
+import id.nearyou.app.admin.auth.AdminAuditLogger
 import id.nearyou.app.admin.auth.AdminAuthTestSupport
+import id.nearyou.app.admin.ratelimit.PrivacyFlipResolveRateLimiter
+import io.kotest.assertions.throwables.shouldThrowAny
 import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
+import org.postgresql.util.PSQLException
 import java.time.Instant
 import java.util.UUID
 
@@ -21,7 +26,9 @@ import java.util.UUID
  * Covers: IN_WINDOW / OVERDUE classification + the boundary fencepost,
  * ascending ordering, keyset pagination (fencepost + id-tiebreaker), the
  * `status` filter (incl. no-skew at the boundary), the `q` lookup
- * (username/UUID), soft-deleted inclusion, and the count summary.
+ * (username/UUID), soft-deleted inclusion, and the count summary — plus the
+ * resolve write's ledger window + atomic rollback (admin-privacy-flip-resolve
+ * tasks 5.11/5.12), which the route cannot fault-inject.
  */
 @Tags("database")
 class AdminPrivacyFlipsRepositoryTest : StringSpec({
@@ -30,11 +37,17 @@ class AdminPrivacyFlipsRepositoryTest : StringSpec({
     afterSpec { dataSource.close() }
 
     val seeded = mutableListOf<UUID>()
+    val seededAdmins = mutableListOf<UUID>()
     beforeEach { PrivacyFlipsTestSupport.deleteAllPendingFlips(dataSource) }
     afterEach {
         seeded.forEach { PrivacyFlipsTestSupport.deleteUser(dataSource, it) }
         seeded.clear()
+        seededAdmins.forEach { AdminAuthTestSupport.cleanupAdmin(dataSource, it) }
+        seededAdmins.clear()
     }
+
+    val rateLimiter = PrivacyFlipResolveRateLimiter(dataSource)
+    val repo = AdminPrivacyFlipsRepository(dataSource, AdminAuditLogger(dataSource), rateLimiter)
 
     // A fixed evaluation instant — the seed offsets are relative to THIS, never
     // wall-clock, so the classification boundary is deterministic.
@@ -62,14 +75,14 @@ class AdminPrivacyFlipsRepositoryTest : StringSpec({
         qUsername: String? = null,
         cursor: PrivacyFlipsCursor? = null,
         pageSize: Int = AdminPrivacyFlipsRepository.PAGE_SIZE,
-    ) = AdminPrivacyFlipsRepository(dataSource).query(
+    ) = repo.query(
         PrivacyFlipsQuery(eval, status, qUserId, qUsername, cursor, pageSize),
     )
 
     fun summary(
         qUserId: UUID? = null,
         qUsername: String? = null,
-    ) = AdminPrivacyFlipsRepository(dataSource).summary(
+    ) = repo.summary(
         PrivacyFlipsQuery(eval, qUserId = qUserId, qUsername = qUsername),
     )
 
@@ -254,5 +267,36 @@ class AdminPrivacyFlipsRepositoryTest : StringSpec({
         // …but the summary counts the WHOLE set (≥3 here), proving it is not
         // bounded by pagination.
         (summary().total >= 3) shouldBe true
+    }
+
+    "5.11 — the resolve ledger counts only in-window privacy_flip_resolved rows for the acting admin" {
+        val admin = AdminAuthTestSupport.seedAdmin(dataSource).also { seededAdmins.add(it.id) }
+        val other = AdminAuthTestSupport.seedAdmin(dataSource).also { seededAdmins.add(it.id) }
+        val now = Instant.now()
+        repeat(2) { PrivacyFlipsTestSupport.seedAuditRow(dataSource, admin.id, "privacy_flip_resolved", now.minusSeconds(60)) }
+        repeat(5) { PrivacyFlipsTestSupport.seedAuditRow(dataSource, admin.id, "subscription_grace_expedite", now.minusSeconds(60)) }
+        repeat(9) { PrivacyFlipsTestSupport.seedAuditRow(dataSource, admin.id, "privacy_flip_resolved", now.minusSeconds(2 * 3600)) }
+        repeat(3) { PrivacyFlipsTestSupport.seedAuditRow(dataSource, other.id, "privacy_flip_resolved", now.minusSeconds(60)) }
+
+        rateLimiter.countInTrailingHour(admin.id) shouldBe 2
+    }
+
+    "5.12 — an audit-write failure rolls back the resolve (no orphaned flip)" {
+        val u = seed("flip_rollback", eval.minusSeconds(3600))
+        // Fault injection: an unknown acting admin id makes the audit INSERT
+        // FK-violate (admin_actions_log.admin_id → admin_users). Eligibility + the
+        // rate count (0 rows for the ghost) pass and the flip UPDATE runs; the audit
+        // insert then throws, so the transaction MUST roll the flip back.
+        val thrown =
+            shouldThrowAny {
+                repo.resolve(u, eval, UUID.randomUUID(), "r", "127.0.0.1", null)
+            }
+        // Pin the fault point: the audit INSERT's FK violation, i.e. AFTER the UPDATE ran.
+        thrown.shouldBeInstanceOf<PSQLException>().sqlState shouldBe "23503"
+
+        val state = PrivacyFlipsTestSupport.flipState(dataSource, u)
+        state.isPrivate shouldBe true
+        state.scheduledAt.shouldNotBeNull()
+        PrivacyFlipsTestSupport.countResolvesFor(dataSource, u) shouldBe 0
     }
 })

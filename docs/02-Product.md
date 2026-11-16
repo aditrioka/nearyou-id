@@ -94,7 +94,7 @@ When a user with `private_profile_opt_in = TRUE` downgrades to Free (RevenueCat 
 2. Inserts a `notifications` row, `type = 'privacy_flip_warning'`, scheduled deadline in `body_data`
 3. Sends FCM push + in-app banner (user-facing text: `03-UX-Design.md`)
 4. Re-subscribe before the deadline: handler clears `privacy_flip_scheduled_at` on the `premium_active` transition
-5. Deadline elapses: the hourly `/internal/privacy-flip-worker` flips `private_profile_opt_in = FALSE`, busts the Redis profile cache, writes an audit log entry
+5. Deadline elapses: the hourly `/internal/privacy-flip-worker` flips `private_profile_opt_in = FALSE` (only while `subscription_status = 'free'` — a row whose stored subscription reads premium is left OVERDUE on the admin Privacy Flip Monitor, where an owner/admin resolves it), busts the Redis profile cache, writes an audit log entry
 
 During the 72h window the user is **still effectively private** via app-layer short-circuit (`privacy_flip_scheduled_at IS NOT NULL AND NOW() < privacy_flip_scheduled_at`) — the schema-level formula `private_profile_opt_in AND premium_status` resolves FALSE during the window, so the UX layer explicitly owns honouring the grace.
 

@@ -1,5 +1,11 @@
 package id.nearyou.app.admin.privacyflips
 
+import id.nearyou.app.admin.auth.AdminAuditLogger
+import id.nearyou.app.admin.ratelimit.PrivacyFlipResolveRateLimiter
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import java.sql.Connection
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
@@ -22,7 +28,7 @@ const val STATUS_IN_WINDOW: String = "in_window"
 const val STATUS_OVERDUE: String = "overdue"
 
 /**
- * Read-only repository for the Privacy Flip Monitor
+ * Read + resolve repository for the Privacy Flip Monitor
  * (`admin-privacy-flip-monitor` capability, admin board frame 17). Lists the
  * `users` rows with a pending privacy flip (`privacy_flip_scheduled_at IS NOT
  * NULL`) — the canonical 72h-downgrade-window population per
@@ -50,11 +56,15 @@ const val STATUS_OVERDUE: String = "overdue"
  * change ships NO Flyway migration (design D5). The exact-username `q` lookup
  * is served by `users_username_lower_idx`.
  *
- * Exposes NO write path — it neither clears nor expedites a scheduled flip
- * (anomalies are escalated to an out-of-band worker fix, frame 17).
+ * ONE write path, [resolve] (`admin-privacy-flip-resolve`): settle a single
+ * OVERDUE row in one transaction — the worker's flip for a non-premium user, a
+ * schedule-only clear for a user who is premium again — with one immutable
+ * audit row, gated by the distinct [PrivacyFlipResolveRateLimiter] cap.
  */
 class AdminPrivacyFlipsRepository(
     private val dataSource: DataSource,
+    private val auditLogger: AdminAuditLogger,
+    private val rateLimiter: PrivacyFlipResolveRateLimiter,
 ) {
     /**
      * Run the filtered + keyset-paginated page query and return one page of
@@ -221,9 +231,140 @@ class AdminPrivacyFlipsRepository(
         return conditions to params
     }
 
+    /**
+     * Resolve one OVERDUE privacy-flip row for [userId] in ONE transaction
+     * (design D2): lock the row, reject ([ResolveOutcome.Ineligible]) unless it
+     * still carries a flip due at-or-before [evalInstant] (the monitor's OVERDUE
+     * predicate, against the same request clock), gate on the distinct cap
+     * ([ResolveOutcome.RateLimited]), then branch on the LOCKED
+     * `subscription_status` — `free` → apply the worker's flip
+     * ([ResolveOutcome.Applied]); any other status (premium again) → clear the schedule only, never
+     * resetting a paying user's opt-in ([ResolveOutcome.Cleared]) — and write one
+     * immutable `privacy_flip_resolved` audit row. Commit-or-rollback together.
+     */
+    fun resolve(
+        userId: UUID,
+        evalInstant: Instant,
+        actingAdminId: UUID,
+        reason: String,
+        ip: String,
+        userAgent: String?,
+    ): ResolveOutcome =
+        dataSource.connection.use { conn ->
+            conn.autoCommit = false
+            try {
+                val locked = lockOverdueRow(conn, userId, evalInstant)
+                if (locked == null) {
+                    conn.rollback()
+                    return ResolveOutcome.Ineligible
+                }
+                // Cap checked only for an eligible target, so an ineligible attempt
+                // never consumes (or reports) quota.
+                if (rateLimiter.isAtOrOverCap(conn, actingAdminId)) {
+                    conn.rollback()
+                    return ResolveOutcome.RateLimited
+                }
+
+                // Fail-closed: only an exact `free` gets the flip; any other status
+                // (premium again — or a status added later) only has the schedule cleared.
+                val premium = locked.subscriptionStatus != STATUS_FREE
+                // @allow-privacy-write: admin_resolve — SQL_APPLY_FLIP is the sanctioned
+                // admin-resolve writer of private_profile_opt_in (marker repeated in-function
+                // for function-scoped scanners; see the constant below).
+                conn.prepareStatement(if (premium) SQL_CLEAR_SCHEDULE else SQL_APPLY_FLIP).use { ps ->
+                    ps.setObject(1, userId)
+                    // The UPDATEs re-assert their own guards; a 0-row update means the
+                    // locked state changed under us — throw so the audit row rolls back.
+                    check(ps.executeUpdate() == 1) { "privacy-flip resolve matched no row for $userId" }
+                }
+                val outcome = if (premium) ResolveOutcome.Cleared else ResolveOutcome.Applied
+                auditLogger.logPrivacyFlipResolved(
+                    conn = conn,
+                    adminId = actingAdminId,
+                    targetUserId = userId,
+                    reason = reason,
+                    beforeState =
+                        buildJsonObject {
+                            put("private_profile_opt_in", JsonPrimitive(locked.privateProfileOptIn))
+                            put("privacy_flip_scheduled_at", JsonPrimitive(locked.scheduledAt.toString()))
+                            put("subscription_status", JsonPrimitive(locked.subscriptionStatus))
+                        },
+                    afterState =
+                        buildJsonObject {
+                            put("private_profile_opt_in", JsonPrimitive(if (premium) locked.privateProfileOptIn else false))
+                            put("privacy_flip_scheduled_at", JsonNull)
+                            put("subscription_status", JsonPrimitive(locked.subscriptionStatus))
+                            put("resolution", JsonPrimitive(outcome.resolution))
+                        },
+                    ip = ip,
+                    userAgent = userAgent,
+                )
+
+                conn.commit()
+                outcome
+            } catch (e: Throwable) {
+                runCatching { conn.rollback() }
+                throw e
+            } finally {
+                runCatching { conn.autoCommit = true }
+            }
+        }
+
+    /** `SELECT … FOR UPDATE` the target; non-null only when it still carries a
+     *  flip due at-or-before [evalInstant] (OVERDUE — closed on the OVERDUE side,
+     *  matching the monitor's classification). Soft-deleted rows qualify (the
+     *  worker leaves them for this monitor). */
+    private fun lockOverdueRow(
+        conn: Connection,
+        userId: UUID,
+        evalInstant: Instant,
+    ): LockedFlipRow? =
+        conn.prepareStatement(
+            """
+            SELECT private_profile_opt_in, privacy_flip_scheduled_at, subscription_status
+              FROM users
+             WHERE id = ?
+             FOR UPDATE
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setObject(1, userId)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                val scheduledAt = rs.getTimestamp("privacy_flip_scheduled_at")?.toInstant() ?: return null
+                if (scheduledAt.isAfter(evalInstant)) return null
+                LockedFlipRow(
+                    privateProfileOptIn = rs.getBoolean("private_profile_opt_in"),
+                    scheduledAt = scheduledAt,
+                    subscriptionStatus = rs.getString("subscription_status"),
+                )
+            }
+        }
+
+    private data class LockedFlipRow(
+        val privateProfileOptIn: Boolean,
+        val scheduledAt: Instant,
+        val subscriptionStatus: String,
+    )
+
     companion object {
         /** Fixed page size (design.md D1 — implementation constant, not a client param). */
         const val PAGE_SIZE: Int = 50
+
+        /** The only status whose OVERDUE row gets the worker's flip applied. */
+        private const val STATUS_FREE = "free"
+
+        // @allow-privacy-write: admin_resolve — the admin resolve of an OVERDUE row
+        // for a non-premium user (openspec/project.md § Coding Conventions): the
+        // worker's exact SET list, inside the audited resolve transaction. The WHERE
+        // re-asserts `free` + a pending flip at the write site itself (fail-closed even
+        // if the row lock above is ever relaxed).
+        private const val SQL_APPLY_FLIP =
+            "UPDATE users SET private_profile_opt_in = FALSE, privacy_flip_scheduled_at = NULL " +
+                "WHERE id = ? AND subscription_status = 'free' AND privacy_flip_scheduled_at IS NOT NULL"
+
+        // Premium-reading (the webhook missed clearing): drop the stale schedule only.
+        private const val SQL_CLEAR_SCHEDULE =
+            "UPDATE users SET privacy_flip_scheduled_at = NULL WHERE id = ? AND privacy_flip_scheduled_at IS NOT NULL"
     }
 }
 
@@ -312,4 +453,22 @@ data class PrivacyFlipsCursor(
                 Math.floorMod(micros, 1_000_000) * 1_000L,
             )
     }
+}
+
+/** Typed result of [AdminPrivacyFlipsRepository.resolve]. */
+sealed class ResolveOutcome(
+    /** The audit `after_state.resolution` value (null for the no-write outcomes). */
+    val resolution: String?,
+) {
+    /** Non-premium user: the worker's flip was applied (opt-in off + schedule cleared). */
+    data object Applied : ResolveOutcome("applied")
+
+    /** Premium again: the stale schedule was cleared; the opt-in is untouched. */
+    data object Cleared : ResolveOutcome("cleared")
+
+    /** Unknown id / no pending flip / still IN_WINDOW; nothing written. */
+    data object Ineligible : ResolveOutcome(null)
+
+    /** Acting admin is at/over the resolve cap; nothing written. */
+    data object RateLimited : ResolveOutcome(null)
 }

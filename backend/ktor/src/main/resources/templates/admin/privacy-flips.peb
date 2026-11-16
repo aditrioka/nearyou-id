@@ -3,13 +3,13 @@
 {% block title %}Privacy Flip Monitor — NearYouID{% endblock %}
 
 {% block content %}
-<h2>Privacy Flip Monitor <span class="st neut">READ-ONLY</span></h2>
-<p class="pg-sub">Users with a pending private↔public flip (privacy_flip_scheduled_at) — IN_WINDOW (mid 72 h grace) + OVERDUE (stuck past deadline; worker/webhook-bug signal)</p>
+<h2>Privacy Flip Monitor</h2>
+<p class="pg-sub">Users with a pending private↔public flip (privacy_flip_scheduled_at) — IN_WINDOW (mid 72 h grace) + OVERDUE (stuck past deadline; worker/webhook-bug signal). An owner/admin can resolve an OVERDUE row in place.</p>
 
-{# Read-only monitor over `users` rows with a scheduled privacy flip. No write
-   action — anomalies (stuck/overdue rows) are escalated to an out-of-band
-   worker fix (frame 17). Every value is autoescaped; username/display_name are
-   user-controlled free text, so escaping is load-bearing here. #}
+{# Monitor over `users` rows with a scheduled privacy flip, plus the per-row
+   OVERDUE resolve write (admin-privacy-flip-resolve; owner/admin only). Every
+   value is autoescaped; username/display_name are user-controlled free text, so
+   escaping is load-bearing here. #}
 
 {# Filter form. hx-get swaps only the #privacy-flips-table fragment; method=GET
    means it also works as plain navigation when JS is unavailable (progressive

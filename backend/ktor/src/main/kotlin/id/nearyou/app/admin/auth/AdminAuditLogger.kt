@@ -668,6 +668,42 @@ class AdminAuditLogger(
     }
 
     /**
+     * Audit row for a privacy-flip-monitor RESOLVE (`admin-privacy-flip-resolve`):
+     * `POST /admin/privacy-flips/{user_id}/resolve` settling one OVERDUE row. Joins
+     * the caller's [conn] so this INSERT + the rate-limit COUNT read the same ledger
+     * snapshot and the `users` UPDATE + audit row commit atomically. `target_type =
+     * 'user'`, `target_id` = the user id. [beforeState] is the locked
+     * `{private_profile_opt_in, privacy_flip_scheduled_at, subscription_status}`;
+     * [afterState] adds the `resolution` branch (`applied` = the worker's flip,
+     * `cleared` = schedule-only for a premium user). The mandatory [reason] is the
+     * operator justification. `adminId` is the acting human admin, never the
+     * `system` sentinel.
+     */
+    fun logPrivacyFlipResolved(
+        conn: Connection,
+        adminId: UUID,
+        targetUserId: UUID,
+        reason: String,
+        beforeState: JsonElement,
+        afterState: JsonElement,
+        ip: String,
+        userAgent: String?,
+    ) {
+        insertWithConnection(
+            conn = conn,
+            actionType = "privacy_flip_resolved",
+            adminId = adminId,
+            targetType = "user",
+            targetId = targetUserId.toString(),
+            reason = reason,
+            beforeState = beforeState,
+            afterState = afterState,
+            ip = ip,
+            userAgent = userAgent,
+        )
+    }
+
+    /**
      * Audit row for a hard-delete-queue MANUAL EXPEDITE (`admin-hard-delete-queue`
      * capability): `POST /admin/deletion-requests/{id}/expedite` advancing a
      * pending `deletion_requests` row's `scheduled_hard_delete_at` to `NOW()` so

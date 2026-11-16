@@ -309,17 +309,20 @@ class AdminPrivacyFlipsRouteTest : StringSpec({
         }
     }
 
-    "6.13 — POST is not wired (405); serving mutates nothing" {
+    "6.13 — POST on the bare collection path is not wired (405); serving mutates nothing + writes no audit row" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         seedUser("flip_ro", eval.minusSeconds(3600))
 
         AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
             val before = PrivacyFlipsTestSupport.pendingFlipCount(dataSource)
+            val auditBefore = AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).size
             client.get("/admin/privacy-flips") { header(HttpHeaders.Cookie, cookie(token)) }
+            client.get("/admin/privacy-flips?status=overdue") { header(HttpHeaders.Cookie, cookie(token)) }
             val post = client.post("/admin/privacy-flips") { header(HttpHeaders.Cookie, cookie(token)) }
             post.status shouldBe HttpStatusCode.MethodNotAllowed
             PrivacyFlipsTestSupport.pendingFlipCount(dataSource) shouldBe before
+            AdminAuthTestSupport.latestAuditRows(dataSource, admin.id).size shouldBe auditBefore
         }
     }
 
