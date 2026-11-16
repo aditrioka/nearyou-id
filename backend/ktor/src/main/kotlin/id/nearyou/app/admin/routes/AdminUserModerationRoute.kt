@@ -608,9 +608,11 @@ private fun UserProfile.toProfileViewMap(): Map<String, Any> {
  * Merge the admin-action rows and the username-change rows into ONE
  * chronological timeline, newest-first across BOTH sources (spec: "The action-
  * history view merges admin_actions_log and username_history, newest-first" —
- * a combined order, not merely newest-first within one source). Each entry
- * carries a `kind` discriminator (`action` | `username`) the template branches
- * on; NULL reason/state → em-dash. Every value is Pebble-autoescaped on output.
+ * a combined order, not merely newest-first within one source). The action
+ * rows include enforcement logged against a queue item / appeal that names the
+ * user in `after_state.user_id` ([UserProfileRepository.loadAdminActionHistory]).
+ * Each entry carries a `kind` discriminator (`action` | `username`) the template
+ * branches on; NULL reason/state → em-dash. Every value is Pebble-autoescaped on output.
  */
 private fun buildHistory(
     actions: List<ProfileActionRow>,

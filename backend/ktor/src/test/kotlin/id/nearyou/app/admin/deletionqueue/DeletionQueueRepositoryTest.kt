@@ -9,6 +9,9 @@ import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import java.util.UUID
 
@@ -135,6 +138,8 @@ class DeletionQueueRepositoryTest : StringSpec({
                 .first { it.actionType == "deletion_request_expedited" }
         logged.beforeState!! shouldNotBe logged.afterState
         logged.reason!! shouldBe "support ticket SUP-1"
+        // after_state.user_id names the account, so the expedite surfaces in its admin profile history.
+        Json.parseToJsonElement(logged.afterState!!).jsonObject["user_id"]?.jsonPrimitive?.content shouldBe userId.toString()
     }
 
     // ---- 6.8: eligibility rejections (the guarded SELECT … FOR UPDATE WHERE) ----

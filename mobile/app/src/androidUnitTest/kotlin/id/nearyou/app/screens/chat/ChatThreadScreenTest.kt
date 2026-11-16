@@ -22,6 +22,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -53,11 +55,15 @@ import id.nearyou.app.infra.revenuecat.OfferingsResult
 import id.nearyou.app.infra.revenuecat.PurchaseController
 import id.nearyou.app.infra.supabaserealtime.ChatMessageInbound
 import id.nearyou.app.infra.supabaserealtime.ChatRealtimeSubscriber
+import id.nearyou.app.infra.supabaserealtime.EmbeddedPostSnapshot
 import id.nearyou.app.notifications.FakeNotificationPermissionController
 import id.nearyou.app.notifications.FakeNotificationPromptOneShot
 import id.nearyou.app.notifications.NotificationPermissionController
 import id.nearyou.app.notifications.NotificationPermissionStatus
 import id.nearyou.app.notifications.NotificationPromptOneShot
+import id.nearyou.app.post.FakePostEditFlow
+import id.nearyou.app.post.PostEditFlow
+import id.nearyou.app.post.PostRefreshOutcome
 import id.nearyou.app.screens.paywall.FakePurchaseController
 import id.nearyou.app.screens.routing.ChatThreadRoute
 import id.nearyou.app.screens.routing.PaywallEntry
@@ -114,6 +120,28 @@ private val INDETERMINATE =
 private const val CHAT_CAP_19M =
     "Kamu sudah mengirim 50 pesan hari ini. Upgrade ke Premium untuk chat tanpa batas, atau tunggu reset dalam 19 mnt."
 
+private const val SHARED_EDITED_AT = "2026-06-01T09:00:00Z"
+private const val EDITED_BANNER = "Diedit sejak dibagikan"
+
+// An embed-only message sharing [postId], its snapshot captured at [SHARED_EDITED_AT] with [content].
+private fun embedDto(
+    id: String,
+    postId: String,
+    content: String,
+    createdAt: String = "2026-06-01T10:00:00Z",
+) = dto(id, content = null, createdAt = createdAt).copy(
+    embeddedPostId = postId,
+    embeddedPostSnapshot =
+        EmbeddedPostSnapshot(
+            authorUsername = "raka",
+            authorDisplayName = "Raka",
+            content = content,
+            cityName = "Jakarta",
+            createdAt = "2026-06-01T08:00:00Z",
+            editedAt = SHARED_EDITED_AT,
+        ),
+)
+
 private fun dto(
     id: String,
     sender: String = OTHER,
@@ -147,6 +175,7 @@ class ChatThreadScreenTest {
         historyOutcomes: List<ChatThreadOutcome> = listOf(history),
         notificationStatus: NotificationPermissionStatus = NotificationPermissionStatus.GRANTED,
         rationaleAlreadyShown: Boolean = false,
+        postEdits: FakePostEditFlow = FakePostEditFlow(),
     ) {
         if (KoinPlatformTools.defaultContext().getOrNull() != null) stopKoin()
         flow = FakeChatFlow(historyOutcomes = historyOutcomes, sendOutcome = sendOutcome)
@@ -161,6 +190,7 @@ class ChatThreadScreenTest {
                     single<ChatRealtimeSubscriber> { realtime }
                     single<ViewerIdProvider> { ViewerIdProvider { VIEWER } }
                     single<ReportSubmitter> { reportSubmitter }
+                    single<PostEditFlow> { postEdits }
                     single<NotificationPermissionController> { notificationController }
                     single<NotificationPromptOneShot> { promptOneShot }
                     // The host-push test navigates onward to PaywallRoute (Unconfigured fail-soft state).
@@ -856,6 +886,37 @@ class ChatThreadScreenTest {
             onNodeWithText(REDACTED).performTouchInput { longClick() }
             // No report affordance: an already-redacted message is not reportable (gate `!isRedacted`).
             onNodeWithTag(CHAT_MESSAGE_REPORT_ITEM_TAG).assertDoesNotExist()
+        }
+    }
+
+    // chat-embed-live-edit-banner: the per-card live read drives the banner; the card still shows the snapshot.
+    @Test
+    fun sharedPostEditedAfterTheShare_showsTheBanner_anUnchangedOneDoesNot() {
+        installKoin(
+            ChatThreadOutcome.Loaded(
+                listOf(
+                    embedDto("m1", postId = "post-edited", content = "EDITED_POST"),
+                    embedDto("m2", postId = "post-unchanged", content = "UNCHANGED_POST", createdAt = "2026-06-01T10:01:00Z"),
+                ),
+                null,
+            ),
+            postEdits =
+                FakePostEditFlow(
+                    refreshOutcomesByPost =
+                        mapOf(
+                            "post-edited" to PostRefreshOutcome.Loaded("EDITED_POST v2", "2026-06-02T09:00:00Z", isAuthor = false),
+                            "post-unchanged" to PostRefreshOutcome.Loaded("UNCHANGED_POST", SHARED_EDITED_AT, isAuthor = false),
+                        ),
+                ),
+        )
+        runComposeUiTest {
+            setContent { KoinContext { NearYouTheme { ChatThreadScreen(route = route(), onBack = {}) } } }
+            waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(EDITED_BANNER).fetchSemanticsNodes().isNotEmpty() }
+            onAllNodesWithTag(EMBEDDED_POST_EDITED_BANNER_TAG, useUnmergedTree = true).assertCountEquals(1)
+            onNode(hasTestTag(EMBEDDED_POST_CARD_TAG) and hasText("EDITED_POST") and hasText(EDITED_BANNER)).assertExists()
+            onNode(hasTestTag(EMBEDDED_POST_CARD_TAG) and hasText("UNCHANGED_POST")).assertExists()
+            // The card renders the share-time snapshot, never the live content.
+            onNodeWithText("EDITED_POST v2").assertDoesNotExist()
         }
     }
 }
