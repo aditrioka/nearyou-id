@@ -64,6 +64,7 @@ import id.nearyou.app.admin.usernameoversight.UsernameOversightRepository
 import id.nearyou.app.admin.usernameoversight.UsernameOversightService
 import id.nearyou.app.admin.wordlist.WordlistEditRateLimiter
 import id.nearyou.app.admin.wordlist.WordlistEditorService
+import id.nearyou.app.core.domain.ratelimit.RateLimiter
 import id.nearyou.app.infra.remoteconfig.NoOpRemoteConfigPublisher
 import id.nearyou.app.infra.remoteconfig.RemoteConfigPublisher
 import id.nearyou.app.infra.repo.JdbcModerationQueueRepository
@@ -87,6 +88,7 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.pebbletemplates.pebble.loader.ClasspathLoader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
 import java.time.Instant
 import javax.sql.DataSource
 
@@ -105,6 +107,7 @@ import javax.sql.DataSource
 //   /admin/logout      — POST — AUTHENTICATED + CSRF-required
 //   /admin/static/...  — public vendored assets (HTMX)
 //   /admin/...         — ALL OTHER routes — AUTHENTICATED + CSRF-required
+// AdminSecurityHeaders (strict CSP 'self' etc.) goes on every response the host serves.
 //
 // Dependencies injected from Application.kt:
 //   - dataSource:      backing repositories (admin_users, admin_sessions,
@@ -122,6 +125,14 @@ fun Application.admin(
     aesKeyProvider: () -> ByteArray,
     csrfHmacKeyProvider: () -> ByteArray,
     environmentName: String,
+    // The shared env-aware limiter backing the POST /admin/login throttle (#532,
+    // admin-login "Login POST is throttled per client IP and per submitted email").
+    // Deliberately no default: a wiring that forgets it must not compile into an
+    // unthrottled login. Tests pass NoOpRateLimiter (or an InMemoryRateLimiter).
+    loginRateLimiter: RateLimiter,
+    // The login credential-check concurrency gate (#532 design D11). Production uses
+    // the default (one per application); a test holds every permit to observe the shed.
+    loginCredentialGate: Semaphore = Semaphore(AdminLoginRoutes.CREDENTIAL_CHECK_PERMITS),
     // Write seam for the Feature Flag Admin panel (admin-feature-flags). Production
     // binds the REST-backed publisher over the firebase-admin-sa credentials; test +
     // unconfigured deploys bind NoOpRemoteConfigPublisher (panel renders read-only) —
@@ -244,6 +255,8 @@ fun Application.admin(
             auditLogger = auditLogger,
             aesKeyProvider = aesKeyProvider,
             csrfHmacKeyProvider = csrfHmacKeyProvider,
+            rateLimiter = loginRateLimiter,
+            credentialGate = loginCredentialGate,
         )
     val logoutRoute = AdminLogoutRoute(sessionRepository, auditLogger)
     // ONE idle-timeout value feeds BOTH the auth provider (enforcement) and
@@ -276,6 +289,7 @@ fun Application.admin(
             },
         )
     }
+    install(AdminSecurityHeaders)
 
     // Use `authentication { }` (NOT `install(Authentication) { }`): the main
     // Application.module() already installs the Authentication plugin for the

@@ -78,5 +78,5 @@
 <div class="banner info">{{ icon("info") }}
     <span>All admin pages live inside this shell. State-changing controls always carry the
     per-session CSRF token (hidden field for no-JS, <code>X-CSRF-Token</code> header via the
-    layout's <code>htmx:configRequest</code> hook for HTMX).</span></div>
+    vendored <code>admin.js</code> <code>htmx:configRequest</code> hook for HTMX).</span></div>
 {% endblock %}

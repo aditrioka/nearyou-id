@@ -35,8 +35,9 @@
 #       minted with --include-email and audience = the API base, for an SA listed in that
 #       backend's INTERNAL_OIDC_ALLOWED_PRINCIPALS); otherwise the script exits 2 before it
 #       enqueues anything. Set TRIGGER_WORKER=0 to skip the trigger and wait for the
-#       `45 * * * *` WIB cadence instead (the default poll bound then stretches to 66 min, and
-#       the 15-min JWT is re-minted once on a 401 mid-poll).
+#       production `45 * * * *` WIB cadence instead (the default poll bound then stretches to
+#       66 min, and the 15-min JWT is re-minted once on a 401 mid-poll). Staging runs the
+#       worker once a day at 04:03 WIB (#608), so keep TRIGGER_WORKER=1 there.
 #   Test user:
 #     * an existing staging users.id (NOT banned/suspended). Defaults to the canonical
 #       smoke-test user; override via arg 1. The JWT is minted via mint-dev-jwt.sh with the

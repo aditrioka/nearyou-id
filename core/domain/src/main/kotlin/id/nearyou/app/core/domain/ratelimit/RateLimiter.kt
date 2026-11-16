@@ -81,7 +81,10 @@ interface RateLimiter {
      * A releaseMostRecentByKey counterpart for [tryAcquireByKey] is intentionally
      * NOT defined: the only tryAcquireByKey call site at the time of introduction
      * (anti-scrape on /health endpoints) does not exhibit the idempotent-re-action
-     * pattern.
+     * pattern. Every implementation pops by [key] alone ([userId] is telemetry
+     * context only), so a [tryAcquireByKey] key is a valid target too: the admin
+     * login throttle returns a successful login's slots this way, passing the
+     * admin's id as [userId].
      */
     fun releaseMostRecent(
         userId: UUID,
