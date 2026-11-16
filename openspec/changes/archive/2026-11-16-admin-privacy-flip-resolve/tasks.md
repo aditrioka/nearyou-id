@@ -46,7 +46,7 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Backend gate on a throwaway Postgres + Redis: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
-- [ ] 7.2 Admin manual bring-up (verify-loop §B): screenshot the monitor (owner, OVERDUE row with control; read_only without), an applied resolve, a cleared resolve, and a quota/ineligible message; compare against board frame 17; evidence in the PR body
-- [ ] 7.3 Pre-archive staging branch deploy + smoke (runtime-impacting backend change; docs/11 §5.4)
-- [ ] 7.4 Archive: sync deltas; hand-edit the `admin-privacy-flip-monitor` Purpose paragraph (it still says "strictly read-only … exposes no clear/expedite control") and the `privacy-flip-worker` Purpose (flips only `free` rows)
+- [x] 7.1 Backend gate on a throwaway Postgres + Redis: `./gradlew ktlintCheck detekt :backend:ktor:test :lint:detekt-rules:test`
+- [x] 7.2 Admin manual bring-up (verify-loop §B): screenshot the monitor (owner, OVERDUE row with control; read_only without), an applied resolve, a cleared resolve, and a quota/ineligible message; compare against board frame 17; evidence in the PR body
+- [x] 7.3 Pre-archive staging branch deploy + smoke (runtime-impacting backend change; docs/11 §5.4) — deploy run 43877901121, live revision image `4881ee01efdf` at 100% traffic; `/health/ready` 200, unauthenticated monitor + resolve probes 302 → `/admin/login`, strict CSP header present; staging has 0 pending flips (read-only). The authenticated resolve smoke is listed for the operator in the PR body
+- [x] 7.4 Archive: sync deltas; hand-edit the `admin-privacy-flip-monitor` Purpose paragraph (it still says "strictly read-only … exposes no clear/expedite control") and the `privacy-flip-worker` Purpose (flips only `free` rows)
