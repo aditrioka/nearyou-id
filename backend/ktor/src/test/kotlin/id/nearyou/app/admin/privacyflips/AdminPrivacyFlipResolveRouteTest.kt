@@ -70,7 +70,9 @@ class AdminPrivacyFlipResolveRouteTest : StringSpec({
     ): UUID =
         PrivacyFlipsTestSupport.seedUser(
             dataSource,
-            username,
+            // Random suffix: a resolved row has no pending flip, so a killed run's
+            // leftovers would escape the beforeEach sweep and collide on re-run.
+            "${username}_${UUID.randomUUID().toString().take(6)}",
             scheduledAt = scheduledAt,
             deletedAt = deletedAt,
             subscriptionStatus = subscriptionStatus,
@@ -99,19 +101,21 @@ class AdminPrivacyFlipResolveRouteTest : StringSpec({
 
     // ---- 5.2: control visibility ----
 
-    "5.2 — owner sees the resolve control + quota chip on an OVERDUE row, none on an IN_WINDOW row" {
-        val admin = seedAdmin()
-        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+    "5.2 — owner and admin sessions see the resolve control + quota chip on an OVERDUE row, none on an IN_WINDOW row" {
         val stuck = seedUser("flip_stuck_ctl")
         val inWindow = seedUser("flip_window_ctl", scheduledAt = eval.plusSeconds(3600))
-
-        AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
-            val body = client.get("/admin/privacy-flips") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
-            body shouldContain "/admin/privacy-flips/$stuck/resolve"
-            body shouldNotContain "/admin/privacy-flips/$inWindow/resolve"
-            body shouldContain "Resolve actions this hour: <b>0/10</b>"
-            body shouldContain "name=\"_csrf\" value=\"${AdminAuthTestSupport.csrfFor(token)}\""
-            body shouldNotContain "READ-ONLY"
+        for (role in listOf("owner", "admin")) {
+            val admin = seedAdmin(role)
+            val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+            AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
+                val body = client.get("/admin/privacy-flips") { header(HttpHeaders.Cookie, cookie(token)) }.bodyAsText()
+                body shouldContain "/admin/privacy-flips/$stuck/resolve"
+                body shouldNotContain "/admin/privacy-flips/$inWindow/resolve"
+                body shouldContain "Resolve actions this hour: <b>0/10</b>"
+                body shouldContain "name=\"_csrf\" value=\"${AdminAuthTestSupport.csrfFor(token)}\""
+                body shouldContain "name=\"reason\""
+                body shouldNotContain "READ-ONLY"
+            }
         }
     }
 
@@ -156,6 +160,17 @@ class AdminPrivacyFlipResolveRouteTest : StringSpec({
                     .first { it.actionType == "privacy_flip_resolved" }
             logged.targetType shouldBe "user"
             logged.reason shouldBe "user reported stuck private profile"
+        }
+    }
+
+    "5.3 — an admin-role session can resolve (owner/admin tier, not owner-only)" {
+        val admin = seedAdmin(role = "admin")
+        val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
+        val u = seedUser("flip_admin_role")
+
+        AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
+            client.resolve(token, u).bodyAsText() shouldContain "Flip applied"
+            resolves(u) shouldBe 1
         }
     }
 
@@ -248,12 +263,18 @@ class AdminPrivacyFlipResolveRouteTest : StringSpec({
         }
     }
 
-    "5.7 — a CSRF mismatch is 403 + audited, no write" {
+    "5.7 — a missing or mismatched CSRF token is 403 + audited, no write" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         val u = seedUser("flip_bad_csrf")
 
         AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
+            // No X-CSRF-Token header and no _csrf field at all.
+            client.post("/admin/privacy-flips/$u/resolve") {
+                header(HttpHeaders.Cookie, cookie(token))
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody("reason=x")
+            }.status shouldBe HttpStatusCode.Forbidden
             client.resolve(token, u, csrf = "wrong-token").status shouldBe HttpStatusCode.Forbidden
             state(u).scheduledAt.shouldNotBeNull()
             resolves(u) shouldBe 0
@@ -291,13 +312,20 @@ class AdminPrivacyFlipResolveRouteTest : StringSpec({
 
     // ---- 5.8: reason + id validation ----
 
-    "5.8 — a blank reason is 400 with no write" {
+    "5.8 — an empty, whitespace-only or missing reason is 400 with no write" {
         val admin = seedAdmin()
         val token = AdminAuthTestSupport.seedSession(dataSource, admin.id)
         val u = seedUser("flip_blank_reason")
 
         AdminAuthTestSupport.withAdminApp(dataSource, clock = { eval }) { client ->
+            client.resolve(token, u, reason = "").status shouldBe HttpStatusCode.BadRequest
             client.resolve(token, u, reason = "   ").status shouldBe HttpStatusCode.BadRequest
+            client.post("/admin/privacy-flips/$u/resolve") {
+                header(HttpHeaders.Cookie, cookie(token))
+                header("X-CSRF-Token", AdminAuthTestSupport.csrfFor(token))
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody("note=no-reason-field")
+            }.status shouldBe HttpStatusCode.BadRequest
             state(u).scheduledAt.shouldNotBeNull()
             resolves(u) shouldBe 0
         }

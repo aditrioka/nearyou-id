@@ -11,6 +11,8 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
+import org.postgresql.util.PSQLException
 import java.time.Instant
 import java.util.UUID
 
@@ -285,9 +287,12 @@ class AdminPrivacyFlipsRepositoryTest : StringSpec({
         // FK-violate (admin_actions_log.admin_id → admin_users). Eligibility + the
         // rate count (0 rows for the ghost) pass and the flip UPDATE runs; the audit
         // insert then throws, so the transaction MUST roll the flip back.
-        shouldThrowAny {
-            repo.resolve(u, eval, UUID.randomUUID(), "r", "127.0.0.1", null)
-        }
+        val thrown =
+            shouldThrowAny {
+                repo.resolve(u, eval, UUID.randomUUID(), "r", "127.0.0.1", null)
+            }
+        // Pin the fault point: the audit INSERT's FK violation, i.e. AFTER the UPDATE ran.
+        thrown.shouldBeInstanceOf<PSQLException>().sqlState shouldBe "23503"
 
         val state = PrivacyFlipsTestSupport.flipState(dataSource, u)
         state.isPrivate shouldBe true

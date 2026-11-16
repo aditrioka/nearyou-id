@@ -1405,7 +1405,7 @@ after:  { is_banned: true,
   </div>
   <div class="cap">
     <h3>17 · Privacy Flip Monitor <span class="path">— GET /admin/privacy-flips · POST …/{user_id}/resolve</span></h3>
-    <p>docs/07 § Privacy Flip Monitor: daftar read-only user dalam window downgrade 72 jam
+    <p>docs/07 § Privacy Flip Monitor: daftar user dalam window downgrade 72 jam
     (<code>privacy_flip_scheduled_at IS NOT NULL AND NOW() &lt; scheduled</code>), plus deteksi baris
     macet melewati deadline (baris OVERDUE sengaja DI LUAR predicate window — kueri monitor
     menambahkan cabang stuck-row sesuai prose docs/07). Baris OVERDUE bisa di-resolve oleh

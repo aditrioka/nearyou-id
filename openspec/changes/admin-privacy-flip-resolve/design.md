@@ -107,7 +107,7 @@ With the guard, such a row stays OVERDUE, the monitor's OVERDUE count surfaces i
 - **Outcome messages** name the branch taken. The `cleared` message says the stored subscription reads premium and points to the Subscription Grace monitor (frame 18) / RevenueCat, because the stale status itself (#606) is a subscription problem this action does not fix.
 - **Board** (`dev/mockups/nearyou-admin-mockup.html` frame 17): add the control to the OVERDUE row, drop `READ-ONLY`, and update the caption ("POST …/{user_id}/resolve"). The board stays the canonical visual reference (docs/11 §3.6).
 - **Responses:**
-  - Success (HTMX): re-render the fragment with the message, honouring the current query parameters.
+  - Success (HTMX): re-render the fragment with the message. The POST URL carries no filter parameters, so the fragment shows the unfiltered first page (the deletion-queue behaviour).
   - Success (no-JS): `303` to `/admin/privacy-flips` (PRG).
   - Ineligible / RateLimited: re-render with the message (200).
 

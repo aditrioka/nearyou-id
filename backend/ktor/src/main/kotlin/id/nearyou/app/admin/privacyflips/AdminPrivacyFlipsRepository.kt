@@ -268,9 +268,14 @@ class AdminPrivacyFlipsRepository(
                 // Fail-closed: only an exact `free` gets the flip; any other status
                 // (premium again — or a status added later) only has the schedule cleared.
                 val premium = locked.subscriptionStatus != STATUS_FREE
+                // @allow-privacy-write: admin_resolve — SQL_APPLY_FLIP is the sanctioned
+                // admin-resolve writer of private_profile_opt_in (marker repeated in-function
+                // for function-scoped scanners; see the constant below).
                 conn.prepareStatement(if (premium) SQL_CLEAR_SCHEDULE else SQL_APPLY_FLIP).use { ps ->
                     ps.setObject(1, userId)
-                    ps.executeUpdate()
+                    // The UPDATEs re-assert their own guards; a 0-row update means the
+                    // locked state changed under us — throw so the audit row rolls back.
+                    check(ps.executeUpdate() == 1) { "privacy-flip resolve matched no row for $userId" }
                 }
                 val outcome = if (premium) ResolveOutcome.Cleared else ResolveOutcome.Applied
                 auditLogger.logPrivacyFlipResolved(
@@ -350,13 +355,16 @@ class AdminPrivacyFlipsRepository(
 
         // @allow-privacy-write: admin_resolve — the admin resolve of an OVERDUE row
         // for a non-premium user (openspec/project.md § Coding Conventions): the
-        // worker's exact SET list, inside the audited resolve transaction.
+        // worker's exact SET list, inside the audited resolve transaction. The WHERE
+        // re-asserts `free` + a pending flip at the write site itself (fail-closed even
+        // if the row lock above is ever relaxed).
         private const val SQL_APPLY_FLIP =
-            "UPDATE users SET private_profile_opt_in = FALSE, privacy_flip_scheduled_at = NULL WHERE id = ?"
+            "UPDATE users SET private_profile_opt_in = FALSE, privacy_flip_scheduled_at = NULL " +
+                "WHERE id = ? AND subscription_status = 'free' AND privacy_flip_scheduled_at IS NOT NULL"
 
-        // Premium again (the webhook missed clearing): drop the stale schedule only.
+        // Premium-reading (the webhook missed clearing): drop the stale schedule only.
         private const val SQL_CLEAR_SCHEDULE =
-            "UPDATE users SET privacy_flip_scheduled_at = NULL WHERE id = ?"
+            "UPDATE users SET privacy_flip_scheduled_at = NULL WHERE id = ? AND privacy_flip_scheduled_at IS NOT NULL"
     }
 }
 

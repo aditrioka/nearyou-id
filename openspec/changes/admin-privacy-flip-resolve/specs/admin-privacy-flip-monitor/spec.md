@@ -29,6 +29,17 @@ The bare collection path `/admin/privacy-flips` SHALL expose only `GET`. It SHAL
 - **THEN** that OVERDUE row SHALL present a resolve control (inverting the prior "no clear / expedite control is wired")
 - **AND** a `POST /admin/privacy-flips/{user_id}/resolve` route SHALL be wired to resolve it (per the resolve requirements below)
 
+### Requirement: The monitor is accessible to every authenticated admin role
+
+The system SHALL grant read access to `GET /admin/privacy-flips` to any admin with a valid session, regardless of `admin_users.role` (`owner`, `admin`, `moderator`, `read_only`). The monitor SHALL NOT reject a `read_only` admin. No role-based redaction of rows or columns SHALL be applied in this capability. The owner/admin-only resolve column, quota chip and outcome message are write affordances governed by the resolve requirements below, not a redaction of the read view: every role sees the same rows and the same read columns.
+
+#### Scenario: read_only admin can view the monitor
+
+- **GIVEN** an authenticated session for an admin whose `role = 'read_only'`
+- **WHEN** the client sends `GET /admin/privacy-flips`
+- **THEN** the response status SHALL be 200
+- **AND** the monitor table SHALL be rendered (no role-based rejection)
+
 ## ADDED Requirements
 
 ### Requirement: The resolve endpoint settles one OVERDUE row by subscription state and writes one audit row
