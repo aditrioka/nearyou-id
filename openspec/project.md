@@ -188,7 +188,7 @@ Enforced by CI (full list: [`docs/08-Roadmap-Risk.md`](../docs/08-Roadmap-Risk.m
 - **Rate-limit TTL**: must call `computeTTLToNextReset(user_id)` (per-user WIB midnight stagger). No hardcoded midnight math.
 - **Redis keys**: must include hash tag `{scope:<value>}` for cluster-safe multi-key ops.
 - **Username writes**: `UPDATE users SET username = ...` allowed only in signup flow + the single Premium customization transaction + admin module. Legitimate writers annotate `// @allow-username-write: signup|customization`.
-- **Privacy flag writes**: `UPDATE users SET private_profile_opt_in = FALSE` only in the privacy flip worker + Settings flow. Annotate `// @allow-privacy-write: worker|user_settings`.
+- **Privacy flag writes**: `UPDATE users SET private_profile_opt_in = FALSE` only in the privacy flip worker, the Settings flow, and the admin privacy-flip resolve (one OVERDUE row, exact `subscription_status = 'free'` re-checked under the row lock, owner/admin + CSRF + audit — `admin-privacy-flip-monitor`). Annotate `// @allow-privacy-write: worker|user_settings|admin_resolve`.
 - **Content length guards**: input endpoints must length-check (post/reply 280 chars, etc.).
 - **Admin sessions**: every `INSERT INTO admin_sessions` must populate `csrf_token_hash`.
 - **Admin-user FKs** on operational tables must use `ON DELETE SET NULL`.

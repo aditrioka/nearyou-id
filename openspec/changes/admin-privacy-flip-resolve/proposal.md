@@ -2,15 +2,15 @@
 
 The shipped `admin-privacy-flip-monitor` (`GET /admin/privacy-flips`, admin board frame 17) makes a stuck privacy-flip row *discoverable*. An OVERDUE row has a passed deadline that the worker never cleared. But the only fix today is an out-of-band raw-SQL worker correction ("anomalies are escalated to an out-of-band worker fix"). That path is slow and unaudited. Issue [#277](https://github.com/aditrioka/nearyou-id/issues/277) tracks the missing in-panel write action. The monitor spec already carries the negative guard ("no clear / expedite control"), so shipping the write is a `MODIFIED` capability.
 
-A second, entangled gap: the `privacy-flip-worker` eligibility predicate never reads `subscription_status`. Suppose a scheduled row's owner is premium again. One way is an out-of-order RevenueCat delivery: a `BILLING_ISSUE` retried after an `EXPIRATION`. That sets status to billing-retry but never clears the schedule. The worker would then flip `private_profile_opt_in` off for a paying user. The resolve action must refuse to do exactly that (triage, #277 comment). Guarding only the admin path would leave the worker doing it an hour later.
+A second, entangled gap: the `privacy-flip-worker` eligibility predicate never reads `subscription_status`. A scheduled row can carry a status that reads premium: an out-of-order RevenueCat delivery (a `BILLING_ISSUE` retried after the `EXPIRATION` that scheduled the flip) sets `premium_billing_retry` but never clears the schedule (#606). The worker would then reset `private_profile_opt_in` for a user whose stored subscription reads premium. The resolve action must refuse to do exactly that (triage, #277 comment: fail closed on privacy while the status reads premium). Guarding only the admin path would leave the worker doing it an hour later.
 
 ## What Changes
 
 - **ADD `POST /admin/privacy-flips/{user_id}/resolve`.** It resolves one OVERDUE privacy-flip row in ONE transaction:
   - Lock the user row and re-check the target state. The target must have a non-NULL `privacy_flip_scheduled_at` at or before the request's evaluation instant.
-  - **Re-check `subscription_status` inside that transaction**, then branch:
-    - **Not premium** (`free`): apply the worker's flip (`private_profile_opt_in = FALSE`, `privacy_flip_scheduled_at = NULL`).
-    - **Premium again** (`premium_active` / `premium_billing_retry`, so the webhook missed clearing): clear the schedule ONLY. Never make a paying user's profile public.
+  - **Re-check `subscription_status` inside that transaction**, then branch (fail-closed):
+    - **Exactly `free`**: apply the worker's flip (`private_profile_opt_in = FALSE`, `privacy_flip_scheduled_at = NULL`).
+    - **Any other status** (`premium_active` / `premium_billing_retry`): clear the schedule ONLY. A premium-reading user's opt-in is never reset.
   - Write exactly one immutable `admin_actions_log` row (`action_type = 'privacy_flip_resolved'`). Its `before_state` / `after_state` record the resolution branch.
 - **Gating**, mirroring the sibling admin writes in this order:
   - CSRF first (`AdminCsrfGate.validateCsrf`).
@@ -24,7 +24,7 @@ A second, entangled gap: the `privacy-flip-worker` eligibility predicate never r
 - **Rate-limit** at a dedicated **10 resolves / admin / trailing hour**. The `privacy_flip_resolved` counter is sourced from the audit trail (another instance of the audit-ledger soft-cap pattern). It is independent of the 20/hour destructive budget, because resolving is corrective bookkeeping, not a punitive action.
 - **UI.** Add a per-row resolve control (reason input + `hx-confirm`) on OVERDUE rows, visible to `owner`/`admin` sessions only. It ships with a quota chip, an in-band outcome message, an HTMX fragment swap, and a plain-`POST` 303 PRG fallback. The page drops its `READ-ONLY` chip. Admin board frame 17 is updated to show the control.
 - **Privacy-flag write allowlist.** Add a third declared writer, `// @allow-privacy-write: admin_resolve`, to the canonical invariant in `openspec/project.md` § Coding Conventions (and its `docs/08` lint description). Today the list is only `worker` and `user_settings`.
-- **Worker guard.** `privacy-flip-worker` eligibility adds `subscription_status NOT IN ('premium_active', 'premium_billing_retry')`. An elapsed schedule on a premium user is left OVERDUE: the monitor surfaces it and the admin resolve clears it. The worker no longer flips a paying user public.
+- **Worker guard.** `privacy-flip-worker` eligibility adds `subscription_status = 'free'` (fail-closed). An elapsed schedule on a premium-reading user is left OVERDUE: the monitor surfaces it and the admin resolve clears it. The worker no longer resets such a user's opt-in. The out-of-order delivery that produces this state is tracked separately in #606.
 - **No Flyway migration.** `admin_actions_log.action_type` is a plain `VARCHAR(64)` with no CHECK, and every column already exists.
 
 ## Capabilities
@@ -58,9 +58,10 @@ A second, entangled gap: the `privacy-flip-worker` eligibility predicate never r
 - **Tests**: Kotest DB-tagged route + repository tests for every ADDED/MODIFIED scenario. The existing 405 test moves to the bare collection path. A worker test covers the premium exclusion.
 - **Docs**:
   - `docs/07-Operations.md` § Privacy Flip Monitor: the resolve write is shipped.
-  - `docs/05-Implementation.md` "Effective private" paragraph: writer list.
+  - `docs/05-Implementation.md`: the "Effective private" paragraph (writer list) and § Privacy Flip Worker (the canonical worker predicate).
+  - `docs/02-Product.md` § private-profile downgrade flow, step 5: the worker flips only `free` users.
   - `openspec/project.md` + `docs/08-Roadmap-Risk.md`: privacy-write allowlist gains `admin_resolve`.
   - `dev/mockups/nearyou-admin-mockup.html` frame 17: control + caption.
-- **Layers** (docs/12): backend + admin. This is an admin-only support tool, so no mobile surface is applicable (no user-facing read or write changes; a resolve causes no immediate visibility change, see design D2).
+- **Layers** (docs/12): backend + admin. This is an admin-only support tool, so no mobile surface is applicable. No user-facing read path changes shape, and effective privacy does not change. The owner's stored Settings toggle resets exactly as the worker's flip already does (design Context).
 - **Security posture**: this adds the first mutation over `users.private_profile_opt_in` / `privacy_flip_scheduled_at` from the admin panel. The compensating controls are owner/admin + CSRF + required reason + audit + a dedicated rate-limit + the in-transaction subscription re-check.
 - Resolves #277.

@@ -1,3 +1,4 @@
+{% import "icons.peb" %}
 {# Swappable privacy-flips fragment. Rendered standalone for HTMX requests
    (HX-Request: true) and {% include %}d by privacy-flips.peb for full-page
    navigation. The #privacy-flips-table id is the hx-target swapped in place —
@@ -8,8 +9,21 @@
    interpolated into the /admin/users?q= deep-link href (attribute/URL context
    — Pebble's default escaper is HTML-context so `< > & " '` are entity-encoded
    in attribute position too). The .tbl-wrap wrapper provides the frame-4b
-   overflow-x scroll below ~900 px. #}
+   overflow-x scroll below ~900 px.
+
+   Resolve control (admin-privacy-flip-resolve): rendered ONLY on OVERDUE rows
+   and ONLY for owner/admin sessions (`canResolve`). The full-page (no-JS) render
+   carries `csrfToken` so the `_csrf` hidden field populates; the HTMX-fragment
+   render omits it (the layout's htmx:configRequest hook adds the X-CSRF-Token
+   header from the meta tag). It reuses the shared `form.expedite` in-row action
+   style (frames 15/18). #}
 <div id="privacy-flips-table">
+{% if message is not null %}
+    <p class="outcome-message">{{ message }}</p>
+{% endif %}
+{% if quotaCap is not null %}
+    <p class="quota">{{ icon("speed") }}Resolve actions this hour: <b>{{ quotaUsed }}/{{ quotaCap }}</b></p>
+{% endif %}
     {# In-window vs overdue count summary scoped to the active q filter. Counts
        the WHOLE q-scoped set (not just this page) so a stuck-row spike (rising
        OVERDUE) is visible at a glance. The OVERDUE chip is the anomaly signal. #}
@@ -28,6 +42,7 @@
                 <th>Scheduled flip (UTC)</th>
                 <th>Remaining</th>
                 <th>Status</th>
+                {% if canResolve %}<th>Action</th>{% endif %}
             </tr>
         </thead>
         <tbody>
@@ -48,6 +63,23 @@
                     {% if row.status == 'overdue' %}<span class="st err">OVERDUE</span>
                     {% else %}<span class="st ok">IN_WINDOW</span>{% endif %}
                 </td>
+                {% if canResolve %}
+                <td>
+                {% if row.status == 'overdue' %}
+                    <form class="expedite"
+                          action="{{ row.resolveAction }}"
+                          method="POST"
+                          hx-post="{{ row.resolveAction }}"
+                          hx-target="#privacy-flips-table"
+                          hx-swap="outerHTML"
+                          hx-confirm="Resolve this stuck flip? If the user is no longer premium, the worker's flip is applied (profile opt-in reset, schedule cleared). If they are premium again, only the stale schedule is cleared and the profile stays private.">
+                        <input type="hidden" name="_csrf" value="{{ csrfToken | default('') }}">
+                        <input type="text" name="reason" maxlength="200" placeholder="Reason (required)" required aria-label="Resolve reason">
+                        <button type="submit" class="btn tonal sm">{{ icon("bolt") }}Resolve</button>
+                    </form>
+                {% endif %}
+                </td>
+                {% endif %}
             </tr>
         {% endfor %}
         </tbody>

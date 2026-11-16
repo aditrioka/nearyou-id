@@ -33,6 +33,7 @@ class PrivacyFlipWorkerTest : StringSpec({
         privateProfile: Boolean = true,
         scheduledAt: Instant?,
         deletedAt: Instant? = null,
+        subscriptionStatus: String = "free",
     ): UUID {
         val id = UUID.randomUUID()
         val short = id.toString().replace("-", "").take(8)
@@ -42,7 +43,7 @@ class PrivacyFlipWorkerTest : StringSpec({
                 INSERT INTO users (
                     id, username, display_name, date_of_birth, invite_code_prefix,
                     subscription_status, private_profile_opt_in, privacy_flip_scheduled_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, 'free', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -50,9 +51,10 @@ class PrivacyFlipWorkerTest : StringSpec({
                 ps.setString(3, "PFW $short")
                 ps.setDate(4, Date.valueOf(LocalDate.of(1990, 1, 1)))
                 ps.setString(5, "p${short.take(7)}")
-                ps.setBoolean(6, privateProfile)
-                if (scheduledAt != null) ps.setTimestamp(7, Timestamp.from(scheduledAt)) else ps.setNull(7, java.sql.Types.TIMESTAMP)
-                if (deletedAt != null) ps.setTimestamp(8, Timestamp.from(deletedAt)) else ps.setNull(8, java.sql.Types.TIMESTAMP)
+                ps.setString(6, subscriptionStatus)
+                ps.setBoolean(7, privateProfile)
+                if (scheduledAt != null) ps.setTimestamp(8, Timestamp.from(scheduledAt)) else ps.setNull(8, java.sql.Types.TIMESTAMP)
+                if (deletedAt != null) ps.setTimestamp(9, Timestamp.from(deletedAt)) else ps.setNull(9, java.sql.Types.TIMESTAMP)
                 ps.executeUpdate()
             }
         }
@@ -166,6 +168,27 @@ class PrivacyFlipWorkerTest : StringSpec({
             countAudit(softDeleted) shouldBe 0
         } finally {
             cleanup(future, softDeleted)
+        }
+    }
+
+    "a premium (active / billing-retry) user with an elapsed deadline is left untouched; a free sibling flips" {
+        val elapsed = Instant.now().minusSeconds(3600)
+        val active = seedUser(privateProfile = true, scheduledAt = elapsed, subscriptionStatus = "premium_active")
+        val retry = seedUser(privateProfile = true, scheduledAt = elapsed, subscriptionStatus = "premium_billing_retry")
+        val free = seedUser(privateProfile = true, scheduledAt = elapsed)
+        try {
+            val result = worker.execute()
+            result.flippedUserIds.contains(active) shouldBe false
+            result.flippedUserIds.contains(retry) shouldBe false
+            result.flippedUserIds.contains(free) shouldBe true
+            listOf(active, retry).forEach { premium ->
+                loadPrivate(premium) shouldBe true
+                loadScheduledIsNull(premium) shouldBe false
+                countAudit(premium) shouldBe 0
+            }
+            loadPrivate(free) shouldBe false
+        } finally {
+            cleanup(active, retry, free)
         }
     }
 

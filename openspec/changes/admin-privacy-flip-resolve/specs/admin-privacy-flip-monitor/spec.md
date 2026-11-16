@@ -7,7 +7,7 @@
 
 ### Requirement: The collection path is read-only; mutation is confined to the resolve sub-route
 
-The bare collection path `/admin/privacy-flips` SHALL expose only `GET`. It SHALL NOT wire any `POST`, `PUT`, `PATCH`, or `DELETE` handler. Serving it, with any filter or cursor parameters, SHALL write no `admin_actions_log` row and mutate no `users` row. All mutation on this capability SHALL be confined to the per-user resolve sub-route `POST /admin/privacy-flips/{user_id}/resolve`, governed by the resolve requirements ADDED by `admin-privacy-flip-resolve`. The listing itself remains strictly read-only. This supersedes the prior "no clear / expedite control" guard: the out-of-band worker-fix escalation path is replaced by the audited in-panel resolve, and tracking issue [#277](https://github.com/aditrioka/nearyou-id/issues/277) is resolved.
+The bare collection path `/admin/privacy-flips` SHALL expose only `GET`. It SHALL NOT wire any `POST`, `PUT`, `PATCH`, or `DELETE` handler. Serving it, with any filter or cursor parameters, SHALL write no `admin_actions_log` row and mutate no `users` row. All mutation on this capability SHALL be confined to the per-user resolve sub-route `POST /admin/privacy-flips/{user_id}/resolve`, governed by this capability's resolve requirements. The listing itself remains strictly read-only. This supersedes the prior "no clear / expedite control" guard: the out-of-band worker-fix escalation path is replaced by the audited in-panel resolve, and tracking issue [#277](https://github.com/aditrioka/nearyou-id/issues/277) is resolved.
 
 #### Scenario: POST on the bare collection path is not wired
 
@@ -37,8 +37,8 @@ The system SHALL serve `POST /admin/privacy-flips/{user_id}/resolve` as an authe
 
 1. **Lock and re-check.** Lock the target `users` row and re-read its `private_profile_opt_in`, `privacy_flip_scheduled_at`, and `subscription_status` inside that transaction.
 2. **Branch on the re-read `subscription_status`:**
-   - When the user is NOT premium (`subscription_status = 'free'`), it SHALL **apply** the worker's flip: set `private_profile_opt_in = FALSE` AND `privacy_flip_scheduled_at = NULL`. The resolution is `applied`.
-   - When the user IS premium (`subscription_status IN ('premium_active', 'premium_billing_retry')`), it SHALL **clear the schedule only**: set `privacy_flip_scheduled_at = NULL` and leave `private_profile_opt_in` unchanged. A paying user's privacy opt-in is never reset. The resolution is `cleared`.
+   - When `subscription_status = 'free'` exactly, it SHALL **apply** the worker's flip: set `private_profile_opt_in = FALSE` AND `privacy_flip_scheduled_at = NULL`. The resolution is `applied`.
+   - For ANY other status (`premium_active`, `premium_billing_retry`, or any status added later), it SHALL **clear the schedule only**: set `privacy_flip_scheduled_at = NULL` and leave `private_profile_opt_in` unchanged. While the stored subscription reads premium, the action fails closed on privacy: the opt-in is never reset. The resolution is `cleared`.
 3. **Audit.** Write exactly one `admin_actions_log` row:
    - `action_type = 'privacy_flip_resolved'`, `target_type = 'user'`, `target_id = {user_id}`;
    - the acting admin's id and the admin-supplied `reason`;
@@ -54,16 +54,17 @@ The `subscription_status` itself SHALL NOT change. The `private_profile_opt_in =
 - **THEN** that user's `private_profile_opt_in` SHALL be `FALSE` AND `privacy_flip_scheduled_at` SHALL be `NULL`
 - **AND** exactly one `admin_actions_log` row SHALL be written with `action_type = 'privacy_flip_resolved'`, `target_type = 'user'`, `target_id = {user_id}`, the acting admin's id, the supplied reason, and `after_state.resolution = "applied"`
 
-#### Scenario: Resolving a re-subscribed (premium_active) OVERDUE row clears the schedule only
+#### Scenario: Resolving a premium_active OVERDUE row clears the schedule only
 
-- **GIVEN** an authenticated owner/admin session with a valid CSRF token AND a user with `subscription_status = 'premium_active'`, `private_profile_opt_in = TRUE`, and an elapsed `privacy_flip_scheduled_at` (the webhook missed clearing it)
+- **GIVEN** an authenticated owner/admin session with a valid CSRF token AND a user with `subscription_status = 'premium_active'`, `private_profile_opt_in = TRUE`, and an elapsed `privacy_flip_scheduled_at`
 - **WHEN** the client sends the resolve `POST` with a non-blank `reason`
-- **THEN** that user's `privacy_flip_scheduled_at` SHALL be `NULL` AND `private_profile_opt_in` SHALL remain `TRUE` (the paying user's profile is not made public)
+- **THEN** that user's `privacy_flip_scheduled_at` SHALL be `NULL` AND `private_profile_opt_in` SHALL remain `TRUE` (a premium-reading user's opt-in is not reset)
 - **AND** exactly one `privacy_flip_resolved` audit row SHALL be written with `after_state.resolution = "cleared"`
+- **AND** the in-band outcome message SHALL name the `cleared` branch
 
 #### Scenario: A billing-retry user is treated as premium
 
-- **GIVEN** an authenticated owner/admin session with a valid CSRF token AND a user with `subscription_status = 'premium_billing_retry'`, `private_profile_opt_in = TRUE`, and an elapsed `privacy_flip_scheduled_at`
+- **GIVEN** an authenticated owner/admin session with a valid CSRF token AND a user with `subscription_status = 'premium_billing_retry'`, `private_profile_opt_in = TRUE`, and an elapsed `privacy_flip_scheduled_at` (the reachable stale case: a `BILLING_ISSUE` delivered after the `EXPIRATION` that scheduled the flip)
 - **WHEN** the client sends the resolve `POST` with a non-blank `reason`
 - **THEN** `privacy_flip_scheduled_at` SHALL be `NULL` AND `private_profile_opt_in` SHALL remain `TRUE`
 
@@ -150,7 +151,7 @@ The resolve SHALL apply only when, under the row lock, the target exists AND `pr
 - a row with no pending flip (already resolved by another admin or by the worker);
 - an unknown `user_id`.
 
-An ineligible attempt SHALL NOT consume rate-limit quota.
+Eligibility SHALL be evaluated BEFORE the rate-limit cap, so an ineligible attempt neither consumes quota nor reports "quota exceeded".
 
 #### Scenario: An IN_WINDOW row is not resolvable
 
@@ -170,6 +171,12 @@ An ineligible attempt SHALL NOT consume rate-limit quota.
 - **WHEN** the client sends a second resolve `POST` for the same user
 - **THEN** no mutation SHALL occur AND no second `privacy_flip_resolved` row SHALL be written AND the response SHALL carry the "not resolvable" message (200)
 
+#### Scenario: An ineligible attempt by an admin at the cap reports "not resolvable", not the quota
+
+- **GIVEN** an authenticated owner/admin with exactly 10 `privacy_flip_resolved` rows in the trailing hour AND a user whose flip is still IN_WINDOW
+- **WHEN** that admin sends the resolve `POST` for that user
+- **THEN** the response SHALL carry the "not resolvable" message (eligibility is checked before the cap) AND no write SHALL occur
+
 #### Scenario: An unknown user id is a no-op
 
 - **GIVEN** an authenticated owner/admin session AND a well-formed `user_id` that matches no `users` row
@@ -184,6 +191,12 @@ The system SHALL enforce a dedicated cap of **10 resolves per acting admin per t
 - **Per admin:** one admin reaching the cap SHALL NOT block another.
 - **Independent of the destructive budget:** the counter is independent of the `admin-destructive-action-rate-limit` 20/hour destructive budget. A resolve neither consumes nor is blocked by it.
 - **Quota display:** the monitor page SHALL display the acting owner/admin's trailing-hour usage against the cap.
+
+#### Scenario: The quota chip shows the acting owner/admin's usage
+
+- **GIVEN** an authenticated owner/admin with N `privacy_flip_resolved` rows in the trailing hour (N < 10)
+- **WHEN** `GET /admin/privacy-flips` is served
+- **THEN** the page SHALL display that admin's usage as N of 10 AND, after one successful resolve, the re-rendered fragment SHALL display N+1 of 10
 
 #### Scenario: A resolve at the cap is rejected without effect
 
@@ -225,6 +238,7 @@ The monitor table SHALL render a per-row resolve control only for sessions whose
 
 - **Who sees it.** A `moderator` or `read_only` session SHALL see no resolve control and no quota chip. The read view still renders for them, per the unchanged any-role read requirement. An IN_WINDOW row SHALL render no resolve control for any role.
 - **Escaping.** Every dynamic value rendered into the control SHALL be HTML-escaped.
+- **Role gating vs. the read view.** The control, the quota chip, and the post-action outcome message are owner/admin write affordances, role-gated separately from the any-role read view. They do not change the row columns, which keep the identity-only discipline. The `cleared` outcome message MAY state that the stored subscription reads premium, as actionable feedback to the acting owner/admin (who can already read it on the Subscription Grace monitor).
 - **HTMX success.** An `HX-Request: true` resolve SHALL return the swappable `#privacy-flips-table` fragment, re-rendered with an in-band outcome message that names the resolution branch taken (applied vs cleared).
 - **No-JS success.** A successful plain `POST` resolve SHALL 303-redirect back to `/admin/privacy-flips`.
 
@@ -239,7 +253,7 @@ The monitor table SHALL render a per-row resolve control only for sessions whose
 
 - **GIVEN** an authenticated `read_only` (or `moderator`) session AND an OVERDUE row
 - **WHEN** `GET /admin/privacy-flips` is served
-- **THEN** the response status SHALL be 200 (the read view still renders) AND no resolve control SHALL be present for any row
+- **THEN** the response status SHALL be 200 (the read view still renders) AND no resolve control SHALL be present for any row AND no quota chip SHALL be rendered
 
 #### Scenario: A successful HTMX resolve re-renders the fragment with the outcome
 

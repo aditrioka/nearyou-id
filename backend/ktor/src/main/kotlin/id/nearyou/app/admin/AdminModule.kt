@@ -27,6 +27,7 @@ import id.nearyou.app.admin.ratelimit.DataExportTriggerRateLimiter
 import id.nearyou.app.admin.ratelimit.DeletionQueueExpediteRateLimiter
 import id.nearyou.app.admin.ratelimit.DestructiveActionRateLimiter
 import id.nearyou.app.admin.ratelimit.GraceExpediteActionRateLimiter
+import id.nearyou.app.admin.ratelimit.PrivacyFlipResolveRateLimiter
 import id.nearyou.app.admin.ratelimit.ReferralGrantActionRateLimiter
 import id.nearyou.app.admin.ratelimit.RejectedIdentifierClearRateLimiter
 import id.nearyou.app.admin.ratelimit.ReservedUsernameActionRateLimiter
@@ -186,7 +187,9 @@ fun Application.admin(
         AdminRejectedIdentifiersRepository(dataSource, auditLogger, rejectedIdentifierClearRateLimiter)
     val blockRegistryRepository = AdminBlockRegistryRepository(dataSource)
     val postEditHistoryService = PostEditHistoryService(PostEditHistoryRepository(dataSource))
-    val privacyFlipsRepository = AdminPrivacyFlipsRepository(dataSource)
+    val privacyFlipResolveRateLimiter = PrivacyFlipResolveRateLimiter(dataSource)
+    val privacyFlipsRepository =
+        AdminPrivacyFlipsRepository(dataSource, auditLogger, privacyFlipResolveRateLimiter)
     val reportQueueRepository = ReportQueueRepository(dataSource)
     val destructiveActionRateLimiter = DestructiveActionRateLimiter(dataSource)
     val reservedUsernameActionRateLimiter = ReservedUsernameActionRateLimiter(dataSource)
@@ -330,7 +333,13 @@ fun Application.admin(
                 adminRejectedIdentifiers(rejectedIdentifiersRepository, auditLogger, layout)
                 adminBlockRegistry(blockRegistryRepository, layout)
                 adminPostEdits(postEditHistoryService, layout)
-                adminPrivacyFlips(privacyFlipsRepository, layout, privacyFlipsClock)
+                adminPrivacyFlips(
+                    privacyFlipsRepository,
+                    privacyFlipResolveRateLimiter,
+                    auditLogger,
+                    layout,
+                    privacyFlipsClock,
+                )
                 adminReportQueue(reportQueueRepository, layout)
                 adminReportResolution(
                     reportResolutionRepository,

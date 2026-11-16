@@ -4,25 +4,25 @@
 
 1. **The worker is not running or is erroring.** Cloud Scheduler is down, or the CTE fails.
 2. **The user is soft-deleted.** The worker's `deleted_at IS NULL` guard deliberately leaves the row "for the admin monitor as a stuck-row anomaly" (privacy-flip-worker spec).
-3. **The user is premium again but the schedule was never cleared.** This only happens once the worker guard in D5 lands. Today the worker would wrongly flip such a row.
+3. **The stored subscription reads premium while a schedule is still set.** This only happens once the worker guard in D5 lands; today the worker would flip such a row. The reachable case is out-of-order RevenueCat delivery: a late `BILLING_ISSUE` lands after the `EXPIRATION` that scheduled the flip, which leaves `premium_billing_retry` plus a schedule (#606). `premium_active` with a schedule is not reachable in-order, because `INITIAL_PURCHASE` / `RENEWAL` / `GRANT` clear it in the same UPDATE. The action still handles it the same way, failing closed.
 
 The fix today is out-of-band SQL. The monitor spec says so explicitly and guards against any write.
 
 The read-path facts that make this safe (`docs/05` "Effective private"; `JdbcUserProfileReader`):
 
-- **Effective private** = `private_profile_opt_in AND (subscription_status IN ('premium_active','premium_billing_retry') OR privacy_flip_scheduled_at > now())`.
-- **For an OVERDUE row**, the `> now()` grace short-circuit is already false. So visibility is decided by `subscription_status` alone:
+- **Effective private** = `(private_profile_opt_in AND subscription_status IN ('premium_active','premium_billing_retry')) OR privacy_flip_scheduled_at > now()` (private-profile spec, "Effective private"; `JdbcUserProfileReader`). The only read path for other users is the premium-search follower gate.
+- **For an OVERDUE row**, the `> now()` grace term is already false, so effective privacy reduces to `opt_in AND premium`:
   - a `free` user already reads public;
-  - a premium user already reads private.
-- **Resolving never changes what other users see right now.** It reconciles the stored state:
-  - for a `free` user, it resets the opt-in exactly as the worker would have, so a later re-subscribe does not silently re-privatize;
-  - for a premium user, it removes a stale schedule.
+  - a premium-reading user already reads private.
+- **Resolving never changes effective privacy.** It reconciles the stored state:
+  - for a `free` user, it resets the opt-in exactly as the worker would have, so a later re-subscribe does not silently re-privatize. The owner's own Settings toggle (`GET /api/v1/user/private-profile`, the raw opt-in) reads OFF afterwards, which is the same effect the worker has;
+  - for a premium-reading user, it removes the stale schedule.
 
 ## Goals / Non-Goals
 
 **Goals:**
 - An owner/admin can resolve one OVERDUE row from the panel, with a reason, audited and rate-limited.
-- The resolution is **subscription-aware**: never reset a paying user's privacy opt-in. The check runs inside the transaction, so a concurrent webhook cannot race it.
+- **The resolution is subscription-aware and fails closed on privacy.** Only an exact `free` status gets the flip. Any premium-reading (or unknown) status keeps the opt-in. The check runs inside the transaction, so a concurrent webhook cannot race it.
 - The worker gets the same guard, so the hourly job and the admin action agree on what "apply the flip" means.
 
 **Non-Goals:**
@@ -55,8 +55,8 @@ All in `AdminPrivacyFlipsRepository.resolve(...)`, which owns the transaction li
 2. **Eligibility.** The row must exist, with `privacy_flip_scheduled_at IS NOT NULL` and `privacy_flip_scheduled_at <= evalInstant`. That is the monitor's OVERDUE predicate, closed on the OVERDUE side and evaluated against the SAME injected request clock the monitor uses. Anything else returns `Ineligible`: unknown id, already cleared (idempotent, which serializes a two-admin race so the loser is a no-op), or still IN_WINDOW. Ineligible means rollback, no write.
 3. **Cap.** If the admin is at or over the cap, return `RateLimited` (rollback, no write). The check comes *after* eligibility, so an ineligible attempt never consumes or reports quota (grace precedent).
 4. **Branch on the locked `subscription_status`:**
-   - `free` → **APPLIED**: `UPDATE users SET private_profile_opt_in = FALSE, privacy_flip_scheduled_at = NULL WHERE id = ?`. This is the worker's exact SET list, annotated `// @allow-privacy-write: admin_resolve` (D4).
-   - `premium_active` / `premium_billing_retry` → **CLEARED**: `UPDATE users SET privacy_flip_scheduled_at = NULL WHERE id = ?`. It touches no privacy flag, so no allowlist annotation is needed.
+   - exactly `free` → **APPLIED**: `UPDATE users SET private_profile_opt_in = FALSE, privacy_flip_scheduled_at = NULL WHERE id = ?`. This is the worker's exact SET list, annotated `// @allow-privacy-write: admin_resolve` (D4).
+   - any other status (`premium_active` / `premium_billing_retry`, or a status added later) → **CLEARED**: `UPDATE users SET privacy_flip_scheduled_at = NULL WHERE id = ?`. It touches no privacy flag, so no allowlist annotation is needed. Failing closed means a status this code does not know about never gets the opt-in reset.
 5. **Audit.** `AdminAuditLogger.logPrivacyFlipResolved(conn, …)` writes one row: `action_type = 'privacy_flip_resolved'`, `target_type = 'user'`, `target_id = user_id`, `reason`, `before_state = {private_profile_opt_in, privacy_flip_scheduled_at, subscription_status}`, `after_state = {private_profile_opt_in: <post>, privacy_flip_scheduled_at: null, subscription_status: <unchanged>, resolution: "applied"|"cleared"}`.
 6. **Commit.** Any throw rolls back the UPDATE and the audit row together.
 
@@ -88,7 +88,7 @@ There is no Detekt rule for this invariant today; it is review-enforced, so no l
 
 ### D5 — Worker eligibility excludes premium users
 
-Add `AND subscription_status NOT IN ('premium_active', 'premium_billing_retry')` to the worker's `eligible` CTE. Without it, the D2 re-check is cosmetic. Take any premium row the admin would refuse to flip: the next hourly run flips it anyway, because today's worker never reads the status.
+Add `AND subscription_status = 'free'` to the worker's `eligible` CTE. Fail-closed, as in D2: an equality on `free` cannot be widened silently by a future status value, whereas `NOT IN (premium…)` could. Without it, the D2 re-check is cosmetic. Take any premium row the admin would refuse to flip: the next hourly run flips it anyway, because today's worker never reads the status.
 
 With the guard, such a row stays OVERDUE, the monitor's OVERDUE count surfaces it as an anomaly, and the admin resolves it (CLEARED branch). One predicate; the existing partial index `users_privacy_flip_idx` still drives the scan (the status filter is a residual).
 
@@ -104,6 +104,7 @@ With the guard, such a row stays OVERDUE, the monitor's OVERDUE count surfaces i
 - **Why tonal, not danger** (contrast frame 15's `btn dangert`): a resolve has no immediate visibility effect (see Context). It is corrective bookkeeping, like frame 18's tonal "Expedite resolution".
 - **`form.expedite`** is the shared in-row action form style (frames 15/18/21). Reusing it means **no `admin.css` change and no SHA256SUMS re-pin**.
 - **Page** (`privacy-flips.peb`): drop the `READ-ONLY` chip and update the sub-copy.
+- **Outcome messages** name the branch taken. The `cleared` message says the stored subscription reads premium and points to the Subscription Grace monitor (frame 18) / RevenueCat, because the stale status itself (#606) is a subscription problem this action does not fix.
 - **Board** (`dev/mockups/nearyou-admin-mockup.html` frame 17): add the control to the OVERDUE row, drop `READ-ONLY`, and update the caption ("POST …/{user_id}/resolve"). The board stays the canonical visual reference (docs/11 §3.6).
 - **Responses:**
   - Success (HTMX): re-render the fragment with the message, honouring the current query parameters.
@@ -119,11 +120,13 @@ With the guard, such a row stays OVERDUE, the monitor's OVERDUE count surfaces i
 
 ### Cross-layer scope (docs/12)
 
-Backend + admin. This is an operator-only support action over an existing admin surface. There is no mobile layer: no user-facing read path changes shape, and no user-visible effect is immediate (Context). No deferred layer exists, so no docs/12 §3 deferral requirement is needed.
+Backend + admin. This is an operator-only support action over an existing admin surface. There is no mobile layer: no user-facing read path changes shape, and effective privacy does not change (Context). The owner's stored Settings toggle resets exactly as the worker's flip already does, through the existing `private-profile` read. No deferred layer exists, so no docs/12 §3 deferral requirement is needed.
 
 ## Risks / Trade-offs
 
-- **[A premium row with an elapsed schedule now stays OVERDUE until an admin acts]** → It is visible as the OVERDUE count (the monitor's anomaly signal). It stays private, which is correct for a paying user, and resolving takes one click. It cannot occur under in-order webhooks: `INITIAL_PURCHASE` / `RENEWAL` / `GRANT` clear the schedule in the same UPDATE that sets premium.
+- **[A premium-reading row with an elapsed schedule now stays OVERDUE until an admin acts]** → It is visible as the OVERDUE count (the monitor's anomaly signal). It stays private, which fails closed on privacy, and resolving takes one click. It cannot occur under in-order webhooks: `INITIAL_PURCHASE` / `RENEWAL` / `GRANT` clear the schedule in the same UPDATE that sets premium.
+- **[A stale past deadline on such a row meets a later `EXPIRATION`]** → `COALESCE(privacy_flip_scheduled_at, NOW() + 72h)` keeps the past deadline, which means zero grace and a warning carrying a past date. It is only reachable after out-of-order delivery with no resolve in between, and it is strictly less exposure than today, where the worker flips such a user public outright. A CLEARED resolve neutralizes it for that row (the next `EXPIRATION` COALESCEs over NULL). The webhook-side fix needs an event-ordering design decision plus a duplicate-vs-stale product call, so it is tracked in #606 rather than fixed in this admin change.
+- **[The CLEARED branch keeps a stale-premium user private with no end date]** → The stale status grants every premium perk, not just privacy. That is a subscription-state bug (#606), visible on the Subscription Grace monitor, and the cleared outcome message points there. Failing closed on privacy is the safe direction.
 - **[The ledger cap is ±1 under concurrency]** → It is accepted as a soft abuse cap, the same as every sibling.
 - **[An admin resolves a row the worker is about to process]** → Both lock the row (`FOR UPDATE`). Whichever commits second sees `privacy_flip_scheduled_at IS NULL`:
   - the admin path returns `Ineligible` (no-op);
